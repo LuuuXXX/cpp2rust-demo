@@ -25,10 +25,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Parse C++ headers and generate hicc FFI scaffolding.
+    /// Capture real build commands and generate hicc FFI scaffolding.
     ///
     /// Example:
-    ///   cpp2rust-demo init --link mylib path/to/mylib.hpp
+    ///   cpp2rust-demo init --link mylib -- make -j4
     Init(InitArgs),
 
     /// Merge per-header FFI files into a single consolidated file.
@@ -40,7 +40,7 @@ enum Commands {
 
 #[derive(Args)]
 struct InitArgs {
-    /// Feature name (groups a set of related headers together).
+    /// Feature name.
     #[arg(long, default_value = "default")]
     feature: String,
 
@@ -57,16 +57,15 @@ struct InitArgs {
     #[arg(long, env = "CPP2RUST_CLANG", default_value = "clang")]
     clang: String,
 
-    /// Optional build command for capture (e.g. `make -j4`).
-    /// Executed by `sh -c` to preserve quotes/escaping in complex commands.
-    /// If not provided, the tool runs per-header syntax checks through clang
-    /// under LD_PRELOAD to trigger hook-based capture.
-    #[arg(long = "capture-cmd", value_name = "CMD")]
-    capture_cmd: Option<String>,
-
-    /// One or more C++ header files to process.
-    #[arg(required = true, value_name = "HEADER")]
-    headers: Vec<PathBuf>,
+    /// Build command to execute (use after `--`).
+    /// Example: cpp2rust-demo init --link mylib -- make -j4
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        required = true,
+        value_name = "BUILD_CMD"
+    )]
+    build_cmd: Vec<String>,
 }
 
 #[derive(Args)]
@@ -83,6 +82,7 @@ struct MergeArgs {
 fn run_init(args: InitArgs) -> Result<()> {
     let feature = &args.feature;
     let link_name = &args.link;
+    let build_cmd = &args.build_cmd;
 
     let cwd = std::env::current_dir()
         .map_err(|e| anyhow!("current_dir: {}", e))?;
@@ -92,38 +92,13 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("Project root : {}", project_root.display());
     println!("Feature      : {}", feature);
     println!("Link name    : {}", link_name);
-    println!(
-        "Headers      : {}",
-        args.headers
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+    println!("Build command: {}", build_cmd.join(" "));
     println!();
-
-    // Resolve header paths.
-    let headers: Vec<PathBuf> = args
-        .headers
-        .iter()
-        .map(|h| {
-            if h.is_absolute() {
-                h.clone()
-            } else {
-                cwd.join(h)
-            }
-        })
-        .collect();
-
-    for h in &headers {
-        if !h.exists() {
-            return Err(anyhow!("header not found: {}", h.display()));
-        }
-    }
 
     // Create layout directories.
     let lo = layout::FeatureLayout::new(project_root.clone(), feature);
     lo.create_dirs()?;
+    lo.save_build_cmd(build_cmd)?;
     // Parse extra clang args.
     let extra_args: Vec<String> = args
         .extra_clang_args
@@ -131,33 +106,19 @@ fn run_init(args: InitArgs) -> Result<()> {
         .map(|s| s.split_whitespace().map(|w| w.to_string()).collect())
         .unwrap_or_default();
 
-    // Build and run preload hook capture first.
+    // Build hook and run real build command under LD_PRELOAD capture.
     let hook_so = capture::build_hook()?;
-    if let Some(cmd) = args.capture_cmd.as_deref() {
-        let cmd_vec = vec!["sh".to_string(), "-c".to_string(), cmd.to_string()];
-        capture::run_with_hook(&cwd, &cmd_vec, &project_root, &lo.feature_root, &hook_so)?;
-    } else {
-        for header in &headers {
-            let mut cmd_vec = vec![
-                args.clang.clone(),
-                "-x".to_string(),
-                "c++".to_string(),
-                "-fsyntax-only".to_string(),
-                header.display().to_string(),
-            ];
-            cmd_vec.extend(extra_args.iter().cloned());
-            capture::run_with_hook(&cwd, &cmd_vec, &project_root, &lo.feature_root, &hook_so)?;
-        }
-    }
+    capture::run_with_hook(&cwd, build_cmd, &project_root, &lo.feature_root, &hook_so)?;
 
     let captured_headers = capture::load_captured_headers(&lo.feature_root)?;
-    let headers_to_process = if captured_headers.is_empty() {
-        println!("Warning: preload hook 未捕获到头文件，回退到命令行传入的 headers。");
-        headers.clone()
-    } else {
-        println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
-        captured_headers
-    };
+    if captured_headers.is_empty() {
+        return Err(anyhow!(
+            "preload hook did not capture any headers from build command; \
+             use a build command that invokes clang/gcc with project headers"
+        ));
+    }
+    println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
+    let headers_to_process = captured_headers;
 
     lo.save_meta(&headers_to_process, link_name)?;
 
@@ -281,7 +242,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── ast/        (clang AST JSON per header)");
-    println!("    ├── meta/       (headers.json, init-interface-report.md)");
+    println!("    ├── meta/       (build_cmd.txt, headers.json, init-interface-report.md)");
     println!("    └── rust/       (generated Rust project)");
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");
@@ -425,27 +386,28 @@ mod tests {
 
     #[test]
     fn init_requires_link() {
-        let result = Cli::try_parse_from(["cpp2rust-demo", "init", "myheader.hpp"]);
+        let result =
+            Cli::try_parse_from(["cpp2rust-demo", "init", "--", "make", "-j4"]);
         assert!(result.is_err());
     }
 
     #[test]
-    fn init_requires_header() {
+    fn init_requires_build_command() {
         let result = Cli::try_parse_from(["cpp2rust-demo", "init", "--link", "mylib"]);
         assert!(result.is_err());
     }
 
     #[test]
-    fn init_parses_correctly() {
+    fn init_parses_build_command_correctly() {
         let args =
-            Cli::try_parse_from(["cpp2rust-demo", "init", "--link", "mylib", "myheader.hpp"])
+            Cli::try_parse_from(["cpp2rust-demo", "init", "--link", "mylib", "--", "make", "-j4"])
                 .unwrap();
         let Commands::Init(init) = args.command else {
             panic!("expected Init");
         };
         assert_eq!(init.feature, "default");
         assert_eq!(init.link, "mylib");
-        assert_eq!(init.headers, vec![PathBuf::from("myheader.hpp")]);
+        assert_eq!(init.build_cmd, vec!["make", "-j4"]);
     }
 
     #[test]
@@ -457,30 +419,41 @@ mod tests {
             "myfeature",
             "--link",
             "mylib",
-            "myheader.hpp",
+            "--",
+            "cmake",
+            "--build",
+            "build",
         ])
         .unwrap();
         let Commands::Init(init) = args.command else {
             panic!("expected Init");
         };
         assert_eq!(init.feature, "myfeature");
+        assert_eq!(init.build_cmd, vec!["cmake", "--build", "build"]);
     }
 
     #[test]
-    fn init_multiple_headers() {
+    fn init_accepts_hyphenated_build_args() {
         let args = Cli::try_parse_from([
             "cpp2rust-demo",
             "init",
             "--link",
             "mylib",
-            "header1.hpp",
-            "header2.hpp",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "header.hpp",
         ])
         .unwrap();
         let Commands::Init(init) = args.command else {
             panic!("expected Init");
         };
-        assert_eq!(init.headers.len(), 2);
+        assert_eq!(
+            init.build_cmd,
+            vec!["clang", "-x", "c++", "-fsyntax-only", "header.hpp"]
+        );
     }
 
     #[test]

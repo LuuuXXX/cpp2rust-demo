@@ -14,7 +14,7 @@ From the repository root:
 
 ```bash
 # Step 1: generate FFI
-cpp2rust-demo init --link mylib examples/simple/mylib.hpp
+cpp2rust-demo init --link mylib -- clang -x c++ -fsyntax-only examples/simple/mylib.hpp
 
 # Step 2: consolidate into a single file
 cpp2rust-demo merge

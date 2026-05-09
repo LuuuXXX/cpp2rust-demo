@@ -15,7 +15,7 @@
 | Target language | C | C++ |
 | FFI generator | bindgen | hicc |
 | Build interception | LD_PRELOAD | LD_PRELOAD hook (primary) + `clang -ast-dump=json` |
-| Input | Build command | C++ header files |
+| Input | Build command | Build command (`init -- <BUILD_CMD...>`) |
 | Class support | Structs only | Full C++ classes |
 | Namespace support | N/A | Yes |
 | Overload handling | N/A | Numeric suffix (_2, _3, …) |
@@ -36,7 +36,10 @@ cpp2rust-demo
 ## Data Flow
 
 ```
-C++ header(s)
+Real build command (`init -- ...`)
+    │
+    ▼  LD_PRELOAD hook capture
+Captured header set
     │
     ▼  clang -ast-dump=json
 AstNode (clang JSON tree)
@@ -57,8 +60,8 @@ C++ adapter code + Rust FFI
 ## User Workflow
 
 ```bash
-# 1. Generate FFI for one or more headers
-cpp2rust-demo init --link mylib path/to/mylib.hpp path/to/extra.hpp
+# 1. Capture real build and generate per-header FFI
+cpp2rust-demo init --link mylib -- make -j4
 
 # 2. Consolidate into a single file
 cpp2rust-demo merge
@@ -78,6 +81,7 @@ After `init + merge`, the `.cpp2rust/` directory contains:
 │   └── <header>.ast.json   ← raw clang AST JSON (for debugging)
 ├── meta/
 │   ├── headers.json         ← list of input headers + link name
+│   ├── build_cmd.txt        ← raw build command passed to init
 │   └── init-interface-report.md   ← summary of extracted declarations
 └── rust/                   ← generated Rust project
     ├── Cargo.toml

@@ -72,6 +72,13 @@ impl FeatureLayout {
         std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
+    /// Write `meta/build_cmd.txt` – the original build command passed to `init`.
+    pub fn save_build_cmd(&self, build_cmd: &[String]) -> Result<()> {
+        let path = self.meta_dir.join("build_cmd.txt");
+        let content = build_cmd.join(" ");
+        std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+    }
+
     /// Load `meta/headers.json`.
     pub fn load_meta(&self) -> Result<(String, Vec<PathBuf>)> {
         #[derive(serde::Deserialize)]
@@ -140,5 +147,17 @@ mod tests {
         let (link, loaded) = layout.load_meta().unwrap();
         assert_eq!(link, "mylib");
         assert_eq!(loaded, headers);
+    }
+
+    #[test]
+    fn save_build_cmd_writes_meta_file() {
+        let tmp = TempDir::new().unwrap();
+        let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
+        layout.create_dirs().unwrap();
+        layout
+            .save_build_cmd(&["make".to_string(), "-j4".to_string()])
+            .unwrap();
+        let content = std::fs::read_to_string(layout.meta_dir.join("build_cmd.txt")).unwrap();
+        assert_eq!(content, "make -j4");
     }
 }
