@@ -432,8 +432,13 @@ fn merge_produces_merged_ffi() {
     let tmp = TempDir::new().unwrap();
 
     // Create two headers.
-    let _h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
-    let _h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    let h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
+    let h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    let build_cmd = format!(
+        "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
+        h1.display(),
+        h2.display()
+    );
 
     // Init with both.
     bin()
@@ -445,7 +450,7 @@ fn merge_produces_merged_ffi() {
             "--",
             "sh",
             "-c",
-            "clang -x c++ -fsyntax-only lib1.hpp && clang -x c++ -fsyntax-only lib2.hpp",
+            &build_cmd,
         ])
         .assert()
         .success();
@@ -480,7 +485,7 @@ fn merge_deduplicates_class_forward_decls() {
     let tmp = TempDir::new().unwrap();
 
     // Two headers that both reference the same class.
-    let _h1 = write_header(
+    let h1 = write_header(
         &tmp,
         "a.hpp",
         r#"class Widget {
@@ -488,7 +493,12 @@ fn merge_deduplicates_class_forward_decls() {
             void update(double x, double y);
         };"#,
     );
-    let _h2 = write_header(&tmp, "b.hpp", "int add(int a, int b);");
+    let h2 = write_header(&tmp, "b.hpp", "int add(int a, int b);");
+    let build_cmd = format!(
+        "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
+        h1.display(),
+        h2.display()
+    );
 
     bin()
         .current_dir(tmp.path())
@@ -499,7 +509,7 @@ fn merge_deduplicates_class_forward_decls() {
             "--",
             "sh",
             "-c",
-            "clang -x c++ -fsyntax-only a.hpp && clang -x c++ -fsyntax-only b.hpp",
+            &build_cmd,
         ])
         .assert()
         .success();
@@ -565,8 +575,13 @@ fn merge_updates_build_rs_to_merged_ffi() {
 #[test]
 fn merge_consolidates_cpp_includes() {
     let tmp = TempDir::new().unwrap();
-    let _h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
-    let _h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    let h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
+    let h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    let build_cmd = format!(
+        "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
+        h1.display(),
+        h2.display()
+    );
 
     bin()
         .current_dir(tmp.path())
@@ -577,7 +592,7 @@ fn merge_consolidates_cpp_includes() {
             "--",
             "sh",
             "-c",
-            "clang -x c++ -fsyntax-only lib1.hpp && clang -x c++ -fsyntax-only lib2.hpp",
+            &build_cmd,
         ])
         .assert()
         .success();
