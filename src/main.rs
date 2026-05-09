@@ -114,7 +114,8 @@ fn run_init(args: InitArgs) -> Result<()> {
     if captured_headers.is_empty() {
         return Err(anyhow!(
             "preload hook did not capture any headers from build command; \
-             use a build command that invokes clang/gcc with project headers"
+             ensure the build command really compiles C/C++ sources and invokes clang/gcc \
+             with project headers"
         ));
     }
     println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
@@ -392,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn init_requires_build_command() {
+    fn init_requires_build_cmd() {
         let result = Cli::try_parse_from(["cpp2rust-demo", "init", "--link", "mylib"]);
         assert!(result.is_err());
     }

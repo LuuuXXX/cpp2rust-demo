@@ -135,7 +135,7 @@ fn init_simple_free_functions() {
 }
 
 #[test]
-fn init_build_cmd_supports_shell_quoting() {
+fn init_build_cmd_via_sh_c() {
     let tmp = TempDir::new().unwrap();
     let header_path = write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
 
