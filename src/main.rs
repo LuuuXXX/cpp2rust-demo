@@ -153,7 +153,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("Created {}", cargo_toml_path.display());
     }
 
-    // build.rs: list all per-header ffi files.
+    // build.rs: list all per-header ffi files + include dirs for the headers.
     let build_rs_path = lo.rust_dir.join("build.rs");
     {
         let src_files: Vec<String> = stems
@@ -161,7 +161,13 @@ fn run_init(args: InitArgs) -> Result<()> {
             .map(|s| format!("src/ffi_{}.rs", s))
             .collect();
         let src_refs: Vec<&str> = src_files.iter().map(|s| s.as_str()).collect();
-        std::fs::write(&build_rs_path, codegen::render_build_rs(link_name, &src_refs))
+
+        // Collect unique parent directories of all headers so hicc-build can
+        // find the #included headers when compiling the C++ adapter code.
+        let include_dirs = header_include_dirs(&headers);
+        let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
+
+        std::fs::write(&build_rs_path, codegen::render_build_rs(link_name, &src_refs, &inc_refs))
             .map_err(|e| anyhow!("write build.rs: {}", e))?;
         println!("Created {}", build_rs_path.display());
     }
@@ -279,8 +285,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
         ));
     }
 
-    // Load the link name from stored metadata.
-    let (link_name, _headers) = lo.load_meta()?;
+    let (link_name, stored_headers) = lo.load_meta()?;
 
     let rust_src_dir = lo.rust_dir.join("src");
     if !rust_src_dir.exists() {
@@ -292,11 +297,15 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 
     let merged_path = merge::merge_ffi_files(&rust_src_dir, &link_name)?;
 
+    // Recompute unique include dirs from stored headers.
+    let include_dirs = header_include_dirs(&stored_headers);
+    let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
+
     // Update build.rs to reference merged_ffi.rs.
     let build_rs_path = lo.rust_dir.join("build.rs");
     std::fs::write(
         &build_rs_path,
-        codegen::render_build_rs(&link_name, &["src/merged_ffi.rs"]),
+        codegen::render_build_rs(&link_name, &["src/merged_ffi.rs"], &inc_refs),
     )
     .map_err(|e| anyhow!("update build.rs: {}", e))?;
     println!("  Updated {}", build_rs_path.display());
@@ -328,6 +337,24 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("  3. Adjust build.rs to point to your C++ library");
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Collect unique parent directories from a list of header paths, sorted for
+/// deterministic output.  Used to populate `build.include(...)` calls in the
+/// generated `build.rs` so hicc-build can find the `#include`d headers.
+fn header_include_dirs(headers: &[PathBuf]) -> Vec<String> {
+    let mut dirs: Vec<String> = headers
+        .iter()
+        .filter_map(|h| h.parent().map(|p| p.display().to_string()))
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    dirs.sort();
+    dirs
 }
 
 // ---------------------------------------------------------------------------

@@ -90,6 +90,10 @@ fn init_simple_free_functions() {
     assert!(content.contains("link_name = \"mylib\""));
     assert!(content.contains("fn add(a: i32, b: i32) -> i32"));
     assert!(content.contains("fn scale(x: f64, factor: f64) -> f64"));
+    // The generated file must include the header via hicc::cpp! so that
+    // namespace-qualified signatures compile with hicc-build.
+    assert!(content.contains("hicc::cpp!"));
+    assert!(content.contains("#include \"mylib.hpp\""));
 }
 
 #[test]
@@ -411,4 +415,110 @@ fn merge_updates_build_rs_to_merged_ffi() {
         build_rs.contains("merged_ffi.rs"),
         "build.rs should reference merged_ffi.rs after merge"
     );
+}
+
+#[test]
+fn merge_consolidates_cpp_includes() {
+    let tmp = TempDir::new().unwrap();
+    let h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
+    let h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init", "--link", "mylib",
+            h1.to_str().unwrap(),
+            h2.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // Both headers should be included in a single hicc::cpp! block.
+    assert!(merged.contains("hicc::cpp!"), "merged file should have hicc::cpp! block");
+    assert!(merged.contains("#include \"lib1.hpp\""));
+    assert!(merged.contains("#include \"lib2.hpp\""));
+    // Should have exactly one hicc::cpp! block (consolidated).
+    assert_eq!(merged.matches("hicc::cpp!").count(), 1,
+        "should have exactly one consolidated hicc::cpp! block");
+}
+
+// ---------------------------------------------------------------------------
+// cargo check integration test (verifies generated code is valid hicc input)
+// ---------------------------------------------------------------------------
+
+/// End-to-end test: generate FFI for a simple header and verify that the
+/// resulting Rust project passes `cargo check` with real hicc dependencies.
+///
+/// This proves the generated `hicc::cpp!` include + `hicc::import_lib!` macros
+/// are accepted by hicc-build, not just that the text was produced correctly.
+#[test]
+fn generated_project_passes_cargo_check() {
+    // Skip if cargo is not available (e.g. unusual CI environments).
+    if Command::new("cargo").arg("--version").output().is_err() {
+        eprintln!("Skipping cargo-check test: cargo not found in PATH");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+
+    // A minimal header with a namespace-qualified free function.
+    // Using a namespace is the hardest case: hicc needs the `hicc::cpp!`
+    // include block to know about the namespace when compiling the adapter.
+    let header_content = r#"
+#pragma once
+namespace mathlib {
+    int add(int a, int b);
+    double multiply(double x, double y);
+}
+"#;
+    let h = write_header(&tmp, "mathlib.hpp", header_content);
+
+    // Run init.
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "mathlib", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Run merge.
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    // Run `cargo check` on the generated project.
+    let rust_proj = tmp.path().join(".cpp2rust/default/rust");
+    let check_output = Command::new("cargo")
+        .args(["check", "--message-format=short"])
+        .current_dir(&rust_proj)
+        .output()
+        .expect("cargo should be available since we checked above");
+
+    if !check_output.status.success() {
+        eprintln!("=== cargo check stderr ===");
+        eprintln!("{}", String::from_utf8_lossy(&check_output.stderr));
+        eprintln!("=== generated merged_ffi.rs ===");
+        let merged = rust_proj.join("src/merged_ffi.rs");
+        if merged.exists() {
+            eprintln!("{}", std::fs::read_to_string(merged).unwrap());
+        }
+        eprintln!("=== generated build.rs ===");
+        let build_rs = rust_proj.join("build.rs");
+        if build_rs.exists() {
+            eprintln!("{}", std::fs::read_to_string(build_rs).unwrap());
+        }
+        panic!("cargo check failed on generated project");
+    }
 }

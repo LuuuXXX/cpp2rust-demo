@@ -222,8 +222,39 @@ C++ function overloads are resolved by appending a numeric suffix starting at
 | `void process(double)` | `process_2` |
 | `void process(const char*)` | `process_3` |
 
-The naming strategy is implemented in `src/ast.rs` (`extract_function`) and can
-be extended to support custom naming schemes.
+The naming strategy is encapsulated in the `OverloadStrategy` enum in
+`src/ast.rs`.  Adding a new variant (e.g. type-based suffixes, or a
+user-supplied rename map) requires only adding a new arm to `OverloadStrategy::uniquify`
+and passing the variant at the call site.
+
+---
+
+## How the hicc::cpp! Include Works
+
+For namespace-qualified C++ functions (e.g. `int mylib::add(int, int)`),
+hicc-build needs to see the C++ namespace declaration at compile time.
+The generated FFI file therefore starts with:
+
+```rust
+hicc::cpp! {
+    #include "mylib.hpp"   // basename only; directory is in build.rs
+}
+```
+
+The generated `build.rs` adds the header directory to the C++ include path:
+
+```rust
+fn main() {
+    let mut build = hicc_build::Build::new();
+    build.rust_file("src/merged_ffi.rs");
+    build.include("/absolute/path/to/header/dir");  // ← added by cpp2rust-demo
+    build.compile("cpp2rust_adapter");
+    // ...
+}
+```
+
+This is verified by the `generated_project_passes_cargo_check` integration
+test, which runs `cargo check` on real generated output.
 
 ---
 
@@ -248,23 +279,30 @@ See the [`examples/`](examples/) directory:
 
 ---
 
-## Current Limitations
+## Support Levels
 
-| Feature | Status |
-|---------|--------|
-| Free functions | ✅ |
-| Namespaces | ✅ |
-| Class instance methods | ✅ |
-| `const` methods | ✅ |
-| `static` methods | ✅ |
-| Function overloads | ✅ (numeric suffix) |
-| Private/protected members | ✅ (auto-skipped) |
-| Constructors/destructors | ⚠️ Skipped (use factory functions) |
-| Virtual / pure-virtual | ⚠️ Not specially handled |
-| Templates | ❌ Not supported |
-| Operator overloads | ❌ Not supported (use `hicc::cpp!` wrapper) |
-| Multiple inheritance | ❌ Not supported by hicc |
-| STL types | ⚠️ Bare class name only; add `hicc-std` manually |
+The table below clearly distinguishes between what the tool *extracts*
+from the AST, what it *generates* as hicc code, and what has been
+*verified* to compile with hicc-build.
+
+| Feature | Extracted | Generated | Verified with `cargo check` |
+|---------|-----------|-----------|------------------------------|
+| Free functions | ✅ | ✅ `import_lib!` | ✅ |
+| Namespaces | ✅ | ✅ qualified signatures | ✅ via `hicc::cpp!` include |
+| Class instance methods | ✅ | ✅ `import_class!` | ✅ |
+| `const` methods (`→ &self`) | ✅ | ✅ | ✅ |
+| `static` methods (`→ free fn`) | ✅ | ✅ `import_lib!` | ✅ |
+| Function overloads | ✅ | ✅ numeric suffix | ✅ |
+| Private/protected members | ✅ skipped | — | — |
+| Primitive pointer types (`T*`, `const T*`) | ✅ | ✅ raw pointers | ✅ |
+| Primitive reference types (`T&`, `const T&`) | ✅ | ✅ `&mut T` / `&T` | ✅ |
+| Constructors/destructors | ✅ skipped | — | — |
+| Virtual / pure-virtual detection | ✅ detected | ⚠️ not yet specially handled | — |
+| Templates | ❌ not extracted | — | — |
+| Operator overloads | ✅ detected | ❌ no Rust mapping | — |
+| Multiple inheritance | — | ❌ not supported by hicc | — |
+| STL types | ✅ bare name | ⚠️ bare class name; add `hicc-std` manually | — |
+| Double pointers (`T**`) | ✅ bare type string | ⚠️ falls back to class name | — |
 
 ---
 
@@ -272,7 +310,7 @@ See the [`examples/`](examples/) directory:
 
 ```bash
 cargo test              # unit tests (27)
-cargo test --test cli_tests  # integration tests (15)
+cargo test --test cli_tests  # integration tests (17, includes cargo check)
 ```
 
 ---

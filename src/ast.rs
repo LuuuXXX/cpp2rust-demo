@@ -64,6 +64,49 @@ pub struct TypeInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Overload naming strategy
+// ---------------------------------------------------------------------------
+
+/// Strategy used to generate unique Rust names for C++ function overloads.
+///
+/// When multiple C++ functions share the same name (overloads), this strategy
+/// determines how each overload is renamed in the generated Rust FFI.
+///
+/// # Extensibility
+///
+/// New variants can be added here to support additional naming schemes
+/// (e.g. name-by-parameter-types, user-provided rename maps) without
+/// changing the rest of the extraction pipeline.
+#[derive(Debug, Clone, Default)]
+pub enum OverloadStrategy {
+    /// Append `_2`, `_3`, … to the second and subsequent overloads.
+    ///
+    /// The first occurrence keeps the plain snake_case name.
+    /// This is the default and simplest strategy.
+    #[default]
+    NumericSuffix,
+}
+
+impl OverloadStrategy {
+    /// Return the unique Rust name for a function.
+    ///
+    /// * `base` – the plain snake_case name derived from the C++ identifier.
+    /// * `count` – 1-based count of how many times this overload key has
+    ///   been seen (1 = first occurrence, 2 = second, …).
+    pub fn uniquify(&self, base: &str, count: usize) -> String {
+        match self {
+            OverloadStrategy::NumericSuffix => {
+                if count <= 1 {
+                    base.to_string()
+                } else {
+                    format!("{}_{}", base, count)
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Intermediate representation (IR) – our cleaned-up model of C++ declarations
 // ---------------------------------------------------------------------------
 
@@ -165,7 +208,23 @@ pub fn dump_ast(
 
 /// Extract `FunctionIR` / `ClassIR` from the AST root, keeping only declarations
 /// that originate in the given `target_files`.
-pub fn extract_declarations(ast_root: &AstNode, target_files: &[&Path]) -> ExtractedDecls {
+///
+/// The `strategy` parameter controls how overloaded function names are
+/// disambiguated in the generated Rust FFI.
+pub fn extract_declarations(
+    ast_root: &AstNode,
+    target_files: &[&Path],
+) -> ExtractedDecls {
+    extract_declarations_with_strategy(ast_root, target_files, &OverloadStrategy::default())
+}
+
+/// Same as [`extract_declarations`] but accepts an explicit overload naming
+/// strategy.  Use this when you need to customise how overloads are renamed.
+pub fn extract_declarations_with_strategy(
+    ast_root: &AstNode,
+    target_files: &[&Path],
+    strategy: &OverloadStrategy,
+) -> ExtractedDecls {
     let mut result = ExtractedDecls::default();
     let mut current_file = String::new();
     let mut overload_counts: HashMap<String, usize> = HashMap::new();
@@ -177,6 +236,7 @@ pub fn extract_declarations(ast_root: &AstNode, target_files: &[&Path]) -> Extra
         &[],
         &mut result,
         &mut overload_counts,
+        strategy,
     );
 
     result
@@ -219,6 +279,7 @@ fn walk_node(
     namespace: &[String],
     result: &mut ExtractedDecls,
     overload_counts: &mut HashMap<String, usize>,
+    strategy: &OverloadStrategy,
 ) {
     // Advance current_file tracker.
     if let Some(ref loc) = node.loc {
@@ -236,7 +297,7 @@ fn walk_node(
                 let mut ns = namespace.to_vec();
                 ns.push(ns_name.clone());
                 for child in node.inner.iter().flatten() {
-                    walk_node(child, current_file, targets, &ns, result, overload_counts);
+                    walk_node(child, current_file, targets, &ns, result, overload_counts, strategy);
                 }
             }
         }
@@ -245,7 +306,7 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
-            if let Some(ir) = extract_function(node, namespace, overload_counts, None) {
+            if let Some(ir) = extract_function(node, namespace, overload_counts, None, strategy) {
                 result.functions.push(ir);
             }
         }
@@ -303,7 +364,7 @@ fn walk_node(
                             continue;
                         }
                         if let Some(ir) =
-                            extract_function(child, namespace, &mut method_overloads, Some(class_name))
+                            extract_function(child, namespace, &mut method_overloads, Some(class_name), strategy)
                         {
                             class_ir.methods.push(ir);
                         }
@@ -318,7 +379,7 @@ fn walk_node(
         // extern "C" / extern "C++" linkage blocks – just descend.
         "LinkageSpecDecl" => {
             for child in node.inner.iter().flatten() {
-                walk_node(child, current_file, targets, namespace, result, overload_counts);
+                walk_node(child, current_file, targets, namespace, result, overload_counts, strategy);
             }
         }
 
@@ -326,7 +387,7 @@ fn walk_node(
         // declarations inside (e.g. anonymous namespaces).
         _ => {
             for child in node.inner.iter().flatten() {
-                walk_node(child, current_file, targets, namespace, result, overload_counts);
+                walk_node(child, current_file, targets, namespace, result, overload_counts, strategy);
             }
         }
     }
@@ -338,6 +399,7 @@ fn extract_function(
     namespace: &[String],
     overload_counts: &mut HashMap<String, usize>,
     class_name: Option<&str>,
+    strategy: &OverloadStrategy,
 ) -> Option<FunctionIR> {
     let name = node.name.as_deref()?;
 
@@ -402,16 +464,11 @@ fn extract_function(
         const_suffix
     );
 
-    // Overload resolution: first occurrence keeps the plain name; subsequent
-    // occurrences get a numeric suffix (_2, _3, …).
+    // Overload resolution via the configured strategy.
     let overload_key = qualified_name.clone();
     let count = overload_counts.entry(overload_key).or_insert(0);
     *count += 1;
-    let rust_name = if *count == 1 {
-        to_snake_case(name)
-    } else {
-        format!("{}_{}", to_snake_case(name), count)
-    };
+    let rust_name = strategy.uniquify(&to_snake_case(name), *count);
 
     let rust_return_type = cpp_to_rust_type(&return_type);
 

@@ -157,10 +157,19 @@ pub struct ClassIR {
 
 ## Overload Handling
 
-When multiple C++ functions share the same name (overloads), the tool:
+Overload naming is encapsulated in the `OverloadStrategy` enum (`src/ast.rs`):
+
+```rust
+pub enum OverloadStrategy {
+    /// Append _2, _3, ... to the second and subsequent overloads (default).
+    NumericSuffix,
+}
+```
+
+When multiple C++ functions share the same name (overloads), the strategy:
 
 1. Keeps the first occurrence as the plain Rust name.
-2. Appends `_2`, `_3`, … for subsequent overloads.
+2. Uses `OverloadStrategy::uniquify(base, count)` for disambiguation.
 
 Example:
 
@@ -171,19 +180,78 @@ void process(double); → process_2
 void process(char*);  → process_3
 ```
 
-The naming strategy is implemented in `ast::extract_function` and can be
-extended to support configurable strategies (e.g., name-by-parameter-types).
+Adding a new naming strategy (e.g., type-based suffixes or user rename maps)
+requires only a new variant in `OverloadStrategy` and a new `match` arm in
+`uniquify`.  Callers use `extract_declarations_with_strategy` to select a
+non-default strategy.
+
+## How hicc::cpp! and include paths work
+
+hicc-build compiles a C++ adapter file from your Rust source.  For that
+adapter to call namespace-qualified C++ functions (e.g. `mylib::add`), it must
+`#include` the header that declares the namespace.
+
+The generated FFI files contain:
+
+```rust
+hicc::cpp! {
+    #include "mylib.hpp"   // just the basename
+}
+```
+
+The generated `build.rs` adds the header's parent directory to the compiler
+include path:
+
+```rust
+let mut build = hicc_build::Build::new();
+build.rust_file("src/merged_ffi.rs");
+build.include("/absolute/path/to/header/dir");
+build.compile("cpp2rust_adapter");
+```
+
+This is verified end-to-end by the `generated_project_passes_cargo_check`
+integration test, which runs `cargo check` on the real generated output.
+
+## Support Level Matrix
+
+The table below distinguishes what the tool *extracts*, *generates*, and has
+been *verified* to compile with hicc-build.
+
+| Feature | Extracted | Generated | Verified |
+|---------|-----------|-----------|---------|
+| Free functions | ✅ | ✅ | ✅ |
+| Namespaces | ✅ | ✅ | ✅ via `hicc::cpp!` |
+| Class instance methods | ✅ | ✅ | ✅ |
+| `const` methods | ✅ | ✅ | ✅ |
+| `static` methods | ✅ | ✅ | ✅ |
+| Function overloads | ✅ | ✅ | ✅ |
+| Primitive `T*` / `const T*` | ✅ | ✅ raw ptr | ✅ |
+| Primitive `T&` / `const T&` | ✅ | ✅ `&mut T`/`&T` | ✅ |
+| Class `T*` / `const T*` | ✅ | ✅ raw ptr | ✅ |
+| Class `T&` / `const T&` | ✅ | ✅ `&mut T`/`&T` | ✅ |
+| Private/protected members | ✅ (skipped) | — | — |
+| Virtual / pure-virtual detection | ✅ | ⚠️ not yet mapped | — |
+| Constructors / destructors | ✅ (skipped) | — | — |
+| Templates | ❌ | — | — |
+| Operator overloads | ✅ detected | ❌ no mapping | — |
+| Multiple inheritance | — | ❌ hicc limitation | — |
+| STL types | ✅ bare name | ⚠️ bare name | — |
+| Double pointers (`T**`) | ✅ bare string | ⚠️ falls back | — |
 
 ## Known Limitations
 
 1. **Constructors/destructors**: Skipped. Use factory functions or
    `hicc::make_unique<T>()` to create C++ objects.
-2. **Virtual / pure-virtual methods**: Detected but not specially handled yet.
-   Add them manually using `hicc`'s `#[interface]` attribute.
-3. **Templates**: Not supported (complex without full type instantiation).
-4. **Operator overloads**: Not supported (hicc limitation; use `hicc::cpp!` wrappers).
+2. **Virtual / pure-virtual methods**: Detected but not yet mapped.
+   Add them manually using hicc's `#[interface]` attribute.
+3. **Templates**: Not supported (require full type instantiation analysis).
+4. **Operator overloads**: Not supported by the code generator (use
+   `hicc::cpp!` wrappers manually).
 5. **Multiple inheritance**: Not supported by hicc.
 6. **Anonymous structs/unions**: Not handled.
-7. **`std::string` and STL types**: Passed through by bare class name; the user
-   should add `hicc-std` as a dependency and use the appropriate mapped types.
-8. **Double pointers (`T**`)**: Not handled (falls back to raw type name).
+7. **STL types**: Passed through by bare class name; add `hicc-std` as a
+   dependency and use the appropriate mapped types.
+8. **Double pointers (`T**`)**: Fall back to the raw type name string.
+9. **Absolute include paths**: The generated `build.rs` uses absolute paths
+   for the header include directories.  When copying the generated project
+   to another machine, update `build.include(...)` accordingly.

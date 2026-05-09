@@ -46,6 +46,7 @@ pub fn merge_ffi_files(rust_src_dir: &Path, link_name: &str) -> Result<PathBuf> 
         rust_src_dir.display()
     );
 
+    let mut cpp_includes: indexmap::IndexSet<String> = Default::default();
     let mut import_class_blocks: Vec<String> = Vec::new();
     let mut forward_decls: indexmap::IndexSet<String> = Default::default();
     let mut fn_items: Vec<String> = Vec::new();
@@ -58,6 +59,11 @@ pub fn merge_ffi_files(rust_src_dir: &Path, link_name: &str) -> Result<PathBuf> 
         // Extract the header comment.
         if let Some(header) = extract_comment_field(&src, "Source header") {
             headers_seen.push(header);
+        }
+
+        // Extract hicc::cpp! include blocks (deduplicated).
+        for include in extract_cpp_includes(&src) {
+            cpp_includes.insert(include);
         }
 
         // Extract import_class! blocks.
@@ -84,6 +90,15 @@ pub fn merge_ffi_files(rust_src_dir: &Path, link_name: &str) -> Result<PathBuf> 
     }
     out.push('\n');
     out.push_str("#![allow(non_snake_case, dead_code)]\n\n");
+
+    // Consolidated hicc::cpp! block with all unique includes.
+    if !cpp_includes.is_empty() {
+        out.push_str("hicc::cpp! {\n");
+        for include in cpp_includes.iter() {
+            out.push_str(&format!("    {}\n", include));
+        }
+        out.push_str("}\n\n");
+    }
 
     for block in &import_class_blocks {
         out.push_str(block.trim());
@@ -134,14 +149,49 @@ fn extract_comment_field(src: &str, field: &str) -> Option<String> {
     None
 }
 
-/// Extract all `hicc::import_class! { ... }` blocks from `src`.
+/// Extract `hicc::import_class! { ... }` blocks from `src`.
 fn extract_import_class_blocks(src: &str) -> Vec<String> {
     extract_macro_blocks(src, "hicc::import_class!")
 }
 
-/// Extract all `hicc::import_lib! { ... }` blocks from `src`.
+/// Extract `hicc::import_lib! { ... }` blocks from `src`.
 fn extract_import_lib_blocks(src: &str) -> Vec<String> {
     extract_macro_blocks(src, "hicc::import_lib!")
+}
+
+/// Extract individual `#include "..."` lines from all `hicc::cpp! { ... }` blocks.
+///
+/// Returns a list of well-formed include directives (e.g. `#include "mylib.hpp"`
+/// or `#include <header>`) in the order they appear.  Lines that start with
+/// `#include` but do not match either quoting style are silently skipped.
+/// The caller is responsible for de-duplication.
+fn extract_cpp_includes(src: &str) -> Vec<String> {
+    let mut includes = Vec::new();
+    for block in extract_macro_blocks(src, "hicc::cpp!") {
+        let inner = strip_block_wrapper(&block);
+        for line in inner.lines() {
+            let trimmed = line.trim();
+            // Accept only well-formed: #include "..." or #include <...>
+            if is_valid_include(trimmed) {
+                includes.push(trimmed.to_string());
+            }
+        }
+    }
+    includes
+}
+
+/// Return true if `line` is a well-formed `#include` directive.
+///
+/// Accepts:
+/// - `#include "something.hpp"` (user headers)
+/// - `#include <something>` (system headers)
+fn is_valid_include(line: &str) -> bool {
+    if !line.starts_with("#include") {
+        return false;
+    }
+    let rest = line["#include".len()..].trim();
+    (rest.starts_with('"') && rest.ends_with('"') && rest.len() >= 2)
+        || (rest.starts_with('<') && rest.ends_with('>') && rest.len() >= 2)
 }
 
 /// Generic block extractor: finds all occurrences of `macro_prefix { ... }`

@@ -20,6 +20,11 @@ use std::fmt::Write as _;
 // ---------------------------------------------------------------------------
 
 /// Render the full `ffi.rs` content for a feature.
+///
+/// `header_path` is the absolute path to the C++ header.  The generated file
+/// will include a `hicc::cpp!` block that `#include`s just the basename of
+/// the header.  The directory must be added to the compiler include path via
+/// `build.rs` (see [`render_build_rs`]).
 pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, header_path: &str) -> String {
     let mut out = String::new();
 
@@ -30,6 +35,17 @@ pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, header_path: &str) ->
     writeln!(out, "// DO NOT EDIT — run `cpp2rust-demo merge` to consolidate.").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "#![allow(non_snake_case, dead_code)]").unwrap();
+    writeln!(out).unwrap();
+
+    // Emit hicc::cpp! include block so hicc-build can see the C++ declarations
+    // (namespaces, class definitions, etc.) when compiling the adapter code.
+    let header_basename = std::path::Path::new(header_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(header_path);
+    writeln!(out, "hicc::cpp! {{").unwrap();
+    writeln!(out, "    #include \"{}\"", header_basename).unwrap();
+    writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
     // ----- import_class! blocks ----------------------------------------
@@ -67,15 +83,23 @@ link_name = "{link_name}"
 }
 
 /// Render a `build.rs` for the generated Rust crate.
-pub fn render_build_rs(link_name: &str, rust_files: &[&str]) -> String {
+///
+/// * `rust_files` – paths to the `.rs` files that contain hicc macros.
+/// * `include_dirs` – directories to add as C++ compiler include paths so
+///   that `hicc::cpp! { #include "header.hpp" }` can find the header.
+pub fn render_build_rs(link_name: &str, rust_files: &[&str], include_dirs: &[&str]) -> String {
     let file_calls: String = rust_files
         .iter()
-        .map(|f| format!("        .rust_file(\"{}\")\n", f))
+        .map(|f| format!("    build.rust_file(\"{}\");\n", f))
+        .collect();
+    let include_calls: String = include_dirs
+        .iter()
+        .map(|d| format!("    build.include(\"{}\");\n", d))
         .collect();
     format!(
         r#"fn main() {{
-    hicc_build::Build::new()
-{file_calls}        .compile("cpp2rust_adapter");
+    let mut build = hicc_build::Build::new();
+{file_calls}{include_calls}    build.compile("cpp2rust_adapter");
     println!("cargo::rustc-link-lib=cpp2rust_adapter");
     println!("cargo::rustc-link-lib=stdc++");
     // Link the actual C++ library (adjust the search path as needed).
