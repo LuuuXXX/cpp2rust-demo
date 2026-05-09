@@ -14,7 +14,7 @@
 |--------|-------------|---------------|
 | Target language | C | C++ |
 | FFI generator | bindgen | hicc |
-| Build interception | LD_PRELOAD | `clang -ast-dump=json` |
+| Build interception | LD_PRELOAD | LD_PRELOAD hook (primary) + `clang -ast-dump=json` |
 | Input | Build command | C++ header files |
 | Class support | Structs only | Full C++ classes |
 | Namespace support | N/A | Yes |
