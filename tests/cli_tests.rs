@@ -94,6 +94,17 @@ fn init_simple_free_functions() {
     // namespace-qualified signatures compile with hicc-build.
     assert!(content.contains("hicc::cpp!"));
     assert!(content.contains("#include \"mylib.hpp\""));
+
+    // LD_PRELOAD hook should capture header usage.
+    let captured = tmp
+        .path()
+        .join(".cpp2rust/default/meta/captured_headers.list");
+    assert!(captured.exists(), "captured_headers.list should exist");
+    let captured_content = std::fs::read_to_string(captured).unwrap();
+    assert!(
+        captured_content.contains(h.to_str().unwrap()),
+        "captured headers should contain input header path"
+    );
 }
 
 #[test]
