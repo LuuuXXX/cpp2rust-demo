@@ -40,7 +40,15 @@ fn init_without_link_fails() {
     let h = write_header(&tmp, "test.hpp", "void foo();");
     bin()
         .current_dir(tmp.path())
-        .args(["init", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .failure();
 }
@@ -50,10 +58,19 @@ fn init_nonexistent_header_fails() {
     let tmp = TempDir::new().unwrap();
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "mylib", "does_not_exist.hpp"])
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "does_not_exist.hpp",
+        ])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("not found"));
+        .failure();
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +91,17 @@ fn init_simple_free_functions() {
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("✓ cpp2rust-demo init completed"));
@@ -108,7 +135,7 @@ fn init_simple_free_functions() {
 }
 
 #[test]
-fn init_capture_cmd_supports_shell_quoting() {
+fn init_build_cmd_via_sh_c() {
     let tmp = TempDir::new().unwrap();
     let header_path = write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
 
@@ -118,9 +145,10 @@ fn init_capture_cmd_supports_shell_quoting() {
             "init",
             "--link",
             "mylib",
-            "--capture-cmd",
-            "sh -c 'clang -x c++ -fsyntax-only quoted.hpp'",
-            "quoted.hpp",
+            "--",
+            "sh",
+            "-c",
+            "clang -x c++ -fsyntax-only quoted.hpp",
         ])
         .assert()
         .success();
@@ -159,7 +187,17 @@ fn init_overloaded_functions_get_numeric_suffix() {
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -198,7 +236,17 @@ fn init_namespace_qualified_signature() {
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "myns", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "myns",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -231,7 +279,17 @@ fn init_class_generates_import_class_and_import_lib() {
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "widget", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "widget",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -275,7 +333,17 @@ fn init_creates_cargo_toml_with_hicc() {
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -292,7 +360,17 @@ fn init_creates_build_rs() {
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -315,6 +393,11 @@ fn init_custom_feature() {
             "myfeature",
             "--link",
             "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
             h.to_str().unwrap(),
         ])
         .assert()
@@ -351,6 +434,11 @@ fn merge_produces_merged_ffi() {
     // Create two headers.
     let h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
     let h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    let build_cmd = format!(
+        "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
+        h1.display(),
+        h2.display()
+    );
 
     // Init with both.
     bin()
@@ -359,8 +447,10 @@ fn merge_produces_merged_ffi() {
             "init",
             "--link",
             "mylib",
-            h1.to_str().unwrap(),
-            h2.to_str().unwrap(),
+            "--",
+            "sh",
+            "-c",
+            &build_cmd,
         ])
         .assert()
         .success();
@@ -404,6 +494,11 @@ fn merge_deduplicates_class_forward_decls() {
         };"#,
     );
     let h2 = write_header(&tmp, "b.hpp", "int add(int a, int b);");
+    let build_cmd = format!(
+        "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
+        h1.display(),
+        h2.display()
+    );
 
     bin()
         .current_dir(tmp.path())
@@ -411,8 +506,10 @@ fn merge_deduplicates_class_forward_decls() {
             "init",
             "--link",
             "mylib",
-            h1.to_str().unwrap(),
-            h2.to_str().unwrap(),
+            "--",
+            "sh",
+            "-c",
+            &build_cmd,
         ])
         .assert()
         .success();
@@ -445,7 +542,17 @@ fn merge_updates_build_rs_to_merged_ffi() {
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -470,13 +577,22 @@ fn merge_consolidates_cpp_includes() {
     let tmp = TempDir::new().unwrap();
     let h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
     let h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    let build_cmd = format!(
+        "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
+        h1.display(),
+        h2.display()
+    );
 
     bin()
         .current_dir(tmp.path())
         .args([
-            "init", "--link", "mylib",
-            h1.to_str().unwrap(),
-            h2.to_str().unwrap(),
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "sh",
+            "-c",
+            &build_cmd,
         ])
         .assert()
         .success();
@@ -549,7 +665,17 @@ const Point* get_origin();
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "geometry", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "geometry",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -620,7 +746,17 @@ namespace geo {
 
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "geo", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "geo",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 
@@ -681,7 +817,17 @@ namespace mathlib {
     // Run init.
     bin()
         .current_dir(tmp.path())
-        .args(["init", "--link", "mathlib", h.to_str().unwrap()])
+        .args([
+            "init",
+            "--link",
+            "mathlib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
         .assert()
         .success();
 

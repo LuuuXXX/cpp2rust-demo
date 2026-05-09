@@ -1,14 +1,14 @@
 # cpp2rust-demo
 
-`cpp2rust-demo` 是一个把 C++ 头文件接口转换为 Rust `hicc` FFI 脚手架的演示工具。
+`cpp2rust-demo` 是一个把 C++ 项目构建中提取的接口转换为 Rust `hicc` FFI 脚手架的演示工具。
 
-本仓库当前实现**优先采用 `LD_PRELOAD` hook 方式**（参考 `LuuuXXX/c2rust-demo` 的 `hook/hook.c` 思路）来捕获头文件相关行为，再进行 AST 解析与代码生成，方便后续持续调整 hook 逻辑。
+本仓库当前实现与 `LuuuXXX/c2rust-demo` 对齐：`init` 先通过真实构建命令 + `LD_PRELOAD` hook 捕获输入，再进行 AST 解析与代码生成，`merge` 负责后处理合并。
 
 ---
 
 ## 项目用途
 
-- 从 C++ 头文件提取函数/类声明。
+- 从真实构建中捕获到的 C++ 头文件提取函数/类声明。
 - 生成可用于 `hicc` 的 Rust FFI 代码（`import_lib!` / `import_class!`）。
 - 支持 `merge` 将多个 `ffi_*.rs` 合并成单一 `merged_ffi.rs`。
 
@@ -49,36 +49,34 @@ cargo run -- --help
    - `.cpp2rust/<feature>/meta/captured_headers.list`
 4. 以捕获结果为主进行 clang AST 解析与 Rust FFI 生成。
 
-默认情况下，工具会对传入 header 逐个执行一次 `clang -fsyntax-only`（在 preload 环境下）来触发捕获。
-
-如果你希望和真实工程构建对齐，可以使用 `--capture-cmd` 指定构建命令。
+`init` 必须使用 `--` 传入完整构建命令（如 `make` / `cmake --build` / 自定义脚本）。
 
 ---
 
 ## 当前限制与默认回退行为
 
 - 当前 `LD_PRELOAD` hook 方案主要面向 Linux。
-- `--capture-cmd` 通过 `sh -c "<CMD>"` 执行，复杂命令请按 shell 语法正确引用和转义。
-- 如果 hook 未捕获到头文件，`init` 会回退到命令行传入的 `<HEADER>...` 继续生成流程。
+- hook 目前依赖编译进程参数中的头文件路径（clang/gcc）来发现输入；若构建命令未触发相关编译调用，则无法生成绑定。
+- hook 只记录当前项目根目录下的头文件（`init` 的执行目录/其已存在 `.cpp2rust` 的上级目录）；请在目标工程根目录执行 `init`。
+- 如果构建系统需要 shell 语法，请直接在 `--` 后传 `sh -c ...`（例如：`cpp2rust-demo init --link mylib -- sh -c "make -j4"`）。
 
 ---
 
 ## 运行示例
 
-### 示例 1：默认捕获模式（推荐起步）
+### 示例 1：推荐流程（与 c2rust-demo 一致）
 
 ```bash
-cpp2rust-demo init --link mylib include/mylib.hpp
+cpp2rust-demo init --link mylib -- make -j4
 ```
 
-### 示例 2：使用真实构建命令触发 hook 捕获
+### 示例 2：使用 cmake 构建命令
 
 ```bash
 cpp2rust-demo init \
   --feature myfeature \
   --link mylib \
-  --capture-cmd "make -j4" \
-  include/mylib.hpp include/types.hpp
+  -- cmake --build build
 ```
 
 ### 合并输出
@@ -95,7 +93,8 @@ cpp2rust-demo merge --feature myfeature
 .cpp2rust/<feature>/
 ├── ast/                          # clang AST JSON
 ├── meta/
-│   ├── headers.json
+│   ├── headers.json              # capture 后用于 AST/codegen 的 header 集合 + link_name
+│   ├── build_cmd.txt             # init 捕获阶段使用的构建命令
 │   ├── captured_headers.list     # LD_PRELOAD hook 捕获结果
 │   ├── init-interface-report.md
 │   └── merge-report.md
@@ -112,11 +111,11 @@ cpp2rust-demo merge --feature myfeature
 
 ## 与原实现相比的差异
 
-- 之前：主要是“直接代码内流程”处理 header。
-- 现在：`init` 以 **LD_PRELOAD hook 捕获为主路径**，再进行后续 AST + 代码生成。
+- 之前：header-first（`init ... <HEADER>...`）。
+- 现在：build-command-first（`init ... -- <BUILD_CMD...>`），与 `c2rust-demo` 心智模型一致。
 - 好处：
   - hook 行为集中在 `hook/hook.c`，后续调整捕获策略更直观。
-  - 可通过 `--capture-cmd` 对接真实构建命令，便于持续演进。
+  - 直接复用真实构建命令，减少“测试命令”和“真实构建”不一致的问题。
 
 ---
 
@@ -125,14 +124,13 @@ cpp2rust-demo merge --feature myfeature
 ### init
 
 ```text
-cpp2rust-demo init [OPTIONS] <HEADER>...
+cpp2rust-demo init [OPTIONS] -- <BUILD_CMD...>
 
 Options:
   --feature <FEATURE>              特性名（默认 default）
   --link <LINK>                    链接库名（必填）
   --extra-clang-args <ARGS>        传给 clang 的额外参数
   --clang <CLANG>                  clang 可执行文件（默认 clang）
-  --capture-cmd <CMD>              可选：用于 preload 捕获的构建命令
 ```
 
 ### merge
