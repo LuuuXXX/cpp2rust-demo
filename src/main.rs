@@ -1,4 +1,5 @@
 mod ast;
+mod capture;
 mod codegen;
 mod error;
 mod layout;
@@ -55,6 +56,13 @@ struct InitArgs {
     /// The `clang` binary to use.  Defaults to the `CPP2RUST_CLANG` env var or `clang`.
     #[arg(long, env = "CPP2RUST_CLANG", default_value = "clang")]
     clang: String,
+
+    /// Optional build command for capture (e.g. `make -j4`).
+    /// Executed by `sh -c` to preserve quotes/escaping in complex commands.
+    /// If not provided, the tool runs per-header syntax checks through clang
+    /// under LD_PRELOAD to trigger hook-based capture.
+    #[arg(long = "capture-cmd", value_name = "CMD")]
+    capture_cmd: Option<String>,
 
     /// One or more C++ header files to process.
     #[arg(required = true, value_name = "HEADER")]
@@ -116,8 +124,6 @@ fn run_init(args: InitArgs) -> Result<()> {
     // Create layout directories.
     let lo = layout::FeatureLayout::new(project_root.clone(), feature);
     lo.create_dirs()?;
-    lo.save_meta(&headers, link_name)?;
-
     // Parse extra clang args.
     let extra_args: Vec<String> = args
         .extra_clang_args
@@ -125,13 +131,43 @@ fn run_init(args: InitArgs) -> Result<()> {
         .map(|s| s.split_whitespace().map(|w| w.to_string()).collect())
         .unwrap_or_default();
 
+    // Build and run preload hook capture first.
+    let hook_so = capture::build_hook()?;
+    if let Some(cmd) = args.capture_cmd.as_deref() {
+        let cmd_vec = vec!["sh".to_string(), "-c".to_string(), cmd.to_string()];
+        capture::run_with_hook(&cwd, &cmd_vec, &project_root, &lo.feature_root, &hook_so)?;
+    } else {
+        for header in &headers {
+            let mut cmd_vec = vec![
+                args.clang.clone(),
+                "-x".to_string(),
+                "c++".to_string(),
+                "-fsyntax-only".to_string(),
+                header.display().to_string(),
+            ];
+            cmd_vec.extend(extra_args.iter().cloned());
+            capture::run_with_hook(&cwd, &cmd_vec, &project_root, &lo.feature_root, &hook_so)?;
+        }
+    }
+
+    let captured_headers = capture::load_captured_headers(&lo.feature_root)?;
+    let headers_to_process = if captured_headers.is_empty() {
+        println!("Warning: preload hook 未捕获到头文件，回退到命令行传入的 headers。");
+        headers.clone()
+    } else {
+        println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
+        captured_headers
+    };
+
+    lo.save_meta(&headers_to_process, link_name)?;
+
     // Create the Rust project skeleton.
     let rust_src_dir = lo.rust_dir.join("src");
     std::fs::create_dir_all(&rust_src_dir)
         .map_err(|e| anyhow!("create {}: {}", rust_src_dir.display(), e))?;
 
     // Compute stem names for each header.
-    let stems: Vec<String> = headers
+    let stems: Vec<String> = headers_to_process
         .iter()
         .map(|h| {
             h.file_stem()
@@ -164,7 +200,7 @@ fn run_init(args: InitArgs) -> Result<()> {
 
         // Collect unique parent directories of all headers so hicc-build can
         // find the #included headers when compiling the C++ adapter code.
-        let include_dirs = header_include_dirs(&headers);
+        let include_dirs = header_include_dirs(&headers_to_process);
         let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
         std::fs::write(&build_rs_path, codegen::render_build_rs(link_name, &src_refs, &inc_refs))
@@ -186,7 +222,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     let mut all_decls = ast::ExtractedDecls::default();
     let mut report_sections: Vec<String> = Vec::new();
 
-    for (header, stem) in headers.iter().zip(stems.iter()) {
+    for (header, stem) in headers_to_process.iter().zip(stems.iter()) {
         println!("Processing {}...", header.display());
 
         // Step 1: dump AST via clang.

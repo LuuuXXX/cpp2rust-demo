@@ -94,6 +94,54 @@ fn init_simple_free_functions() {
     // namespace-qualified signatures compile with hicc-build.
     assert!(content.contains("hicc::cpp!"));
     assert!(content.contains("#include \"mylib.hpp\""));
+
+    // LD_PRELOAD hook should capture header usage.
+    let captured = tmp
+        .path()
+        .join(".cpp2rust/default/meta/captured_headers.list");
+    assert!(captured.exists(), "captured_headers.list should exist");
+    let captured_content = std::fs::read_to_string(captured).unwrap();
+    assert!(
+        captured_content.contains(h.to_str().unwrap()),
+        "captured headers should contain input header path"
+    );
+}
+
+#[test]
+fn init_capture_cmd_supports_shell_quoting() {
+    let tmp = TempDir::new().unwrap();
+    let header_path = write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--capture-cmd",
+            "sh -c 'clang -x c++ -fsyntax-only quoted.hpp'",
+            "quoted.hpp",
+        ])
+        .assert()
+        .success();
+
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_quoted.rs");
+    assert!(ffi.exists(), "ffi_quoted.rs should exist");
+    let ffi_content = std::fs::read_to_string(&ffi).unwrap();
+    assert!(
+        ffi_content.contains("fn quoted_add(a: i32, b: i32) -> i32"),
+        "generated ffi should contain quoted_add binding"
+    );
+
+    let captured = tmp
+        .path()
+        .join(".cpp2rust/default/meta/captured_headers.list");
+    assert!(captured.exists(), "captured_headers.list should exist");
+    let captured_content = std::fs::read_to_string(captured).unwrap();
+    assert!(
+        captured_content.contains(header_path.to_str().unwrap()),
+        "captured headers should contain header from quoted capture-cmd"
+    );
 }
 
 #[test]

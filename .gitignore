@@ -2,3 +2,4 @@
 /.cpp2rust
 Cargo.lock
 **/*.rs.bk
+/hook/libhook.so
