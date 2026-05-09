@@ -1,9 +1,5 @@
 # Design Document: cpp2rust-demo
 
-> 中文补充（与 `LD_PRELOAD` 强相关）：
-> 当前 `init` 已改为优先走 `LD_PRELOAD` hook 捕获路径（参考 `c2rust-demo` 的 `hook.c` 思路），
-> 捕获结果写入 `.cpp2rust/<feature>/meta/captured_headers.list`，并以该结果作为后续 AST 解析输入。
-
 ## Overview
 
 `cpp2rust-demo` is a tool that generates Rust FFI bindings for C++ libraries by:
@@ -18,7 +14,7 @@
 |--------|-------------|---------------|
 | Target language | C | C++ |
 | FFI generator | bindgen | hicc |
-| Build interception | LD_PRELOAD | LD_PRELOAD hook (primary) + clang AST parsing |
+| Build interception | LD_PRELOAD | `clang -ast-dump=json` |
 | Input | Build command | C++ header files |
 | Class support | Structs only | Full C++ classes |
 | Namespace support | N/A | Yes |
