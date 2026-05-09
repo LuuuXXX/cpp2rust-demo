@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define MAX_CMD_LEN 16384
@@ -19,9 +20,19 @@ static const char *CPP2RUST_DEBUG = "CPP2RUST_DEBUG";
 
 static const char *cc_names[] = {"gcc", "g++", "clang", "clang++", "cc", "c++"};
 
+static int debug_enabled(void) {
+  static int initialized = 0;
+  static int enabled = 0;
+  if (!initialized) {
+    enabled = getenv(CPP2RUST_DEBUG) != NULL;
+    initialized = 1;
+  }
+  return enabled;
+}
+
 #define DBG(...)                                                              \
   do {                                                                        \
-    if (getenv(CPP2RUST_DEBUG)) {                                             \
+    if (debug_enabled()) {                                                    \
       dprintf(2, "[cpp2rust-hook] " __VA_ARGS__);                             \
     }                                                                         \
   } while (0)
@@ -135,6 +146,53 @@ static int under_prefix(const char *path, const char *prefix) {
   return path[plen] == '\0' || path[plen] == '/';
 }
 
+static int mkdir_p(const char *path) {
+  char tmp[MAX_PATH_LEN];
+  if (snprintf(tmp, sizeof(tmp), "%s", path) >= (int)sizeof(tmp)) {
+    return -1;
+  }
+  size_t len = strlen(tmp);
+  if (len == 0)
+    return -1;
+  if (tmp[len - 1] == '/') {
+    tmp[len - 1] = '\0';
+  }
+
+  for (char *p = tmp + 1; *p; ++p) {
+    if (*p == '/') {
+      *p = '\0';
+      if (mkdir(tmp, 0777) != 0 && errno != EEXIST) {
+        return -1;
+      }
+      *p = '/';
+    }
+  }
+  if (mkdir(tmp, 0777) != 0 && errno != EEXIST) {
+    return -1;
+  }
+  return 0;
+}
+
+static int contains_exact_line(const char *text, ssize_t n, const char *line) {
+  if (!text || n <= 0 || !line)
+    return 0;
+  size_t line_len = strlen(line);
+  const char *cur = text;
+  const char *end = text + n;
+  while (cur < end) {
+    const char *nl = memchr(cur, '\n', (size_t)(end - cur));
+    const char *line_end = nl ? nl : end;
+    size_t cur_len = (size_t)(line_end - cur);
+    if (cur_len == line_len && strncmp(cur, line, line_len) == 0) {
+      return 1;
+    }
+    if (!nl)
+      break;
+    cur = nl + 1;
+  }
+  return 0;
+}
+
 static void save_captured_headers(char **headers, int count,
                                   const char *feature_root) {
   if (count <= 0)
@@ -146,12 +204,14 @@ static void save_captured_headers(char **headers, int count,
     return;
   }
 
-  char mkdir_cmd[MAX_PATH_LEN + 32];
-  if (snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p \"%s/meta\"",
-               feature_root) >= (int)sizeof(mkdir_cmd)) {
+  char meta_dir[MAX_PATH_LEN];
+  if (snprintf(meta_dir, sizeof(meta_dir), "%s/meta", feature_root) >=
+      (int)sizeof(meta_dir)) {
     return;
   }
-  system(mkdir_cmd);
+  if (mkdir_p(meta_dir) != 0) {
+    return;
+  }
 
   int fd = open(list_path, O_CREAT | O_RDWR, 0666);
   if (fd < 0)
@@ -172,7 +232,7 @@ static void save_captured_headers(char **headers, int count,
   for (int i = 0; i < count; ++i) {
     if (!headers[i])
       continue;
-    if (strstr(existing, headers[i]) == NULL) {
+    if (!contains_exact_line(existing, n, headers[i])) {
       dprintf(fd, "%s\n", headers[i]);
     }
   }
