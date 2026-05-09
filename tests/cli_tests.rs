@@ -1,0 +1,414 @@
+// Integration tests for the cpp2rust-demo CLI.
+//
+// These tests run the compiled binary against real C++ headers (using the
+// `clang` binary on the host) and verify the generated output.
+
+use assert_cmd::prelude::*;
+use predicates::prelude::*;
+use std::process::Command;
+use tempfile::TempDir;
+
+// Helper: get the binary path.
+fn bin() -> Command {
+    Command::cargo_bin("cpp2rust-demo").unwrap()
+}
+
+// Helper: write a C++ header to a temporary file and return its path.
+fn write_header(dir: &TempDir, name: &str, content: &str) -> std::path::PathBuf {
+    let path = dir.path().join(name);
+    std::fs::write(&path, content).unwrap();
+    path
+}
+
+// ---------------------------------------------------------------------------
+// Basic CLI sanity
+// ---------------------------------------------------------------------------
+
+#[test]
+fn help_flag_exits_zero() {
+    bin().arg("--help").assert().success();
+}
+
+#[test]
+fn version_flag_exits_zero() {
+    bin().arg("--version").assert().success();
+}
+
+#[test]
+fn init_without_link_fails() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(&tmp, "test.hpp", "void foo();");
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", h.to_str().unwrap()])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn init_nonexistent_header_fails() {
+    let tmp = TempDir::new().unwrap();
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "mylib", "does_not_exist.hpp"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not found"));
+}
+
+// ---------------------------------------------------------------------------
+// init command
+// ---------------------------------------------------------------------------
+
+#[test]
+fn init_simple_free_functions() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(
+        &tmp,
+        "mylib.hpp",
+        r#"
+        int add(int a, int b);
+        double scale(double x, double factor);
+        "#,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("✓ cpp2rust-demo init completed"));
+
+    // Check that the generated FFI file exists.
+    let ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/ffi_mylib.rs");
+    assert!(ffi.exists(), "ffi_mylib.rs should exist");
+
+    let content = std::fs::read_to_string(&ffi).unwrap();
+    assert!(content.contains("import_lib!"));
+    assert!(content.contains("link_name = \"mylib\""));
+    assert!(content.contains("fn add(a: i32, b: i32) -> i32"));
+    assert!(content.contains("fn scale(x: f64, factor: f64) -> f64"));
+}
+
+#[test]
+fn init_overloaded_functions_get_numeric_suffix() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(
+        &tmp,
+        "over.hpp",
+        r#"
+        void process(int value);
+        void process(double value);
+        void process(const char* value);
+        "#,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/ffi_over.rs");
+    let content = std::fs::read_to_string(&ffi).unwrap();
+
+    // First overload keeps plain name.
+    assert!(
+        content.contains("fn process("),
+        "first overload should keep 'process'"
+    );
+    // Second overload gets _2 suffix.
+    assert!(
+        content.contains("fn process_2("),
+        "second overload should be 'process_2'"
+    );
+    // Third overload gets _3 suffix.
+    assert!(
+        content.contains("fn process_3("),
+        "third overload should be 'process_3'"
+    );
+}
+
+#[test]
+fn init_namespace_qualified_signature() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(
+        &tmp,
+        "ns.hpp",
+        r#"
+        namespace myns { int add(int a, int b); }
+        "#,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "myns", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/ffi_ns.rs");
+    let content = std::fs::read_to_string(&ffi).unwrap();
+    // The C++ signature in the attribute should be namespace-qualified.
+    assert!(
+        content.contains("myns::add"),
+        "C++ signature should be namespace-qualified"
+    );
+}
+
+#[test]
+fn init_class_generates_import_class_and_import_lib() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(
+        &tmp,
+        "widget.hpp",
+        r#"
+        class Widget {
+        public:
+            void update(double x, double y);
+            int getId() const;
+            static int instanceCount();
+        };
+        "#,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "widget", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/ffi_widget.rs");
+    let content = std::fs::read_to_string(&ffi).unwrap();
+
+    // Instance methods go into import_class!
+    assert!(content.contains("import_class!"), "should have import_class!");
+    assert!(
+        content.contains("class Widget {"),
+        "should declare Widget class"
+    );
+    assert!(
+        content.contains("fn update(&mut self"),
+        "update should take &mut self"
+    );
+    assert!(
+        content.contains("fn get_id(&self)"),
+        "const getId should take &self"
+    );
+
+    // Static methods go into import_lib!
+    assert!(content.contains("import_lib!"), "should have import_lib!");
+    assert!(
+        content.contains("class Widget;"),
+        "should forward-declare Widget"
+    );
+    // Static method appears as a free function (not inside import_class!).
+    assert!(
+        content.contains("fn widget_instance_count()"),
+        "static method should be a free fn in import_lib!"
+    );
+}
+
+#[test]
+fn init_creates_cargo_toml_with_hicc() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(&tmp, "simple.hpp", "void foo();");
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let cargo_toml = tmp.path().join(".cpp2rust/default/rust/Cargo.toml");
+    let content = std::fs::read_to_string(cargo_toml).unwrap();
+    assert!(content.contains("hicc"));
+    assert!(content.contains("hicc-build"));
+}
+
+#[test]
+fn init_creates_build_rs() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(&tmp, "simple.hpp", "void foo();");
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let build_rs = tmp.path().join(".cpp2rust/default/rust/build.rs");
+    assert!(build_rs.exists());
+    let content = std::fs::read_to_string(build_rs).unwrap();
+    assert!(content.contains("hicc_build"));
+}
+
+#[test]
+fn init_custom_feature() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(&tmp, "simple.hpp", "void foo();");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--feature",
+            "myfeature",
+            "--link",
+            "mylib",
+            h.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(tmp
+        .path()
+        .join(".cpp2rust/myfeature/rust/src/ffi_simple.rs")
+        .exists());
+}
+
+// ---------------------------------------------------------------------------
+// merge command
+// ---------------------------------------------------------------------------
+
+#[test]
+fn merge_without_init_fails() {
+    let tmp = TempDir::new().unwrap();
+    // Create the .cpp2rust dir but not the feature dir.
+    std::fs::create_dir(tmp.path().join(".cpp2rust")).unwrap();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not found"));
+}
+
+#[test]
+fn merge_produces_merged_ffi() {
+    let tmp = TempDir::new().unwrap();
+
+    // Create two headers.
+    let h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
+    let h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+
+    // Init with both.
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            h1.to_str().unwrap(),
+            h2.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Merge.
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("✓ cpp2rust-demo merge completed"));
+
+    let merged = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/merged_ffi.rs");
+    assert!(merged.exists(), "merged_ffi.rs should exist");
+
+    let content = std::fs::read_to_string(&merged).unwrap();
+    // Should contain items from both headers.
+    assert!(content.contains("fn add("));
+    assert!(content.contains("fn log("));
+    // Should have exactly one import_lib! block.
+    assert_eq!(
+        content.matches("import_lib!").count(),
+        1,
+        "should have exactly one import_lib! block"
+    );
+}
+
+#[test]
+fn merge_deduplicates_class_forward_decls() {
+    let tmp = TempDir::new().unwrap();
+
+    // Two headers that both reference the same class.
+    let h1 = write_header(
+        &tmp,
+        "a.hpp",
+        r#"class Widget {
+        public:
+            void update(double x, double y);
+        };"#,
+    );
+    let h2 = write_header(&tmp, "b.hpp", "int add(int a, int b);");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            h1.to_str().unwrap(),
+            h2.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let content = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // "class Widget;" should appear exactly once in import_lib!
+    let count = content.matches("class Widget;").count();
+    assert_eq!(
+        count, 1,
+        "Widget forward decl should appear once, got {}",
+        count
+    );
+}
+
+#[test]
+fn merge_updates_build_rs_to_merged_ffi() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(&tmp, "simple.hpp", "void foo();");
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "mylib", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let build_rs = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/build.rs"),
+    )
+    .unwrap();
+    assert!(
+        build_rs.contains("merged_ffi.rs"),
+        "build.rs should reference merged_ffi.rs after merge"
+    );
+}
