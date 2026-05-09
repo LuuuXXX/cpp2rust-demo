@@ -58,6 +58,7 @@ struct InitArgs {
     clang: String,
 
     /// Optional build command for capture (e.g. `make -j4`).
+    /// Executed by `sh -c` to preserve quotes/escaping in complex commands.
     /// If not provided, the tool runs per-header syntax checks through clang
     /// under LD_PRELOAD to trigger hook-based capture.
     #[arg(long = "capture-cmd", value_name = "CMD")]
@@ -133,7 +134,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     // Build and run preload hook capture first.
     let hook_so = capture::build_hook()?;
     if let Some(cmd) = args.capture_cmd.as_deref() {
-        let cmd_vec: Vec<String> = cmd.split_whitespace().map(|s| s.to_string()).collect();
+        let cmd_vec = vec!["sh".to_string(), "-c".to_string(), cmd.to_string()];
         capture::run_with_hook(&cwd, &cmd_vec, &project_root, &lo.feature_root, &hook_so)?;
     } else {
         for header in &headers {
