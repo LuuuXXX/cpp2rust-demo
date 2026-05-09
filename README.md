@@ -1,6 +1,6 @@
 # cpp2rust-demo
 
-`cpp2rust-demo` 是一个把 C++ 项目接口转换为 Rust `hicc` FFI 脚手架的演示工具。
+`cpp2rust-demo` 是一个把 C++ 项目构建中提取的接口转换为 Rust `hicc` FFI 脚手架的演示工具。
 
 本仓库当前实现与 `LuuuXXX/c2rust-demo` 对齐：`init` 先通过真实构建命令 + `LD_PRELOAD` hook 捕获输入，再进行 AST 解析与代码生成，`merge` 负责后处理合并。
 

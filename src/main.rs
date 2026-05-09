@@ -113,9 +113,12 @@ fn run_init(args: InitArgs) -> Result<()> {
     let captured_headers = capture::load_captured_headers(&lo.feature_root)?;
     if captured_headers.is_empty() {
         return Err(anyhow!(
-            "preload hook did not capture any headers from build command; \
-             ensure the build command really compiles C/C++ sources and invokes clang/gcc \
-             with project headers"
+            "{}",
+            concat!(
+                "preload hook did not capture any headers from build command; ",
+                "ensure the build command really compiles C/C++ sources and invokes clang/gcc ",
+                "with project headers"
+            )
         ));
     }
     println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
