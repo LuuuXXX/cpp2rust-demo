@@ -80,7 +80,7 @@ After `init + merge`, the `.cpp2rust/` directory contains:
 ├── ast/
 │   └── <header>.ast.json   ← raw clang AST JSON (for debugging)
 ├── meta/
-│   ├── headers.json         ← list of input headers + link name
+│   ├── headers.json         ← capture-derived headers used for AST/codegen + link name
 │   ├── build_cmd.txt        ← raw build command passed to init
 │   └── init-interface-report.md   ← summary of extracted declarations
 └── rust/                   ← generated Rust project

@@ -93,7 +93,7 @@ cpp2rust-demo merge --feature myfeature
 .cpp2rust/<feature>/
 ├── ast/                          # clang AST JSON
 ├── meta/
-│   ├── headers.json
+│   ├── headers.json              # capture 后用于 AST/codegen 的 header 集合 + link_name
 │   ├── build_cmd.txt             # init 捕获阶段使用的构建命令
 │   ├── captured_headers.list     # LD_PRELOAD hook 捕获结果
 │   ├── init-interface-report.md
