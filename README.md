@@ -296,6 +296,9 @@ from the AST, what it *generates* as hicc code, and what has been
 | Private/protected members | ✅ skipped | — | — |
 | Primitive pointer types (`T*`, `const T*`) | ✅ | ✅ raw pointers | ✅ |
 | Primitive reference types (`T&`, `const T&`) | ✅ | ✅ `&mut T` / `&T` | ✅ |
+| Class pointer types (`T*`, `const T*`) | ✅ | ✅ raw pointers | ✅ |
+| Class reference types (`T&`, `const T&`) | ✅ | ✅ `&mut T` / `&T` | ✅ |
+| Same-namespace class types in signatures | ✅ | ✅ auto-qualified | ✅ |
 | Constructors/destructors | ✅ skipped | — | — |
 | Virtual / pure-virtual detection | ✅ detected | ⚠️ not yet specially handled | — |
 | Templates | ❌ not extracted | — | — |
@@ -309,8 +312,8 @@ from the AST, what it *generates* as hicc code, and what has been
 ## Testing
 
 ```bash
-cargo test              # unit tests (27)
-cargo test --test cli_tests  # integration tests (17, includes cargo check)
+cargo test              # unit tests (30)
+cargo test --test cli_tests  # integration tests (19, includes 3 cargo check scenarios)
 ```
 
 ---

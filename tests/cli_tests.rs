@@ -454,11 +454,157 @@ fn merge_consolidates_cpp_includes() {
 }
 
 // ---------------------------------------------------------------------------
-// cargo check integration test (verifies generated code is valid hicc input)
+// cargo check integration tests (verify generated code is valid hicc input)
 // ---------------------------------------------------------------------------
 
-/// End-to-end test: generate FFI for a simple header and verify that the
-/// resulting Rust project passes `cargo check` with real hicc dependencies.
+/// Type-mapping verification: class pointer and reference types (`const T&`,
+/// `T&`, `const T*`, `T*`) used as function parameters and return values must
+/// compile with hicc-build.
+///
+/// Covers both primitive-type (`int`) and user-defined class-type (`Point`)
+/// scenarios using a global-scope class, so clang's qualType is already
+/// unambiguous and no namespace qualification is required.
+#[test]
+fn cargo_check_class_reference_and_pointer_types() {
+    if Command::new("cargo").arg("--version").output().is_err() {
+        eprintln!("Skipping cargo-check test: cargo not found in PATH");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+
+    // Header that exercises all four reference/pointer combinations for both
+    // primitives and a class type.
+    let header_content = r#"
+#pragma once
+
+class Point {
+public:
+    // Primitive reference / pointer parameters
+    void set_x(const int& v);
+    void add_to_x(int& v);
+    void fill_array(int* buf, const int* src);
+
+    // Class reference / pointer parameters
+    void copy_from(const Point& other);
+    void swap_with(Point& other);
+    Point* clone() const;
+    const Point* origin() const;
+};
+
+// Free functions with class parameters
+void translate(Point& p, const Point& delta);
+Point* create_point(int x, int y);
+const Point* get_origin();
+"#;
+    let h = write_header(&tmp, "geometry.hpp", header_content);
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "geometry", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let rust_proj = tmp.path().join(".cpp2rust/default/rust");
+    let check_output = Command::new("cargo")
+        .args(["check", "--message-format=short"])
+        .current_dir(&rust_proj)
+        .output()
+        .expect("cargo should be available since we checked above");
+
+    if !check_output.status.success() {
+        eprintln!("=== cargo check stderr ===");
+        eprintln!("{}", String::from_utf8_lossy(&check_output.stderr));
+        eprintln!("=== generated merged_ffi.rs ===");
+        let merged = rust_proj.join("src/merged_ffi.rs");
+        if merged.exists() {
+            eprintln!("{}", std::fs::read_to_string(merged).unwrap());
+        }
+        eprintln!("=== generated build.rs ===");
+        let build_rs = rust_proj.join("build.rs");
+        if build_rs.exists() {
+            eprintln!("{}", std::fs::read_to_string(build_rs).unwrap());
+        }
+        panic!("cargo check failed for class/reference/pointer type mappings");
+    }
+}
+
+/// Type-mapping verification: class types as return values and mixed
+/// namespace + class scenarios must compile with hicc-build.
+#[test]
+fn cargo_check_class_return_values_and_namespace_classes() {
+    if Command::new("cargo").arg("--version").output().is_err() {
+        eprintln!("Skipping cargo-check test: cargo not found in PATH");
+        return;
+    }
+
+    let tmp = TempDir::new().unwrap();
+
+    let header_content = r#"
+#pragma once
+
+namespace geo {
+    class Vec2 {
+    public:
+        double x() const;
+        double y() const;
+        void set(double x, double y);
+
+        // Class return value (by pointer)
+        Vec2* normalize() const;
+
+        // Static factory
+        static Vec2* zero();
+    };
+
+    // Free functions returning class pointers
+    Vec2* lerp(const Vec2* a, const Vec2* b, double t);
+    void scale(Vec2& v, double factor);
+}
+"#;
+    let h = write_header(&tmp, "vec2.hpp", header_content);
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["init", "--link", "geo", h.to_str().unwrap()])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let rust_proj = tmp.path().join(".cpp2rust/default/rust");
+    let check_output = Command::new("cargo")
+        .args(["check", "--message-format=short"])
+        .current_dir(&rust_proj)
+        .output()
+        .expect("cargo should be available since we checked above");
+
+    if !check_output.status.success() {
+        eprintln!("=== cargo check stderr ===");
+        eprintln!("{}", String::from_utf8_lossy(&check_output.stderr));
+        eprintln!("=== generated merged_ffi.rs ===");
+        let merged = rust_proj.join("src/merged_ffi.rs");
+        if merged.exists() {
+            eprintln!("{}", std::fs::read_to_string(merged).unwrap());
+        }
+        eprintln!("=== generated build.rs ===");
+        let build_rs = rust_proj.join("build.rs");
+        if build_rs.exists() {
+            eprintln!("{}", std::fs::read_to_string(build_rs).unwrap());
+        }
+        panic!("cargo check failed for namespace + class return-value type mappings");
+    }
+}
 ///
 /// This proves the generated `hicc::cpp!` include + `hicc::import_lib!` macros
 /// are accepted by hicc-build, not just that the text was produced correctly.

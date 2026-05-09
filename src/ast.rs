@@ -225,6 +225,12 @@ pub fn extract_declarations_with_strategy(
     target_files: &[&Path],
     strategy: &OverloadStrategy,
 ) -> ExtractedDecls {
+    // First pass: collect a global map of bare class names → qualified class names.
+    // This is used to qualify parameter types that clang emits without their
+    // namespace prefix (e.g., `Vec2 &` inside `namespace geo` should become
+    // `geo::Vec2 &` in the generated C++ signature so hicc-build can resolve it).
+    let class_name_map = collect_class_name_map(ast_root);
+
     let mut result = ExtractedDecls::default();
     let mut current_file = String::new();
     let mut overload_counts: HashMap<String, usize> = HashMap::new();
@@ -237,9 +243,115 @@ pub fn extract_declarations_with_strategy(
         &mut result,
         &mut overload_counts,
         strategy,
+        &class_name_map,
     );
 
     result
+}
+
+// ---------------------------------------------------------------------------
+// Class-name qualification helpers
+// ---------------------------------------------------------------------------
+
+/// Build a map from bare class name → fully-qualified class name by scanning
+/// the entire AST (not just target files).  This lets us qualify parameter
+/// types that clang emits without their namespace prefix.
+///
+/// When two classes share the same bare name (e.g. `A::Vec` and `B::Vec`),
+/// the first one encountered in a depth-first, pre-order traversal is kept.
+/// In cases of ambiguity, use the already-qualified form `ns::Vec` in your
+/// C++ header so that clang emits it qualified.
+fn collect_class_name_map(root: &AstNode) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    collect_class_names(root, &[], &mut map);
+    map
+}
+
+fn collect_class_names(node: &AstNode, namespace: &[String], map: &mut HashMap<String, String>) {
+    match node.kind.as_str() {
+        "NamespaceDecl" => {
+            if let Some(ref ns_name) = node.name {
+                let mut ns = namespace.to_vec();
+                ns.push(ns_name.clone());
+                for child in node.inner.iter().flatten() {
+                    collect_class_names(child, &ns, map);
+                }
+            }
+        }
+        "CXXRecordDecl" => {
+            if node.complete_definition.unwrap_or(false) {
+                if let Some(class_name) = node.name.as_deref() {
+                    let qualified = make_qualified(namespace, class_name);
+                    // First definition wins (forward decls are skipped above).
+                    map.entry(class_name.to_string()).or_insert(qualified);
+                    // Recurse for nested classes.
+                    for child in node.inner.iter().flatten() {
+                        collect_class_names(child, namespace, map);
+                    }
+                }
+            }
+        }
+        _ => {
+            for child in node.inner.iter().flatten() {
+                collect_class_names(child, namespace, map);
+            }
+        }
+    }
+}
+
+/// Qualify a C++ type string by replacing a bare class name with its
+/// fully-qualified form, using `class_map` built from the AST.
+///
+/// Handles the common clang `qualType` patterns:
+/// - `ClassName`        → `ns::ClassName`
+/// - `const ClassName`  → `const ns::ClassName`
+/// - `ClassName &`      → `ns::ClassName &`
+/// - `const ClassName &`→ `const ns::ClassName &`
+/// - `ClassName *`      → `ns::ClassName *`
+/// - `const ClassName *`→ `const ns::ClassName *`
+///
+/// Already-qualified names (those containing `::`) are returned unchanged.
+fn qualify_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>) -> String {
+    let trimmed = cpp_type.trim();
+
+    // Strip trailing `&` or `*`.
+    let (core, suffix) = if trimmed.ends_with(" &") || trimmed.ends_with('&') {
+        let core = trimmed.trim_end_matches('&').trim_end();
+        (core, " &")
+    } else if trimmed.ends_with(" *") || trimmed.ends_with('*') {
+        // Only handle single pointer (not double pointer **).
+        // Double pointers (`ClassName **`) are left unchanged: hicc does not
+        // support them directly, and they are already documented as a known
+        // limitation.
+        let without = trimmed.trim_end_matches('*').trim_end();
+        if without.ends_with('*') {
+            // Double pointer – leave as-is (known limitation, see docs/design.md).
+            return cpp_type.to_string();
+        }
+        (without, " *")
+    } else {
+        (trimmed, "")
+    };
+
+    // Strip optional `const` prefix.
+    let (is_const, bare) = if core.starts_with("const ") {
+        (true, core["const ".len()..].trim())
+    } else {
+        (false, core)
+    };
+
+    // If already qualified, leave it alone.
+    if bare.contains("::") {
+        return cpp_type.to_string();
+    }
+
+    // Look up in class map.
+    if let Some(qualified) = class_map.get(bare) {
+        let const_prefix = if is_const { "const " } else { "" };
+        format!("{}{}{}", const_prefix, qualified, suffix)
+    } else {
+        cpp_type.to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +392,7 @@ fn walk_node(
     result: &mut ExtractedDecls,
     overload_counts: &mut HashMap<String, usize>,
     strategy: &OverloadStrategy,
+    class_map: &HashMap<String, String>,
 ) {
     // Advance current_file tracker.
     if let Some(ref loc) = node.loc {
@@ -297,7 +410,7 @@ fn walk_node(
                 let mut ns = namespace.to_vec();
                 ns.push(ns_name.clone());
                 for child in node.inner.iter().flatten() {
-                    walk_node(child, current_file, targets, &ns, result, overload_counts, strategy);
+                    walk_node(child, current_file, targets, &ns, result, overload_counts, strategy, class_map);
                 }
             }
         }
@@ -306,7 +419,7 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
-            if let Some(ir) = extract_function(node, namespace, overload_counts, None, strategy) {
+            if let Some(ir) = extract_function(node, namespace, overload_counts, None, strategy, class_map) {
                 result.functions.push(ir);
             }
         }
@@ -364,7 +477,7 @@ fn walk_node(
                             continue;
                         }
                         if let Some(ir) =
-                            extract_function(child, namespace, &mut method_overloads, Some(class_name), strategy)
+                            extract_function(child, namespace, &mut method_overloads, Some(class_name), strategy, class_map)
                         {
                             class_ir.methods.push(ir);
                         }
@@ -379,7 +492,7 @@ fn walk_node(
         // extern "C" / extern "C++" linkage blocks – just descend.
         "LinkageSpecDecl" => {
             for child in node.inner.iter().flatten() {
-                walk_node(child, current_file, targets, namespace, result, overload_counts, strategy);
+                walk_node(child, current_file, targets, namespace, result, overload_counts, strategy, class_map);
             }
         }
 
@@ -387,7 +500,7 @@ fn walk_node(
         // declarations inside (e.g. anonymous namespaces).
         _ => {
             for child in node.inner.iter().flatten() {
-                walk_node(child, current_file, targets, namespace, result, overload_counts, strategy);
+                walk_node(child, current_file, targets, namespace, result, overload_counts, strategy, class_map);
             }
         }
     }
@@ -400,6 +513,7 @@ fn extract_function(
     overload_counts: &mut HashMap<String, usize>,
     class_name: Option<&str>,
     strategy: &OverloadStrategy,
+    class_map: &HashMap<String, String>,
 ) -> Option<FunctionIR> {
     let name = node.name.as_deref()?;
 
@@ -454,11 +568,18 @@ fn extract_function(
     };
 
     // Build the C++ signature for hicc attributes.
-    let param_types: Vec<String> = params.iter().map(|p| p.cpp_type.clone()).collect();
+    // Qualify any bare class-type names with their namespace prefix so that
+    // hicc-build can resolve them (clang often omits the namespace prefix for
+    // types defined in the same namespace as the function).
+    let qualified_return = qualify_cpp_type(&return_type, class_map);
+    let param_types: Vec<String> = params
+        .iter()
+        .map(|p| qualify_cpp_type(&p.cpp_type, class_map))
+        .collect();
     let const_suffix = if is_const { " const" } else { "" };
     let cpp_signature = format!(
         "{} {}({}){}",
-        return_type,
+        qualified_return,
         qualified_name,
         param_types.join(", "),
         const_suffix
@@ -735,5 +856,33 @@ mod tests {
         assert_eq!(bare_class_name("std::vector<int>"), "vector");
         assert_eq!(bare_class_name("mylib::Widget"), "Widget");
         assert_eq!(bare_class_name("MyClass"), "MyClass");
+    }
+
+    #[test]
+    fn test_qualify_cpp_type_no_match() {
+        let map = HashMap::from([("Vec2".to_string(), "geo::Vec2".to_string())]);
+        // Primitives pass through unchanged.
+        assert_eq!(qualify_cpp_type("int", &map), "int");
+        assert_eq!(qualify_cpp_type("double", &map), "double");
+        assert_eq!(qualify_cpp_type("const int &", &map), "const int &");
+        assert_eq!(qualify_cpp_type("int *", &map), "int *");
+    }
+
+    #[test]
+    fn test_qualify_cpp_type_bare() {
+        let map = HashMap::from([("Vec2".to_string(), "geo::Vec2".to_string())]);
+        assert_eq!(qualify_cpp_type("Vec2", &map), "geo::Vec2");
+        assert_eq!(qualify_cpp_type("Vec2 &", &map), "geo::Vec2 &");
+        assert_eq!(qualify_cpp_type("Vec2 *", &map), "geo::Vec2 *");
+        assert_eq!(qualify_cpp_type("const Vec2 &", &map), "const geo::Vec2 &");
+        assert_eq!(qualify_cpp_type("const Vec2 *", &map), "const geo::Vec2 *");
+    }
+
+    #[test]
+    fn test_qualify_cpp_type_already_qualified() {
+        let map = HashMap::from([("Vec2".to_string(), "geo::Vec2".to_string())]);
+        // Already qualified names are left alone.
+        assert_eq!(qualify_cpp_type("geo::Vec2 &", &map), "geo::Vec2 &");
+        assert_eq!(qualify_cpp_type("other::Vec2 *", &map), "other::Vec2 *");
     }
 }

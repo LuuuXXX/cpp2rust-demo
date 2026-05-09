@@ -227,8 +227,9 @@ been *verified* to compile with hicc-build.
 | Function overloads | ✅ | ✅ | ✅ |
 | Primitive `T*` / `const T*` | ✅ | ✅ raw ptr | ✅ |
 | Primitive `T&` / `const T&` | ✅ | ✅ `&mut T`/`&T` | ✅ |
-| Class `T*` / `const T*` | ✅ | ✅ raw ptr | ✅ |
-| Class `T&` / `const T&` | ✅ | ✅ `&mut T`/`&T` | ✅ |
+| Class `T*` / `const T*` params/return | ✅ | ✅ raw ptr | ✅ |
+| Class `T&` / `const T&` params/return | ✅ | ✅ `&mut T`/`&T` | ✅ |
+| Same-namespace class types (auto-qualified) | ✅ | ✅ | ✅ |
 | Private/protected members | ✅ (skipped) | — | — |
 | Virtual / pure-virtual detection | ✅ | ⚠️ not yet mapped | — |
 | Constructors / destructors | ✅ (skipped) | — | — |

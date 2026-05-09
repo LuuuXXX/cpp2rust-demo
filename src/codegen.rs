@@ -96,10 +96,20 @@ pub fn render_build_rs(link_name: &str, rust_files: &[&str], include_dirs: &[&st
         .iter()
         .map(|d| format!("    build.include(\"{}\");\n", d))
         .collect();
+    // Build the portability note only when include dirs are present.
+    let portability_note = if include_dirs.is_empty() {
+        String::new()
+    } else {
+        String::from(
+            "    // NOTE: The include paths above are absolute paths recorded at init time.\n\
+             //       If you copy this project to another machine, update them to point\n\
+             //       to the C++ headers on the new machine (or switch to relative paths).\n",
+        )
+    };
     format!(
         r#"fn main() {{
     let mut build = hicc_build::Build::new();
-{file_calls}{include_calls}    build.compile("cpp2rust_adapter");
+{file_calls}{include_calls}{portability_note}    build.compile("cpp2rust_adapter");
     println!("cargo::rustc-link-lib=cpp2rust_adapter");
     println!("cargo::rustc-link-lib=stdc++");
     // Link the actual C++ library (adjust the search path as needed).
