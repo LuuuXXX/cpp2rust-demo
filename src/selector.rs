@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn predicate_selector_filters() {
         let paths = make_paths(&["foo/a.hpp", "bar/b.hpp", "foo/c.hpp"]);
-        let sel = PredicateSelector(|p: &PathBuf| p.to_str().map_or(false, |s| s.contains("foo")));
+        let sel = PredicateSelector(|p| p.to_str().map_or(false, |s| s.contains("foo")));
         let result = sel.select(&paths).unwrap();
         assert_eq!(result.len(), 2);
     }
