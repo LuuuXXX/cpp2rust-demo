@@ -72,6 +72,15 @@ impl FeatureLayout {
         std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
+    /// Write `meta/selected_headers.json` – the headers selected by the user.
+    pub fn save_selected_headers(&self, headers: &[PathBuf]) -> Result<()> {
+        let list: Vec<String> = headers.iter().map(|p| p.display().to_string()).collect();
+        let json = serde_json::to_string_pretty(&list)
+            .map_err(|e| anyhow!("serialize selected_headers: {}", e))?;
+        let path = self.meta_dir.join("selected_headers.json");
+        std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+    }
+
     /// Write `meta/build_cmd.txt` – the original build command passed to `init`.
     pub fn save_build_cmd(&self, build_cmd: &[String]) -> Result<()> {
         let path = self.meta_dir.join("build_cmd.txt");
@@ -147,6 +156,22 @@ mod tests {
         let (link, loaded) = layout.load_meta().unwrap();
         assert_eq!(link, "mylib");
         assert_eq!(loaded, headers);
+    }
+
+    #[test]
+    fn save_selected_headers_writes_json() {
+        let tmp = TempDir::new().unwrap();
+        let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
+        layout.create_dirs().unwrap();
+        let headers = vec![
+            PathBuf::from("/include/foo.hpp"),
+            PathBuf::from("/include/bar.hpp"),
+        ];
+        layout.save_selected_headers(&headers).unwrap();
+        let content =
+            std::fs::read_to_string(layout.meta_dir.join("selected_headers.json")).unwrap();
+        assert!(content.contains("foo.hpp"));
+        assert!(content.contains("bar.hpp"));
     }
 
     #[test]
