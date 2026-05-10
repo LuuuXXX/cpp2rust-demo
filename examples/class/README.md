@@ -10,9 +10,11 @@ class with public methods (including `const` and `static` methods).
 
 ## Running the Example
 
+From the repository root:
+
 ```bash
 # Step 1: generate FFI (use a separate feature to avoid mixing with other examples)
-cpp2rust-demo init --feature widget --link widget examples/class/widget.hpp
+cpp2rust-demo init --feature widget --link widget -- clang -x c++ -fsyntax-only examples/class/widget.hpp
 
 # Step 2: consolidate
 cpp2rust-demo merge --feature widget
@@ -20,6 +22,10 @@ cpp2rust-demo merge --feature widget
 # Step 3: review
 cat .cpp2rust/widget/rust/src/merged_ffi.rs
 ```
+
+> **Note**: In an interactive terminal, step 1 will prompt you to select which
+> captured headers to include. Press `Space` to toggle, `Enter` to confirm.
+> In non-interactive environments (CI, pipes) all headers are selected automatically.
 
 ## Expected Generated FFI
 
