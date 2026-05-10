@@ -1,0 +1,184 @@
+# Validate cpp2rust-demo against Tencent/rapidjson
+#
+# Purpose: This workflow validates that cpp2rust-demo (init + merge) works
+#          correctly against a real-world C++ project (Tencent/rapidjson,
+#          a widely-used header-only JSON library).  It runs on every
+#          push and pull request to provide a clear pass/fail signal.
+#
+# The workflow mirrors scripts/validate-rapidjson.sh and can be reproduced
+# locally by running that script.
+
+name: validate-rapidjson
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    name: Run cpp2rust-demo against rapidjson
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Check out cpp2rust-demo
+      # ------------------------------------------------------------------
+      - name: Checkout cpp2rust-demo
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. System dependencies (gcc, clang, make)
+      # ------------------------------------------------------------------
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc g++ clang make
+
+      # ------------------------------------------------------------------
+      # 3. Rust toolchain
+      # ------------------------------------------------------------------
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      # ------------------------------------------------------------------
+      # 4. Cache Cargo registry + build artifacts
+      # ------------------------------------------------------------------
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # ------------------------------------------------------------------
+      # 5. Build cpp2rust-demo (release for faster execution)
+      # ------------------------------------------------------------------
+      - name: Build cpp2rust-demo
+        run: cargo build --release
+
+      # ------------------------------------------------------------------
+      # 6. Clone Tencent/rapidjson (shallow)
+      # ------------------------------------------------------------------
+      - name: Clone rapidjson
+        run: git clone --depth=1 https://github.com/Tencent/rapidjson.git /tmp/rapidjson
+
+      # ------------------------------------------------------------------
+      # 7. Run cpp2rust-demo init inside the rapidjson repo
+      #
+      #    We target include/rapidjson/document.h – the central public
+      #    header that declares Document, Value, and related types.
+      #    -fsyntax-only avoids the need to link anything;
+      #    -std=c++11 matches rapidjson's minimum supported standard.
+      # ------------------------------------------------------------------
+      - name: Run cpp2rust-demo init
+        working-directory: /tmp/rapidjson
+        run: |
+          echo "=== Running cpp2rust-demo init ==="
+          $GITHUB_WORKSPACE/target/release/cpp2rust-demo init \
+            --link rapidjson \
+            -- clang++ -x c++ -std=c++11 -fsyntax-only \
+                   include/rapidjson/document.h
+
+      # ------------------------------------------------------------------
+      # 8. Run cpp2rust-demo merge
+      # ------------------------------------------------------------------
+      - name: Run cpp2rust-demo merge
+        working-directory: /tmp/rapidjson
+        run: |
+          echo "=== Running cpp2rust-demo merge ==="
+          $GITHUB_WORKSPACE/target/release/cpp2rust-demo merge
+
+      # ------------------------------------------------------------------
+      # 9. Validate output – check that all expected files were created
+      #    and contain the expected content.
+      # ------------------------------------------------------------------
+      - name: Validate output
+        working-directory: /tmp/rapidjson
+        run: |
+          set -euo pipefail
+          FAIL=0
+
+          check_file() {
+            if [ -f "$1" ]; then
+              echo "  [OK]  $1"
+            else
+              echo "  [FAIL] missing: $1" >&2
+              FAIL=1
+            fi
+          }
+          check_contains() {
+            if grep -q "$2" "$1" 2>/dev/null; then
+              echo "  [OK]  $1 contains '$2'"
+            else
+              echo "  [FAIL] $1 does not contain '$2'" >&2
+              FAIL=1
+            fi
+          }
+
+          OUT=".cpp2rust/default"
+
+          echo "--- Checking meta files ---"
+          check_file  "${OUT}/meta/build_cmd.txt"
+          check_file  "${OUT}/meta/captured_headers.list"
+          check_file  "${OUT}/meta/selected_headers.json"
+          check_file  "${OUT}/meta/headers.json"
+          check_file  "${OUT}/meta/init-interface-report.md"
+          check_file  "${OUT}/meta/merge-report.md"
+
+          echo "--- Checking generated Rust project ---"
+          check_file  "${OUT}/rust/Cargo.toml"
+          check_file  "${OUT}/rust/build.rs"
+          check_file  "${OUT}/rust/src/lib.rs"
+          check_file  "${OUT}/rust/src/ffi_document.rs"
+          check_file  "${OUT}/rust/src/merged_ffi.rs"
+
+          echo "--- Checking file contents ---"
+          check_contains "${OUT}/meta/captured_headers.list" "document.h"
+          check_contains "${OUT}/rust/src/ffi_document.rs"   "import_lib!"
+          check_contains "${OUT}/rust/src/ffi_document.rs"   'link_name = "rapidjson"'
+          check_contains "${OUT}/rust/src/merged_ffi.rs"     "import_lib!"
+
+          if [ "${FAIL}" -ne 0 ]; then
+            echo ""
+            echo "VALIDATION FAILED – see errors above." >&2
+            exit 1
+          fi
+          echo ""
+          echo "✓ All validation checks passed."
+
+      # ------------------------------------------------------------------
+      # 10. Print generated output tree (always, for log visibility)
+      # ------------------------------------------------------------------
+      - name: Show generated output tree
+        if: always()
+        working-directory: /tmp/rapidjson
+        run: |
+          echo "=== Generated .cpp2rust directory tree ==="
+          find .cpp2rust -type f | sort 2>/dev/null || echo "(no .cpp2rust output found)"
+          echo ""
+          echo "=== Contents of .cpp2rust/default/meta/ ==="
+          cat .cpp2rust/default/meta/build_cmd.txt        2>/dev/null || true
+          echo ""
+          cat .cpp2rust/default/meta/captured_headers.list 2>/dev/null || true
+          echo ""
+          echo "=== Head of generated ffi_document.rs ==="
+          head -60 .cpp2rust/default/rust/src/ffi_document.rs 2>/dev/null || true
+          echo ""
+          echo "=== Head of merged_ffi.rs ==="
+          head -40 .cpp2rust/default/rust/src/merged_ffi.rs  2>/dev/null || true
+
+      # ------------------------------------------------------------------
+      # 11. Upload the entire .cpp2rust/ tree as a build artifact
+      # ------------------------------------------------------------------
+      - name: Upload .cpp2rust artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapidjson-cpp2rust-output
+          path: /tmp/rapidjson/.cpp2rust/
+          if-no-files-found: warn
