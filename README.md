@@ -40,7 +40,7 @@ C++ 项目目录
 - `src/merge.rs`：`merge` 阶段合并逻辑
 - `hook/`：`libhook.so` 源码（`hook.c`）与 Makefile
 - `tests/`：单元测试 + 集成测试
-- `scripts/validate-rapidjson.sh`：对 Tencent/rapidjson 的端到端验证脚本（与 CI 对齐）
+- `scripts/validate-rapidjson.sh`：对 Tencent/rapidjson 的端到端验证脚本（可本地复现 CI 结果）
 
 ## 环境要求
 

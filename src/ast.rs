@@ -16,6 +16,12 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AstNode {
+    /// The AST node kind as emitted by clang (e.g. `"FunctionDecl"`,
+    /// `"CXXRecordDecl"`, …).  Some internal clang nodes lack this field
+    /// (e.g. certain template-expansion helpers); defaulting to an empty
+    /// string ensures they are silently skipped during traversal rather than
+    /// causing a hard deserialisation failure.
+    #[serde(default)]
     pub kind: String,
     pub id: Option<String>,
     pub loc: Option<Location>,
