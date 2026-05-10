@@ -132,6 +132,17 @@ fn init_simple_free_functions() {
         captured_content.contains(h.to_str().unwrap()),
         "captured headers should contain input header path"
     );
+
+    // Interactive header selection should produce selected_headers.json.
+    let selected = tmp
+        .path()
+        .join(".cpp2rust/default/meta/selected_headers.json");
+    assert!(selected.exists(), "selected_headers.json should exist");
+    let selected_content = std::fs::read_to_string(selected).unwrap();
+    assert!(
+        selected_content.contains("mylib.hpp"),
+        "selected_headers.json should record chosen headers"
+    );
 }
 
 #[test]

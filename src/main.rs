@@ -4,10 +4,12 @@ mod codegen;
 mod error;
 mod layout;
 mod merge;
+mod selector;
 
 use crate::error::Result;
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
+use selector::{HeaderSelector, InteractiveSelector};
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -122,7 +124,23 @@ fn run_init(args: InitArgs) -> Result<()> {
         ));
     }
     println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
-    let headers_to_process = captured_headers;
+
+    // ----------------------------------------------------------------
+    // Interactive header selection
+    // (auto-selects all when stdin is not a terminal, e.g. in CI/scripts)
+    // ----------------------------------------------------------------
+    let sel = InteractiveSelector;
+    let selected_headers = sel.select(&captured_headers)?;
+    println!("{} header(s) selected for this feature", selected_headers.len());
+
+    lo.save_selected_headers(&selected_headers)?;
+
+    if selected_headers.is_empty() {
+        println!("No headers selected – skipping FFI generation.");
+        return Ok(());
+    }
+
+    let headers_to_process = selected_headers;
 
     lo.save_meta(&headers_to_process, link_name)?;
 
@@ -246,7 +264,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── ast/        (clang AST JSON per header)");
-    println!("    ├── meta/       (build_cmd.txt, headers.json, init-interface-report.md)");
+    println!("    ├── meta/       (build_cmd.txt, captured_headers.list, selected_headers.json, headers.json, init-interface-report.md)");
     println!("    └── rust/       (generated Rust project)");
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");
