@@ -13,7 +13,11 @@ free functions (including overloaded ones) inside a namespace.
 From the repository root:
 
 ```bash
-# Step 1: generate FFI
+# Step 1: capture build + interactive header selection + generate FFI
+#
+# In a terminal: an interactive multi-select prompt lets you choose which
+# captured headers to include.  In CI / non-interactive mode all headers are
+# selected automatically.
 cpp2rust-demo init --link mylib -- clang -x c++ -fsyntax-only examples/simple/mylib.hpp
 
 # Step 2: consolidate into a single file
@@ -23,6 +27,12 @@ cpp2rust-demo merge
 ls .cpp2rust/default/rust/src/
 cat .cpp2rust/default/rust/src/merged_ffi.rs
 ```
+
+After `init` you will also find:
+
+- `.cpp2rust/default/meta/captured_headers.list` – all headers seen by the hook
+- `.cpp2rust/default/meta/selected_headers.json` – headers chosen in the
+  selection step (auto-selected when stdin is not a terminal)
 
 ## Expected Generated FFI
 

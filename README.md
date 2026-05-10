@@ -2,7 +2,7 @@
 
 `cpp2rust-demo` 是一个把 C++ 项目构建中提取的接口转换为 Rust `hicc` FFI 脚手架的演示工具。
 
-本仓库当前实现与 `LuuuXXX/c2rust-demo` 对齐：`init` 先通过真实构建命令 + `LD_PRELOAD` hook 捕获输入，再进行 AST 解析与代码生成，`merge` 负责后处理合并。
+本仓库与 `LuuuXXX/c2rust-demo` 的工作流对齐：`init` 先通过真实构建命令 + `LD_PRELOAD` hook 捕获输入头文件，再通过**交互式选择**确认要处理的 header 子集，最后进行 AST 解析与 hicc FFI 代码生成。`merge` 负责后处理合并。
 
 ---
 
@@ -39,15 +39,18 @@ cargo run -- --help
 
 ---
 
-## `LD_PRELOAD` 使用方式
+## `init` 完整流程
 
-`init` 执行流程：
+`init` 执行步骤：
 
-1. 构建 `hook/libhook.so`。
-2. 使用 `LD_PRELOAD=hook/libhook.so` 运行捕获阶段。
-3. hook 将捕获到的头文件记录到：
-   - `.cpp2rust/<feature>/meta/captured_headers.list`
-4. 以捕获结果为主进行 clang AST 解析与 Rust FFI 生成。
+1. **构建 hook**：编译 `hook/libhook.so`。
+2. **运行捕获**：使用 `LD_PRELOAD=hook/libhook.so` 执行传入的构建命令，hook 将捕获到的头文件路径写入
+   `.cpp2rust/<feature>/meta/captured_headers.list`。
+3. **交互式选择**：展示捕获到的 header 列表，由用户多选（空格切换，回车确认）。
+   - 选中的 header 写入 `.cpp2rust/<feature>/meta/selected_headers.json`。
+   - **非交互环境**（CI / pipe / 脚本）：自动全选，不阻塞。
+   - 若用户一个都不选，则打印提示并跳过后续 Rust 生成。
+4. **AST 解析 + hicc FFI 生成**：仅对被选中的 header 运行 clang AST 解析并生成 `ffi_*.rs`。
 
 `init` 必须使用 `--` 传入完整构建命令（如 `make` / `cmake --build` / 自定义脚本）。
 
@@ -64,13 +67,19 @@ cargo run -- --help
 
 ## 运行示例
 
-### 示例 1：推荐流程（与 c2rust-demo 一致）
+### 示例 1：单头文件
+
+```bash
+cpp2rust-demo init --link mylib -- clang -x c++ -fsyntax-only include/mylib.hpp
+```
+
+### 示例 2：使用 make 构建命令
 
 ```bash
 cpp2rust-demo init --link mylib -- make -j4
 ```
 
-### 示例 2：使用 cmake 构建命令
+### 示例 3：使用 cmake 构建命令
 
 ```bash
 cpp2rust-demo init \
@@ -93,9 +102,10 @@ cpp2rust-demo merge --feature myfeature
 .cpp2rust/<feature>/
 ├── ast/                          # clang AST JSON
 ├── meta/
-│   ├── headers.json              # capture 后用于 AST/codegen 的 header 集合 + link_name
 │   ├── build_cmd.txt             # init 捕获阶段使用的构建命令
-│   ├── captured_headers.list     # LD_PRELOAD hook 捕获结果
+│   ├── captured_headers.list     # LD_PRELOAD hook 捕获的全部头文件
+│   ├── selected_headers.json     # 交互式选择后被选中的头文件
+│   ├── headers.json              # 与 selected_headers.json 相同集合 + link_name（供 merge 使用）
 │   ├── init-interface-report.md
 │   └── merge-report.md
 └── rust/
@@ -103,19 +113,23 @@ cpp2rust-demo merge --feature myfeature
     ├── build.rs
     └── src/
         ├── lib.rs
-        ├── ffi_<header>.rs
-        └── merged_ffi.rs
+        ├── ffi_<header>.rs       # 每个被选中的 header 对应一个
+        └── merged_ffi.rs         # merge 后的合并文件
 ```
 
 ---
 
-## 与原实现相比的差异
+## 与 c2rust-demo 的对齐情况
 
-- 之前：header-first（`init ... <HEADER>...`）。
-- 现在：build-command-first（`init ... -- <BUILD_CMD...>`），与 `c2rust-demo` 心智模型一致。
-- 好处：
-  - hook 行为集中在 `hook/hook.c`，后续调整捕获策略更直观。
-  - 直接复用真实构建命令，减少“测试命令”和“真实构建”不一致的问题。
+| 步骤 | c2rust-demo | cpp2rust-demo |
+|------|-------------|---------------|
+| build hook | ✅ | ✅ |
+| LD_PRELOAD 捕获 | ✅ | ✅ |
+| 交互式选择 | ✅（.c2rust 文件） | ✅（.hpp 头文件） |
+| 选择结果持久化 | `selected_files.json` | `selected_headers.json` |
+| 非交互自动全选 | ✅ | ✅ |
+| 空选择跳过生成 | ✅ | ✅ |
+| Rust 侧架构 | split（per-symbol） | **hicc**（per-header ffi_*.rs） |
 
 ---
 

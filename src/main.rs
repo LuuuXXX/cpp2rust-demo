@@ -4,10 +4,12 @@ mod codegen;
 mod error;
 mod layout;
 mod merge;
+mod selector;
 
 use crate::error::Result;
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
+use selector::{FileSelector, InteractiveSelector};
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -80,6 +82,10 @@ struct MergeArgs {
 // ---------------------------------------------------------------------------
 
 fn run_init(args: InitArgs) -> Result<()> {
+    run_init_with_selector(args, &InteractiveSelector)
+}
+
+fn run_init_with_selector(args: InitArgs, sel: &dyn FileSelector) -> Result<()> {
     let feature = &args.feature;
     let link_name = &args.link;
     let build_cmd = &args.build_cmd;
@@ -106,10 +112,15 @@ fn run_init(args: InitArgs) -> Result<()> {
         .map(|s| s.split_whitespace().map(|w| w.to_string()).collect())
         .unwrap_or_default();
 
-    // Build hook and run real build command under LD_PRELOAD capture.
+    // ----------------------------------------------------------------
+    // Step 1: build hook and run real build command under LD_PRELOAD.
+    // ----------------------------------------------------------------
     let hook_so = capture::build_hook()?;
     capture::run_with_hook(&cwd, build_cmd, &project_root, &lo.feature_root, &hook_so)?;
 
+    // ----------------------------------------------------------------
+    // Step 2: load captured headers.
+    // ----------------------------------------------------------------
     let captured_headers = capture::load_captured_headers(&lo.feature_root)?;
     if captured_headers.is_empty() {
         return Err(anyhow!(
@@ -122,7 +133,22 @@ fn run_init(args: InitArgs) -> Result<()> {
         ));
     }
     println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
-    let headers_to_process = captured_headers;
+
+    // ----------------------------------------------------------------
+    // Step 3: interactive selection
+    // (auto-selects all when stdin is not a terminal).
+    // ----------------------------------------------------------------
+    let selected_headers = sel.select(&captured_headers)?;
+    println!("{} header(s) selected for this feature.", selected_headers.len());
+
+    lo.save_selected_headers(&selected_headers)?;
+
+    if selected_headers.is_empty() {
+        println!("No headers selected – skipping Rust FFI generation.");
+        return Ok(());
+    }
+
+    let headers_to_process = selected_headers;
 
     lo.save_meta(&headers_to_process, link_name)?;
 
@@ -246,13 +272,14 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── ast/        (clang AST JSON per header)");
-    println!("    ├── meta/       (build_cmd.txt, headers.json, init-interface-report.md)");
+    println!("    ├── meta/       (build_cmd.txt, captured_headers.list, selected_headers.json,");
+    println!("    │               headers.json, init-interface-report.md)");
     println!("    └── rust/       (generated Rust project)");
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");
     println!("        └── src/");
     println!("            ├── lib.rs");
-    println!("            └── ffi_<header>.rs  (one per input header)");
+    println!("            └── ffi_<header>.rs  (one per selected header)");
     println!();
     println!("Next steps:");
     println!("  1. Review .cpp2rust/{}/rust/src/ffi_*.rs", feature);

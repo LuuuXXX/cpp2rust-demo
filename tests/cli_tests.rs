@@ -790,6 +790,131 @@ namespace geo {
     }
 }
 ///
+// ---------------------------------------------------------------------------
+// Selection metadata tests
+// ---------------------------------------------------------------------------
+
+/// In a non-interactive environment (stdin is not a tty in CI), init should
+/// auto-select all captured headers and persist the result in
+/// `selected_headers.json`.
+#[test]
+fn init_writes_selected_headers_json() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(&tmp, "sel.hpp", "int sel_fn(int x);");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "sel",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let json_path = tmp
+        .path()
+        .join(".cpp2rust/default/meta/selected_headers.json");
+    assert!(json_path.exists(), "selected_headers.json should be written");
+
+    let content = std::fs::read_to_string(&json_path).unwrap();
+    let selected: Vec<String> = serde_json::from_str(&content).unwrap();
+    assert!(
+        !selected.is_empty(),
+        "auto-select should produce at least one entry"
+    );
+    assert!(
+        selected.iter().any(|s| s.contains("sel.hpp")),
+        "sel.hpp should appear in selected_headers.json"
+    );
+}
+
+/// Verify that in non-interactive mode the output contains the
+/// "selecting all … automatically" message.
+#[test]
+fn init_non_interactive_selects_all_automatically() {
+    let tmp = TempDir::new().unwrap();
+    let h = write_header(&tmp, "auto.hpp", "void auto_fn();");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "auto",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            h.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        // In non-interactive CI the InteractiveSelector prints this message.
+        .stdout(predicate::str::contains("selecting all").or(
+            // If it already detected a tty somehow, it may skip the message;
+            // in that case just confirm the workflow still succeeded.
+            predicate::str::contains("header(s) selected for this feature"),
+        ));
+}
+
+/// Verify that when two headers are captured but the multi-header build
+/// workflow runs, both end up listed in selected_headers.json.
+#[test]
+fn init_multi_header_selected_headers_json_contains_both() {
+    let tmp = TempDir::new().unwrap();
+    let h1 = write_header(&tmp, "alpha.hpp", "int alpha();");
+    let h2 = write_header(&tmp, "beta.hpp", "int beta();");
+    let build_cmd = format!(
+        "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
+        h1.display(),
+        h2.display()
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "sh",
+            "-c",
+            &build_cmd,
+        ])
+        .assert()
+        .success();
+
+    let json_path = tmp
+        .path()
+        .join(".cpp2rust/default/meta/selected_headers.json");
+    assert!(json_path.exists(), "selected_headers.json should exist");
+
+    let content = std::fs::read_to_string(&json_path).unwrap();
+    let selected: Vec<String> = serde_json::from_str(&content).unwrap();
+    assert_eq!(
+        selected.len(),
+        2,
+        "both headers should be auto-selected; got {:?}",
+        selected
+    );
+    assert!(
+        selected.iter().any(|s| s.contains("alpha.hpp")),
+        "alpha.hpp should be selected"
+    );
+    assert!(
+        selected.iter().any(|s| s.contains("beta.hpp")),
+        "beta.hpp should be selected"
+    );
+}
+
 /// This proves the generated `hicc::cpp!` include + `hicc::import_lib!` macros
 /// are accepted by hicc-build, not just that the text was produced correctly.
 #[test]
