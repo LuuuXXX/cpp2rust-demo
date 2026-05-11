@@ -10,6 +10,7 @@ use crate::error::Result;
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
 use selector::{HeaderSelector, InteractiveSelector};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -126,39 +127,75 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
 
     // ----------------------------------------------------------------
-    // Interactive header selection
+    // Generate preprocessing middleware (.cpp2rust).
+    // ----------------------------------------------------------------
+    #[derive(Clone)]
+    struct SelectedInput {
+        header: PathBuf,
+        middleware: PathBuf,
+        stem: String,
+    }
+    let middleware_inputs: Vec<SelectedInput> = captured_headers
+        .iter()
+        .map(|header| {
+            let stem = header
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let middleware = lo.middleware_dir.join(format!("{}.cpp2rust", stem));
+            ast::preprocess_to_middleware(header, &middleware, &extra_args, &args.clang)?;
+            Ok(SelectedInput {
+                header: header.clone(),
+                middleware,
+                stem,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    println!(
+        "Generated {} middleware file(s) under {}",
+        middleware_inputs.len(),
+        lo.middleware_dir.display()
+    );
+
+    // ----------------------------------------------------------------
+    // Interactive file selection
     // (auto-selects all when stdin is not a terminal, e.g. in CI/scripts)
     // ----------------------------------------------------------------
     let sel = InteractiveSelector;
-    let selected_headers = sel.select(&captured_headers)?;
-    println!("{} header(s) selected for this feature", selected_headers.len());
+    let middleware_candidates: Vec<PathBuf> = middleware_inputs
+        .iter()
+        .map(|m| m.middleware.clone())
+        .collect();
+    let selected_middleware = sel.select(&middleware_candidates)?;
+    println!(
+        "{} middleware file(s) selected for this feature",
+        selected_middleware.len()
+    );
+    lo.save_selected_files(&selected_middleware)?;
 
+    let selected_set: HashSet<PathBuf> = selected_middleware.into_iter().collect();
+    let selected_inputs: Vec<SelectedInput> = middleware_inputs
+        .into_iter()
+        .filter(|item| selected_set.contains(&item.middleware))
+        .collect();
+    let selected_headers: Vec<PathBuf> = selected_inputs
+        .iter()
+        .map(|item| item.header.clone())
+        .collect();
     lo.save_selected_headers(&selected_headers)?;
 
-    if selected_headers.is_empty() {
-        println!("No headers selected – skipping FFI generation.");
+    if selected_inputs.is_empty() {
+        println!("No files selected – skipping FFI generation.");
         return Ok(());
     }
 
-    let headers_to_process = selected_headers;
-
-    lo.save_meta(&headers_to_process, link_name)?;
+    lo.save_meta(&selected_headers, link_name)?;
 
     // Create the Rust project skeleton.
     let rust_src_dir = lo.rust_dir.join("src");
     std::fs::create_dir_all(&rust_src_dir)
         .map_err(|e| anyhow!("create {}: {}", rust_src_dir.display(), e))?;
-
-    // Compute stem names for each header.
-    let stems: Vec<String> = headers_to_process
-        .iter()
-        .map(|h| {
-            h.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        })
-        .collect();
 
     // Write Cargo.toml, build.rs, lib.rs for the generated crate.
     let crate_name = format!("cpp2rust-{}-ffi", feature.replace('_', "-"));
@@ -175,15 +212,15 @@ fn run_init(args: InitArgs) -> Result<()> {
     // build.rs: list all per-header ffi files + include dirs for the headers.
     let build_rs_path = lo.rust_dir.join("build.rs");
     {
-        let src_files: Vec<String> = stems
+        let src_files: Vec<String> = selected_inputs
             .iter()
-            .map(|s| format!("src/ffi_{}.rs", s))
+            .map(|s| format!("src/ffi_{}.rs", s.stem))
             .collect();
         let src_refs: Vec<&str> = src_files.iter().map(|s| s.as_str()).collect();
 
         // Collect unique parent directories of all headers so hicc-build can
         // find the #included headers when compiling the C++ adapter code.
-        let include_dirs = header_include_dirs(&headers_to_process);
+        let include_dirs = header_include_dirs(&selected_headers);
         let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
         std::fs::write(&build_rs_path, codegen::render_build_rs(link_name, &src_refs, &inc_refs))
@@ -194,7 +231,10 @@ fn run_init(args: InitArgs) -> Result<()> {
     // lib.rs: re-export per-header ffi modules.
     let lib_rs_path = rust_src_dir.join("lib.rs");
     {
-        let mod_names: Vec<String> = stems.iter().map(|s| format!("ffi_{}", s)).collect();
+        let mod_names: Vec<String> = selected_inputs
+            .iter()
+            .map(|s| format!("ffi_{}", s.stem))
+            .collect();
         let mod_refs: Vec<&str> = mod_names.iter().map(|s| s.as_str()).collect();
         std::fs::write(&lib_rs_path, codegen::render_lib_rs(&mod_refs))
             .map_err(|e| anyhow!("write lib.rs: {}", e))?;
@@ -205,11 +245,14 @@ fn run_init(args: InitArgs) -> Result<()> {
     let mut all_decls = ast::ExtractedDecls::default();
     let mut report_sections: Vec<String> = Vec::new();
 
-    for (header, stem) in headers_to_process.iter().zip(stems.iter()) {
+    for input in &selected_inputs {
+        let header = &input.header;
+        let middleware = &input.middleware;
+        let stem = &input.stem;
         println!("Processing {}...", header.display());
 
         // Step 1: dump AST via clang.
-        let ast_root = ast::dump_ast(header, &extra_args, &args.clang)?;
+        let ast_root = ast::dump_ast(middleware, &extra_args, &args.clang)?;
 
         // Save the AST JSON for debugging.
         let ast_json_path = lo.ast_dir.join(format!("{}.ast.json", stem));
@@ -220,7 +263,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("  AST saved → {}", ast_json_path.display());
 
         // Step 2: extract declarations.
-        let header_paths: Vec<&Path> = vec![header.as_path()];
+        let header_paths: Vec<&Path> = vec![header.as_path(), middleware.as_path()];
         let decls = ast::extract_declarations(&ast_root, &header_paths);
 
         println!(
@@ -264,7 +307,8 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── ast/        (clang AST JSON per header)");
-    println!("    ├── meta/       (build_cmd.txt, captured_headers.list, selected_headers.json, headers.json, init-interface-report.md)");
+    println!("    ├── middleware/ (macro-expanded *.cpp2rust files)");
+    println!("    ├── meta/       (build_cmd.txt, captured_headers.list, selected_files.json, selected_headers.json, headers.json, init-interface-report.md)");
     println!("    └── rust/       (generated Rust project)");
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");

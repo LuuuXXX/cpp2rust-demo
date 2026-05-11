@@ -133,7 +133,18 @@ fn init_simple_free_functions() {
         "captured headers should contain input header path"
     );
 
-    // Interactive header selection should produce selected_headers.json.
+    // File selection metadata should be persisted.
+    let selected_files = tmp
+        .path()
+        .join(".cpp2rust/default/meta/selected_files.json");
+    assert!(selected_files.exists(), "selected_files.json should exist");
+    let selected_files_content = std::fs::read_to_string(selected_files).unwrap();
+    assert!(
+        selected_files_content.contains("mylib.cpp2rust"),
+        "selected_files.json should record chosen middleware files"
+    );
+
+    // Header selection metadata is kept for compatibility.
     let selected = tmp
         .path()
         .join(".cpp2rust/default/meta/selected_headers.json");
@@ -143,6 +154,12 @@ fn init_simple_free_functions() {
         selected_content.contains("mylib.hpp"),
         "selected_headers.json should record chosen headers"
     );
+
+    // Middleware should be emitted with .cpp2rust suffix.
+    let middleware = tmp
+        .path()
+        .join(".cpp2rust/default/middleware/mylib.cpp2rust");
+    assert!(middleware.exists(), "mylib.cpp2rust middleware should exist");
 }
 
 #[test]

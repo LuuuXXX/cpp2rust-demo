@@ -212,6 +212,49 @@ pub fn dump_ast(
         .map_err(|e| anyhow!("parse clang AST JSON for {}: {}", header.display(), e))
 }
 
+/// Generate a macro-expanded middleware file with `.cpp2rust` suffix.
+pub fn preprocess_to_middleware(
+    input: &Path,
+    output: &Path,
+    extra_clang_args: &[String],
+    clang_bin: &str,
+) -> crate::error::Result<()> {
+    use anyhow::anyhow;
+    use std::process::{Command, Stdio};
+
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| anyhow!("create {}: {}", parent.display(), e))?;
+    }
+
+    let mut cmd = Command::new(clang_bin);
+    cmd.arg("-E")
+        .arg("-dD")
+        .arg("-x")
+        .arg("c++")
+        .arg("-std=c++14");
+    for arg in extra_clang_args {
+        cmd.arg(arg);
+    }
+    cmd.arg(input);
+
+    let output_data = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| anyhow!("failed to run {} for preprocessing: {}", clang_bin, e))?;
+
+    if output_data.stdout.is_empty() {
+        return Err(anyhow!(
+            "clang produced no preprocessed output for {}",
+            input.display()
+        ));
+    }
+
+    std::fs::write(output, &output_data.stdout)
+        .map_err(|e| anyhow!("write {}: {}", output.display(), e))
+}
+
 /// Extract `FunctionIR` / `ClassIR` from the AST root, keeping only declarations
 /// that originate in the given `target_files`.
 ///

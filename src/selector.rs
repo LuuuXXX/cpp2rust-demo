@@ -33,14 +33,11 @@ impl HeaderSelector for InteractiveSelector {
 
         use dialoguer::{theme::ColorfulTheme, MultiSelect};
 
-        let items: Vec<String> = candidates
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect();
+        let items: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
 
         let selections = MultiSelect::with_theme(&ColorfulTheme::default())
             .with_prompt(
-                "Select headers to include in this feature (space to toggle, enter to confirm)",
+                "Select files to include in this feature (space to toggle, enter to confirm)",
             )
             .items(&items)
             .defaults(&vec![true; items.len()])

@@ -125,10 +125,12 @@ jobs:
           echo "--- Checking meta files ---"
           check_file  "${OUT}/meta/build_cmd.txt"
           check_file  "${OUT}/meta/captured_headers.list"
+          check_file  "${OUT}/meta/selected_files.json"
           check_file  "${OUT}/meta/selected_headers.json"
           check_file  "${OUT}/meta/headers.json"
           check_file  "${OUT}/meta/init-interface-report.md"
           check_file  "${OUT}/meta/merge-report.md"
+          check_file  "${OUT}/middleware/document.cpp2rust"
 
           echo "--- Checking generated Rust project ---"
           check_file  "${OUT}/rust/Cargo.toml"
@@ -139,6 +141,7 @@ jobs:
 
           echo "--- Checking file contents ---"
           check_contains "${OUT}/meta/captured_headers.list" "document.h"
+          check_contains "${OUT}/meta/selected_files.json" "document.cpp2rust"
           check_contains "${OUT}/rust/src/ffi_document.rs"   "import_lib!"
           check_contains "${OUT}/rust/src/ffi_document.rs"   'link_name = "rapidjson"'
           check_contains "${OUT}/rust/src/merged_ffi.rs"     "import_lib!"
