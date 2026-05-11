@@ -8,6 +8,13 @@ use std::process::{Command, Stdio};
 pub fn build_hook() -> Result<PathBuf> {
     let hook_dir = hook_dir()?;
     let so = hook_dir.join("libhook.so");
+    if so.exists() {
+        let metadata = std::fs::metadata(&so)
+            .map_err(|e| anyhow!("stat {}: {}", so.display(), e))?;
+        if metadata.len() > 0 {
+            return Ok(so);
+        }
+    }
 
     let status = Command::new("make")
         .current_dir(&hook_dir)
@@ -144,7 +151,7 @@ fn has_header_ext(path: &str) -> bool {
     let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) else {
         return false;
     };
-    matches!(ext, "h" | "hpp" | "hh" | "hxx")
+    matches!(ext, "h" | "hpp" | "hh" | "hxx" | "H" | "HPP" | "HH" | "HXX" | "h++" | "H++")
 }
 
 fn hook_dir() -> Result<PathBuf> {

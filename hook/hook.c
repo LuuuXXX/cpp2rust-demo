@@ -284,8 +284,9 @@ static void discover_headers(int argc, char **argv, const char *project_root,
 }
 
 static int parse_cpp_args(int argc, char *argv[], char *extracted[],
-                          char *cppfiles[]) {
+                          char *cppfiles[], int *cpp_count) {
   int cnt = 0;
+  int files = 0;
   for (int i = 1; i < argc; ++i) {
     char *arg = argv[i];
     if (!arg)
@@ -296,6 +297,7 @@ static int parse_cpp_args(int argc, char *argv[], char *extracted[],
         *cppfiles = realpath(arg, NULL);
         if (*cppfiles) {
           ++cppfiles;
+          ++files;
         }
       }
       continue;
@@ -315,6 +317,9 @@ static int parse_cpp_args(int argc, char *argv[], char *extracted[],
     } else if (strncmp(&arg[1], "std=", 4) == 0 || strcmp(&arg[1], "fshort-enums") == 0) {
       extracted[cnt++] = arg;
     }
+  }
+  if (cpp_count) {
+    *cpp_count = files;
   }
   return cnt;
 }
@@ -374,19 +379,19 @@ static void preprocess_cpp_file(const char *cc, int argc, char *argv[],
 
   pid_t pid = fork();
   if (pid == 0) {
-    const char *new_argv[argc + 8];
+    char *new_argv[argc + 8];
     int pos = 0;
-    new_argv[pos++] = cc;
+    new_argv[pos++] = (char *)cc;
     new_argv[pos++] = "-E";
     new_argv[pos++] = "-C";
-    new_argv[pos++] = cppfile;
+    new_argv[pos++] = (char *)cppfile;
     new_argv[pos++] = "-o";
     new_argv[pos++] = full_path;
     for (int i = 0; i < argc; ++i) {
       new_argv[pos++] = argv[i];
     }
     new_argv[pos++] = NULL;
-    execvp(cc, (char **)new_argv);
+    execvp(cc, new_argv);
     _exit(127);
   } else if (pid > 0) {
     int wstatus = 0;
@@ -401,13 +406,12 @@ static void discover_cpp_files(int argc, char **argv, const char *project_root,
   if (!cflags || !cppfiles)
     goto fail;
 
-  int cnt = parse_cpp_args(argc, argv, cflags, cppfiles);
-  if (!cppfiles[0])
+  int file_count = 0;
+  int cnt = parse_cpp_args(argc, argv, cflags, cppfiles, &file_count);
+  if (file_count == 0)
     goto fail;
 
-  for (int i = 0; i < argc; ++i) {
-    if (!cppfiles[i])
-      break;
+  for (int i = 0; i < file_count; ++i) {
     preprocess_cpp_file(argv[0], cnt, cflags, cppfiles[i], project_root,
                         feature_root);
   }
