@@ -137,7 +137,6 @@ cpp2rust-demo merge --feature myfeature
 │   ├── build_cmd.txt            ← init 传入的构建命令
 │   ├── captured_headers.list    ← LD_PRELOAD hook 捕获到的所有头文件路径
 │   ├── selected_files.json      ← 最终选择参与转换的 `.cpp2rust` 文件
-│   ├── selected_headers.json    ← 用户交互选择的头文件
 │   ├── headers.json             ← 最终用于 AST/codegen 的头文件集合 + link_name
 │   └── init-interface-report.md ← 提取到的接口摘要
 └── rust/

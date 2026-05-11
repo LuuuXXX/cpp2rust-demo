@@ -183,7 +183,6 @@ fn run_init(args: InitArgs) -> Result<()> {
         .iter()
         .map(|item| item.header.clone())
         .collect();
-    lo.save_selected_headers(&selected_headers)?;
 
     if selected_inputs.is_empty() {
         println!("No files selected – skipping FFI generation.");
@@ -311,7 +310,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── ast/        (clang AST JSON per header)");
     println!("    ├── middleware/ (macro-expanded *.cpp2rust files)");
-    println!("    ├── meta/       (build_cmd.txt, captured_headers.list, selected_files.json, selected_headers.json, headers.json, init-interface-report.md)");
+    println!("    ├── meta/       (build_cmd.txt, captured_headers.list, selected_files.json, headers.json, init-interface-report.md)");
     println!("    └── rust/       (generated Rust project)");
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");

@@ -144,17 +144,6 @@ fn init_simple_free_functions() {
         "selected_files.json should record chosen middleware files"
     );
 
-    // Header selection metadata is kept for compatibility.
-    let selected = tmp
-        .path()
-        .join(".cpp2rust/default/meta/selected_headers.json");
-    assert!(selected.exists(), "selected_headers.json should exist");
-    let selected_content = std::fs::read_to_string(selected).unwrap();
-    assert!(
-        selected_content.contains("mylib.hpp"),
-        "selected_headers.json should record chosen headers"
-    );
-
     // Middleware should be emitted with .cpp2rust suffix.
     let middleware = tmp
         .path()

@@ -126,7 +126,6 @@ jobs:
           check_file  "${OUT}/meta/build_cmd.txt"
           check_file  "${OUT}/meta/captured_headers.list"
           check_file  "${OUT}/meta/selected_files.json"
-          check_file  "${OUT}/meta/selected_headers.json"
           check_file  "${OUT}/meta/headers.json"
           check_file  "${OUT}/meta/init-interface-report.md"
           check_file  "${OUT}/meta/merge-report.md"

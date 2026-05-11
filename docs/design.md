@@ -17,7 +17,7 @@
 | Build interception | LD_PRELOAD | LD_PRELOAD hook (primary) + `clang -ast-dump=json` |
 | Input | Build command | Build command (`init -- <BUILD_CMD...>`) |
 | Interactive file selection | ✅ `.c2rust` files | ✅ captured headers |
-| Selection result persisted | `selected_files.json` | `selected_headers.json` |
+| Selection result persisted | `selected_files.json` | `selected_files.json` |
 | Class support | Structs only | Full C++ classes |
 | Namespace support | N/A | Yes |
 | Overload handling | N/A | Numeric suffix (_2, _3, …) |
@@ -44,8 +44,8 @@ Real build command (`init -- ...`)
     ▼  LD_PRELOAD hook capture
 Captured header set (`captured_headers.list`)
     │
-    ▼  Interactive header selection
-    │  (auto-selects all in non-TTY; saves selected_headers.json)
+    ▼  Interactive middleware-file selection
+    │  (auto-selects all in non-TTY; saves selected_files.json)
 Selected headers
     │
     ▼  clang -ast-dump=json
@@ -89,7 +89,7 @@ After `init + merge`, the `.cpp2rust/` directory contains:
 ├── meta/
 │   ├── build_cmd.txt            ← raw build command passed to init
 │   ├── captured_headers.list    ← all headers captured by LD_PRELOAD hook
-│   ├── selected_headers.json    ← headers selected by the user (or all, in non-TTY)
+│   ├── selected_files.json      ← middleware files selected by the user (or all, in non-TTY)
 │   ├── headers.json             ← capture-derived headers used for AST/codegen + link name
 │   └── init-interface-report.md   ← summary of extracted declarations
 └── rust/                   ← generated Rust project
