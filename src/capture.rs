@@ -1,5 +1,6 @@
 use crate::error::Result;
 use anyhow::anyhow;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -88,6 +89,64 @@ pub fn load_captured_headers(feature_root: &Path) -> Result<Vec<PathBuf>> {
     Ok(out)
 }
 
+/// Parse selected `*.cpp2rust` middleware files and infer project header files
+/// from preprocessor line markers.
+pub fn infer_headers_from_cpp2rust_files(
+    cpp2rust_files: &[PathBuf],
+    project_root: &Path,
+) -> Result<Vec<PathBuf>> {
+    let mut headers: HashSet<PathBuf> = HashSet::new();
+
+    for file in cpp2rust_files {
+        let content = std::fs::read_to_string(file)
+            .map_err(|e| anyhow!("read {}: {}", file.display(), e))?;
+        for line in content.lines() {
+            let Some(raw_path) = parse_line_marker_path(line) else {
+                continue;
+            };
+            if !has_header_ext(&raw_path) {
+                continue;
+            }
+
+            let path = normalize_marker_path(&raw_path, project_root);
+            if !path.exists() || !path.starts_with(project_root) {
+                continue;
+            }
+            headers.insert(path);
+        }
+    }
+
+    let mut out: Vec<PathBuf> = headers.into_iter().collect();
+    out.sort();
+    Ok(out)
+}
+
+fn parse_line_marker_path(line: &str) -> Option<String> {
+    // GCC/Clang preprocessor markers:
+    //   # 1 "/abs/path/header.hpp" 1
+    //   #line 12 "/abs/path/header.hpp"
+    let quote_start = line.find('"')?;
+    let rest = &line[quote_start + 1..];
+    let quote_end = rest.find('"')?;
+    Some(rest[..quote_end].to_string())
+}
+
+fn normalize_marker_path(raw: &str, project_root: &Path) -> PathBuf {
+    let path = PathBuf::from(raw);
+    if path.is_absolute() {
+        path
+    } else {
+        project_root.join(path)
+    }
+}
+
+fn has_header_ext(path: &str) -> bool {
+    let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    matches!(ext, "h" | "hpp" | "hh" | "hxx")
+}
+
 fn hook_dir() -> Result<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -114,4 +173,35 @@ fn hook_dir() -> Result<PathBuf> {
     Err(anyhow!(
         "hook/ directory with Makefile not found (searched near binary and cwd)"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn infer_headers_from_cpp2rust_files_collects_project_headers() {
+        let tmp = TempDir::new().unwrap();
+        let project_root = tmp.path();
+        let feature_cpp_dir = project_root.join(".cpp2rust/default/cpp");
+        std::fs::create_dir_all(&feature_cpp_dir).unwrap();
+
+        let header = project_root.join("include").join("demo.hpp");
+        std::fs::create_dir_all(header.parent().unwrap()).unwrap();
+        std::fs::write(&header, "int add(int a, int b);").unwrap();
+
+        let middleware = feature_cpp_dir.join("main.cpp2rust");
+        std::fs::write(
+            &middleware,
+            format!(
+                "# 1 \"{}\" 1\nint add(int a, int b);\n# 1 \"/usr/include/stdio.h\" 1\n",
+                header.display()
+            ),
+        )
+        .unwrap();
+
+        let inferred = infer_headers_from_cpp2rust_files(&[middleware], project_root).unwrap();
+        assert_eq!(inferred, vec![header]);
+    }
 }

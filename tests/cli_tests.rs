@@ -20,6 +20,13 @@ fn write_header(dir: &TempDir, name: &str, content: &str) -> std::path::PathBuf 
     path
 }
 
+// Helper: write a C++ source file to a temporary file and return its path.
+fn write_source(dir: &TempDir, name: &str, content: &str) -> std::path::PathBuf {
+    let path = dir.path().join(name);
+    std::fs::write(&path, content).unwrap();
+    path
+}
+
 // ---------------------------------------------------------------------------
 // Basic CLI sanity
 // ---------------------------------------------------------------------------
@@ -80,7 +87,7 @@ fn init_nonexistent_header_fails() {
 #[test]
 fn init_simple_free_functions() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(
+    write_header(
         &tmp,
         "mylib.hpp",
         r#"
@@ -88,6 +95,7 @@ fn init_simple_free_functions() {
         double scale(double x, double factor);
         "#,
     );
+    let cpp = write_source(&tmp, "mylib.cpp", "#include \"mylib.hpp\"\n");
 
     bin()
         .current_dir(tmp.path())
@@ -99,8 +107,8 @@ fn init_simple_free_functions() {
             "clang",
             "-x",
             "c++",
-            "-fsyntax-only",
-            h.to_str().unwrap(),
+            "-c",
+            cpp.to_str().unwrap(),
         ])
         .assert()
         .success()
@@ -122,33 +130,25 @@ fn init_simple_free_functions() {
     assert!(content.contains("hicc::cpp!"));
     assert!(content.contains("#include \"mylib.hpp\""));
 
-    // LD_PRELOAD hook should capture header usage.
-    let captured = tmp
-        .path()
-        .join(".cpp2rust/default/meta/captured_headers.list");
-    assert!(captured.exists(), "captured_headers.list should exist");
-    let captured_content = std::fs::read_to_string(captured).unwrap();
-    assert!(
-        captured_content.contains(h.to_str().unwrap()),
-        "captured headers should contain input header path"
-    );
-
-    // Interactive header selection should produce selected_headers.json.
+    // Hook should generate middleware + selection metadata.
+    let middleware = tmp.path().join(".cpp2rust/default/cpp/mylib.cpp2rust");
+    assert!(middleware.exists(), "mylib.cpp2rust should exist");
     let selected = tmp
         .path()
-        .join(".cpp2rust/default/meta/selected_headers.json");
-    assert!(selected.exists(), "selected_headers.json should exist");
+        .join(".cpp2rust/default/meta/selected_files.json");
+    assert!(selected.exists(), "selected_files.json should exist");
     let selected_content = std::fs::read_to_string(selected).unwrap();
     assert!(
-        selected_content.contains("mylib.hpp"),
-        "selected_headers.json should record chosen headers"
+        selected_content.contains("mylib.cpp2rust"),
+        "selected_files.json should record chosen middleware files"
     );
 }
 
 #[test]
 fn init_build_cmd_via_sh_c() {
     let tmp = TempDir::new().unwrap();
-    let header_path = write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
+    write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
+    write_source(&tmp, "quoted.cpp", "#include \"quoted.hpp\"\n");
 
     bin()
         .current_dir(tmp.path())
@@ -159,7 +159,7 @@ fn init_build_cmd_via_sh_c() {
             "--",
             "sh",
             "-c",
-            "clang -x c++ -fsyntax-only quoted.hpp",
+            "clang -x c++ -c quoted.cpp",
         ])
         .assert()
         .success();
@@ -172,15 +172,8 @@ fn init_build_cmd_via_sh_c() {
         "generated ffi should contain quoted_add binding"
     );
 
-    let captured = tmp
-        .path()
-        .join(".cpp2rust/default/meta/captured_headers.list");
-    assert!(captured.exists(), "captured_headers.list should exist");
-    let captured_content = std::fs::read_to_string(captured).unwrap();
-    assert!(
-        captured_content.contains(header_path.to_str().unwrap()),
-        "captured headers should contain header from quoted capture-cmd"
-    );
+    let middleware = tmp.path().join(".cpp2rust/default/cpp/quoted.cpp2rust");
+    assert!(middleware.exists(), "quoted.cpp2rust should exist");
 }
 
 #[test]

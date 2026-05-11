@@ -2,7 +2,7 @@
 
 `cpp2rust-demo` 是一个面向 C++ 项目的命令行工具，当前提供两步流程：
 
-1. `init`：捕获 C++ 构建过程，通过 `LD_PRELOAD` hook 提取头文件，生成按头文件拆分的 `hicc` FFI 脚手架。
+1. `init`：捕获 C++ 构建过程，生成 `.cpp2rust` 中间件并自动推导头文件信息，再生成按头文件拆分的 `hicc` FFI 脚手架。
 2. `merge`：将 `init` 产出的各 `ffi_*.rs` 文件合并为单一的 `merged_ffi.rs`，并汇总接口报告。
 
 ## 当前能力范围
@@ -17,9 +17,10 @@ C++ 项目目录
    │
    ├─ cpp2rust-demo init --link <libname> -- <构建命令>
    │    ├─ 编译 hook/libhook.so
-   │    ├─ 通过 LD_PRELOAD 注入构建过程，捕获 .h / .hpp 头文件路径
-   │    ├─ 交互式选择参与转换的头文件（非交互环境自动全选）
-   │    ├─ 对每个选中头文件调用 clang -ast-dump=json 解析 AST
+   │    ├─ 通过 LD_PRELOAD 注入构建过程，捕获并生成 .cpp2rust 中间件
+   │    ├─ 交互式选择参与转换的 .cpp2rust 文件（非交互环境自动全选）
+   │    ├─ 从选中的 .cpp2rust 中自动识别项目头文件（供 hicc 生成使用）
+   │    ├─ 对识别到的头文件调用 clang -ast-dump=json 解析 AST
    │    ├─ 提取函数/类声明，生成 hicc FFI 脚手架（ffi_<header>.rs）
    │    └─ 生成 .cpp2rust/<feature>/rust 及 init-interface-report.md
    │
@@ -34,7 +35,7 @@ C++ 项目目录
 - `src/main.rs`：CLI 入口（`init` / `merge` 子命令）
 - `src/capture.rs`：hook 构建与带 `LD_PRELOAD` 环境变量的构建命令执行
 - `src/layout.rs`：`.cpp2rust/<feature>/` 目录与元数据管理
-- `src/selector.rs`：交互式头文件选择（`dialoguer`）
+- `src/selector.rs`：交互式中间件文件选择（`dialoguer`）
 - `src/ast.rs`：clang AST JSON 解析与 IR 提取
 - `src/codegen.rs`：hicc FFI 代码生成（`import_lib!` / `import_class!`）
 - `src/merge.rs`：`merge` 阶段合并逻辑
@@ -76,13 +77,13 @@ cpp2rust-demo init --link <库名> -- <你的构建命令>
 示例：
 
 ```bash
-# 直接用 clang++ 处理单个头文件（适合 header-only 库）
-cpp2rust-demo init --link mylib -- clang++ -x c++ -std=c++11 -fsyntax-only include/mylib.hpp
+# 常规 C++ 编译命令（推荐）
+cpp2rust-demo init --link mylib -- clang++ -std=c++17 -c src/mylib.cpp
 
 # 通过 make 构建整个项目
 cpp2rust-demo init --feature myfeature --link mylib -- make -j4
 
-# 通过 cmake 构建
+# 通过 cmake 构建（会自动捕获编译产物并生成 .cpp2rust 中间件）
 cpp2rust-demo init --link mylib -- cmake --build build
 
 # 如果构建系统需要 shell 语法
@@ -94,13 +95,14 @@ cpp2rust-demo init --link mylib -- sh -c "make -j4"
 - `--link` 为必填项，对应生成代码中 `hicc::import_lib!` 的 `link_name`。
 - `--feature` 默认值为 `default`；多个特性可以在同一项目下并存。
 - `--` 之后的所有参数会原样作为构建命令传入。
-- 捕获完成后，工具在非交互环境（CI / 管道 / 重定向）下自动全选所有头文件；在交互终端下会弹出多选菜单：
+- 捕获完成后，工具会扫描 `.cpp2rust/<feature>/cpp/**/*.cpp2rust` 作为中间件输入。
+- 在非交互环境（CI / 管道 / 重定向）下会自动全选；在交互终端下会弹出多选菜单：
 
   ```
-  ? Select headers to include in this feature (space to toggle, enter to confirm) ›
-  ✔ /path/to/mylib.hpp
-  ✔ /path/to/utils.hpp
-    /path/to/internal.hpp
+  ? Select files to include in this feature (space to toggle, enter to confirm) ›
+  ✔ /path/to/.cpp2rust/default/cpp/src/mylib.cpp2rust
+  ✔ /path/to/.cpp2rust/default/cpp/src/utils.cpp2rust
+    /path/to/.cpp2rust/default/cpp/src/internal.cpp2rust
   ```
 
   按 `Space` 切换选中，按 `Enter` 确认。
@@ -127,12 +129,13 @@ cpp2rust-demo merge --feature myfeature
 
 ```text
 .cpp2rust/<feature>/
+├── cpp/
+│   └── <source>.cpp2rust        ← hook 生成的中间件（保留预处理行标记）
 ├── ast/
 │   └── <header>.ast.json        ← raw clang AST JSON（调试用）
 ├── meta/
 │   ├── build_cmd.txt            ← init 传入的构建命令
-│   ├── captured_headers.list    ← LD_PRELOAD hook 捕获到的所有头文件路径
-│   ├── selected_headers.json    ← 用户交互选择的头文件
+│   ├── selected_files.json      ← 用户交互选择的 .cpp2rust 文件
 │   ├── headers.json             ← 最终用于 AST/codegen 的头文件集合 + link_name
 │   └── init-interface-report.md ← 提取到的接口摘要
 └── rust/
@@ -179,7 +182,7 @@ cargo test
 ## 注意事项
 
 - 目前仅支持 Linux（依赖 `LD_PRELOAD` 和 `/proc/self/cmdline`）。
-- hook 只记录构建命令参数中**直接出现**的头文件路径（`.h` / `.hpp` / `.hh` / `.hxx`）；通过 `#include` 间接引入的头文件不会被捕获。
-- hook 仅记录当前项目根目录（即存在 `.cpp2rust/` 的目录）下的头文件；请在目标工程根目录执行 `init`。
-- 对于 header-only 库，直接用 `clang++ -x c++ -fsyntax-only <header>` 作为构建命令即可触发捕获。
+- 推荐提供真实编译命令（例如 `clang++ -c xxx.cpp` / `make` / `cmake --build`），这样 hook 才能生成 `.cpp2rust` 中间件并自动推导头文件。
+- hook 只处理当前项目根目录（即存在 `.cpp2rust/` 的目录）下的源码/头文件；请在目标工程根目录执行 `init`。
+- 对于 header-only 场景，仍兼容直接编译头文件（如 `clang++ -x c++ -fsyntax-only <header>`），此时会回退到旧的头文件捕获路径。
 - `merge` 会覆盖 `rust/src/lib.rs` 和 `rust/build.rs`，使其只引用 `merged_ffi.rs`；如需保留 `init` 的原始结构，请先备份。

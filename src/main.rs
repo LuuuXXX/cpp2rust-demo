@@ -9,7 +9,7 @@ mod selector;
 use crate::error::Result;
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
-use selector::{HeaderSelector, InteractiveSelector};
+use selector::{FileSelector, InteractiveSelector};
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -112,35 +112,57 @@ fn run_init(args: InitArgs) -> Result<()> {
     let hook_so = capture::build_hook()?;
     capture::run_with_hook(&cwd, build_cmd, &project_root, &lo.feature_root, &hook_so)?;
 
-    let captured_headers = capture::load_captured_headers(&lo.feature_root)?;
-    if captured_headers.is_empty() {
-        return Err(anyhow!(
-            "{}",
-            concat!(
-                "preload hook did not capture any headers from build command; ",
-                "ensure the build command really compiles C/C++ sources and invokes clang/gcc ",
-                "with project headers"
-            )
-        ));
-    }
-    println!("Captured {} header(s) via LD_PRELOAD hook.", captured_headers.len());
+    let captured_cpp2rust_files = layout::scan_cpp2rust_files(&lo.cpp_dir)?;
+    let headers_to_process = if captured_cpp2rust_files.is_empty() {
+        // Backward-compatible fallback for header-only / syntax-only commands
+        // that directly compile headers.
+        let captured_headers = capture::load_captured_headers(&lo.feature_root)?;
+        if captured_headers.is_empty() {
+            return Err(anyhow!(
+                "{}",
+                concat!(
+                    "preload hook did not capture any `.cpp2rust` middleware files or headers; ",
+                    "ensure the build command really compiles C/C++ sources (or directly compiles headers)"
+                )
+            ));
+        }
+        println!(
+            "No `.cpp2rust` middleware generated, fallback to {} captured header(s).",
+            captured_headers.len()
+        );
+        captured_headers
+    } else {
+        println!(
+            "Captured {} `.cpp2rust` middleware file(s).",
+            captured_cpp2rust_files.len()
+        );
 
-    // ----------------------------------------------------------------
-    // Interactive header selection
-    // (auto-selects all when stdin is not a terminal, e.g. in CI/scripts)
-    // ----------------------------------------------------------------
-    let sel = InteractiveSelector;
-    let selected_headers = sel.select(&captured_headers)?;
-    println!("{} header(s) selected for this feature", selected_headers.len());
+        // ----------------------------------------------------------------
+        // Interactive middleware selection
+        // (auto-selects all when stdin is not a terminal, e.g. in CI/scripts)
+        // ----------------------------------------------------------------
+        let sel = InteractiveSelector;
+        let selected_files = sel.select(&captured_cpp2rust_files)?;
+        println!("{} middleware file(s) selected for this feature", selected_files.len());
+        lo.save_selected_files(&selected_files)?;
 
-    lo.save_selected_headers(&selected_headers)?;
+        if selected_files.is_empty() {
+            println!("No files selected – skipping FFI generation.");
+            return Ok(());
+        }
 
-    if selected_headers.is_empty() {
-        println!("No headers selected – skipping FFI generation.");
-        return Ok(());
-    }
-
-    let headers_to_process = selected_headers;
+        let inferred_headers = capture::infer_headers_from_cpp2rust_files(&selected_files, &project_root)?;
+        if inferred_headers.is_empty() {
+            return Err(anyhow!(
+                "selected `.cpp2rust` files do not contain project header line markers"
+            ));
+        }
+        println!(
+            "Inferred {} project header(s) from selected middleware files.",
+            inferred_headers.len()
+        );
+        inferred_headers
+    };
 
     lo.save_meta(&headers_to_process, link_name)?;
 
@@ -263,8 +285,9 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\n✓ cpp2rust-demo init completed successfully!");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
+    println!("    ├── cpp/        (captured preprocessed middleware files: *.cpp2rust)");
     println!("    ├── ast/        (clang AST JSON per header)");
-    println!("    ├── meta/       (build_cmd.txt, captured_headers.list, selected_headers.json, headers.json, init-interface-report.md)");
+    println!("    ├── meta/       (build_cmd.txt, selected_files.json, headers.json, init-interface-report.md)");
     println!("    └── rust/       (generated Rust project)");
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");

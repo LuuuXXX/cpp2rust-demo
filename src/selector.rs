@@ -1,10 +1,10 @@
 use crate::error::Result;
 use std::path::PathBuf;
 
-/// Abstraction over header-selection so tests can inject a fake implementation.
-pub trait HeaderSelector {
-    /// Given a slice of candidate header paths captured by the LD_PRELOAD hook,
-    /// return the subset the user wants to process in this feature.
+/// Abstraction over file-selection so tests can inject a fake implementation.
+pub trait FileSelector {
+    /// Given a slice of candidate file paths, return the subset the user wants
+    /// to process in this feature.
     fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>>;
 }
 
@@ -14,10 +14,10 @@ pub trait HeaderSelector {
 /// all candidates so the workflow is never blocked waiting for user input.
 pub struct InteractiveSelector;
 
-impl HeaderSelector for InteractiveSelector {
+impl FileSelector for InteractiveSelector {
     fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
         if candidates.is_empty() {
-            println!("No captured headers found – nothing to select.");
+            println!("No captured files found – nothing to select.");
             return Ok(vec![]);
         }
 
@@ -25,7 +25,7 @@ impl HeaderSelector for InteractiveSelector {
         use std::io::IsTerminal;
         if !std::io::stdin().is_terminal() {
             println!(
-                "Non-interactive terminal: selecting all {} header(s) automatically.",
+                "Non-interactive terminal: selecting all {} file(s) automatically.",
                 candidates.len()
             );
             return Ok(candidates.to_vec());
@@ -40,7 +40,7 @@ impl HeaderSelector for InteractiveSelector {
 
         let selections = MultiSelect::with_theme(&ColorfulTheme::default())
             .with_prompt(
-                "Select headers to include in this feature (space to toggle, enter to confirm)",
+                "Select files to include in this feature (space to toggle, enter to confirm)",
             )
             .items(&items)
             .defaults(&vec![true; items.len()])
@@ -58,7 +58,7 @@ impl HeaderSelector for InteractiveSelector {
 #[allow(dead_code)]
 pub struct SelectAll;
 
-impl HeaderSelector for SelectAll {
+impl FileSelector for SelectAll {
     fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
         Ok(candidates.to_vec())
     }
@@ -68,7 +68,7 @@ impl HeaderSelector for SelectAll {
 #[allow(dead_code)]
 pub struct SelectNone;
 
-impl HeaderSelector for SelectNone {
+impl FileSelector for SelectNone {
     fn select(&self, _candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
         Ok(vec![])
     }
@@ -80,7 +80,7 @@ pub struct PredicateSelector<F>(pub F)
 where
     F: Fn(&PathBuf) -> bool;
 
-impl<F: Fn(&PathBuf) -> bool> HeaderSelector for PredicateSelector<F> {
+impl<F: Fn(&PathBuf) -> bool> FileSelector for PredicateSelector<F> {
     fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
         Ok(candidates.iter().filter(|p| (self.0)(p)).cloned().collect())
     }

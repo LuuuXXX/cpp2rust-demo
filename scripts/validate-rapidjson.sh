@@ -9,8 +9,9 @@
 # The script:
 #   1. Builds cpp2rust-demo (debug by default, --release for release build).
 #   2. Clones Tencent/rapidjson into /tmp/rapidjson (re-uses existing clone).
-#   3. Runs `cpp2rust-demo init` inside the rapidjson directory against
-#      include/rapidjson/document.h (the primary public header).
+#   3. Runs `cpp2rust-demo init` inside the rapidjson directory using a real
+#      C++ compile command (`src/rapidjson.cpp`), so hook generates `.cpp2rust`
+#      middleware and init auto-inferrs headers.
 #   4. Runs `cpp2rust-demo merge`.
 #   5. Validates the expected output files exist and contain expected content.
 #
@@ -70,9 +71,9 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 3: Run cpp2rust-demo init
 #
-# We target include/rapidjson/document.h, the central public header that
-# declares Document, Value, and related types.  Using -fsyntax-only avoids
-# the need to link anything; -std=c++11 matches rapidjson's minimum standard.
+# We compile src/rapidjson.cpp (which includes all rapidjson headers) so the
+# new init flow can capture compiler invocations and generate `.cpp2rust`
+# middleware files.
 # ---------------------------------------------------------------------------
 echo "=== Step 3: Running cpp2rust-demo init ==="
 (
@@ -82,10 +83,7 @@ echo "=== Step 3: Running cpp2rust-demo init ==="
     "${BIN}" init \
         --feature "${FEATURE}" \
         --link rapidjson \
-        -- clang++ -x c++ -std=c++11 -fsyntax-only \
-               include/rapidjson/document.h
-        # document.h is rapidjson's central public header; targeting it
-        # directly is the idiomatic way to process a header-only library.
+        -- clang++ -std=c++11 -c src/rapidjson.cpp
 )
 echo ""
 
@@ -128,8 +126,8 @@ check_contains() {
 OUT="${RAPIDJSON_DIR}/.cpp2rust/${FEATURE}"
 
 check_file  "${OUT}/meta/build_cmd.txt"
-check_file  "${OUT}/meta/captured_headers.list"
-check_file  "${OUT}/meta/selected_headers.json"
+check_file  "${OUT}/cpp/src/rapidjson.cpp2rust"
+check_file  "${OUT}/meta/selected_files.json"
 check_file  "${OUT}/meta/headers.json"
 check_file  "${OUT}/meta/init-interface-report.md"
 check_file  "${OUT}/rust/Cargo.toml"
@@ -139,7 +137,7 @@ check_file  "${OUT}/rust/src/ffi_document.rs"
 check_file  "${OUT}/rust/src/merged_ffi.rs"
 check_file  "${OUT}/meta/merge-report.md"
 
-check_contains "${OUT}/meta/captured_headers.list" "document.h"
+check_contains "${OUT}/meta/selected_files.json" "rapidjson.cpp2rust"
 check_contains "${OUT}/rust/src/ffi_document.rs"   "import_lib!"
 check_contains "${OUT}/rust/src/ffi_document.rs"   'link_name = "rapidjson"'
 check_contains "${OUT}/rust/src/merged_ffi.rs"     "import_lib!"
