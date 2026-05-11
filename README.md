@@ -9,8 +9,8 @@ C++ 项目目录
    │
    ├─ cpp2rust-demo init --link <libname> -- <构建命令>
    │    ├─ 编译 hook/libhook.so
-   │    ├─ 通过 LD_PRELOAD 注入构建过程，捕获编译输入并生成 *2rust 中间件（在原后缀后追加 2rust）
-   │    ├─ 扫描 .cpp2rust/<feature>/cpp/**/*2rust
+   │    ├─ 通过 LD_PRELOAD 注入构建过程，捕获编译输入并生成 `.cpp2rust` 中间件（例如 `a.cpp -> a.cpp.cpp2rust`）
+   │    ├─ 扫描 .cpp2rust/<feature>/cpp/**/*.cpp2rust
    │    ├─ 交互式选择参与转换的中间件文件（非交互环境自动全选）
    │    ├─ 对每个选中文件执行 clang -ast-dump=json
    │    ├─ 识别 hicc 所需信息（函数名、参数类型、类/命名空间等）
@@ -71,7 +71,7 @@ cpp2rust-demo merge --feature myfeature
 
 ```text
 .cpp2rust/<feature>/
-├── cpp/                    # 预处理中间件（*2rust）与对应 .opts
+├── cpp/                    # 预处理中间件（*.cpp2rust）与对应 .opts
 ├── ast/                    # 每个选中文件的 clang AST JSON
 ├── meta/
 │   ├── build_cmd.txt
@@ -98,7 +98,7 @@ cpp2rust-demo merge --feature myfeature
 
 - 生成代码统一使用 `hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!`
 - `build.rs` 使用 `hicc_build::Build` 作为唯一 Rust 侧框架搭建方式
-- include 路径来自选中的 `*2rust` 文件所在目录
+- include 路径来自选中的 `*.cpp2rust` 文件所在目录
 
 ## CI 与脚本
 

@@ -131,8 +131,8 @@ check_file  "${OUT}/meta/build_cmd.txt"
 check_file  "${OUT}/meta/selected_files.json"
 check_file  "${OUT}/meta/headers.json"
 check_file  "${OUT}/meta/init-interface-report.md"
-check_file  "${OUT}/cpp/document.cpp2rust"
-check_file  "${OUT}/cpp/document.cpp2rust.opts"
+check_file  "${OUT}/cpp/document.cpp.cpp2rust"
+check_file  "${OUT}/cpp/document.cpp.cpp2rust.opts"
 check_file  "${OUT}/rust/Cargo.toml"
 check_file  "${OUT}/rust/build.rs"
 check_file  "${OUT}/rust/src/lib.rs"
@@ -140,10 +140,10 @@ check_file  "${OUT}/rust/src/ffi_document.rs"
 check_file  "${OUT}/rust/src/merged_ffi.rs"
 check_file  "${OUT}/meta/merge-report.md"
 
-check_contains "${OUT}/meta/selected_files.json" "document.cpp2rust"
+check_contains "${OUT}/meta/selected_files.json" "document.cpp.cpp2rust"
 check_contains "${OUT}/rust/src/ffi_document.rs"   "import_lib!"
 check_contains "${OUT}/rust/src/ffi_document.rs"   'link_name = "rapidjson"'
-check_contains "${OUT}/rust/src/ffi_document.rs"   '#include "document.cpp2rust"'
+check_contains "${OUT}/rust/src/ffi_document.rs"   '#include "document.cpp.cpp2rust"'
 check_contains "${OUT}/rust/src/merged_ffi.rs"     "import_lib!"
 
 echo ""

@@ -116,7 +116,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         return Err(anyhow!(
             "{}",
             concat!(
-                "preload hook did not capture any *2rust middleware files from build command; ",
+                "preload hook did not capture any *.cpp2rust middleware files from build command; ",
                 "ensure the build command really compiles C/C++ sources under the project root"
             )
         ));
@@ -254,7 +254,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\n✓ cpp2rust-demo init completed successfully!");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
-    println!("    ├── cpp/        (captured preprocessed middleware: *2rust)");
+    println!("    ├── cpp/        (captured preprocessed middleware: *.cpp2rust)");
     println!("    ├── ast/        (clang AST JSON per selected file)");
     println!("    ├── meta/       (build_cmd.txt, selected_files.json, headers.json, init-interface-report.md)");
     println!("    └── rust/       (generated Rust project)");
@@ -369,22 +369,14 @@ fn middleware_stems(paths: &[PathBuf]) -> Vec<String> {
 
     let mut counts: HashMap<String, usize> = HashMap::new();
     for path in paths {
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let stem = middleware_stem(path);
         *counts.entry(stem).or_insert(0) += 1;
     }
 
     paths
         .iter()
         .map(|path| {
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let stem = middleware_stem(path);
             if counts.get(&stem).copied().unwrap_or(0) <= 1 {
                 stem
             } else {
@@ -392,6 +384,19 @@ fn middleware_stems(paths: &[PathBuf]) -> Vec<String> {
             }
         })
         .collect()
+}
+
+fn middleware_stem(path: &Path) -> String {
+    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
+    let no_suffix = file_name
+        .strip_suffix(".cpp2rust")
+        .unwrap_or(file_name)
+        .to_string();
+    Path::new(&no_suffix)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 /// Build a stable, short hash suffix from the full path.
@@ -515,6 +520,25 @@ mod tests {
             init.build_cmd,
             vec!["clang", "-x", "c++", "-fsyntax-only", "header.hpp"]
         );
+    }
+
+    #[test]
+    fn middleware_stem_strips_cpp2rust_and_original_extension() {
+        let p = PathBuf::from("/tmp/mylib.hpp.cpp2rust");
+        assert_eq!(middleware_stem(&p), "mylib");
+    }
+
+    #[test]
+    fn middleware_stems_hashes_on_collisions() {
+        let paths = vec![
+            PathBuf::from("/a/lib.hpp.cpp2rust"),
+            PathBuf::from("/b/lib.h.cpp2rust"),
+        ];
+        let stems = middleware_stems(&paths);
+        assert_eq!(stems.len(), 2);
+        assert!(stems[0].starts_with("lib_"));
+        assert!(stems[1].starts_with("lib_"));
+        assert_ne!(stems[0], stems[1]);
     }
 
     #[test]

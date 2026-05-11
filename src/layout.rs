@@ -109,7 +109,7 @@ impl FeatureLayout {
     }
 }
 
-/// Scan `.cpp2rust/<feature>/cpp/` for all captured `*2rust` middleware files.
+/// Scan `.cpp2rust/<feature>/cpp/` for all captured `*.cpp2rust` middleware files.
 pub fn scan_cpp2rust_files(cpp_dir: &Path) -> Result<Vec<PathBuf>> {
     if !cpp_dir.exists() {
         return Ok(vec![]);
@@ -129,7 +129,7 @@ fn visit_dir(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         } else if path
             .file_name()
             .and_then(|n| n.to_str())
-            .is_some_and(|n| n.ends_with("2rust") && !n.ends_with(".opts"))
+            .is_some_and(|n| n.ends_with(".cpp2rust"))
         {
             out.push(path);
         }
@@ -195,13 +195,13 @@ mod tests {
         let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
         layout.create_dirs().unwrap();
         let headers = vec![
-            PathBuf::from("/capture/foo.hpp2rust"),
-            PathBuf::from("/capture/bar.cc2rust"),
+            PathBuf::from("/capture/foo.hpp.cpp2rust"),
+            PathBuf::from("/capture/bar.cc.cpp2rust"),
         ];
         layout.save_selected_files(&headers).unwrap();
         let content = std::fs::read_to_string(layout.meta_dir.join("selected_files.json")).unwrap();
-        assert!(content.contains("foo.hpp2rust"));
-        assert!(content.contains("bar.cc2rust"));
+        assert!(content.contains("foo.hpp.cpp2rust"));
+        assert!(content.contains("bar.cc.cpp2rust"));
     }
 
     #[test]
@@ -220,10 +220,10 @@ mod tests {
     fn scan_cpp2rust_files_finds_files() {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join("x")).unwrap();
-        std::fs::write(tmp.path().join("a.hpp2rust"), "").unwrap();
-        std::fs::write(tmp.path().join("x/b.cc2rust"), "").unwrap();
+        std::fs::write(tmp.path().join("a.hpp.cpp2rust"), "").unwrap();
+        std::fs::write(tmp.path().join("x/b.cc.cpp2rust"), "").unwrap();
         std::fs::write(tmp.path().join("x/c.cpp"), "").unwrap();
-        std::fs::write(tmp.path().join("x/d.hpp2rust.opts"), "").unwrap();
+        std::fs::write(tmp.path().join("x/d.hpp.cpp2rust.opts"), "").unwrap();
         let files = scan_cpp2rust_files(tmp.path()).unwrap();
         assert_eq!(files.len(), 2);
     }
