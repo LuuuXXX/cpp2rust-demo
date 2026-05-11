@@ -17,7 +17,7 @@ pub struct InteractiveSelector;
 impl FileSelector for InteractiveSelector {
     fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
         if candidates.is_empty() {
-            println!("No captured .cpp2rust middleware files found – nothing to select.");
+            println!("No captured *2rust middleware files found – nothing to select.");
             return Ok(vec![]);
         }
 
@@ -93,14 +93,14 @@ mod tests {
 
     #[test]
     fn select_all_returns_all() {
-        let paths = make_paths(&["a.cpp2rust", "b.cpp2rust"]);
+        let paths = make_paths(&["a.hpp2rust", "b.cc2rust"]);
         let result = SelectAll.select(&paths).unwrap();
         assert_eq!(result, paths);
     }
 
     #[test]
     fn select_none_returns_empty() {
-        let paths = make_paths(&["a.cpp2rust", "b.cpp2rust"]);
+        let paths = make_paths(&["a.hpp2rust", "b.cc2rust"]);
         let result = SelectNone.select(&paths).unwrap();
         assert!(result.is_empty());
     }
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn predicate_selector_filters() {
-        let paths = make_paths(&["foo/a.cpp2rust", "bar/b.cpp2rust", "foo/c.cpp2rust"]);
+        let paths = make_paths(&["foo/a.hpp2rust", "bar/b.cc2rust", "foo/c.hpp2rust"]);
         let sel = PredicateSelector(|p: &PathBuf| p.to_str().map_or(false, |s| s.contains("foo")));
         let result = sel.select(&paths).unwrap();
         assert_eq!(result.len(), 2);

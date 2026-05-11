@@ -1,9 +1,9 @@
 # clang AST 处理说明
 
-`cpp2rust-demo` 会对选中的 `.cpp2rust` 中间件执行：
+`cpp2rust-demo` 会对选中的 `*2rust` 中间件执行：
 
 ```bash
-clang -Xclang -ast-dump=json -fsyntax-only -x c++ -std=c++14 <file>.cpp2rust
+clang -Xclang -ast-dump=json -fsyntax-only -x c++ -std=c++14 <file>2rust
 ```
 
 并将原始 AST JSON 保存到：

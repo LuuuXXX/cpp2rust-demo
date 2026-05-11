@@ -116,7 +116,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         return Err(anyhow!(
             "{}",
             concat!(
-                "preload hook did not capture any .cpp2rust middleware files from build command; ",
+                "preload hook did not capture any *2rust middleware files from build command; ",
                 "ensure the build command really compiles C/C++ sources under the project root"
             )
         ));
@@ -254,7 +254,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\n✓ cpp2rust-demo init completed successfully!");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
-    println!("    ├── cpp/        (captured preprocessed middleware: *.cpp2rust)");
+    println!("    ├── cpp/        (captured preprocessed middleware: *2rust)");
     println!("    ├── ast/        (clang AST JSON per selected file)");
     println!("    ├── meta/       (build_cmd.txt, selected_files.json, headers.json, init-interface-report.md)");
     println!("    └── rust/       (generated Rust project)");

@@ -118,11 +118,11 @@ fn init_simple_free_functions() {
     // The generated file must include the header via hicc::cpp! so that
     // namespace-qualified signatures compile with hicc-build.
     assert!(content.contains("hicc::cpp!"));
-    assert!(content.contains("#include \"mylib.cpp2rust\""));
+    assert!(content.contains("#include \"mylib.hpp2rust\""));
 
     // LD_PRELOAD hook should capture middleware file.
-    let captured = tmp.path().join(".cpp2rust/default/cpp/mylib.cpp2rust");
-    assert!(captured.exists(), "mylib.cpp2rust should exist");
+    let captured = tmp.path().join(".cpp2rust/default/cpp/mylib.hpp2rust");
+    assert!(captured.exists(), "mylib.hpp2rust should exist");
 
     // Interactive middleware selection should produce selected_files.json.
     let selected = tmp
@@ -131,7 +131,7 @@ fn init_simple_free_functions() {
     assert!(selected.exists(), "selected_files.json should exist");
     let selected_content = std::fs::read_to_string(selected).unwrap();
     assert!(
-        selected_content.contains("mylib.cpp2rust"),
+        selected_content.contains("mylib.hpp2rust"),
         "selected_files.json should record chosen middleware files"
     );
 }
@@ -169,7 +169,7 @@ fn init_build_cmd_via_sh_c() {
     assert!(captured.exists(), "selected_files.json should exist");
     let captured_content = std::fs::read_to_string(captured).unwrap();
     assert!(
-        captured_content.contains("quoted.cpp2rust"),
+        captured_content.contains("quoted.hpp2rust"),
         "selected middleware should contain output from quoted capture-cmd"
     );
 }
@@ -581,8 +581,8 @@ fn merge_consolidates_cpp_includes() {
         merged.contains("hicc::cpp!"),
         "merged file should have hicc::cpp! block"
     );
-    assert!(merged.contains("#include \"lib1.cpp2rust\""));
-    assert!(merged.contains("#include \"lib2.cpp2rust\""));
+    assert!(merged.contains("#include \"lib1.hpp2rust\""));
+    assert!(merged.contains("#include \"lib2.hpp2rust\""));
     // Should have exactly one hicc::cpp! block (consolidated).
     assert_eq!(
         merged.matches("hicc::cpp!").count(),

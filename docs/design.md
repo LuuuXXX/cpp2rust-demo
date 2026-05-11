@@ -9,8 +9,8 @@
 1. 执行 `init -- <BUILD_CMD...>` 并保存 `build_cmd.txt`
 2. 编译 `hook/libhook.so`
 3. 通过 `LD_PRELOAD` 注入构建，拦截编译器调用
-4. 为项目内参与编译的 C/C++ 输入生成 `.cpp2rust` 预处理中间件与 `.opts`
-5. 扫描 `.cpp2rust/<feature>/cpp/**/*.cpp2rust`
+4. 为项目内参与编译的 C/C++ 输入生成 `*2rust` 预处理中间件与 `.opts`（在原后缀后追加 `2rust`）
+5. 扫描 `.cpp2rust/<feature>/cpp/**/*2rust`
 6. 交互式选择参与转换的中间件文件（非交互自动全选）
 7. 对选中文件执行 `clang -ast-dump=json`
 8. 抽取函数/类/方法与类型信息，生成 `hicc` FFI 文件
@@ -20,7 +20,7 @@
 
 ```text
 .cpp2rust/<feature>/
-├── cpp/      # *.cpp2rust + *.cpp2rust.opts
+├── cpp/      # *2rust + *2rust.opts
 ├── ast/      # *.ast.json
 ├── meta/
 │   ├── build_cmd.txt

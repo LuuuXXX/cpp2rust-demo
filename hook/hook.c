@@ -242,23 +242,17 @@ static int parse_args(int argc, char *argv[], char *extracted[], char *files[]) 
   return cnt;
 }
 
-static void replace_ext_with_cpp2rust(const char *rel_path, char *out, size_t out_size) {
+static void append_2rust_suffix(const char *rel_path, char *out, size_t out_size) {
   if (snprintf(out, out_size, "%s", rel_path) >= (int)out_size) {
     out[0] = '\0';
     return;
   }
 
-  char *slash = strrchr(out, '/');
-  char *dot = strrchr(out, '.');
-  if (dot && (!slash || dot > slash)) {
-    *dot = '\0';
-  }
-
-  if (strlen(out) + strlen(".cpp2rust") + 1 > out_size) {
+  if (strlen(out) + strlen("2rust") + 1 > out_size) {
     out[0] = '\0';
     return;
   }
-  strcat(out, ".cpp2rust");
+  strcat(out, "2rust");
 }
 
 static void preprocess_file(const char *cc, int argc, char *argv[], const char *file,
@@ -267,13 +261,13 @@ static void preprocess_file(const char *cc, int argc, char *argv[], const char *
   if (!rel_path)
     return;
 
-  char rel_cpp2rust[MAX_PATH_LEN];
-  replace_ext_with_cpp2rust(rel_path, rel_cpp2rust, sizeof(rel_cpp2rust));
-  if (!rel_cpp2rust[0])
+  char rel_2rust[MAX_PATH_LEN];
+  append_2rust_suffix(rel_path, rel_2rust, sizeof(rel_2rust));
+  if (!rel_2rust[0])
     return;
 
   char full_path[MAX_PATH_LEN];
-  if (snprintf(full_path, sizeof(full_path), "%s/cpp/%s", feature_root, rel_cpp2rust) >=
+  if (snprintf(full_path, sizeof(full_path), "%s/cpp/%s", feature_root, rel_2rust) >=
       (int)sizeof(full_path)) {
     return;
   }
