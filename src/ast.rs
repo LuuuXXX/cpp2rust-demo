@@ -217,10 +217,7 @@ pub fn dump_ast(
 ///
 /// The `strategy` parameter controls how overloaded function names are
 /// disambiguated in the generated Rust FFI.
-pub fn extract_declarations(
-    ast_root: &AstNode,
-    target_files: &[&Path],
-) -> ExtractedDecls {
+pub fn extract_declarations(ast_root: &AstNode, target_files: &[&Path]) -> ExtractedDecls {
     extract_declarations_with_strategy(ast_root, target_files, &OverloadStrategy::default())
 }
 
@@ -416,7 +413,16 @@ fn walk_node(
                 let mut ns = namespace.to_vec();
                 ns.push(ns_name.clone());
                 for child in node.inner.iter().flatten() {
-                    walk_node(child, current_file, targets, &ns, result, overload_counts, strategy, class_map);
+                    walk_node(
+                        child,
+                        current_file,
+                        targets,
+                        &ns,
+                        result,
+                        overload_counts,
+                        strategy,
+                        class_map,
+                    );
                 }
             }
         }
@@ -425,7 +431,9 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
-            if let Some(ir) = extract_function(node, namespace, overload_counts, None, strategy, class_map) {
+            if let Some(ir) =
+                extract_function(node, namespace, overload_counts, None, strategy, class_map)
+            {
                 result.functions.push(ir);
             }
         }
@@ -478,13 +486,20 @@ fn walk_node(
                 match child.kind.as_str() {
                     "CXXMethodDecl" | "CXXConstructorDecl" | "CXXDestructorDecl" => {
                         // Skip constructors and destructors – they need special hicc handling.
-                        if matches!(child.kind.as_str(), "CXXConstructorDecl" | "CXXDestructorDecl")
-                        {
+                        if matches!(
+                            child.kind.as_str(),
+                            "CXXConstructorDecl" | "CXXDestructorDecl"
+                        ) {
                             continue;
                         }
-                        if let Some(ir) =
-                            extract_function(child, namespace, &mut method_overloads, Some(class_name), strategy, class_map)
-                        {
+                        if let Some(ir) = extract_function(
+                            child,
+                            namespace,
+                            &mut method_overloads,
+                            Some(class_name),
+                            strategy,
+                            class_map,
+                        ) {
                             class_ir.methods.push(ir);
                         }
                     }
@@ -498,7 +513,16 @@ fn walk_node(
         // extern "C" / extern "C++" linkage blocks – just descend.
         "LinkageSpecDecl" => {
             for child in node.inner.iter().flatten() {
-                walk_node(child, current_file, targets, namespace, result, overload_counts, strategy, class_map);
+                walk_node(
+                    child,
+                    current_file,
+                    targets,
+                    namespace,
+                    result,
+                    overload_counts,
+                    strategy,
+                    class_map,
+                );
             }
         }
 
@@ -506,7 +530,16 @@ fn walk_node(
         // declarations inside (e.g. anonymous namespaces).
         _ => {
             for child in node.inner.iter().flatten() {
-                walk_node(child, current_file, targets, namespace, result, overload_counts, strategy, class_map);
+                walk_node(
+                    child,
+                    current_file,
+                    targets,
+                    namespace,
+                    result,
+                    overload_counts,
+                    strategy,
+                    class_map,
+                );
             }
         }
     }

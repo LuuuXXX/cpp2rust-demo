@@ -5,8 +5,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #define MAX_CMD_LEN 16384
@@ -20,6 +21,13 @@ static const char *CPP2RUST_DEBUG = "CPP2RUST_DEBUG";
 
 static const char *cc_names[] = {"gcc", "g++", "clang", "clang++", "cc", "c++"};
 
+#define DBG(...)                                                               \
+  do {                                                                         \
+    if (debug_enabled()) {                                                     \
+      dprintf(2, "[cpp2rust-hook] " __VA_ARGS__);                              \
+    }                                                                          \
+  } while (0)
+
 static int debug_enabled(void) {
   static int initialized = 0;
   static int enabled = 0;
@@ -29,13 +37,6 @@ static int debug_enabled(void) {
   }
   return enabled;
 }
-
-#define DBG(...)                                                              \
-  do {                                                                        \
-    if (debug_enabled()) {                                                    \
-      dprintf(2, "[cpp2rust-hook] " __VA_ARGS__);                             \
-    }                                                                         \
-  } while (0)
 
 static const char *path_basename(const char *path) {
   if (!path)
@@ -131,19 +132,22 @@ static void free_cmdline(char **argv, int argc) {
   free(argv);
 }
 
-static int has_header_ext(const char *path) {
-  const char *dot = strrchr(path, '.');
-  if (!dot)
-    return 0;
-  return strcmp(dot, ".h") == 0 || strcmp(dot, ".hpp") == 0 ||
-         strcmp(dot, ".hh") == 0 || strcmp(dot, ".hxx") == 0;
-}
-
 static int under_prefix(const char *path, const char *prefix) {
   size_t plen = strlen(prefix);
   if (strncmp(path, prefix, plen) != 0)
     return 0;
   return path[plen] == '\0' || path[plen] == '/';
+}
+
+static int is_cpp_file(const char *path) {
+  const char *dot = strrchr(path, '.');
+  if (!dot)
+    return 0;
+  return strcmp(dot, ".cc") == 0 || strcmp(dot, ".cpp") == 0 ||
+         strcmp(dot, ".cxx") == 0 || strcmp(dot, ".c++") == 0 ||
+         strcmp(dot, ".C") == 0 || strcmp(dot, ".h") == 0 ||
+         strcmp(dot, ".hpp") == 0 || strcmp(dot, ".hh") == 0 ||
+         strcmp(dot, ".hxx") == 0;
 }
 
 static int mkdir_p(const char *path) {
@@ -173,114 +177,182 @@ static int mkdir_p(const char *path) {
   return 0;
 }
 
-static int contains_exact_line(const char *text, ssize_t n, const char *line) {
-  if (!text || n <= 0 || !line)
-    return 0;
-  size_t line_len = strlen(line);
-  const char *cur = text;
-  const char *end = text + n;
-  while (cur < end) {
-    const char *nl = memchr(cur, '\n', (size_t)(end - cur));
-    const char *line_end = nl ? nl : end;
-    size_t cur_len = (size_t)(line_end - cur);
-    if (cur_len == line_len && strncmp(cur, line, line_len) == 0) {
-      return 1;
-    }
-    if (!nl)
-      break;
-    cur = nl + 1;
+static const char *strip_prefix(const char *path, const char *prefix) {
+  size_t prefix_len = strlen(prefix);
+  if (strncmp(path, prefix, prefix_len) != 0) {
+    return NULL;
   }
-  return 0;
+  if (prefix[prefix_len - 1] == '/') {
+    return &path[prefix_len];
+  }
+  if (path[prefix_len] == '/') {
+    return &path[prefix_len + 1];
+  }
+  if (path[prefix_len] == '\0') {
+    return &path[prefix_len];
+  }
+  return NULL;
 }
 
-static void save_captured_headers(char **headers, int count,
-                                  const char *feature_root) {
-  if (count <= 0)
-    return;
-
-  char list_path[MAX_PATH_LEN];
-  if (snprintf(list_path, sizeof(list_path), "%s/meta/captured_headers.list",
-               feature_root) >= (int)sizeof(list_path)) {
-    return;
-  }
-
-  char meta_dir[MAX_PATH_LEN];
-  if (snprintf(meta_dir, sizeof(meta_dir), "%s/meta", feature_root) >=
-      (int)sizeof(meta_dir)) {
-    return;
-  }
-  if (mkdir_p(meta_dir) != 0) {
-    return;
-  }
-
-  int fd = open(list_path, O_CREAT | O_RDWR, 0666);
+static void save_options(const char *path, int argc, char *argv[]) {
+  int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
   if (fd < 0)
     return;
-
-  if (flock(fd, LOCK_EX) != 0) {
-    close(fd);
-    return;
+  for (int i = 0; i < argc; ++i) {
+    dprintf(fd, "\"%s\" ", argv[i]);
   }
-
-  char existing[MAX_CMD_LEN];
-  ssize_t n = read(fd, existing, sizeof(existing) - 1);
-  if (n < 0)
-    n = 0;
-  existing[n] = '\0';
-
-  lseek(fd, 0, SEEK_END);
-  for (int i = 0; i < count; ++i) {
-    if (!headers[i])
-      continue;
-    if (!contains_exact_line(existing, n, headers[i])) {
-      dprintf(fd, "%s\n", headers[i]);
-    }
-  }
-
   close(fd);
 }
 
-static void discover_headers(int argc, char **argv, const char *project_root,
-                             const char *feature_root) {
-  if (getenv(CPP2RUST_CC_SKIP))
-    return;
-  setenv(CPP2RUST_CC_SKIP, "1", 0);
-
-  char **captured = calloc((size_t)argc, sizeof(char *));
-  if (!captured)
-    return;
-
-  int pos = 0;
+static int parse_args(int argc, char *argv[], char *extracted[], char *files[]) {
+  int cnt = 0;
+  int fpos = 0;
   for (int i = 1; i < argc; ++i) {
-    const char *arg = argv[i];
-    if (!arg || arg[0] == '-')
-      continue;
-    if (!has_header_ext(arg))
-      continue;
-    if (access(arg, R_OK) != 0)
+    char *arg = argv[i];
+    if (!arg)
       continue;
 
-    char *abs = realpath(arg, NULL);
-    if (!abs)
-      continue;
-    if (!under_prefix(abs, project_root)) {
-      free(abs);
+    if (arg[0] != '-') {
+      if (is_cpp_file(arg) && access(arg, R_OK) == 0) {
+        files[fpos++] = realpath(arg, NULL);
+      }
       continue;
     }
-    captured[pos++] = abs;
+
+    if (arg[1] == 'I' || arg[1] == 'D' || arg[1] == 'U') {
+      extracted[cnt++] = arg;
+      if (!arg[2]) {
+        ++i;
+        if (i < argc) {
+          extracted[cnt++] = argv[i];
+        }
+      }
+    } else if (strcmp(&arg[1], "include") == 0 || strcmp(&arg[1], "isystem") == 0 ||
+               strcmp(&arg[1], "iquote") == 0) {
+      extracted[cnt++] = arg;
+      ++i;
+      if (i < argc) {
+        extracted[cnt++] = argv[i];
+      }
+    } else if (strncmp(&arg[1], "std=", 4) == 0 || strncmp(&arg[1], "stdlib=", 7) == 0 ||
+               strcmp(arg, "-fshort-enums") == 0) {
+      extracted[cnt++] = arg;
+    }
+  }
+  return cnt;
+}
+
+static void append_cpp2rust_suffix(const char *rel_path, char *out, size_t out_size) {
+  if (snprintf(out, out_size, "%s", rel_path) >= (int)out_size) {
+    out[0] = '\0';
+    return;
   }
 
-  save_captured_headers(captured, pos, feature_root);
+  if (strlen(out) + strlen(".cpp2rust") + 1 > out_size) {
+    out[0] = '\0';
+    return;
+  }
+  strcat(out, ".cpp2rust");
+}
 
-  for (int i = 0; i < pos; ++i)
-    free(captured[i]);
-  free(captured);
+static void preprocess_file(const char *cc, int argc, char *argv[], const char *file,
+                            const char *project_root, const char *feature_root) {
+  const char *rel_path = strip_prefix(file, project_root);
+  if (!rel_path)
+    return;
+
+  char rel_cpp2rust[MAX_PATH_LEN];
+  append_cpp2rust_suffix(rel_path, rel_cpp2rust, sizeof(rel_cpp2rust));
+  if (!rel_cpp2rust[0])
+    return;
+
+  char full_path[MAX_PATH_LEN];
+  if (snprintf(full_path, sizeof(full_path), "%s/cpp/%s", feature_root, rel_cpp2rust) >=
+      (int)sizeof(full_path)) {
+    return;
+  }
+
+  char *filename = strrchr(full_path, '/');
+  if (!filename)
+    return;
+
+  *filename = '\0';
+  if (mkdir_p(full_path) != 0) {
+    *filename = '/';
+    return;
+  }
+  *filename = '/';
+
+  char opts_path[MAX_PATH_LEN];
+  if (snprintf(opts_path, sizeof(opts_path), "%s.opts", full_path) < (int)sizeof(opts_path)) {
+    save_options(opts_path, argc, argv);
+  }
+
+  DBG("preprocessing %s -> %s\n", file, full_path);
+
+  pid_t pid = fork();
+  if (pid == 0) {
+    const char *new_argv[argc + 10];
+    int pos = 0;
+    new_argv[pos++] = cc;
+    new_argv[pos++] = "-E";
+    new_argv[pos++] = "-C";
+    new_argv[pos++] = file;
+    new_argv[pos++] = "-o";
+    new_argv[pos++] = full_path;
+    new_argv[pos++] = "-P";
+    for (int i = 0; i < argc; ++i) {
+      new_argv[pos++] = argv[i];
+    }
+    new_argv[pos++] = NULL;
+    execvp(cc, (char *const *)new_argv);
+    _exit(127);
+  } else if (pid > 0) {
+    int status = 0;
+    waitpid(pid, &status, 0);
+  }
+}
+
+static void discover_files(int argc, char *argv[], const char *project_root,
+                           const char *feature_root) {
+  if (getenv(CPP2RUST_CC_SKIP))
+    return;
+
+  char **flags = calloc((size_t)argc, sizeof(char *));
+  char **files = calloc((size_t)argc, sizeof(char *));
+  if (!flags || !files)
+    goto fail;
+
+  int cnt = parse_args(argc, argv, flags, files);
+  if (!files[0])
+    goto fail;
+
+  setenv(CPP2RUST_CC_SKIP, "1", 0);
+
+  for (int i = 0; i < argc; ++i) {
+    if (!files[i])
+      break;
+    if (!under_prefix(files[i], project_root))
+      continue;
+    preprocess_file(argv[0], cnt, flags, files[i], project_root, feature_root);
+  }
+
+fail:
+  if (files) {
+    for (char **f = files; *f; ++f) {
+      free(*f);
+    }
+    free(files);
+  }
+  if (flags)
+    free(flags);
 }
 
 __attribute__((constructor)) static void cpp2rust_hook(void) {
   char *project_root = path_from(CPP2RUST_PROJECT_ROOT);
   if (!project_root)
     return;
+
   char *feature_root = path_from(CPP2RUST_FEATURE_ROOT);
   if (!feature_root) {
     free(project_root);
@@ -295,9 +367,9 @@ __attribute__((constructor)) static void cpp2rust_hook(void) {
     return;
   }
 
-  DBG("invoked: %s (argc=%d)\n", argv[0], argc);
+  DBG("invoked as %s (argc=%d)\n", argv[0], argc);
   if (is_compiler(argv[0])) {
-    discover_headers(argc, argv, project_root, feature_root);
+    discover_files(argc, argv, project_root, feature_root);
   }
 
   free_cmdline(argv, argc);

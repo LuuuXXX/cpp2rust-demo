@@ -107,9 +107,7 @@ fn init_simple_free_functions() {
         .stdout(predicate::str::contains("✓ cpp2rust-demo init completed"));
 
     // Check that the generated FFI file exists.
-    let ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/ffi_mylib.rs");
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_mylib.rs");
     assert!(ffi.exists(), "ffi_mylib.rs should exist");
 
     let content = std::fs::read_to_string(&ffi).unwrap();
@@ -120,35 +118,28 @@ fn init_simple_free_functions() {
     // The generated file must include the header via hicc::cpp! so that
     // namespace-qualified signatures compile with hicc-build.
     assert!(content.contains("hicc::cpp!"));
-    assert!(content.contains("#include \"mylib.hpp\""));
+    assert!(content.contains("#include \"mylib.hpp.cpp2rust\""));
 
-    // LD_PRELOAD hook should capture header usage.
-    let captured = tmp
-        .path()
-        .join(".cpp2rust/default/meta/captured_headers.list");
-    assert!(captured.exists(), "captured_headers.list should exist");
-    let captured_content = std::fs::read_to_string(captured).unwrap();
-    assert!(
-        captured_content.contains(h.to_str().unwrap()),
-        "captured headers should contain input header path"
-    );
+    // LD_PRELOAD hook should capture middleware file.
+    let captured = tmp.path().join(".cpp2rust/default/cpp/mylib.hpp.cpp2rust");
+    assert!(captured.exists(), "mylib.hpp.cpp2rust should exist");
 
-    // Interactive header selection should produce selected_headers.json.
+    // Interactive middleware selection should produce selected_files.json.
     let selected = tmp
         .path()
-        .join(".cpp2rust/default/meta/selected_headers.json");
-    assert!(selected.exists(), "selected_headers.json should exist");
+        .join(".cpp2rust/default/meta/selected_files.json");
+    assert!(selected.exists(), "selected_files.json should exist");
     let selected_content = std::fs::read_to_string(selected).unwrap();
     assert!(
-        selected_content.contains("mylib.hpp"),
-        "selected_headers.json should record chosen headers"
+        selected_content.contains("mylib.hpp.cpp2rust"),
+        "selected_files.json should record chosen middleware files"
     );
 }
 
 #[test]
 fn init_build_cmd_via_sh_c() {
     let tmp = TempDir::new().unwrap();
-    let header_path = write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
+    let _header_path = write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
 
     bin()
         .current_dir(tmp.path())
@@ -174,12 +165,12 @@ fn init_build_cmd_via_sh_c() {
 
     let captured = tmp
         .path()
-        .join(".cpp2rust/default/meta/captured_headers.list");
-    assert!(captured.exists(), "captured_headers.list should exist");
+        .join(".cpp2rust/default/meta/selected_files.json");
+    assert!(captured.exists(), "selected_files.json should exist");
     let captured_content = std::fs::read_to_string(captured).unwrap();
     assert!(
-        captured_content.contains(header_path.to_str().unwrap()),
-        "captured headers should contain header from quoted capture-cmd"
+        captured_content.contains("quoted.hpp.cpp2rust"),
+        "selected middleware should contain output from quoted capture-cmd"
     );
 }
 
@@ -212,9 +203,7 @@ fn init_overloaded_functions_get_numeric_suffix() {
         .assert()
         .success();
 
-    let ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/ffi_over.rs");
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_over.rs");
     let content = std::fs::read_to_string(&ffi).unwrap();
 
     // First overload keeps plain name.
@@ -261,9 +250,7 @@ fn init_namespace_qualified_signature() {
         .assert()
         .success();
 
-    let ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/ffi_ns.rs");
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_ns.rs");
     let content = std::fs::read_to_string(&ffi).unwrap();
     // The C++ signature in the attribute should be namespace-qualified.
     assert!(
@@ -304,13 +291,14 @@ fn init_class_generates_import_class_and_import_lib() {
         .assert()
         .success();
 
-    let ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/ffi_widget.rs");
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_widget.rs");
     let content = std::fs::read_to_string(&ffi).unwrap();
 
     // Instance methods go into import_class!
-    assert!(content.contains("import_class!"), "should have import_class!");
+    assert!(
+        content.contains("import_class!"),
+        "should have import_class!"
+    );
     assert!(
         content.contains("class Widget {"),
         "should declare Widget class"
@@ -454,15 +442,7 @@ fn merge_produces_merged_ffi() {
     // Init with both.
     bin()
         .current_dir(tmp.path())
-        .args([
-            "init",
-            "--link",
-            "mylib",
-            "--",
-            "sh",
-            "-c",
-            &build_cmd,
-        ])
+        .args(["init", "--link", "mylib", "--", "sh", "-c", &build_cmd])
         .assert()
         .success();
 
@@ -474,9 +454,7 @@ fn merge_produces_merged_ffi() {
         .success()
         .stdout(predicate::str::contains("✓ cpp2rust-demo merge completed"));
 
-    let merged = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/merged_ffi.rs");
+    let merged = tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs");
     assert!(merged.exists(), "merged_ffi.rs should exist");
 
     let content = std::fs::read_to_string(&merged).unwrap();
@@ -513,15 +491,7 @@ fn merge_deduplicates_class_forward_decls() {
 
     bin()
         .current_dir(tmp.path())
-        .args([
-            "init",
-            "--link",
-            "mylib",
-            "--",
-            "sh",
-            "-c",
-            &build_cmd,
-        ])
+        .args(["init", "--link", "mylib", "--", "sh", "-c", &build_cmd])
         .assert()
         .success();
 
@@ -531,11 +501,9 @@ fn merge_deduplicates_class_forward_decls() {
         .assert()
         .success();
 
-    let content = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let content =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // "class Widget;" should appear exactly once in import_lib!
     let count = content.matches("class Widget;").count();
@@ -573,10 +541,8 @@ fn merge_updates_build_rs_to_merged_ffi() {
         .assert()
         .success();
 
-    let build_rs = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/build.rs"),
-    )
-    .unwrap();
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
     assert!(
         build_rs.contains("merged_ffi.rs"),
         "build.rs should reference merged_ffi.rs after merge"
@@ -596,15 +562,7 @@ fn merge_consolidates_cpp_includes() {
 
     bin()
         .current_dir(tmp.path())
-        .args([
-            "init",
-            "--link",
-            "mylib",
-            "--",
-            "sh",
-            "-c",
-            &build_cmd,
-        ])
+        .args(["init", "--link", "mylib", "--", "sh", "-c", &build_cmd])
         .assert()
         .success();
 
@@ -614,18 +572,23 @@ fn merge_consolidates_cpp_includes() {
         .assert()
         .success();
 
-    let merged = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let merged =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // Both headers should be included in a single hicc::cpp! block.
-    assert!(merged.contains("hicc::cpp!"), "merged file should have hicc::cpp! block");
-    assert!(merged.contains("#include \"lib1.hpp\""));
-    assert!(merged.contains("#include \"lib2.hpp\""));
+    assert!(
+        merged.contains("hicc::cpp!"),
+        "merged file should have hicc::cpp! block"
+    );
+    assert!(merged.contains("#include \"lib1.hpp.cpp2rust\""));
+    assert!(merged.contains("#include \"lib2.hpp.cpp2rust\""));
     // Should have exactly one hicc::cpp! block (consolidated).
-    assert_eq!(merged.matches("hicc::cpp!").count(), 1,
-        "should have exactly one consolidated hicc::cpp! block");
+    assert_eq!(
+        merged.matches("hicc::cpp!").count(),
+        1,
+        "should have exactly one consolidated hicc::cpp! block"
+    );
 }
 
 // ---------------------------------------------------------------------------

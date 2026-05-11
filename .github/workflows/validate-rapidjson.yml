@@ -68,21 +68,20 @@ jobs:
         run: git clone --depth=1 https://github.com/Tencent/rapidjson.git /tmp/rapidjson
 
       # ------------------------------------------------------------------
-      # 7. Run cpp2rust-demo init inside the rapidjson repo
-      #
-      #    We target include/rapidjson/document.h – the central public
-      #    header that declares Document, Value, and related types.
-      #    -fsyntax-only avoids the need to link anything;
-      #    -std=c++11 matches rapidjson's minimum supported standard.
+      # 7. Run cpp2rust-demo init inside the rapidjson repo.
+      #    通过一个翻译单元触发“编译→捕获→预处理中间件(.cpp2rust)”链路，
+      #    避免手工输入头文件作为主流程。
       # ------------------------------------------------------------------
       - name: Run cpp2rust-demo init
         working-directory: /tmp/rapidjson
         run: |
           echo "=== Running cpp2rust-demo init ==="
+          cat > document.cpp <<'CPP'
+          #include "rapidjson/document.h"
+          CPP
           $GITHUB_WORKSPACE/target/release/cpp2rust-demo init \
             --link rapidjson \
-            -- clang++ -x c++ -std=c++11 -fsyntax-only \
-                   include/rapidjson/document.h
+            -- clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude document.cpp
 
       # ------------------------------------------------------------------
       # 8. Run cpp2rust-demo merge
@@ -124,11 +123,14 @@ jobs:
 
           echo "--- Checking meta files ---"
           check_file  "${OUT}/meta/build_cmd.txt"
-          check_file  "${OUT}/meta/captured_headers.list"
-          check_file  "${OUT}/meta/selected_headers.json"
+          check_file  "${OUT}/meta/selected_files.json"
           check_file  "${OUT}/meta/headers.json"
           check_file  "${OUT}/meta/init-interface-report.md"
           check_file  "${OUT}/meta/merge-report.md"
+
+          echo "--- Checking captured middleware ---"
+          check_file  "${OUT}/cpp/document.cpp.cpp2rust"
+          check_file  "${OUT}/cpp/document.cpp.cpp2rust.opts"
 
           echo "--- Checking generated Rust project ---"
           check_file  "${OUT}/rust/Cargo.toml"
@@ -138,9 +140,10 @@ jobs:
           check_file  "${OUT}/rust/src/merged_ffi.rs"
 
           echo "--- Checking file contents ---"
-          check_contains "${OUT}/meta/captured_headers.list" "document.h"
+          check_contains "${OUT}/meta/selected_files.json" "document.cpp.cpp2rust"
           check_contains "${OUT}/rust/src/ffi_document.rs"   "import_lib!"
           check_contains "${OUT}/rust/src/ffi_document.rs"   'link_name = "rapidjson"'
+          check_contains "${OUT}/rust/src/ffi_document.rs"   '#include "document.cpp.cpp2rust"'
           check_contains "${OUT}/rust/src/merged_ffi.rs"     "import_lib!"
 
           if [ "${FAIL}" -ne 0 ]; then
@@ -164,7 +167,7 @@ jobs:
           echo "=== Contents of .cpp2rust/default/meta/ ==="
           cat .cpp2rust/default/meta/build_cmd.txt        2>/dev/null || true
           echo ""
-          cat .cpp2rust/default/meta/captured_headers.list 2>/dev/null || true
+          cat .cpp2rust/default/meta/selected_files.json 2>/dev/null || true
           echo ""
           echo "=== Head of generated ffi_document.rs ==="
           head -60 .cpp2rust/default/rust/src/ffi_document.rs 2>/dev/null || true

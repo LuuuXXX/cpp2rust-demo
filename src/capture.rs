@@ -20,7 +20,10 @@ pub fn build_hook() -> Result<PathBuf> {
         return Err(anyhow!("make failed in {}", hook_dir.display()));
     }
     if !so.exists() {
-        return Err(anyhow!("libhook.so not found after build at {}", so.display()));
+        return Err(anyhow!(
+            "libhook.so not found after build at {}",
+            so.display()
+        ));
     }
     Ok(so)
 }
@@ -65,27 +68,6 @@ pub fn run_with_hook(
         ));
     }
     Ok(())
-}
-
-/// Load headers captured by hook: `.cpp2rust/<feature>/meta/captured_headers.list`.
-pub fn load_captured_headers(feature_root: &Path) -> Result<Vec<PathBuf>> {
-    let list_path = feature_root.join("meta").join("captured_headers.list");
-    if !list_path.exists() {
-        return Ok(Vec::new());
-    }
-    let content = std::fs::read_to_string(&list_path)
-        .map_err(|e| anyhow!("read {}: {}", list_path.display(), e))?;
-    let mut out = Vec::new();
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        out.push(PathBuf::from(line));
-    }
-    out.sort();
-    out.dedup();
-    Ok(out)
 }
 
 fn hook_dir() -> Result<PathBuf> {
