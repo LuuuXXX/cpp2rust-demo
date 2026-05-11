@@ -240,14 +240,25 @@ pub fn preprocess_to_middleware(
 
     let output_data = cmd
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .output()
         .map_err(|e| anyhow!("failed to run {} for preprocessing: {}", clang_bin, e))?;
 
-    if output_data.stdout.is_empty() {
+    if !output_data.status.success() {
+        let stderr = String::from_utf8_lossy(&output_data.stderr);
         return Err(anyhow!(
-            "clang produced no preprocessed output for {}",
-            input.display()
+            "clang preprocessing failed for {}: {}",
+            input.display(),
+            stderr.trim()
+        ));
+    }
+
+    if output_data.stdout.is_empty() {
+        let stderr = String::from_utf8_lossy(&output_data.stderr);
+        return Err(anyhow!(
+            "clang produced no preprocessed output for {}: {}",
+            input.display(),
+            stderr.trim()
         ));
     }
 

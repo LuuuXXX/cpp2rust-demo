@@ -37,7 +37,7 @@ impl HeaderSelector for InteractiveSelector {
 
         let selections = MultiSelect::with_theme(&ColorfulTheme::default())
             .with_prompt(
-                "Select files to include in this feature (space to toggle, enter to confirm)",
+                "Select middleware files to include in this feature (space to toggle, enter to confirm)",
             )
             .items(&items)
             .defaults(&vec![true; items.len()])

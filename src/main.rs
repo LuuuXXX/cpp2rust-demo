@@ -263,6 +263,9 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("  AST saved → {}", ast_json_path.display());
 
         // Step 2: extract declarations.
+        // Clang location info may point either to the original header path
+        // (via #line markers) or to the generated middleware file itself, so
+        // we pass both paths to keep filtering stable across inputs.
         let header_paths: Vec<&Path> = vec![header.as_path(), middleware.as_path()];
         let decls = ast::extract_declarations(&ast_root, &header_paths);
 
