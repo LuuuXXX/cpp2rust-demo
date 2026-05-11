@@ -10,7 +10,7 @@ use crate::error::Result;
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
 use selector::{HeaderSelector, InteractiveSelector};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -135,14 +135,36 @@ fn run_init(args: InitArgs) -> Result<()> {
         middleware: PathBuf,
         stem: String,
     }
+    let stem_counts: HashMap<String, usize> =
+        captured_headers
+            .iter()
+            .fold(HashMap::new(), |mut acc, header| {
+                let stem = header_base_stem(header);
+                *acc.entry(stem).or_insert(0) += 1;
+                acc
+            });
+    let mut used_stems = HashSet::new();
     let middleware_inputs: Vec<SelectedInput> = captured_headers
         .iter()
         .map(|header| {
-            let stem = header
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let base_stem = header_base_stem(header);
+            let duplicate_stem = stem_counts.get(&base_stem).copied().unwrap_or(0) > 1;
+            let mut stem = if duplicate_stem {
+                format!("{}_{}", base_stem, short_hash8(header))
+            } else {
+                base_stem
+            };
+            if !used_stems.insert(stem.clone()) {
+                let mut i = 2usize;
+                let base = stem.clone();
+                let mut candidate = format!("{}_{}", base, i);
+                while used_stems.contains(&candidate) {
+                    i += 1;
+                    candidate = format!("{}_{}", base, i);
+                }
+                used_stems.insert(candidate.clone());
+                stem = candidate;
+            }
             let middleware = lo.middleware_dir.join(format!("{}.cpp2rust", stem));
             ast::preprocess_to_middleware(header, &middleware, &extra_args, &args.clang)?;
             Ok(SelectedInput {
@@ -250,7 +272,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         let stem = &input.stem;
         println!("Processing {}...", header.display());
 
-        // Step 1: dump AST via clang.
+        // Step 1: dump AST via clang using the same extra-clang-args as
+        // preprocessing, so include paths/macros stay consistent.
         let ast_root = ast::dump_ast(middleware, &extra_args, &args.clang)?;
 
         // Save the AST JSON for debugging.
@@ -316,7 +339,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("        ├── build.rs");
     println!("        └── src/");
     println!("            ├── lib.rs");
-    println!("            └── ffi_<header>.rs  (one per input header)");
+    println!("            └── ffi_<unique_header_id>.rs  (one per input header)");
     println!();
     println!("Next steps:");
     println!("  1. Review .cpp2rust/{}/rust/src/ffi_*.rs", feature);
@@ -420,6 +443,52 @@ fn header_include_dirs(headers: &[PathBuf]) -> Vec<String> {
         .collect();
     dirs.sort();
     dirs
+}
+
+fn header_base_stem(header: &Path) -> String {
+    sanitize_identifier(
+        header
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown"),
+    )
+}
+
+fn sanitize_identifier(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        "unknown".to_string()
+    } else if out
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
+        format!("_{}", out)
+    } else {
+        out
+    }
+}
+
+/// Return an 8-hex suffix from a stable FNV-1a hash of the full header path.
+///
+/// We only need a short deterministic suffix to avoid same-stem filename
+/// collisions in generated middleware/ffi artifacts.
+fn short_hash8(path: &Path) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    let text = path.to_string_lossy();
+    for &b in text.as_bytes() {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:08x}", (hash & 0xffff_ffff) as u32)
 }
 
 // ---------------------------------------------------------------------------
@@ -541,5 +610,18 @@ mod tests {
             panic!("expected Merge");
         };
         assert_eq!(merge.feature, "myfeature");
+    }
+
+    #[test]
+    fn duplicate_header_stems_get_path_hash_suffix() {
+        let a = PathBuf::from("/tmp/foo/a.hpp");
+        let b = PathBuf::from("/tmp/bar/a.hpp");
+
+        let a_stem = format!("{}_{}", header_base_stem(&a), short_hash8(&a));
+        let b_stem = format!("{}_{}", header_base_stem(&b), short_hash8(&b));
+
+        assert_ne!(a_stem, b_stem);
+        assert!(a_stem.starts_with("a_"));
+        assert!(b_stem.starts_with("a_"));
     }
 }

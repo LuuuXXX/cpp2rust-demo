@@ -16,6 +16,9 @@ fn bin() -> Command {
 // Helper: write a C++ header to a temporary file and return its path.
 fn write_header(dir: &TempDir, name: &str, content: &str) -> std::path::PathBuf {
     let path = dir.path().join(name);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
     std::fs::write(&path, content).unwrap();
     path
 }
@@ -186,6 +189,54 @@ fn init_build_cmd_via_sh_c() {
     assert!(
         captured_content.contains(header_path.to_str().unwrap()),
         "captured headers should contain header from quoted capture-cmd"
+    );
+}
+
+#[test]
+fn init_duplicate_header_stems_do_not_overwrite_middleware() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::create_dir_all(tmp.path().join("foo")).unwrap();
+    std::fs::create_dir_all(tmp.path().join("bar")).unwrap();
+    write_header(&tmp, "foo/a.hpp", "int from_foo();");
+    write_header(&tmp, "bar/a.hpp", "int from_bar();");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "sh",
+            "-c",
+            "clang -x c++ -fsyntax-only foo/a.hpp && clang -x c++ -fsyntax-only bar/a.hpp",
+        ])
+        .assert()
+        .success();
+
+    let middleware_dir = tmp.path().join(".cpp2rust/default/middleware");
+    let middleware_files: Vec<String> = std::fs::read_dir(&middleware_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(middleware_files.len(), 2, "expected 2 middleware files");
+    assert!(
+        middleware_files
+            .iter()
+            .all(|name| name.starts_with("a_") && name.ends_with(".cpp2rust")),
+        "duplicate header stems should use unique hashed middleware names"
+    );
+
+    let rust_src_dir = tmp.path().join(".cpp2rust/default/rust/src");
+    let ffi_files: Vec<String> = std::fs::read_dir(&rust_src_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .filter(|name| name.starts_with("ffi_a") && name.ends_with(".rs"))
+        .collect();
+    assert_eq!(
+        ffi_files.len(),
+        2,
+        "expected 2 ffi files for duplicate a.hpp headers"
     );
 }
 

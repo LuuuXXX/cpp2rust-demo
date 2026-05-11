@@ -18,10 +18,10 @@ C++ 项目目录
    ├─ cpp2rust-demo init --link <libname> -- <构建命令>
    │    ├─ 编译 hook/libhook.so
    │    ├─ 通过 LD_PRELOAD 注入构建过程，自动捕获 .h / .hpp 头文件路径
-   │    ├─ 对捕获头文件做宏展开，生成 middleware/*.cpp2rust 中间件
+   │    ├─ 对捕获头文件做宏展开，生成 middleware/*.cpp2rust 中间件（同名头文件会自动加唯一后缀避免覆盖）
    │    ├─ 交互式选择参与转换的 `.cpp2rust` 文件（非交互环境自动全选）
-   │    ├─ 自动回溯每个选中文件对应的头文件，并调用 clang -ast-dump=json 解析 AST
-   │    ├─ 提取函数/类声明，生成 hicc FFI 脚手架（ffi_<header>.rs）
+   │    ├─ 自动回溯每个选中文件对应的头文件，并对 middleware 调用 clang -ast-dump=json 解析 AST（沿用同一套 extra-clang-args）
+   │    ├─ 提取函数/类声明（同时按原 header 路径 + middleware 路径过滤），生成 hicc FFI 脚手架（ffi_<unique_header_id>.rs）
    │    └─ 生成 .cpp2rust/<feature>/rust 及 init-interface-report.md
    │
    └─ cpp2rust-demo merge [--feature <name>]
@@ -132,7 +132,7 @@ cpp2rust-demo merge --feature myfeature
 ├── ast/
 │   └── <header>.ast.json        ← raw clang AST JSON（调试用）
 ├── middleware/
-│   └── <header>.cpp2rust        ← 宏展开后的中间件（init 文件选择输入）
+│   └── <unique_header_id>.cpp2rust ← 宏展开后的中间件（init 文件选择输入）
 ├── meta/
 │   ├── build_cmd.txt            ← init 传入的构建命令
 │   ├── captured_headers.list    ← LD_PRELOAD hook 捕获到的所有头文件路径
@@ -144,7 +144,7 @@ cpp2rust-demo merge --feature myfeature
     ├── build.rs
     └── src/
         ├── lib.rs
-        └── ffi_<header>.rs      ← 每个输入头文件对应一个 FFI 文件
+        └── ffi_<unique_header_id>.rs ← 每个输入头文件对应一个 FFI 文件
 ```
 
 `merge` 后（在上面基础上新增）：

@@ -175,6 +175,10 @@ pub struct ExtractedDecls {
 
 /// Run `clang -Xclang -ast-dump=json -fsyntax-only` on the given header and
 /// return the parsed AST root node.
+///
+/// In the init pipeline this is called on generated `.cpp2rust` middleware
+/// files, reusing the same `extra_clang_args` as preprocessing so include-path
+/// and macro settings stay aligned.
 pub fn dump_ast(
     header: &Path,
     extra_clang_args: &[String],

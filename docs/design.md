@@ -49,13 +49,14 @@ Captured header set (`captured_headers.list`)
 Selected headers
     │
     ▼  clang -ast-dump=json
+    │  (runs on middleware with the same extra-clang-args used in preprocessing)
 AstNode (clang JSON tree)
     │
     ▼  ast::extract_declarations()
 ExtractedDecls (FunctionIR + ClassIR)
     │
     ▼  codegen::render_ffi()
-ffi_<header>.rs (hicc macros)
+ffi_<unique_header_id>.rs (hicc macros)
     │
     ▼  merge::merge_ffi_files()
 merged_ffi.rs (consolidated)
@@ -97,7 +98,7 @@ After `init + merge`, the `.cpp2rust/` directory contains:
     ├── build.rs
     └── src/
         ├── lib.rs
-        ├── ffi_<header>.rs  ← one per input header (after init)
+        ├── ffi_<unique_header_id>.rs  ← one per input header (after init)
         └── merged_ffi.rs    ← consolidated (after merge)
 ```
 
