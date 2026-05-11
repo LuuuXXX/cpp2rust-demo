@@ -10,8 +10,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define MAX_PATH_LEN 8192
 #define MAX_CMD_LEN 16384
+#define MAX_PATH_LEN 8192
 
 static const char *CPP2RUST_PROJECT_ROOT = "CPP2RUST_PROJECT_ROOT";
 static const char *CPP2RUST_FEATURE_ROOT = "CPP2RUST_FEATURE_ROOT";
@@ -23,10 +23,20 @@ static const char *cc_names[] = {"gcc", "g++", "clang", "clang++", "cc", "c++"};
 
 #define DBG(...)                                                               \
   do {                                                                         \
-    if (getenv(CPP2RUST_DEBUG)) {                                              \
+    if (debug_enabled()) {                                                     \
       dprintf(2, "[cpp2rust-hook] " __VA_ARGS__);                              \
     }                                                                          \
   } while (0)
+
+static int debug_enabled(void) {
+  static int initialized = 0;
+  static int enabled = 0;
+  if (!initialized) {
+    enabled = getenv(CPP2RUST_DEBUG) != NULL;
+    initialized = 1;
+  }
+  return enabled;
+}
 
 static const char *path_basename(const char *path) {
   if (!path)

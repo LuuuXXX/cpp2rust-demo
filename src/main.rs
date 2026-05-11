@@ -394,6 +394,12 @@ fn middleware_stems(paths: &[PathBuf]) -> Vec<String> {
         .collect()
 }
 
+/// Build a stable, short hash suffix from the full path.
+///
+/// We intentionally use a tiny in-tree FNV-1a style hash (offset basis
+/// `1469598103934665603`, prime `1099511628211`) to avoid extra dependencies
+/// while keeping deterministic output across runs.  Only the lower 32 bits are
+/// kept so generated file names stay readable (`<stem>_<8hex>`).
 fn stable_short_path_hash(path: &Path) -> String {
     let mut hash: u64 = 1469598103934665603;
     for b in path.to_string_lossy().as_bytes() {

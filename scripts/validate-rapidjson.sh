@@ -10,7 +10,7 @@
 #   1. Builds cpp2rust-demo (debug by default, --release for release build).
 #   2. Clones Tencent/rapidjson into /tmp/rapidjson (re-uses existing clone).
 #   3. Runs `cpp2rust-demo init` inside the rapidjson directory via a
-#      translation unit to触发完整“编译→捕获→中间件”链路.
+#      translation unit to trigger the complete “compile→capture→middleware” flow.
 #   4. Runs `cpp2rust-demo merge`.
 #   5. Validates the expected output files exist and contain expected content.
 #
