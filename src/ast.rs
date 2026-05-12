@@ -616,12 +616,18 @@ fn extract_function(
     skipped: &mut Vec<SkippedDecl>,
 ) -> Option<FunctionIR> {
     let name = node.name.as_deref()?;
+    let qualified_name = if let Some(cls) = class_name {
+        let ns_part = make_qualified(namespace, cls);
+        format!("{}::{}", ns_part, name)
+    } else {
+        make_qualified(namespace, name)
+    };
 
     // Destructors start with '~' – skip.
     if name.starts_with('~') {
         skipped.push(SkippedDecl {
             kind: node.kind.clone(),
-            name: name.to_string(),
+            name: qualified_name.clone(),
             reason: "destructor".to_string(),
         });
         return None;
@@ -630,7 +636,7 @@ fn extract_function(
     if is_operator_name(Some(name)) {
         skipped.push(SkippedDecl {
             kind: node.kind.clone(),
-            name: name.to_string(),
+            name: qualified_name.clone(),
             reason: "operator_overload".to_string(),
         });
         return None;
@@ -639,7 +645,7 @@ fn extract_function(
     let Some(qual_type) = node.type_info.as_ref().map(|t| t.qual_type.as_str()) else {
         skipped.push(SkippedDecl {
             kind: node.kind.clone(),
-            name: name.to_string(),
+            name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
         });
         return None;
@@ -647,53 +653,68 @@ fn extract_function(
     let Some((return_type, _)) = parse_fn_qual_type(qual_type) else {
         skipped.push(SkippedDecl {
             kind: node.kind.clone(),
-            name: name.to_string(),
+            name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
         });
         return None;
     };
+    if !is_supported_cpp_type(&return_type, class_map) {
+        skipped.push(SkippedDecl {
+            kind: node.kind.clone(),
+            name: qualified_name.clone(),
+            reason: "unsupported_type".to_string(),
+        });
+        return None;
+    }
 
     // Collect parameters from ParmVarDecl children.
-    let params: Vec<ParamIR> = node
+    let mut params: Vec<ParamIR> = Vec::new();
+    for (i, p) in node
         .inner
         .iter()
         .flatten()
         .filter(|c| c.kind == "ParmVarDecl")
         .enumerate()
-        .map(|(i, p)| {
-            let pname = p
-                .name
-                .as_deref()
-                .filter(|n| !n.is_empty())
-                .unwrap_or(&format!("arg{}", i))
-                .to_string();
-            let cpp_type = p
-                .type_info
-                .as_ref()
-                .map(|t| t.qual_type.as_str())
-                .unwrap_or("void")
-                .to_string();
-            let rust_type = cpp_to_rust_type(&cpp_type);
-            ParamIR {
-                name: pname,
-                cpp_type,
-                rust_type,
-            }
-        })
-        .collect();
+    {
+        let pname = p
+            .name
+            .as_deref()
+            .filter(|n| !n.is_empty())
+            .unwrap_or(&format!("arg{}", i))
+            .to_string();
+        let Some(cpp_type) = p
+            .type_info
+            .as_ref()
+            .map(|t| t.qual_type.as_str())
+            .map(|s| s.to_string())
+        else {
+            skipped.push(SkippedDecl {
+                kind: node.kind.clone(),
+                name: qualified_name.clone(),
+                reason: "unsupported_type".to_string(),
+            });
+            return None;
+        };
+        if !is_supported_cpp_type(&cpp_type, class_map) {
+            skipped.push(SkippedDecl {
+                kind: node.kind.clone(),
+                name: qualified_name.clone(),
+                reason: "unsupported_type".to_string(),
+            });
+            return None;
+        }
+        let rust_type = cpp_to_rust_type(&cpp_type);
+        params.push(ParamIR {
+            name: pname,
+            cpp_type,
+            rust_type,
+        });
+    }
 
     let is_const = qual_type.ends_with(") const") || qual_type.ends_with("() const");
     let is_static = node.storage_class.as_deref() == Some("static");
     let is_virtual = node.is_virtual.unwrap_or(false);
     let is_pure = node.is_pure.unwrap_or(false);
-
-    // Build the fully-qualified C++ name.
-    let qualified_name = if let Some(cls) = class_name {
-        let ns_part = make_qualified(namespace, cls);
-        format!("{}::{}", ns_part, name)
-    } else {
-        make_qualified(namespace, name)
-    };
 
     // Build the C++ signature for hicc attributes.
     // Qualify any bare class-type names with their namespace prefix so that
@@ -922,6 +943,106 @@ fn is_operator_name(name: Option<&str>) -> bool {
     name.is_some_and(|n| n.starts_with("operator"))
 }
 
+fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>) -> bool {
+    let t = cpp_type.trim();
+    if t.is_empty() {
+        return false;
+    }
+    if contains_unsupported_type_construct(t) {
+        return false;
+    }
+
+    if t.contains('*') {
+        if t.contains("(*)") || t.contains("(&)") {
+            return false;
+        }
+        let base = t.split('*').next().unwrap_or("").trim();
+        let base = strip_top_level_const(base);
+        return is_supported_cpp_type(base, class_map);
+    }
+
+    if let Some(inner) = strip_trailing_ref(t) {
+        let base = strip_top_level_const(inner);
+        return is_supported_cpp_type(base, class_map);
+    }
+
+    let base = strip_top_level_const(t);
+    is_primitive_cpp_type(base) || is_known_class_type(base, class_map)
+}
+
+fn contains_unsupported_type_construct(t: &str) -> bool {
+    t.contains('<')
+        || t.contains('>')
+        || t.contains('[')
+        || t.contains(']')
+        || t.contains("(*)")
+        || t.contains("(&)")
+        || t.contains("type-parameter-")
+        || t.contains("dependent")
+        || t.contains("decltype")
+        || t == "auto"
+}
+
+fn is_primitive_cpp_type(t: &str) -> bool {
+    matches!(
+        t,
+        "void"
+            | "bool"
+            | "char"
+            | "signed char"
+            | "unsigned char"
+            | "short"
+            | "short int"
+            | "signed short"
+            | "signed short int"
+            | "unsigned short"
+            | "unsigned short int"
+            | "int"
+            | "signed"
+            | "signed int"
+            | "unsigned"
+            | "unsigned int"
+            | "long"
+            | "long int"
+            | "signed long"
+            | "signed long int"
+            | "unsigned long"
+            | "unsigned long int"
+            | "long long"
+            | "long long int"
+            | "signed long long"
+            | "unsigned long long"
+            | "unsigned long long int"
+            | "float"
+            | "double"
+            | "long double"
+            | "size_t"
+            | "ssize_t"
+            | "ptrdiff_t"
+            | "int8_t"
+            | "int16_t"
+            | "int32_t"
+            | "int64_t"
+            | "uint8_t"
+            | "uint16_t"
+            | "uint32_t"
+            | "uint64_t"
+            | "intptr_t"
+            | "uintptr_t"
+    )
+}
+
+fn is_known_class_type(t: &str, class_map: &HashMap<String, String>) -> bool {
+    if class_map.contains_key(t) {
+        return true;
+    }
+    let bare = bare_class_name(t);
+    if class_map.contains_key(&bare) {
+        return true;
+    }
+    class_map.values().any(|q| q == t)
+}
+
 fn record_skipped(
     result: &mut ExtractedDecls,
     node: &AstNode,
@@ -1056,6 +1177,17 @@ mod tests {
         // Already qualified names are left alone.
         assert_eq!(qualify_cpp_type("geo::Vec2 &", &map), "geo::Vec2 &");
         assert_eq!(qualify_cpp_type("other::Vec2 *", &map), "other::Vec2 *");
+    }
+
+    #[test]
+    fn test_is_supported_cpp_type() {
+        let map = HashMap::from([("Vec2".to_string(), "geo::Vec2".to_string())]);
+        assert!(is_supported_cpp_type("int", &map));
+        assert!(is_supported_cpp_type("const Vec2 *", &map));
+        assert!(is_supported_cpp_type("geo::Vec2 &", &map));
+        assert!(!is_supported_cpp_type("std::vector<int> *", &map));
+        assert!(!is_supported_cpp_type("Vec2 (*)(int)", &map));
+        assert!(!is_supported_cpp_type("Document *", &map));
     }
 
     #[test]

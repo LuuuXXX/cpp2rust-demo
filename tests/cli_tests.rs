@@ -609,6 +609,57 @@ fn init_no_link_skips_unsupported_members_and_reports_reasons() {
 }
 
 #[test]
+fn init_skips_free_function_with_template_instance_type() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "templated.hpp",
+        r#"
+        template <typename T>
+        struct Holder {
+            T value;
+        };
+
+        int regular(int v);
+        int use_holder(Holder<int>* h);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "templated.cpp", "templated.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_templated/free/fn_templated.rs"),
+    )
+    .unwrap();
+    assert!(free.contains("fn regular(v: i32) -> i32"));
+    assert!(!free.contains("use_holder"));
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(report.contains("unsupported_type"));
+    assert!(report.contains("use_holder"));
+}
+
+#[test]
 fn init_creates_cargo_toml_with_hicc() {
     let tmp = TempDir::new().unwrap();
     write_header(&tmp, "simple.hpp", "void foo();");
@@ -882,6 +933,42 @@ fn merge_updates_build_rs_to_merged_ffi() {
         src2_lib.contains("pub mod mod_simple"),
         "src.2/lib.rs should expose merged group modules"
     );
+}
+
+#[test]
+fn merge_preserves_no_link_build_rs() {
+    let tmp = TempDir::new().unwrap();
+    write_header(&tmp, "simple.hpp", "void foo();");
+    let tu = write_translation_unit(&tmp, "simple.cpp", "simple.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--no-link",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
+    assert!(!build_rs.contains("cargo::rustc-link-lib=mylib"));
+    assert!(build_rs.contains("cargo::rustc-link-lib=cpp2rust_adapter"));
+    assert!(build_rs.contains("merged_ffi.rs"));
 }
 
 #[test]
