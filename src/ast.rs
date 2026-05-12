@@ -1191,6 +1191,22 @@ mod tests {
     }
 
     #[test]
+    fn test_unsupported_type_helpers() {
+        let map = HashMap::from([("Widget".to_string(), "ns::Widget".to_string())]);
+        assert!(contains_unsupported_type_construct("std::vector<int>"));
+        assert!(contains_unsupported_type_construct("int (*)()"));
+        assert!(!contains_unsupported_type_construct("const Widget *"));
+
+        assert!(is_primitive_cpp_type("int"));
+        assert!(is_primitive_cpp_type("uint64_t"));
+        assert!(!is_primitive_cpp_type("std::string"));
+
+        assert!(is_known_class_type("Widget", &map));
+        assert!(is_known_class_type("ns::Widget", &map));
+        assert!(!is_known_class_type("Document", &map));
+    }
+
+    #[test]
     fn test_extract_skips_virtual_operator_and_templates() {
         let target = Path::new("/tmp/demo.cpp");
         let loc = Location {
