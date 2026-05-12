@@ -282,14 +282,7 @@ impl AliasRegistry {
     fn insert(&mut self, alias_name: &str, full_qual_type: &str) {
         // Only register when the aliased type is a template specialisation.
         if full_qual_type.contains('<') {
-            let bare_template = full_qual_type
-                .rsplit("::")
-                .next()
-                .unwrap_or(full_qual_type)
-                .split('<')
-                .next()
-                .unwrap_or(full_qual_type)
-                .trim();
+            let bare_template = bare_template_name(full_qual_type);
             if !bare_template.is_empty() {
                 self.template_to_alias
                     .entry(bare_template.to_string())
@@ -1225,14 +1218,7 @@ fn extract_class_body(
             if !bare.is_empty() {
                 // Prefer alias name if the base is a template with an alias.
                 let resolved_base = {
-                    let template_bare = bare
-                        .rsplit("::")
-                        .next()
-                        .unwrap_or(bare)
-                        .split('<')
-                        .next()
-                        .unwrap_or(bare)
-                        .trim();
+                    let template_bare = bare_template_name(bare);
                     alias_registry
                         .alias_for_template(template_bare)
                         .map(|a| a.to_string())
@@ -2014,6 +2000,30 @@ fn is_operator_name(name: Option<&str>) -> bool {
     name.is_some_and(|n| n.starts_with("operator"))
 }
 
+/// Extract the bare (no namespace, no template args) outer template class name.
+///
+/// The correct order is: strip template args first (split on first `<`),
+/// *then* strip the namespace (rsplit on `::`).  The reverse order produces
+/// wrong results for namespace-qualified types like
+/// `rapidjson::GenericDocument<rapidjson::UTF8<char>>` where `rsplit("::")`
+/// first yields `"GenericDocument<rapidjson::UTF8<char>>"` and the subsequent
+/// `split('<')` still gives `"GenericDocument"` — but only by accident.  For
+/// deeper nesting like `rapidjson::GenericDocument<rapidjson::UTF8<char>,
+/// rapidjson::CrtAllocator>`, `rsplit("::")` yields `"CrtAllocator>"` which
+/// then can't be stripped further and produces a wrong result.
+///
+/// Examples:
+///   `"rapidjson::GenericDocument<rapidjson::UTF8<char>, rapidjson::CrtAllocator>"` → `"GenericDocument"`
+///   `"std::vector<int>"` → `"vector"`
+///   `"GenericValue<UTF8<char>>"` → `"GenericValue"`
+///   `"int"` → `"int"`
+pub(crate) fn bare_template_name(full_qual_type: &str) -> &str {
+    // Step 1: everything before the first '<' (isolates outer class + namespace).
+    let before_angle = full_qual_type.split('<').next().unwrap_or(full_qual_type).trim();
+    // Step 2: last '::' segment strips the namespace qualifier.
+    before_angle.rsplit("::").next().unwrap_or(before_angle).trim()
+}
+
 fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, alias_registry: &AliasRegistry) -> bool {
     let t = cpp_type.trim();
     if t.is_empty() {
@@ -2042,14 +2052,7 @@ fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, al
 
     // 主线五: Allow template types whose bare name has a typedef alias.
     if base.contains('<') {
-        let bare_template = base
-            .rsplit("::")
-            .next()
-            .unwrap_or(base)
-            .split('<')
-            .next()
-            .unwrap_or(base)
-            .trim();
+        let bare_template = bare_template_name(base);
         if alias_registry.has_template_alias(bare_template) {
             return true;
         }
