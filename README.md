@@ -94,7 +94,7 @@ cpp2rust-demo merge --feature myfeature
             ├── include/mod.rs
             ├── types/mod.rs
             ├── free/mod.rs + fn_*.rs
-            ├── class/mod.rs + cls_*.rs
+            ├── class/mod.rs + cls_*.rs（类级 inventory/元信息）
             ├── method/mod.rs + mtd_*.rs (有实例方法时)
             ├── global/ (可选，当前默认不生成)
             └── meta.json
@@ -124,10 +124,16 @@ cpp2rust-demo merge --feature myfeature
 - 当前能力边界（v1）：
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数 + 静态方法（`hicc::import_lib!`）
-  - `method/`：实例方法绑定（`hicc::import_class!`）
-  - `class/`：类级元信息（例如 class 名称清单）
-  - `types/` 与 `common/*`：承接真实类型/共享清单（来自 AST/中间件选择结果）
+  - `method/`：实例方法绑定（当前唯一承接 `hicc::import_class!` 的目录）
+  - `class/`：类级 inventory/元信息（例如 class 名称清单），不是方法绑定层
+  - `types/`：当前定位为 type inventory（类型清单），后续可演进为更完整类型绑定层
+  - `common/*`：当前定位为 shared inventory/shared context（共享清单/上下文），不是共享绑定层
   - `global/`：暂未做独立 AST 产物，当前默认不生成该目录
+
+- merge 语义（当前）：
+  - `include/`、`method/`、`free/`、`types/` 会参与 `src.2/*` 产物拼装
+  - `method/` 负责输出 `import_class!` 绑定块，`free/` 负责输出 `import_lib!` 绑定块
+  - `class/` 与 `common/*` 主要用于 init 视图中的语义清单/元信息，不构成 merged_ffi 的主绑定面
 
 ## CI 与脚本
 

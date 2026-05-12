@@ -6,6 +6,15 @@
 //! 1. `rust/src.2/mod_<group>.rs` (merged per-group view)
 //! 2. `rust/src.2/lib.rs`
 //! 3. `rust/src.2/merged_ffi.rs` (global consolidated view)
+//!
+//! Current v1 merge semantics:
+//! - `include/` contributes `hicc::cpp!` include lines
+//! - `types/` contributes type inventory blocks
+//! - `method/` contributes `hicc::import_class!` method-binding blocks
+//! - `free/` contributes `hicc::import_lib!` fn items and class forward declarations
+//! - `class/` is currently class-level metadata for init view; it is not treated as
+//!   a primary binding input layer by merge
+//! - `global/` is optional/reserved and may be absent in v1 output
 
 use crate::error::Result;
 use anyhow::anyhow;

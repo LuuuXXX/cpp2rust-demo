@@ -232,6 +232,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         std::fs::write(&include_mod_path, include_src)
             .map_err(|e| anyhow!("write {}: {}", include_mod_path.display(), e))?;
 
+        // `class/` is reserved for class-level inventory/metadata in v1.
+        // Binding macros for instance methods are emitted under `method/`.
         let class_mod_name = format!("cls_{}", stem);
         let class_file_path = group_dir.join("class").join(format!("{class_mod_name}.rs"));
         let class_src = codegen::render_class_module(&decls);
@@ -246,6 +248,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
         }
 
+        // `method/` is the sole layer that carries `hicc::import_class!` blocks in v1.
         let method_mod_name = format!("mtd_{}", stem);
         let method_file_path = group_dir.join("method").join(format!("{method_mod_name}.rs"));
         let method_src = codegen::render_method_module(&decls);
@@ -274,6 +277,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
         }
 
+        // `types/` is currently generated as per-group type inventory.
         let types_src = codegen::render_types_module(&decls);
         std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
             .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
@@ -361,6 +365,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         .map_err(|e| anyhow!("write build.rs: {}", e))?;
         println!("Created {}", build_rs_path.display());
 
+        // `common/*` currently carries shared inventory/context derived from selected
+        // middleware (not a shared binding layer).
         let common_includes = render_common_includes_module(&files_to_process, &include_dirs);
         let common_types = codegen::render_types_module(&all_decls);
         write_common_modules(&rust_src_dir, &common_includes, &common_types)?;
@@ -462,7 +468,9 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("  {}", merged.merged_path.display());
     println!("\nThe merged output now lives under rust/src.2 (with rust/src -> src.2).");
     println!("build.rs keeps using src/... paths so it always targets the active source view.");
-    println!("It combines grouped include/types/class/method/free/global content.");
+    println!(
+        "It combines grouped include/types inventories and method/free binding content (global optional)."
+    );
     println!();
     println!("To use in your project:");
     println!("  1. Copy .cpp2rust/{}/rust/ to your workspace", feature);

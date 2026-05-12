@@ -46,7 +46,7 @@
         │   ├── include/mod.rs
         │   ├── types/mod.rs
         │   ├── free/mod.rs + fn_*.rs
-        │   ├── class/mod.rs + cls_*.rs
+        │   ├── class/mod.rs + cls_*.rs（类级 inventory/元信息）
         │   ├── method/mod.rs + mtd_*.rs（实例方法）
         │   ├── global/（可选，当前默认不生成）
         │   └── meta.json
@@ -73,10 +73,16 @@
 - 当前语义拆分的实际绑定内容主要是：
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数与静态方法
-  - `method/`：类实例方法
-  - `class/`：类级元信息（如 class 名称清单）
-- `types/` 与 `common/*` 已承接基础真实内容（类型清单、共享 include/中间件清单）。
+  - `method/`：类实例方法（当前唯一承接 `import_class!`）
+  - `class/`：类级 inventory/元信息（如 class 名称清单），不是方法绑定层
+- `types/` 当前定位是 type inventory（类型清单），后续可演进为类型绑定层。
+- `common/*` 当前定位是 shared inventory/shared context（共享清单/上下文），不是共享绑定层。
 - `global/` 当前尚无独立 AST 产物，默认不生成该目录。
+
+merge 语义边界（当前）：
+- 参与 merged 输出主绑定面的目录：`include/`、`types/`、`method/`、`free/`。
+- 其中：`method/` 贡献 `import_class!`；`free/` 贡献 `import_lib!`。
+- `class/` 主要承载 init 视图的类级元信息，当前不作为 merged_ffi 的主绑定输入层。
 
 ## hicc 约束
 
