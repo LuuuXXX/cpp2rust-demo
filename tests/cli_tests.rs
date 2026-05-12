@@ -61,7 +61,7 @@ fn init_without_link_fails() {
 }
 
 #[test]
-fn init_nonexistent_header_fails() {
+fn init_nonexistent_input_file_fails() {
     let tmp = TempDir::new().unwrap();
     bin()
         .current_dir(tmp.path())
@@ -74,7 +74,7 @@ fn init_nonexistent_header_fails() {
             "-x",
             "c++",
             "-fsyntax-only",
-            "does_not_exist.hpp",
+            "does_not_exist.cpp",
         ])
         .assert()
         .failure();
