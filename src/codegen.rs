@@ -566,11 +566,12 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .collect();
         if !operators.is_empty() {
             writeln!(out, "## Operator Overload Shim Hints\n").unwrap();
-            writeln!(out, "The following C++ operators were skipped. hicc does not support\n\
-                           operator overloads directly. Expose them by writing a named C++\n\
-                           wrapper function inside a `hicc::cpp!` block and then binding\n\
-                           that wrapper via `#[cpp(func = \"...\")]` in `import_lib!`.\n")
-                .unwrap();
+            out.push_str(
+                "The following C++ operators were skipped. \
+                 hicc does not support operator overloads directly. \
+                 Expose them by writing a named C++ wrapper function inside a `hicc::cpp!` block \
+                 and then binding that wrapper via `#[cpp(func = \"...\")]` in `import_lib!`.\n\n",
+            );
             writeln!(out, "| Skipped operator | Suggested approach |").unwrap();
             writeln!(out, "|-----------------|-------------------|").unwrap();
             for op in &operators {
@@ -578,24 +579,21 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
                 writeln!(out, "| `{}` | {} |", op.name, suggestion).unwrap();
             }
             writeln!(out).unwrap();
-            writeln!(
-                out,
+            out.push_str(
                 "**Example** – wrapping `operator[]` as a named function:\n\
                  \n\
                  ```rust\n\
-                 hicc::cpp! {{\n\
-                 //   static ReturnType get_at(MyClass& obj, IndexType idx) {{ return obj[idx]; }}\n\
-                 }}\n\
-                 hicc::import_lib! {{\n\
+                 hicc::cpp! {\n\
+                 //   static ReturnType get_at(MyClass& obj, IndexType idx) { return obj[idx]; }\n\
+                 }\n\
+                 hicc::import_lib! {\n\
                  //   #![link_name = \"mylib\"]\n\
                  //   class MyClass;\n\
                  //   #[cpp(func = \"ReturnType get_at(MyClass&, IndexType)\")]\n\
                  //   fn get_at(obj: &mut MyClass, idx: IndexType) -> ReturnType;\n\
-                 }}\n\
-                 ```"
-            )
-            .unwrap();
-            writeln!(out).unwrap();
+                 }\n\
+                 ```\n\n",
+            );
         }
     }
 
@@ -618,10 +616,10 @@ fn operator_shim_suggestion(operator_name: &str) -> String {
         "operator[]" => "Wrap as `get_at(obj, idx)` / `set_at(obj, idx, val)`".to_string(),
         "operator=" => "Wrap as `assign(obj, other)` or use `AbiClass::write`".to_string(),
         "operator==" | "operator!=" | "operator<" | "operator<=" | "operator>" | "operator>=" => {
-            format!("Wrap as a named comparison fn, e.g. `{}_eq(a, b)`", to_snake_case_op(op_token))
+            format!("Wrap as a named comparison fn, e.g. `{}_eq(a, b)`", operator_abbreviation(op_token))
         }
         "operator+" | "operator-" | "operator*" | "operator/" => {
-            format!("Wrap as a named arithmetic fn, e.g. `{}_add(a, b)`", to_snake_case_op(op_token))
+            format!("Wrap as a named arithmetic fn, e.g. `{}_add(a, b)`", operator_abbreviation(op_token))
         }
         "operator++" | "operator--" => {
             "Wrap as `increment(obj)` / `decrement(obj)`".to_string()
@@ -634,7 +632,7 @@ fn operator_shim_suggestion(operator_name: &str) -> String {
     }
 }
 
-fn to_snake_case_op(op: &str) -> &str {
+fn operator_abbreviation(op: &str) -> &str {
     match op {
         "operator==" => "eq",
         "operator!=" => "ne",
