@@ -76,16 +76,26 @@
 - 当前语义拆分的实际绑定内容主要是：
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数与静态方法
-  - `method/`：类实例方法（当前唯一承接 `import_class!`）
+  - `method/`：类实例方法（包含 virtual 与 abstract 两种路径）
 - `class/`：类级语义结构层（类名、方法计数、类-方法关系 + 访问函数），不是方法绑定层。
 - `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），参与 merge 语义组织。
 - `common/*`：共享语义层（共享 include/type 索引 + 查询函数），参与全局 merge 语义组织。
 - `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围。
-- 抽取阶段会跳过并报告：constructor、destructor、virtual/pure virtual、operator overload、template declarations、部分 unsupported_type。
+
+**虚函数与抽象类支持（新增）**：
+
+| 场景 | 生成方式 |
+|------|---------|
+| 非纯 virtual 方法（有实现）| 直接提取为 `#[cpp(method = "...")]`，hicc 通过 vtable 透明调用 |
+| 全纯虚类（所有公有方法均为 `= 0`）| 提取为 `hicc::import_class!` 中的 `#[interface]` trait |
+| 混合类（有普通方法 + 纯虚方法）| 普通方法正常提取；纯虚方法记录为 skipped（保守处理）|
+| operator 重载 | 跳过，但接口报告新增「Operator Overload Shim Hints」指导手写 C++ shim |
+
+抽取阶段仍会跳过并报告：constructor、destructor、operator overload、template declarations、部分 unsupported_type、混合类中的纯虚方法。
 
 merge 语义边界（当前）：
 - 参与 merged 输出的目录：`include/`、`types/`、`method/`、`free/`、`class/`。
-- 其中：`method/` 贡献 `import_class!`；`free/` 贡献 `import_lib!`。
+- 其中：`method/` 贡献 `import_class!`（包括 `#[interface]`）；`free/` 贡献 `import_lib!`。
 - `class/` 贡献类级语义结构块（如 class 维度统计、类-方法关系）。
 - `common/*` 贡献共享语义块到全局 merged_ffi 输出，作为跨 group 的共享语义层。
 
@@ -101,5 +111,9 @@ Rust 侧项目搭建统一使用：
 
 ## RapidJSON 类场景建议
 
-RapidJSON 等 header-only + 模板/重载密集库，当前仅适合生成基础脚手架与能力边界报告。  
-核心 API 建议通过 C++ shim 显式暴露稳定 ABI 后再进行绑定。
+RapidJSON 等 header-only + 模板/重载密集库，当前仍属于"有限支持"场景：
+
+- **根本瓶颈**：RapidJSON 的核心类型（如 `GenericDocument<Encoding, Allocator>`）均为 `ClassTemplateDecl`（模板类），尚未被 cpp2rust-demo 提取（暂 defer）。
+- **虚函数场景**已改善：非模板类的虚函数（包括纯虚接口）可正常生成 hicc 绑定。
+- **operator 重载**仍需手写 C++ shim：报告中的「Operator Overload Shim Hints」章节提供了具体写法指导。
+- **当前适用场景**：面向非模板 C++ 库生成完整可编译的 hicc FFI 脚手架；模板类建议通过显式实例化或 C++ shim 暴露稳定 ABI 后再绑定。

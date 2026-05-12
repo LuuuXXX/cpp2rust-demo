@@ -162,6 +162,13 @@ pub struct ClassIR {
     pub qualified_name: String,
     /// Public methods (constructors/destructors are excluded from hicc mappings).
     pub methods: Vec<FunctionIR>,
+    /// `true` when every public method is pure-virtual.
+    ///
+    /// A fully-abstract class (all methods are `= 0`) maps to a hicc
+    /// `#[interface]` trait rather than a concrete `#[cpp(class = "...")]`
+    /// struct.  Non-pure virtual methods on non-abstract classes are extracted
+    /// normally; hicc calls them through the C++ vtable transparently.
+    pub is_abstract: bool,
 }
 
 /// A declaration that is intentionally skipped during extraction.
@@ -478,6 +485,7 @@ fn walk_node(
                 name: class_name.to_string(),
                 qualified_name,
                 methods: vec![],
+                is_abstract: false,
             };
 
             // C++ class members are private by default; struct members are public.
@@ -485,6 +493,9 @@ fn walk_node(
             let mut cur_access = if is_struct { "public" } else { "private" };
 
             let mut method_overloads: HashMap<String, usize> = HashMap::new();
+            // Collect pure-virtual methods separately; we decide after the loop
+            // whether this class is fully abstract (→ #[interface]) or mixed.
+            let mut pure_virtual_nodes: Vec<AstNode> = Vec::new();
 
             for child in node.inner.iter().flatten() {
                 if child.is_implicit.unwrap_or(false) {
@@ -522,20 +533,14 @@ fn walk_node(
                             record_skipped(result, child, namespace, Some(class_name), reason);
                             continue;
                         }
+                        // Pure-virtual methods are held aside; we decide below whether
+                        // the class is fully abstract or mixed.
                         if child.is_pure.unwrap_or(false) {
-                            record_skipped(
-                                result,
-                                child,
-                                namespace,
-                                Some(class_name),
-                                "pure_virtual",
-                            );
+                            pure_virtual_nodes.push(child.clone());
                             continue;
                         }
-                        if child.is_virtual.unwrap_or(false) {
-                            record_skipped(result, child, namespace, Some(class_name), "virtual");
-                            continue;
-                        }
+                        // Non-pure virtual and regular methods: both are callable via
+                        // hicc's extern-C adapters (C++ vtable dispatch is transparent).
                         if is_operator_name(child.name.as_deref()) {
                             record_skipped(
                                 result,
@@ -561,6 +566,37 @@ fn walk_node(
                     _ => {}
                 }
             }
+
+            // Decide how to handle pure-virtual methods.
+            // If the class has *only* pure-virtual public methods (no concrete
+            // methods extracted above), it is fully abstract and should be
+            // emitted as a hicc `#[interface]` trait.
+            let is_abstract = class_ir.methods.is_empty() && !pure_virtual_nodes.is_empty();
+            if is_abstract {
+                for pvm in &pure_virtual_nodes {
+                    if is_operator_name(pvm.name.as_deref()) {
+                        record_skipped(result, pvm, namespace, Some(class_name), "operator_overload");
+                        continue;
+                    }
+                    if let Some(ir) = extract_function(
+                        pvm,
+                        namespace,
+                        &mut method_overloads,
+                        Some(class_name),
+                        strategy,
+                        class_map,
+                        &mut result.skipped,
+                    ) {
+                        class_ir.methods.push(ir);
+                    }
+                }
+            } else {
+                // Mixed or non-abstract class: skip pure-virtual methods conservatively.
+                for pvm in &pure_virtual_nodes {
+                    record_skipped(result, pvm, namespace, Some(class_name), "pure_virtual");
+                }
+            }
+            class_ir.is_abstract = is_abstract;
 
             result.classes.push(class_ir);
         }
@@ -1358,11 +1394,114 @@ mod tests {
         let decls = extract_declarations(&ast, &[target]);
         assert!(decls.functions.is_empty());
         assert_eq!(decls.classes.len(), 1);
-        assert!(decls.classes[0].methods.is_empty());
+        // Widget is fully abstract (its only non-operator method is pure-virtual),
+        // so the pure-virtual method is extracted and is_abstract is set.
+        assert!(decls.classes[0].is_abstract);
+        assert_eq!(decls.classes[0].methods.len(), 1);
+        assert_eq!(decls.classes[0].methods[0].name, "virt");
         let reasons: Vec<&str> = decls.skipped.iter().map(|s| s.reason.as_str()).collect();
         assert!(reasons.contains(&"template_decl"));
         assert!(reasons.contains(&"operator_overload"));
         assert!(reasons.contains(&"constructor"));
+        // pure_virtual is NOT in skipped for fully-abstract classes (it was extracted).
+        assert!(!reasons.contains(&"pure_virtual"));
+    }
+
+    /// Verify that a class with MIXED concrete + pure-virtual methods:
+    /// - extracts the concrete methods normally (including non-pure virtual),
+    /// - skips the pure-virtual methods (conservative), and
+    /// - is NOT marked abstract.
+    #[test]
+    fn test_extract_mixed_virtual_class() {
+        let target = Path::new("/tmp/mixed.cpp");
+        let loc = Location {
+            file: Some(target.display().to_string()),
+            line: None,
+            col: None,
+            offset: None,
+            spelling_loc: None,
+            expansion_loc: None,
+            included_from: None,
+        };
+        // Build a class with:
+        //   public:
+        //     virtual int virt_concrete();   ← non-pure virtual → extract
+        //     virtual int pure_one() = 0;   ← pure-virtual in mixed class → skip
+        //     int regular();                ← regular → extract
+        let make_method = |name: &str, is_virtual: bool, is_pure: bool| AstNode {
+            kind: "CXXMethodDecl".to_string(),
+            id: None,
+            loc: Some(loc.clone()),
+            name: Some(name.to_string()),
+            type_info: Some(TypeInfo { qual_type: "int ()".to_string() }),
+            is_implicit: None,
+            is_virtual: Some(is_virtual),
+            is_pure: Some(is_pure),
+            storage_class: None,
+            complete_definition: None,
+            tag_used: None,
+            access: None,
+            inner: Some(vec![]),
+        };
+        let ast = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            id: None,
+            loc: Some(loc.clone()),
+            name: None,
+            type_info: None,
+            is_implicit: None,
+            is_virtual: None,
+            is_pure: None,
+            storage_class: None,
+            complete_definition: None,
+            tag_used: None,
+            access: None,
+            inner: Some(vec![AstNode {
+                kind: "CXXRecordDecl".to_string(),
+                id: None,
+                loc: Some(loc.clone()),
+                name: Some("Mixed".to_string()),
+                type_info: None,
+                is_implicit: None,
+                is_virtual: None,
+                is_pure: None,
+                storage_class: None,
+                complete_definition: Some(true),
+                tag_used: Some("class".to_string()),
+                access: None,
+                inner: Some(vec![
+                    AstNode {
+                        kind: "AccessSpecDecl".to_string(),
+                        id: None,
+                        loc: Some(loc.clone()),
+                        name: None,
+                        type_info: None,
+                        is_implicit: None,
+                        is_virtual: None,
+                        is_pure: None,
+                        storage_class: None,
+                        complete_definition: None,
+                        tag_used: None,
+                        access: Some("public".to_string()),
+                        inner: None,
+                    },
+                    make_method("virt_concrete", true, false),
+                    make_method("pure_one", true, true),
+                    make_method("regular", false, false),
+                ]),
+            }]),
+        };
+
+        let decls = extract_declarations(&ast, &[target]);
+        assert_eq!(decls.classes.len(), 1);
+        assert!(!decls.classes[0].is_abstract, "mixed class should not be abstract");
+        let method_names: Vec<&str> = decls.classes[0].methods.iter().map(|m| m.name.as_str()).collect();
+        // Non-pure virtual and regular methods are extracted.
+        assert!(method_names.contains(&"virt_concrete"), "non-pure virtual should be extracted");
+        assert!(method_names.contains(&"regular"), "regular method should be extracted");
+        // Pure-virtual method in a mixed class is skipped conservatively.
+        assert!(!method_names.contains(&"pure_one"), "pure-virtual in mixed class should be skipped");
+        let reasons: Vec<&str> = decls.skipped.iter().map(|s| s.reason.as_str()).collect();
         assert!(reasons.contains(&"pure_virtual"));
     }
 }

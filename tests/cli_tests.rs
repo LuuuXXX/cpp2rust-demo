@@ -1280,3 +1280,184 @@ namespace mathlib {
         panic!("cargo check failed on generated project");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Virtual method and abstract class extraction tests
+// ---------------------------------------------------------------------------
+
+/// Non-pure virtual methods are now extracted as regular hicc methods.
+/// The class should still use `#[cpp(class = "...")]` (not `#[interface]`).
+#[test]
+fn init_virtual_methods_extracted() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "virtual.hpp",
+        r#"
+        class Engine {
+        public:
+            virtual int tick(int delta);
+            virtual void reset();
+            void status() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "virtual.cpp", "virtual.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_virtual/method/mtd_virtual.rs"),
+    )
+    .unwrap();
+    // All three public methods (including the two virtual ones) should be extracted.
+    assert!(method_src.contains("fn tick(&mut self, delta: i32) -> i32"));
+    assert!(method_src.contains("fn reset(&mut self)"));
+    assert!(method_src.contains("fn status(&self)"));
+    // The class is non-abstract → uses #[cpp(class = "Engine")]
+    assert!(method_src.contains(r#"cpp(class = "Engine")"#));
+    assert!(!method_src.contains("#[interface]"));
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    // Virtual methods should NOT be in the skipped-declarations table.
+    assert!(
+        !report.contains("| `virtual` |"),
+        "non-pure virtual methods should no longer be listed as skipped"
+    );
+}
+
+/// A fully-abstract C++ class (all public methods are pure-virtual) should be
+/// emitted as a hicc `#[interface]` trait, not a concrete `#[cpp(class = "...")]`.
+#[test]
+fn init_abstract_class_generates_interface() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "abstract.hpp",
+        r#"
+        class IProcessor {
+        public:
+            virtual int process(int x) const = 0;
+            virtual void reset() = 0;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "abstract.cpp", "abstract.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_abstract/method/mtd_abstract.rs"),
+    )
+    .unwrap();
+    // Fully-abstract class → #[interface] annotation.
+    assert!(
+        method_src.contains("#[interface]"),
+        "fully-abstract class should use #[interface]"
+    );
+    assert!(
+        !method_src.contains(r#"cpp(class = "IProcessor")"#),
+        "abstract class should not use #[cpp(class = ...)]"
+    );
+    // Both pure-virtual methods should be included.
+    assert!(method_src.contains("fn process(&self, x: i32) -> i32"));
+    assert!(method_src.contains("fn reset(&mut self)"));
+
+    // Abstract class should NOT appear as a forward decl in import_lib!
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_abstract/free/fn_abstract.rs"),
+    )
+    .unwrap_or_default();
+    assert!(
+        !free_src.contains("class IProcessor;"),
+        "abstract class should not be forward-declared in import_lib!"
+    );
+}
+
+/// Operator overload shim hints should appear in the interface report when
+/// operator overloads are skipped.
+#[test]
+fn init_operator_overload_report_includes_shim_hints() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "ops.hpp",
+        r#"
+        class Vec {
+        public:
+            Vec operator+(const Vec& rhs) const;
+            Vec& operator=(const Vec& rhs);
+            int operator[](int idx) const;
+            double get(int idx) const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "ops.cpp", "ops.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    // Skipped operators should trigger the shim hints section.
+    assert!(report.contains("## Operator Overload Shim Hints"));
+    assert!(report.contains("hicc::cpp!"));
+    // Regular non-operator method should be extracted and not skipped.
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_ops/method/mtd_ops.rs"),
+    )
+    .unwrap();
+    assert!(method_src.contains("fn get(&self, idx: i32) -> f64"));
+}

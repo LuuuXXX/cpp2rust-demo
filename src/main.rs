@@ -1017,6 +1017,7 @@ mod tests {
                 name: "Widget".to_string(),
                 qualified_name: "Widget".to_string(),
                 methods: vec![make_function("update", false)],
+                is_abstract: false,
             }],
             skipped: vec![],
         };
