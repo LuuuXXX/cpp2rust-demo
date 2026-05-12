@@ -131,6 +131,168 @@ impl OverloadStrategy {
 }
 
 // ---------------------------------------------------------------------------
+// Skip categorisation
+// ---------------------------------------------------------------------------
+
+/// Why a declaration was skipped during AST extraction.
+///
+/// Helps users distinguish "tool can be improved" skips from "hicc itself
+/// cannot handle this" skips, as described in the refactoring plan (v2).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum SkipCategory {
+    /// The skip is a conservative tooling decision that could theoretically be
+    /// removed (e.g. template specialisations without typedef aliases before
+    /// the alias-registry feature was added, or mixed-class pure-virtual before
+    /// the companion-interface feature).
+    ToolConservative,
+    /// hicc itself does not support this C++ construct (e.g. operator
+    /// overloads, destructors, unbound template parameters).  A hand-written
+    /// C++ shim is required.
+    #[default]
+    HiccLimitation,
+}
+
+// ---------------------------------------------------------------------------
+// Alias registry (主线二)
+// ---------------------------------------------------------------------------
+
+/// Registry of C++ `typedef`/`using` aliases built during the first AST pass.
+///
+/// Used to:
+/// - Allow template-specialisation types through the type gate when they have
+///   a user-defined alias (主线二 + 主线五).
+/// - Determine the canonical Rust struct name for extracted template
+///   specialisations (主线一).
+#[derive(Debug, Default)]
+pub struct AliasRegistry {
+    /// Bare template name → first matching alias name.
+    /// e.g. `"GenericDocument"` → `"Document"`
+    template_to_alias: HashMap<String, String>,
+    /// Alias name → fully-qualified C++ type string.
+    /// e.g. `"Document"` → `"rapidjson::GenericDocument<rapidjson::UTF8<char>, rapidjson::CrtAllocator>"`
+    alias_to_type: HashMap<String, String>,
+}
+
+impl AliasRegistry {
+    /// Scan the whole AST and collect all `TypedefDecl` / `TypeAliasDecl`
+    /// entries where the aliased type is a template specialisation (contains
+    /// `<`).
+    pub fn collect_from_ast(root: &AstNode) -> Self {
+        let mut reg = AliasRegistry::default();
+        collect_alias_nodes(root, &[], &mut reg);
+        reg
+    }
+
+    /// Return the alias Rust name for a bare template class name, if any.
+    ///
+    /// e.g. `alias_for_template("GenericDocument")` → `Some("Document")`
+    pub fn alias_for_template(&self, bare_name: &str) -> Option<&str> {
+        self.template_to_alias.get(bare_name).map(|s| s.as_str())
+    }
+
+    /// Return the full qualified C++ type for an alias name, if registered.
+    ///
+    /// e.g. `full_type_for_alias("Document")` → `Some("rapidjson::GenericDocument<...>")`
+    pub fn full_type_for_alias(&self, alias: &str) -> Option<&str> {
+        self.alias_to_type.get(alias).map(|s| s.as_str())
+    }
+
+    /// True if the given bare template name (part before `<`) has an alias.
+    pub fn has_template_alias(&self, bare_name: &str) -> bool {
+        self.template_to_alias.contains_key(bare_name)
+    }
+
+    /// Insert one alias entry.  First registration wins for both maps.
+    fn insert(&mut self, alias_name: &str, full_qual_type: &str) {
+        // Only register when the aliased type is a template specialisation.
+        if full_qual_type.contains('<') {
+            let bare_template = full_qual_type
+                .rsplit("::")
+                .next()
+                .unwrap_or(full_qual_type)
+                .split('<')
+                .next()
+                .unwrap_or(full_qual_type)
+                .trim();
+            if !bare_template.is_empty() {
+                self.template_to_alias
+                    .entry(bare_template.to_string())
+                    .or_insert_with(|| alias_name.to_string());
+            }
+        }
+        self.alias_to_type
+            .entry(alias_name.to_string())
+            .or_insert_with(|| full_qual_type.to_string());
+    }
+}
+
+/// Depth-first scan that collects typedef/using aliases into `reg`.
+fn collect_alias_nodes(node: &AstNode, namespace: &[String], reg: &mut AliasRegistry) {
+    match node.kind.as_str() {
+        "NamespaceDecl" => {
+            if let Some(ref ns_name) = node.name {
+                let mut ns = namespace.to_vec();
+                ns.push(ns_name.clone());
+                for child in node.inner.iter().flatten() {
+                    collect_alias_nodes(child, &ns, reg);
+                }
+            } else {
+                for child in node.inner.iter().flatten() {
+                    collect_alias_nodes(child, namespace, reg);
+                }
+            }
+        }
+        "TypedefDecl" | "TypeAliasDecl" => {
+            if let (Some(alias_name), Some(full_type)) = (
+                node.name.as_deref(),
+                node.type_info.as_ref().map(|t| t.qual_type.as_str()),
+            ) {
+                // Register with both the bare name and the namespace-qualified name.
+                reg.insert(alias_name, full_type);
+                let qualified = make_qualified(namespace, alias_name);
+                if qualified != alias_name {
+                    reg.insert(&qualified, full_type);
+                }
+            }
+            for child in node.inner.iter().flatten() {
+                collect_alias_nodes(child, namespace, reg);
+            }
+        }
+        _ => {
+            for child in node.inner.iter().flatten() {
+                collect_alias_nodes(child, namespace, reg);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Operator shim IR (主线四)
+// ---------------------------------------------------------------------------
+
+/// A C++ operator overload that was skipped during extraction.
+///
+/// Carries enough information to generate a hand-written shim in
+/// `operator_shims.hpp` and a corresponding stub Rust binding.
+#[derive(Debug, Clone)]
+pub struct OperatorShimIR {
+    /// Class owning the operator, if it is a member.
+    pub class_name: Option<String>,
+    /// Fully-qualified C++ class name (with namespace).
+    pub qualified_class: Option<String>,
+    /// Operator token, e.g. `"operator[]"`, `"operator=="`.
+    pub operator_name: String,
+    /// C++ return type string as emitted by clang (best-effort; may be empty).
+    pub return_cpp_type: String,
+    /// Suggested Rust shim function name (snake_case).
+    pub shim_name: String,
+    /// Parameters of the operator (not including the implicit `this`).
+    pub params: Vec<ParamIR>,
+    /// Whether the operator method is `const`-qualified.
+    pub is_const: bool,
+}
+
+// ---------------------------------------------------------------------------
 // Intermediate representation (IR) – our cleaned-up model of C++ declarations
 // ---------------------------------------------------------------------------
 
@@ -205,7 +367,7 @@ pub struct GlobalVarIR {
 }
 
 /// A C++ class or struct declaration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ClassIR {
     pub name: String,
     pub qualified_name: String,
@@ -231,10 +393,29 @@ pub struct ClassIR {
     /// Used to generate the `class Foo: Base1, Base2 { ... }` syntax in
     /// `import_class!` so hicc knows the inheritance chain.
     pub bases: Vec<String>,
+    /// `true` when this class was extracted from a `ClassTemplateSpecializationDecl`
+    /// (i.e. a concrete instantiation of a C++ template).
+    pub is_template_specialization: bool,
+    /// For template specialisations: the typedef/using alias used as the Rust
+    /// struct identifier (e.g. `"Document"` for `GenericDocument<…>`).
+    ///
+    /// When `Some`, this name is used for `class <Name>` in `import_class!`
+    /// while `qualified_name` is used for `#[cpp(class = "…")]`.
+    pub canonical_name: Option<String>,
+    /// Pure-virtual methods of a *mixed* class (has both concrete and
+    /// pure-virtual public methods).
+    ///
+    /// These drive generation of a companion `#[interface]` trait named
+    /// `{ClassName}Interface` that the concrete class inherits from.
+    pub pure_virtual_methods: Vec<FunctionIR>,
+    /// `true` when this class has pure-virtual methods alongside concrete
+    /// methods (distinct from `is_abstract`, which means *all* methods are
+    /// pure-virtual).
+    pub has_pure_virtual: bool,
 }
 
 /// A declaration that is intentionally skipped during extraction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SkippedDecl {
     /// AST node kind, e.g. `CXXMethodDecl`.
     pub kind: String,
@@ -242,6 +423,8 @@ pub struct SkippedDecl {
     pub name: String,
     /// Stable skip reason key.
     pub reason: String,
+    /// Classification of why this was skipped.
+    pub category: SkipCategory,
 }
 
 /// All declarations extracted from a set of header files.
@@ -251,6 +434,10 @@ pub struct ExtractedDecls {
     pub classes: Vec<ClassIR>,
     pub globals: Vec<GlobalVarIR>,
     pub skipped: Vec<SkippedDecl>,
+    /// Operator overloads that were skipped.
+    ///
+    /// Used to generate `operator_shims.hpp` and stub Rust bindings.
+    pub operator_shims: Vec<OperatorShimIR>,
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +505,11 @@ pub fn extract_declarations_with_strategy(
     // `geo::Vec2 &` in the generated C++ signature so hicc-build can resolve it).
     let class_name_map = collect_class_name_map(ast_root);
 
+    // Second pass (主线二): collect typedef/using aliases for template types.
+    // This lets us extract `ClassTemplateSpecializationDecl` nodes that have a
+    // user-facing alias (e.g. `Document = GenericDocument<UTF8<char>, …>`).
+    let alias_registry = AliasRegistry::collect_from_ast(ast_root);
+
     let mut result = ExtractedDecls::default();
     let mut current_file = String::new();
     let mut overload_counts: HashMap<String, usize> = HashMap::new();
@@ -331,6 +523,7 @@ pub fn extract_declarations_with_strategy(
         &mut overload_counts,
         strategy,
         &class_name_map,
+        &alias_registry,
     );
 
     result
@@ -375,6 +568,16 @@ fn collect_class_names(node: &AstNode, namespace: &[String], map: &mut HashMap<S
                     for child in node.inner.iter().flatten() {
                         collect_class_names(child, namespace, map);
                     }
+                }
+            }
+        }
+        // Also register ClassTemplateSpecializationDecl bare template names so
+        // that `is_known_class_type` recognises them during type-gate checks.
+        "ClassTemplateSpecializationDecl" => {
+            if node.complete_definition.unwrap_or(false) {
+                if let Some(tmpl_name) = node.name.as_deref() {
+                    let qualified = make_qualified(namespace, tmpl_name);
+                    map.entry(tmpl_name.to_string()).or_insert(qualified);
                 }
             }
         }
@@ -480,6 +683,7 @@ fn walk_node(
     overload_counts: &mut HashMap<String, usize>,
     strategy: &OverloadStrategy,
     class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
 ) {
     // Advance current_file tracker.
     if let Some(ref loc) = node.loc {
@@ -506,6 +710,7 @@ fn walk_node(
                         overload_counts,
                         strategy,
                         class_map,
+                        alias_registry,
                     );
                 }
             }
@@ -516,7 +721,8 @@ fn walk_node(
                 return;
             }
             if is_operator_name(node.name.as_deref()) {
-                record_skipped(result, node, namespace, None, "operator_overload");
+                collect_operator_shim(node, namespace, None, None, result);
+                record_skipped(result, node, namespace, None, "operator_overload", SkipCategory::HiccLimitation);
                 return;
             }
             if let Some(ir) = extract_function(
@@ -526,6 +732,7 @@ fn walk_node(
                 None,
                 strategy,
                 class_map,
+                alias_registry,
                 &mut result.skipped,
             ) {
                 result.functions.push(ir);
@@ -544,161 +751,21 @@ fn walk_node(
                 return;
             };
             let qualified_name = make_qualified(namespace, class_name);
-            let mut class_ir = ClassIR {
-                name: class_name.to_string(),
-                qualified_name,
-                methods: vec![],
-                is_abstract: false,
-                ctors: vec![],
-                bases: vec![],
-            };
-
-            // Extract public base classes from the top-level `bases` array
-            // (clang emits base-class specifiers here, NOT in `inner`).
-            for base in &node.bases {
-                if base.access == "public" {
-                    let raw = base.type_info.qual_type.trim();
-                    let bare = raw
-                        .strip_prefix("class ")
-                        .or_else(|| raw.strip_prefix("struct "))
-                        .unwrap_or(raw)
-                        .trim();
-                    if !bare.is_empty() {
-                        let qualified_base = class_map
-                            .get(bare)
-                            .cloned()
-                            .unwrap_or_else(|| bare.to_string());
-                        class_ir.bases.push(qualified_base);
-                    }
-                }
+            if let Some(class_ir) = extract_class_body(
+                node,
+                class_name,
+                &qualified_name,
+                false,
+                None,
+                namespace,
+                current_file,
+                result,
+                strategy,
+                class_map,
+                alias_registry,
+            ) {
+                result.classes.push(class_ir);
             }
-
-            // C++ class members are private by default; struct members are public.
-            let is_struct = node.tag_used.as_deref() == Some("struct");
-            let mut cur_access = if is_struct { "public" } else { "private" };
-
-            let mut method_overloads: HashMap<String, usize> = HashMap::new();
-            // Collect pure-virtual methods separately; we decide after the loop
-            // whether this class is fully abstract (→ #[interface]) or mixed.
-            let mut pure_virtual_nodes: Vec<AstNode> = Vec::new();
-
-            for child in node.inner.iter().flatten() {
-                if child.is_implicit.unwrap_or(false) {
-                    continue;
-                }
-                // Track location inside the class body too.
-                if let Some(ref loc) = child.loc {
-                    update_file(loc, current_file);
-                }
-
-                if child.kind == "AccessSpecDecl" {
-                    if let Some(ref a) = child.access {
-                        cur_access = a.as_str();
-                    }
-                    continue;
-                }
-
-                // Only extract public members.
-                if cur_access != "public" {
-                    continue;
-                }
-
-                match child.kind.as_str() {
-                    "CXXMethodDecl" | "CXXConstructorDecl" | "CXXDestructorDecl" => {
-                        if child.kind == "CXXDestructorDecl" {
-                            record_skipped(result, child, namespace, Some(class_name), "destructor");
-                            continue;
-                        }
-                        if child.kind == "CXXConstructorDecl" {
-                            // Attempt to extract this constructor for hicc ctor support.
-                            // Skip copy/move constructors (single parameter of `const T &`
-                            // or `T &&` pattern) — these are compiler-generated plumbing,
-                            // not user-facing factory constructors.
-                            if let Some(ctor) = extract_ctor(child, class_name, class_map) {
-                                class_ir.ctors.push(ctor);
-                            } else {
-                                record_skipped(
-                                    result,
-                                    child,
-                                    namespace,
-                                    Some(class_name),
-                                    "constructor",
-                                );
-                            }
-                            continue;
-                        }
-                        // Pure-virtual methods are held aside; we decide below whether
-                        // the class is fully abstract or mixed.
-                        if child.is_pure.unwrap_or(false) {
-                            pure_virtual_nodes.push(child.clone());
-                            continue;
-                        }
-                        // Non-pure virtual and regular methods: both are callable via
-                        // hicc's extern-C adapters (C++ vtable dispatch is transparent).
-                        if is_operator_name(child.name.as_deref()) {
-                            record_skipped(
-                                result,
-                                child,
-                                namespace,
-                                Some(class_name),
-                                "operator_overload",
-                            );
-                            continue;
-                        }
-                        if let Some(ir) = extract_function(
-                            child,
-                            namespace,
-                            &mut method_overloads,
-                            Some(class_name),
-                            strategy,
-                            class_map,
-                            &mut result.skipped,
-                        ) {
-                            class_ir.methods.push(ir);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            // Decide how to handle pure-virtual methods.
-            // If the class has *only* pure-virtual public methods (no concrete
-            // methods extracted above), it is fully abstract and should be
-            // emitted as a hicc `#[interface]` trait.
-            let is_abstract = class_ir.methods.is_empty() && !pure_virtual_nodes.is_empty();
-            if is_abstract {
-                for pvm in &pure_virtual_nodes {
-                    if is_operator_name(pvm.name.as_deref()) {
-                        record_skipped(result, pvm, namespace, Some(class_name), "operator_overload");
-                        continue;
-                    }
-                    if let Some(ir) = extract_function(
-                        pvm,
-                        namespace,
-                        &mut method_overloads,
-                        Some(class_name),
-                        strategy,
-                        class_map,
-                        &mut result.skipped,
-                    ) {
-                        class_ir.methods.push(ir);
-                    }
-                }
-            } else {
-                // Mixed or non-abstract class: skip pure-virtual methods conservatively.
-                for pvm in &pure_virtual_nodes {
-                    record_skipped(result, pvm, namespace, Some(class_name), "pure_virtual");
-                }
-            }
-            class_ir.is_abstract = is_abstract;
-
-            // Sort ctors by ascending parameter count so that ctors[0] is
-            // always the "simplest" (fewest parameters) constructor.  This
-            // guarantees that render_import_class's `skip(1)` factory loop
-            // stays in sync with the primary ctor selection.
-            class_ir.ctors.sort_by_key(|c| c.params.len());
-
-            result.classes.push(class_ir);
         }
 
         // extern "C" / extern "C++" linkage blocks – just descend.
@@ -713,12 +780,92 @@ fn walk_node(
                     overload_counts,
                     strategy,
                     class_map,
+                    alias_registry,
                 );
             }
         }
-        "ClassTemplateDecl" | "FunctionTemplateDecl" | "ClassTemplateSpecializationDecl" => {
+
+        // 主线一: Template specialisation extraction.
+        //
+        // `ClassTemplateDecl` wraps a generic template.  We descend into it
+        // looking for `ClassTemplateSpecializationDecl` children (concrete
+        // instantiations) that have a typedef alias in the registry.
+        // The uninstantiated template itself is skipped.
+        "ClassTemplateDecl" => {
+            if !is_target(current_file, targets) {
+                return;
+            }
+            let mut extracted_any = false;
+            for child in node.inner.iter().flatten() {
+                if child.kind == "ClassTemplateSpecializationDecl"
+                    && child.complete_definition.unwrap_or(false)
+                {
+                    if let Some(spec_class) = try_extract_template_spec(
+                        child,
+                        namespace,
+                        current_file,
+                        result,
+                        strategy,
+                        class_map,
+                        alias_registry,
+                    ) {
+                        result.classes.push(spec_class);
+                        extracted_any = true;
+                    }
+                }
+            }
+            if !extracted_any {
+                record_skipped(
+                    result,
+                    node,
+                    namespace,
+                    None,
+                    "template_decl",
+                    SkipCategory::HiccLimitation,
+                );
+            }
+        }
+
+        // Standalone `ClassTemplateSpecializationDecl` (explicit instantiation).
+        "ClassTemplateSpecializationDecl" => {
+            if !is_target(current_file, targets) {
+                return;
+            }
+            if !node.complete_definition.unwrap_or(false) {
+                return;
+            }
+            if let Some(spec_class) = try_extract_template_spec(
+                node,
+                namespace,
+                current_file,
+                result,
+                strategy,
+                class_map,
+                alias_registry,
+            ) {
+                result.classes.push(spec_class);
+            } else {
+                record_skipped(
+                    result,
+                    node,
+                    namespace,
+                    None,
+                    "template_decl",
+                    SkipCategory::HiccLimitation,
+                );
+            }
+        }
+
+        "FunctionTemplateDecl" => {
             if is_target(current_file, targets) {
-                record_skipped(result, node, namespace, None, "template_decl");
+                record_skipped(
+                    result,
+                    node,
+                    namespace,
+                    None,
+                    "template_decl",
+                    SkipCategory::HiccLimitation,
+                );
             }
         }
 
@@ -731,7 +878,7 @@ fn walk_node(
             if node.storage_class.as_deref() == Some("static") {
                 return;
             }
-            if let Some(global) = extract_global_var(node, namespace, class_map) {
+            if let Some(global) = extract_global_var(node, namespace, class_map, alias_registry) {
                 result.globals.push(global);
             }
         }
@@ -749,9 +896,403 @@ fn walk_node(
                     overload_counts,
                     strategy,
                     class_map,
+                    alias_registry,
                 );
             }
         }
+    }
+}
+
+/// Try to extract a `ClassTemplateSpecializationDecl` as a `ClassIR`.
+///
+/// Returns `None` when the specialisation has no typedef alias in the registry
+/// (we only extract specialisations that have a user-facing alias name).
+fn try_extract_template_spec(
+    node: &AstNode,
+    namespace: &[String],
+    current_file: &mut String,
+    result: &mut ExtractedDecls,
+    strategy: &OverloadStrategy,
+    class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
+) -> Option<ClassIR> {
+    let template_name = node.name.as_deref()?;
+
+    // Only extract specialisations that have a typedef alias (主线一+二).
+    let alias = alias_registry.alias_for_template(template_name)?;
+
+    // Determine the full C++ type to use in `#[cpp(class = "…")]`.
+    let qualified_name = alias_registry
+        .full_type_for_alias(alias)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| make_qualified(namespace, template_name));
+    let qualified_name = if qualified_name.is_empty() {
+        make_qualified(namespace, template_name)
+    } else {
+        qualified_name
+    };
+
+    extract_class_body(
+        node,
+        alias,
+        &qualified_name,
+        true,
+        Some(alias.to_string()),
+        namespace,
+        current_file,
+        result,
+        strategy,
+        class_map,
+        alias_registry,
+    )
+}
+
+/// Core class-body extraction shared by `CXXRecordDecl` and
+/// `ClassTemplateSpecializationDecl` paths.
+///
+/// * `class_name`    – the Rust struct name to use (alias for templates).
+/// * `qualified_name`– the full C++ type for `#[cpp(class = "…")]`.
+/// * `is_spec`       – true when called for a template specialisation.
+/// * `canonical_name`– alias name for template specialisations.
+#[allow(clippy::too_many_arguments)]
+fn extract_class_body(
+    node: &AstNode,
+    class_name: &str,
+    qualified_name: &str,
+    is_spec: bool,
+    canonical_name: Option<String>,
+    namespace: &[String],
+    current_file: &mut String,
+    result: &mut ExtractedDecls,
+    strategy: &OverloadStrategy,
+    class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
+) -> Option<ClassIR> {
+    let mut class_ir = ClassIR {
+        name: class_name.to_string(),
+        qualified_name: qualified_name.to_string(),
+        is_template_specialization: is_spec,
+        canonical_name,
+        ..ClassIR::default()
+    };
+
+    // Extract public base classes.
+    for base in &node.bases {
+        if base.access == "public" {
+            let raw = base.type_info.qual_type.trim();
+            let bare = raw
+                .strip_prefix("class ")
+                .or_else(|| raw.strip_prefix("struct "))
+                .unwrap_or(raw)
+                .trim();
+            if !bare.is_empty() {
+                // Prefer alias name if the base is a template with an alias.
+                let resolved_base = {
+                    let template_bare = bare
+                        .rsplit("::")
+                        .next()
+                        .unwrap_or(bare)
+                        .split('<')
+                        .next()
+                        .unwrap_or(bare)
+                        .trim();
+                    alias_registry
+                        .alias_for_template(template_bare)
+                        .map(|a| a.to_string())
+                        .or_else(|| class_map.get(bare).cloned())
+                        .unwrap_or_else(|| bare.to_string())
+                };
+                class_ir.bases.push(resolved_base);
+            }
+        }
+    }
+
+    // C++ class members are private by default; struct members are public.
+    let is_struct = node.tag_used.as_deref() == Some("struct");
+    let mut cur_access = if is_struct { "public" } else { "private" };
+
+    let mut method_overloads: HashMap<String, usize> = HashMap::new();
+    // Collect pure-virtual methods separately; we decide after the loop
+    // whether this class is fully abstract (→ #[interface]) or mixed.
+    let mut pure_virtual_nodes: Vec<AstNode> = Vec::new();
+
+    for child in node.inner.iter().flatten() {
+        if child.is_implicit.unwrap_or(false) {
+            continue;
+        }
+        // Track location inside the class body too.
+        if let Some(ref loc) = child.loc {
+            update_file(loc, current_file);
+        }
+
+        if child.kind == "AccessSpecDecl" {
+            if let Some(ref a) = child.access {
+                cur_access = a.as_str();
+            }
+            continue;
+        }
+
+        // Only extract public members.
+        if cur_access != "public" {
+            continue;
+        }
+
+        match child.kind.as_str() {
+            "CXXMethodDecl" | "CXXConstructorDecl" | "CXXDestructorDecl" => {
+                if child.kind == "CXXDestructorDecl" {
+                    record_skipped(
+                        result,
+                        child,
+                        namespace,
+                        Some(class_name),
+                        "destructor",
+                        SkipCategory::HiccLimitation,
+                    );
+                    continue;
+                }
+                if child.kind == "CXXConstructorDecl" {
+                    if let Some(ctor) = extract_ctor(child, class_name, class_map, alias_registry) {
+                        class_ir.ctors.push(ctor);
+                    } else {
+                        record_skipped(
+                            result,
+                            child,
+                            namespace,
+                            Some(class_name),
+                            "constructor",
+                            SkipCategory::HiccLimitation,
+                        );
+                    }
+                    continue;
+                }
+                // Pure-virtual methods are held aside; we decide below.
+                if child.is_pure.unwrap_or(false) {
+                    pure_virtual_nodes.push(child.clone());
+                    continue;
+                }
+                // Non-pure virtual and regular methods: both callable via hicc.
+                if is_operator_name(child.name.as_deref()) {
+                    collect_operator_shim(
+                        child,
+                        namespace,
+                        Some(class_name),
+                        Some(qualified_name),
+                        result,
+                    );
+                    record_skipped(
+                        result,
+                        child,
+                        namespace,
+                        Some(class_name),
+                        "operator_overload",
+                        SkipCategory::HiccLimitation,
+                    );
+                    continue;
+                }
+                if let Some(ir) = extract_function(
+                    child,
+                    namespace,
+                    &mut method_overloads,
+                    Some(class_name),
+                    strategy,
+                    class_map,
+                    alias_registry,
+                    &mut result.skipped,
+                ) {
+                    class_ir.methods.push(ir);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Decide how to handle pure-virtual methods (主线三).
+    //
+    // - Fully abstract (no concrete methods): emit #[interface] with all PVMs.
+    // - Mixed (concrete + pure-virtual): put PVMs in `pure_virtual_methods`
+    //   for a companion `#[interface]` trait; main class remains concrete.
+    // - Pure concrete (no PVMs): nothing extra to do.
+    let has_concrete = !class_ir.methods.is_empty();
+    let has_pvm = !pure_virtual_nodes.is_empty();
+
+    if !has_concrete && has_pvm {
+        // Fully abstract class → extract PVMs into `methods` (#[interface]).
+        for pvm in &pure_virtual_nodes {
+            if is_operator_name(pvm.name.as_deref()) {
+                collect_operator_shim(pvm, namespace, Some(class_name), Some(qualified_name), result);
+                record_skipped(
+                    result,
+                    pvm,
+                    namespace,
+                    Some(class_name),
+                    "operator_overload",
+                    SkipCategory::HiccLimitation,
+                );
+                continue;
+            }
+            if let Some(ir) = extract_function(
+                pvm,
+                namespace,
+                &mut method_overloads,
+                Some(class_name),
+                strategy,
+                class_map,
+                alias_registry,
+                &mut result.skipped,
+            ) {
+                class_ir.methods.push(ir);
+            }
+        }
+        class_ir.is_abstract = true;
+    } else if has_concrete && has_pvm {
+        // Mixed class → companion interface (主线三).
+        for pvm in &pure_virtual_nodes {
+            if is_operator_name(pvm.name.as_deref()) {
+                collect_operator_shim(pvm, namespace, Some(class_name), Some(qualified_name), result);
+                record_skipped(
+                    result,
+                    pvm,
+                    namespace,
+                    Some(class_name),
+                    "operator_overload",
+                    SkipCategory::HiccLimitation,
+                );
+                continue;
+            }
+            if let Some(ir) = extract_function(
+                pvm,
+                namespace,
+                &mut method_overloads,
+                Some(class_name),
+                strategy,
+                class_map,
+                alias_registry,
+                &mut result.skipped,
+            ) {
+                class_ir.pure_virtual_methods.push(ir);
+            }
+        }
+        class_ir.has_pure_virtual = true;
+    } else {
+        // Pure concrete class with no PVMs (normal case).
+        // No action needed; the loop above already extracted all concrete methods.
+    }
+
+    // Sort ctors by ascending parameter count so that ctors[0] is always the
+    // "simplest" constructor (used as the primary ctor in import_class!).
+    class_ir.ctors.sort_by_key(|c| c.params.len());
+
+    Some(class_ir)
+}
+
+/// Best-effort collection of an operator overload into `result.operator_shims`.
+///
+/// Called whenever an operator node is encountered and skipped.  We extract
+/// as much type information as available (return type, param types) even when
+/// the types are not fully supported, so that the generated shim header gives
+/// the user something useful to start with.
+fn collect_operator_shim(
+    node: &AstNode,
+    namespace: &[String],
+    class_name: Option<&str>,
+    qualified_class: Option<&str>,
+    result: &mut ExtractedDecls,
+) {
+    let op_name = match node.name.as_deref() {
+        Some(n) if n.starts_with("operator") => n,
+        _ => return,
+    };
+
+    let (return_cpp_type, is_const) = if let Some(ref ti) = node.type_info {
+        let qt = ti.qual_type.as_str();
+        let is_c = qt.ends_with(") const");
+        let ret = parse_fn_qual_type(qt)
+            .map(|(r, _)| r)
+            .unwrap_or_default();
+        (ret, is_c)
+    } else {
+        (String::new(), false)
+    };
+
+    // Collect parameters (best-effort; ignore type-gate issues here).
+    let params: Vec<ParamIR> = node
+        .inner
+        .iter()
+        .flatten()
+        .filter(|c| c.kind == "ParmVarDecl")
+        .enumerate()
+        .map(|(i, p)| {
+            let pname = p
+                .name
+                .as_deref()
+                .filter(|n| !n.is_empty())
+                .unwrap_or("arg")
+                .to_string();
+            let cpp_type = p
+                .type_info
+                .as_ref()
+                .map(|t| t.qual_type.clone())
+                .unwrap_or_else(|| format!("/* unknown_type_{} */", i));
+            let rust_type = cpp_to_rust_type(&cpp_type);
+            ParamIR { name: pname, cpp_type, rust_type }
+        })
+        .collect();
+
+    let shim_name = operator_shim_fn_name(op_name, class_name);
+
+    result.operator_shims.push(OperatorShimIR {
+        class_name: class_name.map(|s| s.to_string()),
+        qualified_class: qualified_class.map(|s| {
+            // Use namespace-qualified class name if no qualified_class given.
+            if s.is_empty() {
+                class_name
+                    .map(|c| make_qualified(namespace, c))
+                    .unwrap_or_default()
+            } else {
+                s.to_string()
+            }
+        }),
+        operator_name: op_name.to_string(),
+        return_cpp_type,
+        shim_name,
+        params,
+        is_const,
+    });
+}
+
+/// Derive a snake_case shim function name for an operator.
+///
+/// Examples:
+/// - `("operator[]", Some("Value"))` → `"value_get_at"`
+/// - `("operator==", None)` → `"eq"`
+fn operator_shim_fn_name(op: &str, class_name: Option<&str>) -> String {
+    let bare_op = op.rsplit("::").next().unwrap_or(op);
+    let suffix = match bare_op {
+        "operator[]" => "get_at",
+        "operator=" => "assign",
+        "operator==" => "eq",
+        "operator!=" => "ne",
+        "operator<" => "lt",
+        "operator<=" => "le",
+        "operator>" => "gt",
+        "operator>=" => "ge",
+        "operator+" => "add",
+        "operator-" => "sub",
+        "operator*" => "mul",
+        "operator/" => "div",
+        "operator%" => "rem",
+        "operator++" => "increment",
+        "operator--" => "decrement",
+        "operator()" => "call",
+        "operator bool" => "to_bool",
+        "operator int" => "to_int",
+        "operator double" => "to_double",
+        _ => "op",
+    };
+    if let Some(cls) = class_name {
+        format!("{}_{}", to_snake_case(cls), suffix)
+    } else {
+        suffix.to_string()
     }
 }
 
@@ -763,6 +1304,7 @@ fn extract_function(
     class_name: Option<&str>,
     strategy: &OverloadStrategy,
     class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
     skipped: &mut Vec<SkippedDecl>,
 ) -> Option<FunctionIR> {
     let name = node.name.as_deref()?;
@@ -774,6 +1316,7 @@ fn extract_function(
             kind: node.kind.clone(),
             name: qualified_name.clone(),
             reason: "destructor".to_string(),
+            category: SkipCategory::HiccLimitation,
         });
         return None;
     }
@@ -783,6 +1326,7 @@ fn extract_function(
             kind: node.kind.clone(),
             name: qualified_name.clone(),
             reason: "operator_overload".to_string(),
+            category: SkipCategory::HiccLimitation,
         });
         return None;
     }
@@ -792,6 +1336,7 @@ fn extract_function(
             kind: node.kind.clone(),
             name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
+            category: SkipCategory::HiccLimitation,
         });
         return None;
     };
@@ -800,14 +1345,16 @@ fn extract_function(
             kind: node.kind.clone(),
             name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
+            category: SkipCategory::HiccLimitation,
         });
         return None;
     };
-    if !is_supported_cpp_type(&return_type, class_map) {
+    if !is_supported_cpp_type(&return_type, class_map, alias_registry) {
         skipped.push(SkippedDecl {
             kind: node.kind.clone(),
             name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
+            category: categorize_unsupported_type(&return_type),
         });
         return None;
     }
@@ -832,18 +1379,20 @@ fn extract_function(
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
                 reason: "unsupported_type".to_string(),
+                category: SkipCategory::HiccLimitation,
             });
             return None;
         };
-        if !is_supported_cpp_type(&cpp_type, class_map) {
+        if !is_supported_cpp_type(&cpp_type, class_map, alias_registry) {
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
                 reason: "unsupported_type".to_string(),
+                category: categorize_unsupported_type(&cpp_type),
             });
             return None;
         }
-        let rust_type = cpp_to_rust_type(&cpp_type);
+        let rust_type = cpp_to_rust_type_with_aliases(&cpp_type, alias_registry);
         params.push(ParamIR {
             name: pname,
             cpp_type,
@@ -857,9 +1406,6 @@ fn extract_function(
     let is_pure = node.is_pure.unwrap_or(false);
 
     // Build the C++ signature for hicc attributes.
-    // Qualify any bare class-type names with their namespace prefix so that
-    // hicc-build can resolve them (clang often omits the namespace prefix for
-    // types defined in the same namespace as the function).
     let qualified_return = qualify_cpp_type(&return_type, class_map);
     let param_types: Vec<String> = params
         .iter()
@@ -880,7 +1426,7 @@ fn extract_function(
     *count += 1;
     let rust_name = strategy.uniquify(&to_snake_case(name), *count);
 
-    let rust_return_type = cpp_to_rust_type(&return_type);
+    let rust_return_type = cpp_to_rust_type_with_aliases(&return_type, alias_registry);
 
     Some(FunctionIR {
         name: name.to_string(),
@@ -964,6 +1510,89 @@ pub fn to_snake_case(s: &str) -> String {
         }
     }
     out
+}
+
+/// Map a C++ type string to a Rust type string suitable for hicc FFI.
+///
+/// This is the alias-aware version used internally.  When a type is a
+/// template specialisation that has a known alias (e.g. `Document`), the
+/// alias name is returned instead of the bare template name.
+pub(crate) fn cpp_to_rust_type_with_aliases(cpp_type: &str, alias_registry: &AliasRegistry) -> String {
+    let t = cpp_type.trim();
+
+    // Pointer chain.
+    if t.contains('*') && !t.contains("(*)") {
+        let parts: Vec<&str> = t.split('*').collect();
+        let ptr_depth = parts.len().saturating_sub(1);
+        if ptr_depth > 0 {
+            let base_part = parts[0].trim();
+            let ptr_qualifiers: Vec<&str> = parts[1..].iter().map(|p| p.trim()).collect();
+            let base_const = has_top_level_const(base_part);
+            let base = strip_top_level_const(base_part);
+            let mut rust_type = if base == "void" {
+                "core::ffi::c_void".to_string()
+            } else {
+                cpp_to_rust_type_with_aliases(base, alias_registry)
+            };
+            for level in 0..ptr_depth {
+                let pointee_const = if level == 0 {
+                    base_const
+                } else {
+                    has_const_token(ptr_qualifiers[level - 1])
+                };
+                rust_type = if pointee_const {
+                    format!("*const {}", rust_type)
+                } else {
+                    format!("*mut {}", rust_type)
+                };
+            }
+            return rust_type;
+        }
+    }
+
+    // Reference.
+    if let Some(inner) = strip_trailing_ref(t) {
+        let is_const = has_top_level_const(inner);
+        let base = strip_top_level_const(inner);
+        let rust_base = cpp_to_rust_type_with_aliases(base, alias_registry);
+        return if is_const {
+            format!("&{}", rust_base)
+        } else {
+            format!("&mut {}", rust_base)
+        };
+    }
+
+    // Strip top-level `const`.
+    if has_top_level_const(t) {
+        let rest = strip_top_level_const(t);
+        return cpp_to_rust_type_with_aliases(rest, alias_registry);
+    }
+
+    // Primitive mappings (delegate to the alias-free version for these).
+    match t {
+        "void" | "bool" | "char" | "signed char" | "unsigned char"
+        | "short" | "short int" | "signed short" | "signed short int"
+        | "unsigned short" | "unsigned short int"
+        | "int" | "signed" | "signed int"
+        | "unsigned" | "unsigned int"
+        | "long" | "long int" | "signed long" | "signed long int"
+        | "unsigned long" | "unsigned long int"
+        | "long long" | "long long int" | "signed long long"
+        | "unsigned long long" | "unsigned long long int"
+        | "float" | "double" | "long double"
+        | "size_t" | "ssize_t" | "ptrdiff_t"
+        | "int8_t" | "int16_t" | "int32_t" | "int64_t"
+        | "uint8_t" | "uint16_t" | "uint32_t" | "uint64_t"
+        | "intptr_t" | "uintptr_t" => cpp_to_rust_type(t),
+        _ => {
+            // For user-defined / template types: first check for an alias.
+            let bare = bare_class_name(t);
+            if let Some(alias) = alias_registry.alias_for_template(&bare) {
+                return alias.to_string();
+            }
+            bare
+        }
+    }
 }
 
 /// Map a C++ type string to a Rust type string suitable for hicc FFI.
@@ -1095,12 +1724,9 @@ fn is_operator_name(name: Option<&str>) -> bool {
     name.is_some_and(|n| n.starts_with("operator"))
 }
 
-fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>) -> bool {
+fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, alias_registry: &AliasRegistry) -> bool {
     let t = cpp_type.trim();
     if t.is_empty() {
-        return false;
-    }
-    if contains_unsupported_type_construct(t) {
         return false;
     }
 
@@ -1114,16 +1740,51 @@ fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>) ->
             .expect("split always has at least one element")
             .trim();
         let base = strip_top_level_const(base);
-        return is_supported_cpp_type(base, class_map);
+        return is_supported_cpp_type(base, class_map, alias_registry);
     }
 
     if let Some(inner) = strip_trailing_ref(t) {
         let base = strip_top_level_const(inner);
-        return is_supported_cpp_type(base, class_map);
+        return is_supported_cpp_type(base, class_map, alias_registry);
     }
 
     let base = strip_top_level_const(t);
+
+    // 主线五: Allow template types whose bare name has a typedef alias.
+    if base.contains('<') {
+        let bare_template = base
+            .rsplit("::")
+            .next()
+            .unwrap_or(base)
+            .split('<')
+            .next()
+            .unwrap_or(base)
+            .trim();
+        if alias_registry.has_template_alias(bare_template) {
+            return true;
+        }
+        // Still reject other unsupported template constructs.
+        return false;
+    }
+
+    if contains_unsupported_type_construct(base) {
+        return false;
+    }
+
     is_primitive_cpp_type(base) || is_known_class_type(base, class_map)
+}
+
+/// Determine the `SkipCategory` for an unsupported type string.
+///
+/// Template types that might become supported with an alias are categorised
+/// as `ToolConservative`; truly unsupported constructs are `HiccLimitation`.
+fn categorize_unsupported_type(cpp_type: &str) -> SkipCategory {
+    let t = cpp_type.trim();
+    if t.contains('<') || t.contains("type-parameter-") || t.contains("dependent") {
+        SkipCategory::ToolConservative
+    } else {
+        SkipCategory::HiccLimitation
+    }
 }
 
 fn contains_unsupported_type_construct(t: &str) -> bool {
@@ -1205,6 +1866,7 @@ fn record_skipped(
     namespace: &[String],
     class_name: Option<&str>,
     reason: &str,
+    category: SkipCategory,
 ) {
     let raw_name = node.name.as_deref().unwrap_or("<anonymous>");
     let name = if let Some(cls) = class_name {
@@ -1216,6 +1878,7 @@ fn record_skipped(
         kind: node.kind.clone(),
         name,
         reason: reason.to_string(),
+        category,
     });
 }
 
@@ -1241,6 +1904,7 @@ fn extract_ctor(
     node: &AstNode,
     class_name: &str,
     class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
 ) -> Option<CtorIR> {
     // Collect ParmVarDecl children.
     let parm_nodes: Vec<&AstNode> = node
@@ -1279,10 +1943,10 @@ fn extract_ctor(
         let Some(ref cpp_type_str) = p.type_info.as_ref().map(|t| t.qual_type.clone()) else {
             return None;
         };
-        if !is_supported_cpp_type(cpp_type_str, class_map) {
+        if !is_supported_cpp_type(cpp_type_str, class_map, alias_registry) {
             return None;
         }
-        let rust_type = cpp_to_rust_type(cpp_type_str);
+        let rust_type = cpp_to_rust_type_with_aliases(cpp_type_str, alias_registry);
         params.push(ParamIR {
             name: pname,
             cpp_type: cpp_type_str.clone(),
@@ -1310,6 +1974,7 @@ fn extract_global_var(
     node: &AstNode,
     namespace: &[String],
     class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
 ) -> Option<GlobalVarIR> {
     let name = node.name.as_deref()?.to_string();
     // Skip anonymous variables.
@@ -1320,15 +1985,15 @@ fn extract_global_var(
     let cpp_type = node.type_info.as_ref().map(|t| t.qual_type.clone())?;
 
     // Skip unsupported types (templates, function pointers, etc.).
-    if !is_supported_cpp_type(&cpp_type, class_map) {
+    if !is_supported_cpp_type(&cpp_type, class_map, alias_registry) {
         return None;
     }
 
     let is_const = has_top_level_const(&cpp_type);
     let rust_type = if is_const {
-        format!("&'static {}", cpp_to_rust_type(strip_top_level_const(&cpp_type)))
+        format!("&'static {}", cpp_to_rust_type_with_aliases(strip_top_level_const(&cpp_type), alias_registry))
     } else {
-        format!("&'static mut {}", cpp_to_rust_type(&cpp_type))
+        format!("&'static mut {}", cpp_to_rust_type_with_aliases(&cpp_type, alias_registry))
     };
 
     let rust_name = to_snake_case(&name);
@@ -1450,17 +2115,43 @@ mod tests {
     #[test]
     fn test_is_supported_cpp_type() {
         let map = HashMap::from([("Vec2".to_string(), "geo::Vec2".to_string())]);
-        assert!(is_supported_cpp_type("int", &map));
-        assert!(is_supported_cpp_type("const Vec2 *", &map));
-        assert!(is_supported_cpp_type("geo::Vec2 &", &map));
-        assert!(!is_supported_cpp_type("std::vector<int> *", &map));
-        assert!(!is_supported_cpp_type("Vec2 (*)(int)", &map));
-        assert!(!is_supported_cpp_type("Document *", &map));
+        let reg = AliasRegistry::default();
+        assert!(is_supported_cpp_type("int", &map, &reg));
+        assert!(is_supported_cpp_type("const Vec2 *", &map, &reg));
+        assert!(is_supported_cpp_type("geo::Vec2 &", &map, &reg));
+        assert!(!is_supported_cpp_type("std::vector<int> *", &map, &reg));
+        assert!(!is_supported_cpp_type("Vec2 (*)(int)", &map, &reg));
+        assert!(!is_supported_cpp_type("Document *", &map, &reg));
+    }
+
+    #[test]
+    fn test_is_supported_cpp_type_with_alias() {
+        let map = HashMap::new();
+        let mut reg = AliasRegistry::default();
+        // Simulate: using Document = GenericDocument<UTF8<char>, CrtAllocator>;
+        reg.insert(
+            "Document",
+            "rapidjson::GenericDocument<rapidjson::UTF8<char>, rapidjson::CrtAllocator>",
+        );
+        // The template type itself should be allowed through now.
+        assert!(is_supported_cpp_type(
+            "rapidjson::GenericDocument<rapidjson::UTF8<char>, rapidjson::CrtAllocator>",
+            &map,
+            &reg
+        ));
+        assert!(is_supported_cpp_type(
+            "rapidjson::GenericDocument<rapidjson::UTF8<char>, rapidjson::CrtAllocator> &",
+            &map,
+            &reg
+        ));
+        // Non-aliased templates still rejected.
+        assert!(!is_supported_cpp_type("std::vector<int>", &map, &reg));
     }
 
     #[test]
     fn test_unsupported_type_helpers() {
         let map = HashMap::from([("Widget".to_string(), "ns::Widget".to_string())]);
+        let reg = AliasRegistry::default();
         assert!(contains_unsupported_type_construct("std::vector<int>"));
         assert!(contains_unsupported_type_construct("int (*)()"));
         assert!(!contains_unsupported_type_construct("const Widget *"));
@@ -1472,6 +2163,10 @@ mod tests {
         assert!(is_known_class_type("Widget", &map));
         assert!(is_known_class_type("ns::Widget", &map));
         assert!(!is_known_class_type("Document", &map));
+
+        // Aliased template types pass the type gate.
+        assert!(!is_supported_cpp_type("std::vector<int>", &map, &reg));
+        assert!(is_supported_cpp_type("Widget", &map, &reg));
     }
 
     #[test]
@@ -1646,7 +2341,8 @@ mod tests {
 
     /// Verify that a class with MIXED concrete + pure-virtual methods:
     /// - extracts the concrete methods normally (including non-pure virtual),
-    /// - skips the pure-virtual methods (conservative), and
+    /// - moves the pure-virtual methods to `pure_virtual_methods` (companion interface),
+    /// - sets `has_pure_virtual = true`, and
     /// - is NOT marked abstract.
     #[test]
     fn test_extract_mixed_virtual_class() {
@@ -1663,7 +2359,7 @@ mod tests {
         // Build a class with:
         //   public:
         //     virtual int virt_concrete();   ← non-pure virtual → extract
-        //     virtual int pure_one() = 0;   ← pure-virtual in mixed class → skip
+        //     virtual int pure_one() = 0;   ← pure-virtual in mixed class → companion interface
         //     int regular();                ← regular → extract
         let make_method = |name: &str, is_virtual: bool, is_pure: bool| AstNode {
             kind: "CXXMethodDecl".to_string(),
@@ -1736,13 +2432,17 @@ mod tests {
         let decls = extract_declarations(&ast, &[target]);
         assert_eq!(decls.classes.len(), 1);
         assert!(!decls.classes[0].is_abstract, "mixed class should not be abstract");
+        assert!(decls.classes[0].has_pure_virtual, "mixed class should have has_pure_virtual = true");
         let method_names: Vec<&str> = decls.classes[0].methods.iter().map(|m| m.name.as_str()).collect();
-        // Non-pure virtual and regular methods are extracted.
+        // Non-pure virtual and regular methods are extracted into `methods`.
         assert!(method_names.contains(&"virt_concrete"), "non-pure virtual should be extracted");
         assert!(method_names.contains(&"regular"), "regular method should be extracted");
-        // Pure-virtual method in a mixed class is skipped conservatively.
-        assert!(!method_names.contains(&"pure_one"), "pure-virtual in mixed class should be skipped");
+        // Pure-virtual method in a mixed class goes to `pure_virtual_methods`.
+        assert!(!method_names.contains(&"pure_one"), "pure-virtual should not be in methods");
+        let pv_names: Vec<&str> = decls.classes[0].pure_virtual_methods.iter().map(|m| m.name.as_str()).collect();
+        assert!(pv_names.contains(&"pure_one"), "pure-virtual should be in pure_virtual_methods");
+        // pure_virtual is NOT in the skipped list any more.
         let reasons: Vec<&str> = decls.skipped.iter().map(|s| s.reason.as_str()).collect();
-        assert!(reasons.contains(&"pure_virtual"));
+        assert!(!reasons.contains(&"pure_virtual"), "pure-virtual in mixed class should be extracted, not skipped");
     }
 }
