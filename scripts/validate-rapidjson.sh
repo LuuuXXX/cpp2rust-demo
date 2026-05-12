@@ -100,6 +100,8 @@ echo "=== Step 3: Running cpp2rust-demo init ==="
         cat > "${source_file}" <<CPP
 #include "${include_header}"
 CPP
+        # Keep one shared compile profile across cases for stable CI behavior:
+        # rapidjson is header-only and supports C++11 as a baseline.
         BUILD_STEPS+=("clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude ${source_file}")
     done
     BUILD_CMD=""
@@ -162,6 +164,8 @@ for case_name in "${CASE_NAMES[@]}"; do
     check_file  "${OUT}/rust/src.1/mod_${case_name}/meta.json"
     check_contains "${OUT}/meta/selected_files.json" "${middleware_file}"
     check_contains "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs" "#include \"${middleware_file}\""
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "\"group\": \"mod_${case_name}\""
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "${middleware_file}"
     check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${middleware_file}\""
 done
 
