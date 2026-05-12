@@ -124,9 +124,9 @@ cpp2rust-demo merge --feature myfeature
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数 + 静态方法（`hicc::import_lib!`）
   - `method/`：实例方法绑定（当前唯一承接 `hicc::import_class!` 的目录）
-  - `class/`：类级语义结构层（类名、方法计数、类-方法归属关系等），不是方法绑定层
-  - `types/`：类型语义层（类型清单 + C++→Rust 映射），参与 merge 产物组织
-  - `common/*`：共享语义层（共享 include/type 语义索引），会进入全局 merged 输出
+  - `class/`：类级语义结构层（类名、方法计数、类-方法归属关系 + 访问函数），不是方法绑定层
+  - `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），参与 merge 产物组织
+  - `common/*`：共享语义层（共享 include/type 语义索引 + 查询函数），会进入全局 merged 输出
   - `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围
 
 - merge 语义（当前）：

@@ -107,6 +107,36 @@ pub fn render_class_module(decls: &ExtractedDecls) -> String {
         "CLASS_INSTANCE_METHODS",
         &class_instance_methods,
     ));
+    out.push_str(
+        "\
+pub fn class_method_count(class_name: &str) -> Option<usize> {\n\
+    CLASS_NAMES\n\
+        .iter()\n\
+        .position(|name| *name == class_name)\n\
+        .map(|idx| CLASS_METHOD_COUNTS[idx])\n\
+}\n\
+\n\
+pub fn class_static_method_count(class_name: &str) -> Option<usize> {\n\
+    CLASS_NAMES\n\
+        .iter()\n\
+        .position(|name| *name == class_name)\n\
+        .map(|idx| CLASS_STATIC_METHOD_COUNTS[idx])\n\
+}\n\
+\n\
+pub fn class_methods(class_name: &str) -> Vec<&'static str> {\n\
+    CLASS_METHODS\n\
+        .iter()\n\
+        .filter_map(|(cls, method)| (*cls == class_name).then_some(*method))\n\
+        .collect()\n\
+}\n\
+\n\
+pub fn class_instance_methods(class_name: &str) -> Vec<&'static str> {\n\
+    CLASS_INSTANCE_METHODS\n\
+        .iter()\n\
+        .filter_map(|(cls, method)| (*cls == class_name).then_some(*method))\n\
+        .collect()\n\
+}\n",
+    );
     out
 }
 
@@ -162,6 +192,18 @@ pub fn render_types_module(decls: &ExtractedDecls) -> String {
     out.push_str(&format!("pub const CPP_TYPE_COUNT: usize = {};\n", values.len()));
     out.push_str(&render_string_slice("CPP_TYPES", &values));
     out.push_str(&render_pair_slice("CPP_RUST_TYPE_MAPPINGS", &mappings));
+    out.push_str(
+        "\
+pub fn rust_type_for(cpp_type: &str) -> Option<&'static str> {\n\
+    CPP_RUST_TYPE_MAPPINGS\n\
+        .iter()\n\
+        .find_map(|(cpp, rust)| (*cpp == cpp_type).then_some(*rust))\n\
+}\n\
+\n\
+pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
+    CPP_TYPES.iter().any(|ty| *ty == cpp_type)\n\
+}\n",
+    );
     out
 }
 
@@ -591,6 +633,8 @@ mod tests {
         assert!(class_src.contains("CLASS_METHODS"));
         assert!(class_src.contains("CLASS_INSTANCE_METHODS"));
         assert!(class_src.contains("Widget::update"));
+        assert!(class_src.contains("pub fn class_method_count"));
+        assert!(class_src.contains("pub fn class_methods"));
 
         let free_src = render_free_module(&decls, "mywidget");
         assert!(free_src.contains("class Widget;"));
@@ -599,5 +643,7 @@ mod tests {
         assert!(types_src.contains("CPP_RUST_TYPE_MAPPINGS"));
         assert!(types_src.contains("(\"double\", \"f64\")"));
         assert!(types_src.contains("(\"void\", \"()\")"));
+        assert!(types_src.contains("pub fn rust_type_for"));
+        assert!(types_src.contains("pub fn has_cpp_type"));
     }
 }

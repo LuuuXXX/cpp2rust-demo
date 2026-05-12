@@ -73,9 +73,9 @@
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数与静态方法
   - `method/`：类实例方法（当前唯一承接 `import_class!`）
-- `class/`：类级语义结构层（类名、方法计数、类-方法关系），不是方法绑定层。
-- `types/`：类型语义层（类型清单 + C++→Rust 映射），参与 merge 语义组织。
-- `common/*`：共享语义层（共享 include/type 索引），参与全局 merge 语义组织。
+- `class/`：类级语义结构层（类名、方法计数、类-方法关系 + 访问函数），不是方法绑定层。
+- `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），参与 merge 语义组织。
+- `common/*`：共享语义层（共享 include/type 索引 + 查询函数），参与全局 merge 语义组织。
 - `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围。
 
 merge 语义边界（当前）：

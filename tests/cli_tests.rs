@@ -350,6 +350,10 @@ fn init_class_generates_import_class_and_import_lib() {
         "class module should expose class-method relation index"
     );
     assert!(
+        class_content.contains("pub fn class_methods"),
+        "class module should expose structured class-method accessors"
+    );
+    assert!(
         method_content.contains("import_class!"),
         "method module should have import_class!"
     );
@@ -414,14 +418,17 @@ fn init_free_only_group_conditional_exports() {
             .unwrap();
     assert!(types_mod.contains("CPP_TYPES"));
     assert!(types_mod.contains("CPP_RUST_TYPE_MAPPINGS"));
+    assert!(types_mod.contains("pub fn rust_type_for"));
 
     let common_includes =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/common/includes.rs"))
             .unwrap();
     assert!(common_includes.contains("MIDDLEWARE_FILES"));
     assert!(common_includes.contains("MIDDLEWARE_BASENAMES"));
+    assert!(common_includes.contains("MIDDLEWARE_FILE_BASENAME_PAIRS"));
     assert!(common_includes.contains("INCLUDE_DIRS"));
     assert!(common_includes.contains("CPP_INCLUDE_LINES"));
+    assert!(common_includes.contains("pub fn include_line_for"));
 
     let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
         .unwrap();
@@ -683,6 +690,8 @@ fn merge_produces_merged_ffi() {
     assert!(content.contains("CPP_TYPES"));
     assert!(content.contains("CPP_RUST_TYPE_MAPPINGS"));
     assert!(content.contains("CPP_INCLUDE_LINES"));
+    assert!(content.contains("pub fn rust_type_for"));
+    assert!(content.contains("pub fn include_line_for"));
     // Should have exactly one import_lib! block.
     assert_eq!(
         content.matches("import_lib!").count(),
@@ -743,6 +752,10 @@ fn merge_deduplicates_class_forward_decls() {
     assert!(
         content.contains("CLASS_METHODS"),
         "merged output should carry class-method semantic relationships"
+    );
+    assert!(
+        content.contains("pub fn class_method_count"),
+        "merged output should carry class semantic access helpers"
     );
 }
 

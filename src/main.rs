@@ -589,6 +589,11 @@ fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[S
         out.push_str(&format!("    {:?},\n", name));
     }
     out.push_str("];\n\n");
+    out.push_str("pub const MIDDLEWARE_FILE_BASENAME_PAIRS: &[(&str, &str)] = &[\n");
+    for (file, name) in files.iter().zip(basenames.iter()) {
+        out.push_str(&format!("    ({:?}, {:?}),\n", file, name));
+    }
+    out.push_str("];\n\n");
     out.push_str("pub const INCLUDE_DIRS: &[&str] = &[\n");
     for dir in include_dirs {
         out.push_str(&format!("    {:?},\n", dir));
@@ -599,7 +604,19 @@ fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[S
         let include_line = format!("#include \"{}\"", name);
         out.push_str(&format!("    {:?},\n", include_line));
     }
-    out.push_str("];\n");
+    out.push_str("];\n\n");
+    out.push_str(
+        "pub fn include_line_for(basename: &str) -> Option<&'static str> {\n\
+    MIDDLEWARE_BASENAMES\n\
+        .iter()\n\
+        .position(|name| *name == basename)\n\
+        .map(|idx| CPP_INCLUDE_LINES[idx])\n\
+}\n\
+\n\
+pub fn has_include_dir(dir: &str) -> bool {\n\
+    INCLUDE_DIRS.iter().any(|d| *d == dir)\n\
+}\n",
+    );
     out
 }
 
