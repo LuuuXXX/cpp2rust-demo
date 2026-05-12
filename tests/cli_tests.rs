@@ -1973,4 +1973,3 @@ fn init_namespaced_global_variable_uses_qualified_name() {
         meta_src
     );
 }
-
