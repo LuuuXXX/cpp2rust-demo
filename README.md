@@ -162,14 +162,17 @@ cpp2rust-demo merge --feature myfeature
 
 跳过规则（记录在 `init-interface-report.md`）：
 
-- constructor / destructor
-- operator overload
-- 模板声明：类模板需 `typedef`/`using` 别名才可提取；函数模板需有 concrete specialization
+- destructor（`HiccLimitation`：hicc 不支持显式析构绑定）
+- copy/move constructor（自动识别并跳过，避免生成无意义绑定）
+- operator overload（生成 `operator_shims.hpp` starter 辅助用户手写 C++ shim）
+- 无别名的模板声明（`ToolConservative`：添加 `typedef`/`using` 别名后可解锁）
+- 函数模板（需有 concrete specialization 可见于 AST）
+- 含不支持类型的参数/返回值（`unsupported_type`：如函数指针、variadic、`auto`/`decltype`）
 
 虚函数处理：
 
 - **非纯 virtual 方法**：直接提取为 `#[cpp(method = "...")]`
-- **全纯虚类**：提取为 `#[interface]` trait
+- **全纯虚类**：提取为 `#[interface]` trait，并在 `import_lib!` 中生成 `@make_proxy` 反向绑定
 - **混合类**（含普通方法 + 纯虚方法）：普通方法正常提取；纯虚方法生成 companion interface
 
 ## 相关文档与示例
@@ -177,6 +180,18 @@ cpp2rust-demo merge --feature myfeature
 - 设计说明：`docs/design.md`
 - AST 处理：`docs/clang-ast.md`
 - hicc 用法：`docs/hicc-usage.md`
+- C++ 特性支持矩阵：`docs/cpp-features.md`
+- 后续功能计划：`docs/future-plan.md`
+- RapidJSON 支持文档（含完整验证流程）：`docs/rapidjson-support.md`
 - 示例：
-  - `examples/simple/README.md`
-  - `examples/class/README.md`
+  - `examples/README.md`（总览，含能力速查与不支持特性说明）
+  - `examples/simple/README.md`（自由函数、命名空间、重载）
+  - `examples/class/README.md`（类、方法、构造函数、virtual、继承）
+  - `examples/rapidjson-01-enum/README.md`（枚举绑定）
+  - `examples/rapidjson-02-typedef-alias/README.md`（typedef/using 别名）
+  - `examples/rapidjson-03-template-class/README.md`（模板特化类）
+  - `examples/rapidjson-04-abstract-interface/README.md`（纯虚接口 + @make_proxy）
+  - `examples/rapidjson-05-virtual-methods/README.md`（非纯虚方法）
+  - `examples/rapidjson-06-inheritance/README.md`（public 继承）
+  - `examples/rapidjson-07-operator-shim/README.md`（运算符重载 shim）
+  - `examples/rapidjson-08-multi-tu/README.md`（多翻译单元 + merge）
