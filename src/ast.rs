@@ -14,6 +14,68 @@ use std::path::Path;
 // Raw AST node types (deserialised from clang -ast-dump=json)
 // ---------------------------------------------------------------------------
 
+/// Deserialise the `"value"` field of an `AstNode`, which clang emits either
+/// as a JSON string (`"42"`) or as a raw integer (`42`).  Both forms are
+/// normalised to `Option<String>`.
+fn deserialize_value_field<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct ValueVisitor;
+
+    impl<'de> Visitor<'de> for ValueVisitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "a string, integer, or null")
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D2: serde::Deserializer<'de>>(
+            self,
+            d: D2,
+        ) -> Result<Self::Value, D2::Error> {
+            d.deserialize_any(ValueVisitor)
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+
+        fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
+            Ok(Some(v))
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+
+        fn visit_bool<E: de::Error>(self, v: bool) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+    }
+
+    deserializer.deserialize_option(ValueVisitor)
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AstNode {
     /// The AST node kind as emitted by clang (e.g. `"FunctionDecl"`,
@@ -56,6 +118,12 @@ pub struct AstNode {
     ///
     /// Clang emits a `"value"` field on `ConstantExpr` and `IntegerLiteral`
     /// nodes.  Used here to extract enum constant discriminant values.
+    ///
+    /// Clang may emit the value either as a JSON string (`"42"`) or as a raw
+    /// JSON integer (`42`), depending on the node kind and clang version.
+    /// The custom deserialiser below accepts both forms and normalises them to
+    /// `Option<String>` so the rest of the extraction code is unaffected.
+    #[serde(default, deserialize_with = "deserialize_value_field")]
     pub value: Option<String>,
     /// `"class"` when this `EnumDecl` is a scoped (`enum class`) enumeration.
     #[serde(rename = "scopedEnumTag")]
