@@ -1,7 +1,7 @@
 # Simple Example – Free Functions
 
-This example demonstrates generating Rust FFI for a C++ header that contains
-free functions (including overloaded ones) inside a namespace.
+This example demonstrates generating Rust FFI for a C++ library by compiling a
+translation unit that includes a header with free functions (including overloaded ones) inside a namespace.
 
 ## Source
 
@@ -14,7 +14,7 @@ From the repository root:
 
 ```bash
 # Step 1: generate FFI
-cpp2rust-demo init --link mylib -- clang -x c++ -fsyntax-only examples/simple/mylib.hpp
+cpp2rust-demo init --link mylib -- clang -x c++ -fsyntax-only examples/simple/mylib.cpp
 
 # Step 2: consolidate into a single file
 cpp2rust-demo merge

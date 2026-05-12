@@ -1,6 +1,6 @@
 # cpp2rust-demo
 
-`cpp2rust-demo` 是一个面向 C++ 项目的命令行工具，使用 `LD_PRELOAD` 捕获真实编译过程，生成 `.cpp2rust` 预处理中间件，并基于 `hicc` 生成 Rust FFI 脚手架。
+`cpp2rust-demo` 是一个面向 C++ 项目的命令行工具，使用 `LD_PRELOAD` 捕获真实编译过程中的 **C++ 编译单元（translation units）**，生成 `.cpp2rust` 预处理中间件，并基于 `hicc` 生成 Rust FFI 脚手架。
 
 ## 核心流程（init）
 
@@ -9,7 +9,7 @@ C++ 项目目录
    │
    ├─ cpp2rust-demo init --link <libname> -- <构建命令>
    │    ├─ 编译 hook/libhook.so
-   │    ├─ 通过 LD_PRELOAD 注入构建过程，捕获编译输入并生成 `.cpp2rust` 中间件（例如 `a.cpp -> a.cpp.cpp2rust`）
+   │    ├─ 通过 LD_PRELOAD 注入构建过程，仅捕获 C++ 编译单元并生成 `.cpp2rust` 中间件（例如 `a.cpp -> a.cpp.cpp2rust`）
    │    ├─ 扫描 .cpp2rust/<feature>/cpp/**/*.cpp2rust
    │    ├─ 交互式选择参与转换的中间件文件（非交互环境自动全选）
    │    ├─ 对每个选中文件执行 clang -ast-dump=json
@@ -57,6 +57,8 @@ cpp2rust-demo init --link mylib -- clang++ -x c++ -std=c++17 -fsyntax-only -Iinc
 
 - `--feature` 默认为 `default`
 - `--` 后为真实构建命令，工具不再要求用户单独手工输入头文件列表
+- 自动捕获仅面向 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`），不会直接捕获 `.h/.hpp/.hh/.hxx`
+- 头文件信息通过编译单元预处理展开进入 `*.cpp2rust`，后续 AST/`hicc` 提取均基于这些预处理中间件
 
 ### 2) merge
 

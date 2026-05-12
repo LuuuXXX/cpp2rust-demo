@@ -1,7 +1,7 @@
 // Integration tests for the cpp2rust-demo CLI.
 //
-// These tests run the compiled binary against real C++ headers (using the
-// `clang` binary on the host) and verify the generated output.
+// These tests run the compiled binary against real C++ translation units
+// (using the `clang` binary on the host) and verify the generated output.
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
@@ -17,6 +17,13 @@ fn bin() -> Command {
 fn write_header(dir: &TempDir, name: &str, content: &str) -> std::path::PathBuf {
     let path = dir.path().join(name);
     std::fs::write(&path, content).unwrap();
+    path
+}
+
+// Helper: write a C++ translation unit that includes a header.
+fn write_translation_unit(dir: &TempDir, name: &str, header: &str) -> std::path::PathBuf {
+    let path = dir.path().join(name);
+    std::fs::write(&path, format!("#include \"{}\"\n", header)).unwrap();
     path
 }
 
@@ -80,7 +87,7 @@ fn init_nonexistent_header_fails() {
 #[test]
 fn init_simple_free_functions() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(
+    write_header(
         &tmp,
         "mylib.hpp",
         r#"
@@ -88,6 +95,7 @@ fn init_simple_free_functions() {
         double scale(double x, double factor);
         "#,
     );
+    let tu = write_translation_unit(&tmp, "mylib.cpp", "mylib.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -100,7 +108,7 @@ fn init_simple_free_functions() {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success()
@@ -118,11 +126,11 @@ fn init_simple_free_functions() {
     // The generated file must include the header via hicc::cpp! so that
     // namespace-qualified signatures compile with hicc-build.
     assert!(content.contains("hicc::cpp!"));
-    assert!(content.contains("#include \"mylib.hpp.cpp2rust\""));
+    assert!(content.contains("#include \"mylib.cpp.cpp2rust\""));
 
     // LD_PRELOAD hook should capture middleware file.
-    let captured = tmp.path().join(".cpp2rust/default/cpp/mylib.hpp.cpp2rust");
-    assert!(captured.exists(), "mylib.hpp.cpp2rust should exist");
+    let captured = tmp.path().join(".cpp2rust/default/cpp/mylib.cpp.cpp2rust");
+    assert!(captured.exists(), "mylib.cpp.cpp2rust should exist");
 
     // Interactive middleware selection should produce selected_files.json.
     let selected = tmp
@@ -131,7 +139,7 @@ fn init_simple_free_functions() {
     assert!(selected.exists(), "selected_files.json should exist");
     let selected_content = std::fs::read_to_string(selected).unwrap();
     assert!(
-        selected_content.contains("mylib.hpp.cpp2rust"),
+        selected_content.contains("mylib.cpp.cpp2rust"),
         "selected_files.json should record chosen middleware files"
     );
 }
@@ -139,7 +147,8 @@ fn init_simple_free_functions() {
 #[test]
 fn init_build_cmd_via_sh_c() {
     let tmp = TempDir::new().unwrap();
-    let _header_path = write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
+    write_header(&tmp, "quoted.hpp", "int quoted_add(int a, int b);");
+    write_translation_unit(&tmp, "quoted.cpp", "quoted.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -150,7 +159,7 @@ fn init_build_cmd_via_sh_c() {
             "--",
             "sh",
             "-c",
-            "clang -x c++ -fsyntax-only quoted.hpp",
+            "clang -x c++ -fsyntax-only quoted.cpp",
         ])
         .assert()
         .success();
@@ -169,7 +178,7 @@ fn init_build_cmd_via_sh_c() {
     assert!(captured.exists(), "selected_files.json should exist");
     let captured_content = std::fs::read_to_string(captured).unwrap();
     assert!(
-        captured_content.contains("quoted.hpp.cpp2rust"),
+        captured_content.contains("quoted.cpp.cpp2rust"),
         "selected middleware should contain output from quoted capture-cmd"
     );
 }
@@ -177,7 +186,7 @@ fn init_build_cmd_via_sh_c() {
 #[test]
 fn init_overloaded_functions_get_numeric_suffix() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(
+    write_header(
         &tmp,
         "over.hpp",
         r#"
@@ -186,6 +195,7 @@ fn init_overloaded_functions_get_numeric_suffix() {
         void process(const char* value);
         "#,
     );
+    let tu = write_translation_unit(&tmp, "over.cpp", "over.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -198,7 +208,7 @@ fn init_overloaded_functions_get_numeric_suffix() {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -226,13 +236,14 @@ fn init_overloaded_functions_get_numeric_suffix() {
 #[test]
 fn init_namespace_qualified_signature() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(
+    write_header(
         &tmp,
         "ns.hpp",
         r#"
         namespace myns { int add(int a, int b); }
         "#,
     );
+    let tu = write_translation_unit(&tmp, "ns.cpp", "ns.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -245,7 +256,7 @@ fn init_namespace_qualified_signature() {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -262,7 +273,7 @@ fn init_namespace_qualified_signature() {
 #[test]
 fn init_class_generates_import_class_and_import_lib() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(
+    write_header(
         &tmp,
         "widget.hpp",
         r#"
@@ -274,6 +285,7 @@ fn init_class_generates_import_class_and_import_lib() {
         };
         "#,
     );
+    let tu = write_translation_unit(&tmp, "widget.cpp", "widget.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -286,7 +298,7 @@ fn init_class_generates_import_class_and_import_lib() {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -328,7 +340,8 @@ fn init_class_generates_import_class_and_import_lib() {
 #[test]
 fn init_creates_cargo_toml_with_hicc() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(&tmp, "simple.hpp", "void foo();");
+    write_header(&tmp, "simple.hpp", "void foo();");
+    let tu = write_translation_unit(&tmp, "simple.cpp", "simple.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -341,7 +354,7 @@ fn init_creates_cargo_toml_with_hicc() {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -355,7 +368,8 @@ fn init_creates_cargo_toml_with_hicc() {
 #[test]
 fn init_creates_build_rs() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(&tmp, "simple.hpp", "void foo();");
+    write_header(&tmp, "simple.hpp", "void foo();");
+    let tu = write_translation_unit(&tmp, "simple.cpp", "simple.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -368,7 +382,7 @@ fn init_creates_build_rs() {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -382,7 +396,8 @@ fn init_creates_build_rs() {
 #[test]
 fn init_custom_feature() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(&tmp, "simple.hpp", "void foo();");
+    write_header(&tmp, "simple.hpp", "void foo();");
+    let tu = write_translation_unit(&tmp, "simple.cpp", "simple.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -397,7 +412,7 @@ fn init_custom_feature() {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -430,13 +445,15 @@ fn merge_without_init_fails() {
 fn merge_produces_merged_ffi() {
     let tmp = TempDir::new().unwrap();
 
-    // Create two headers.
-    let h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
-    let h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    // Create two headers and matching translation units.
+    write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
+    write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    let tu1 = write_translation_unit(&tmp, "lib1.cpp", "lib1.hpp");
+    let tu2 = write_translation_unit(&tmp, "lib2.cpp", "lib2.hpp");
     let build_cmd = format!(
         "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
-        h1.display(),
-        h2.display()
+        tu1.display(),
+        tu2.display()
     );
 
     // Init with both.
@@ -474,7 +491,7 @@ fn merge_deduplicates_class_forward_decls() {
     let tmp = TempDir::new().unwrap();
 
     // Two headers that both reference the same class.
-    let h1 = write_header(
+    write_header(
         &tmp,
         "a.hpp",
         r#"class Widget {
@@ -482,11 +499,13 @@ fn merge_deduplicates_class_forward_decls() {
             void update(double x, double y);
         };"#,
     );
-    let h2 = write_header(&tmp, "b.hpp", "int add(int a, int b);");
+    write_header(&tmp, "b.hpp", "int add(int a, int b);");
+    let tu1 = write_translation_unit(&tmp, "a.cpp", "a.hpp");
+    let tu2 = write_translation_unit(&tmp, "b.cpp", "b.hpp");
     let build_cmd = format!(
         "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
-        h1.display(),
-        h2.display()
+        tu1.display(),
+        tu2.display()
     );
 
     bin()
@@ -517,7 +536,8 @@ fn merge_deduplicates_class_forward_decls() {
 #[test]
 fn merge_updates_build_rs_to_merged_ffi() {
     let tmp = TempDir::new().unwrap();
-    let h = write_header(&tmp, "simple.hpp", "void foo();");
+    write_header(&tmp, "simple.hpp", "void foo();");
+    let tu = write_translation_unit(&tmp, "simple.cpp", "simple.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -530,7 +550,7 @@ fn merge_updates_build_rs_to_merged_ffi() {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -552,12 +572,14 @@ fn merge_updates_build_rs_to_merged_ffi() {
 #[test]
 fn merge_consolidates_cpp_includes() {
     let tmp = TempDir::new().unwrap();
-    let h1 = write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
-    let h2 = write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
+    write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
+    let tu1 = write_translation_unit(&tmp, "lib1.cpp", "lib1.hpp");
+    let tu2 = write_translation_unit(&tmp, "lib2.cpp", "lib2.hpp");
     let build_cmd = format!(
         "clang -x c++ -fsyntax-only {} && clang -x c++ -fsyntax-only {}",
-        h1.display(),
-        h2.display()
+        tu1.display(),
+        tu2.display()
     );
 
     bin()
@@ -581,8 +603,8 @@ fn merge_consolidates_cpp_includes() {
         merged.contains("hicc::cpp!"),
         "merged file should have hicc::cpp! block"
     );
-    assert!(merged.contains("#include \"lib1.hpp.cpp2rust\""));
-    assert!(merged.contains("#include \"lib2.hpp.cpp2rust\""));
+    assert!(merged.contains("#include \"lib1.cpp.cpp2rust\""));
+    assert!(merged.contains("#include \"lib2.cpp.cpp2rust\""));
     // Should have exactly one hicc::cpp! block (consolidated).
     assert_eq!(
         merged.matches("hicc::cpp!").count(),
@@ -635,7 +657,8 @@ void translate(Point& p, const Point& delta);
 Point* create_point(int x, int y);
 const Point* get_origin();
 "#;
-    let h = write_header(&tmp, "geometry.hpp", header_content);
+    write_header(&tmp, "geometry.hpp", header_content);
+    let tu = write_translation_unit(&tmp, "geometry.cpp", "geometry.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -648,7 +671,7 @@ const Point* get_origin();
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -716,7 +739,8 @@ namespace geo {
     void scale(Vec2& v, double factor);
 }
 "#;
-    let h = write_header(&tmp, "vec2.hpp", header_content);
+    write_header(&tmp, "vec2.hpp", header_content);
+    let tu = write_translation_unit(&tmp, "vec2.cpp", "vec2.hpp");
 
     bin()
         .current_dir(tmp.path())
@@ -729,7 +753,7 @@ namespace geo {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
@@ -786,7 +810,8 @@ namespace mathlib {
     double multiply(double x, double y);
 }
 "#;
-    let h = write_header(&tmp, "mathlib.hpp", header_content);
+    write_header(&tmp, "mathlib.hpp", header_content);
+    let tu = write_translation_unit(&tmp, "mathlib.cpp", "mathlib.hpp");
 
     // Run init.
     bin()
@@ -800,7 +825,7 @@ namespace mathlib {
             "-x",
             "c++",
             "-fsyntax-only",
-            h.to_str().unwrap(),
+            tu.to_str().unwrap(),
         ])
         .assert()
         .success();
