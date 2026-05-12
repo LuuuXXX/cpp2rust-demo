@@ -4,6 +4,8 @@
 
 `cpp2rust-demo` 的 `init` 以真实编译链路为入口，自动捕获 C++ 编译单元并生成中间件，不再要求用户维护“手工头文件输入列表”。
 
+它定位为 **hicc FFI 脚手架生成器**，不承诺完整 C++ 语义翻译。
+
 ## init 流程
 
 1. 执行 `init -- <BUILD_CMD...>` 并保存 `build_cmd.txt`
@@ -19,6 +21,8 @@
 说明：
 - 自动捕获路径不直接记录头文件（`.h/.hpp/.hh/.hxx`）。
 - 头文件内容通过捕获到的编译单元在预处理阶段展开，再由后续 AST/hicc 流程提取接口信息。
+- 对 header-only 库建议使用 synthetic translation unit（`entry.cpp` 仅 `#include` 目标头文件）触发流程。
+- 可通过 `init --no-link`（别名 `--header-only`）启用 no-link 模式，避免 `build.rs` 强制链接不存在的目标库。
 
 ## 目录结构
 
@@ -77,6 +81,7 @@
 - `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），参与 merge 语义组织。
 - `common/*`：共享语义层（共享 include/type 索引 + 查询函数），参与全局 merge 语义组织。
 - `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围。
+- 抽取阶段会跳过并报告：constructor、destructor、virtual/pure virtual、operator overload、template declarations、部分 unsupported_type。
 
 merge 语义边界（当前）：
 - 参与 merged 输出的目录：`include/`、`types/`、`method/`、`free/`、`class/`。
@@ -93,3 +98,8 @@ Rust 侧项目搭建统一使用：
 - `build.rs` 中的 `hicc_build::Build`
 
 不再保留与 `hicc` 冲突的自定义构建链路。
+
+## RapidJSON 类场景建议
+
+RapidJSON 等 header-only + 模板/重载密集库，当前仅适合生成基础脚手架与能力边界报告。  
+核心 API 建议通过 C++ shim 显式暴露稳定 ABI 后再进行绑定。

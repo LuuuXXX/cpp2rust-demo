@@ -58,15 +58,22 @@ impl FeatureLayout {
         Ok(())
     }
 
-    /// Write `meta/headers.json` – the list of selected middleware files and link name.
-    pub fn save_meta(&self, selected_files: &[PathBuf], link_name: &str) -> Result<()> {
+    /// Write `meta/headers.json` – selected middleware files and link metadata.
+    pub fn save_meta(
+        &self,
+        selected_files: &[PathBuf],
+        link_name: &str,
+        no_link: bool,
+    ) -> Result<()> {
         #[derive(serde::Serialize)]
         struct Meta<'a> {
             link_name: &'a str,
+            no_link: bool,
             selected_files: Vec<String>,
         }
         let meta = Meta {
             link_name,
+            no_link,
             selected_files: selected_files
                 .iter()
                 .map(|p| p.display().to_string())
@@ -98,10 +105,12 @@ impl FeatureLayout {
     }
 
     /// Load `meta/headers.json`.
-    pub fn load_meta(&self) -> Result<(String, Vec<PathBuf>)> {
+    pub fn load_meta(&self) -> Result<(String, bool, Vec<PathBuf>)> {
         #[derive(serde::Deserialize)]
         struct Meta {
             link_name: String,
+            #[serde(default)]
+            no_link: bool,
             selected_files: Vec<String>,
         }
         let path = self.meta_dir.join("headers.json");
@@ -110,6 +119,7 @@ impl FeatureLayout {
         let meta: Meta = serde_json::from_str(&json).map_err(|e| anyhow!("parse meta: {}", e))?;
         Ok((
             meta.link_name,
+            meta.no_link,
             meta.selected_files.iter().map(PathBuf::from).collect(),
         ))
     }
@@ -189,9 +199,10 @@ mod tests {
         let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
         layout.create_dirs().unwrap();
         let headers = vec![PathBuf::from("/tmp/mylib.hpp")];
-        layout.save_meta(&headers, "mylib").unwrap();
-        let (link, loaded) = layout.load_meta().unwrap();
+        layout.save_meta(&headers, "mylib", true).unwrap();
+        let (link, no_link, loaded) = layout.load_meta().unwrap();
         assert_eq!(link, "mylib");
+        assert!(no_link);
         assert_eq!(loaded, headers);
     }
 

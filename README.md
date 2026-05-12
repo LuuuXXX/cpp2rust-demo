@@ -3,6 +3,8 @@
 `cpp2rust-demo` 是一个 **从真实 C++ 构建过程提取接口并生成 Rust FFI 项目** 的命令行工具。  
 核心目标是：尽量复用现有 C++ 工程的构建命令，通过 `LD_PRELOAD` 捕获编译单元，自动生成可由 `hicc` 使用的 Rust 侧绑定脚手架。
 
+> 它是 **hicc FFI 脚手架生成器**，不是完整的 C++ → Rust 语义翻译器。
+
 ## 项目介绍（它解决什么问题）
 
 传统 C++ -> Rust 绑定常见痛点是手工维护头文件列表、手写大量 FFI 声明。  
@@ -71,6 +73,7 @@ cpp2rust-demo init --link mylib -- make -j4
 - `--link <libname>`：写入 `hicc::import_lib!` 的 `link_name`
 - `--clang <bin>`：指定 clang 可执行文件（默认 `clang`，也可用 `CPP2RUST_CLANG` 环境变量）
 - `--extra-clang-args "<args>"`：附加 AST 阶段 clang 参数（例如 `-std=c++17 -Iinclude`）
+- `--no-link` / `--header-only`：header-only/no-link 模式；生成的 `build.rs` 不再输出目标库 `cargo::rustc-link-lib=<link_name>`
 - `-- <BUILD_CMD...>`：真实构建命令（必填）
 
 也可用单个翻译单元触发流程（如 header-only 库）：
@@ -80,6 +83,12 @@ cat > entry.cpp <<'CPP'
 #include "mylib.hpp"
 CPP
 cpp2rust-demo init --link mylib -- clang++ -x c++ -std=c++17 -fsyntax-only -Iinclude entry.cpp
+```
+
+如果库本身没有可链接目标（例如 RapidJSON）：
+
+```bash
+cpp2rust-demo init --link rapidjson --no-link -- clang++ -x c++ -std=c++17 -fsyntax-only -Iinclude entry.cpp
 ```
 
 ### 2) 合并输出（`merge`）
@@ -150,6 +159,15 @@ cpp2rust-demo merge --feature myfeature
 - `class/`：类级语义结构（类名、关系、计数等）
 - `types/`：类型清单、C++->Rust 映射与查询函数
 - `common/*`：跨 group 的共享 include/type 语义
+
+当前会显式跳过并在 `init-interface-report.md` 记录：
+
+- constructor / destructor
+- virtual / pure virtual
+- operator overload
+- template 声明（如 `ClassTemplateDecl` / `FunctionTemplateDecl` / `ClassTemplateSpecializationDecl`）
+
+对 RapidJSON 这类模板、重载、operator、allocator/lifetime 密集的库，建议通过 C++ shim 暴露稳定 C ABI 或简化后的 C++ ABI，再由本工具生成 Rust 侧脚手架。
 
 ## 相关文档与示例
 

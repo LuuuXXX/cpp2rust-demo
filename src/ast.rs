@@ -30,9 +30,9 @@ pub struct AstNode {
     pub type_info: Option<TypeInfo>,
     #[serde(rename = "isImplicit")]
     pub is_implicit: Option<bool>,
-    #[serde(rename = "isVirtual")]
+    #[serde(rename = "isVirtual", alias = "virtual")]
     pub is_virtual: Option<bool>,
-    #[serde(rename = "isPure")]
+    #[serde(rename = "isPure", alias = "pure")]
     pub is_pure: Option<bool>,
     #[serde(rename = "storageClass")]
     pub storage_class: Option<String>,
@@ -162,11 +162,23 @@ pub struct ClassIR {
     pub methods: Vec<FunctionIR>,
 }
 
+/// A declaration that is intentionally skipped during extraction.
+#[derive(Debug, Clone)]
+pub struct SkippedDecl {
+    /// AST node kind, e.g. `CXXMethodDecl`.
+    pub kind: String,
+    /// Name or qualified name when available.
+    pub name: String,
+    /// Stable skip reason key.
+    pub reason: String,
+}
+
 /// All declarations extracted from a set of header files.
 #[derive(Debug, Default)]
 pub struct ExtractedDecls {
     pub functions: Vec<FunctionIR>,
     pub classes: Vec<ClassIR>,
+    pub skipped: Vec<SkippedDecl>,
 }
 
 // ---------------------------------------------------------------------------
@@ -431,9 +443,19 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
-            if let Some(ir) =
-                extract_function(node, namespace, overload_counts, None, strategy, class_map)
-            {
+            if is_operator_name(node.name.as_deref()) {
+                record_skipped(result, node, namespace, None, "operator_overload");
+                return;
+            }
+            if let Some(ir) = extract_function(
+                node,
+                namespace,
+                overload_counts,
+                None,
+                strategy,
+                class_map,
+                &mut result.skipped,
+            ) {
                 result.functions.push(ir);
             }
         }
@@ -490,6 +512,36 @@ fn walk_node(
                             child.kind.as_str(),
                             "CXXConstructorDecl" | "CXXDestructorDecl"
                         ) {
+                            let reason = if child.kind == "CXXConstructorDecl" {
+                                "constructor"
+                            } else {
+                                "destructor"
+                            };
+                            record_skipped(result, child, namespace, Some(class_name), reason);
+                            continue;
+                        }
+                        if child.is_pure.unwrap_or(false) {
+                            record_skipped(
+                                result,
+                                child,
+                                namespace,
+                                Some(class_name),
+                                "pure_virtual",
+                            );
+                            continue;
+                        }
+                        if child.is_virtual.unwrap_or(false) {
+                            record_skipped(result, child, namespace, Some(class_name), "virtual");
+                            continue;
+                        }
+                        if is_operator_name(child.name.as_deref()) {
+                            record_skipped(
+                                result,
+                                child,
+                                namespace,
+                                Some(class_name),
+                                "operator_overload",
+                            );
                             continue;
                         }
                         if let Some(ir) = extract_function(
@@ -499,6 +551,7 @@ fn walk_node(
                             Some(class_name),
                             strategy,
                             class_map,
+                            &mut result.skipped,
                         ) {
                             class_ir.methods.push(ir);
                         }
@@ -523,6 +576,11 @@ fn walk_node(
                     strategy,
                     class_map,
                 );
+            }
+        }
+        "ClassTemplateDecl" | "FunctionTemplateDecl" | "ClassTemplateSpecializationDecl" => {
+            if is_target(current_file, targets) {
+                record_skipped(result, node, namespace, None, "template_decl");
             }
         }
 
@@ -553,16 +611,45 @@ fn extract_function(
     class_name: Option<&str>,
     strategy: &OverloadStrategy,
     class_map: &HashMap<String, String>,
+    skipped: &mut Vec<SkippedDecl>,
 ) -> Option<FunctionIR> {
     let name = node.name.as_deref()?;
 
     // Destructors start with '~' – skip.
     if name.starts_with('~') {
+        skipped.push(SkippedDecl {
+            kind: node.kind.clone(),
+            name: name.to_string(),
+            reason: "destructor".to_string(),
+        });
         return None;
     }
 
-    let qual_type = node.type_info.as_ref()?.qual_type.as_str();
-    let (return_type, _) = parse_fn_qual_type(qual_type)?;
+    if is_operator_name(Some(name)) {
+        skipped.push(SkippedDecl {
+            kind: node.kind.clone(),
+            name: name.to_string(),
+            reason: "operator_overload".to_string(),
+        });
+        return None;
+    }
+
+    let Some(qual_type) = node.type_info.as_ref().map(|t| t.qual_type.as_str()) else {
+        skipped.push(SkippedDecl {
+            kind: node.kind.clone(),
+            name: name.to_string(),
+            reason: "unsupported_type".to_string(),
+        });
+        return None;
+    };
+    let Some((return_type, _)) = parse_fn_qual_type(qual_type) else {
+        skipped.push(SkippedDecl {
+            kind: node.kind.clone(),
+            name: name.to_string(),
+            reason: "unsupported_type".to_string(),
+        });
+        return None;
+    };
 
     // Collect parameters from ParmVarDecl children.
     let params: Vec<ParamIR> = node
@@ -712,30 +799,41 @@ pub fn to_snake_case(s: &str) -> String {
 pub fn cpp_to_rust_type(cpp_type: &str) -> String {
     let t = cpp_type.trim();
 
-    // Pointer: "T *" or "T*" or "const T *" etc.
-    // We look for a trailing `*` that is not part of `**`.
-    if let Some(inner) = strip_trailing_ptr(t) {
-        let is_const = inner.starts_with("const ");
-        let base = inner.strip_prefix("const ").unwrap_or(inner).trim();
-        if base == "void" {
-            return if is_const {
-                "*const core::ffi::c_void".to_string()
+    // Pointer chain: supports single and multi-level pointers, e.g.
+    // `int **`, `const char **`, `const T * const *`.
+    if t.contains('*') && !t.contains("(*)") {
+        let parts: Vec<&str> = t.split('*').collect();
+        let ptr_depth = parts.len().saturating_sub(1);
+        if ptr_depth > 0 {
+            let base_part = parts[0].trim();
+            let ptr_qualifiers: Vec<&str> = parts[1..].iter().map(|p| p.trim()).collect();
+            let base_const = has_top_level_const(base_part);
+            let base = strip_top_level_const(base_part);
+            let mut rust_type = if base == "void" {
+                "core::ffi::c_void".to_string()
             } else {
-                "*mut core::ffi::c_void".to_string()
+                cpp_to_rust_type(base)
             };
+            for level in 0..ptr_depth {
+                let pointee_const = if level == 0 {
+                    base_const
+                } else {
+                    has_const_token(ptr_qualifiers[level - 1])
+                };
+                rust_type = if pointee_const {
+                    format!("*const {}", rust_type)
+                } else {
+                    format!("*mut {}", rust_type)
+                };
+            }
+            return rust_type;
         }
-        let rust_base = cpp_to_rust_type(base);
-        return if is_const {
-            format!("*const {}", rust_base)
-        } else {
-            format!("*mut {}", rust_base)
-        };
     }
 
     // Reference: "T &" or "T&" or "const T &"
     if let Some(inner) = strip_trailing_ref(t) {
-        let is_const = inner.starts_with("const ");
-        let base = inner.strip_prefix("const ").unwrap_or(inner).trim();
+        let is_const = has_top_level_const(inner);
+        let base = strip_top_level_const(inner);
         let rust_base = cpp_to_rust_type(base);
         return if is_const {
             format!("&{}", rust_base)
@@ -744,8 +842,9 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
         };
     }
 
-    // Strip leading `const` for simple types.
-    if let Some(rest) = t.strip_prefix("const ") {
+    // Strip top-level `const` for simple types.
+    if has_top_level_const(t) {
+        let rest = strip_top_level_const(t);
         return cpp_to_rust_type(rest);
     }
 
@@ -787,22 +886,6 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
     }
 }
 
-/// Strip a trailing `*` (with optional surrounding spaces) from a type string,
-/// returning the inner type.  Does NOT strip double-pointers `**`.
-fn strip_trailing_ptr(t: &str) -> Option<&str> {
-    let trimmed = t.trim_end();
-    if trimmed.ends_with('*') {
-        let without = trimmed[..trimmed.len() - 1].trim_end();
-        // Avoid stripping the second star of `**`.
-        if without.ends_with('*') {
-            return None;
-        }
-        Some(without)
-    } else {
-        None
-    }
-}
-
 /// Strip a trailing `&` (with optional surrounding spaces) from a type string.
 fn strip_trailing_ref(t: &str) -> Option<&str> {
     let trimmed = t.trim_end();
@@ -811,6 +894,50 @@ fn strip_trailing_ref(t: &str) -> Option<&str> {
     } else {
         None
     }
+}
+
+fn has_const_token(segment: &str) -> bool {
+    segment.split_whitespace().any(|tok| tok == "const")
+}
+
+fn has_top_level_const(t: &str) -> bool {
+    let trimmed = t.trim();
+    trimmed.starts_with("const ") || trimmed.ends_with(" const") || trimmed == "const"
+}
+
+fn strip_top_level_const(t: &str) -> &str {
+    let mut trimmed = t.trim();
+    if let Some(rest) = trimmed.strip_prefix("const ") {
+        trimmed = rest.trim_start();
+    }
+    if let Some(rest) = trimmed.strip_suffix(" const") {
+        trimmed = rest.trim_end();
+    }
+    trimmed
+}
+
+fn is_operator_name(name: Option<&str>) -> bool {
+    name.is_some_and(|n| n.starts_with("operator"))
+}
+
+fn record_skipped(
+    result: &mut ExtractedDecls,
+    node: &AstNode,
+    namespace: &[String],
+    class_name: Option<&str>,
+    reason: &str,
+) {
+    let raw_name = node.name.as_deref().unwrap_or("<anonymous>");
+    let name = if let Some(cls) = class_name {
+        format!("{}::{}", make_qualified(namespace, cls), raw_name)
+    } else {
+        make_qualified(namespace, raw_name)
+    };
+    result.skipped.push(SkippedDecl {
+        kind: node.kind.clone(),
+        name,
+        reason: reason.to_string(),
+    });
 }
 
 /// Extract the bare class name, dropping leading namespaces and template args.
@@ -833,6 +960,7 @@ fn bare_class_name(t: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn test_parse_fn_qual_type() {
@@ -873,6 +1001,9 @@ mod tests {
         assert_eq!(cpp_to_rust_type("void *"), "*mut core::ffi::c_void");
         assert_eq!(cpp_to_rust_type("const void *"), "*const core::ffi::c_void");
         assert_eq!(cpp_to_rust_type("int *"), "*mut i32");
+        assert_eq!(cpp_to_rust_type("int **"), "*mut *mut i32");
+        assert_eq!(cpp_to_rust_type("const char **"), "*mut *const i8");
+        assert_eq!(cpp_to_rust_type("const char * const *"), "*const *const i8");
     }
 
     #[test]
@@ -923,5 +1054,159 @@ mod tests {
         // Already qualified names are left alone.
         assert_eq!(qualify_cpp_type("geo::Vec2 &", &map), "geo::Vec2 &");
         assert_eq!(qualify_cpp_type("other::Vec2 *", &map), "other::Vec2 *");
+    }
+
+    #[test]
+    fn test_extract_skips_virtual_operator_and_templates() {
+        let target = Path::new("/tmp/demo.cpp");
+        let loc = Location {
+            file: Some(target.display().to_string()),
+            line: None,
+            col: None,
+            offset: None,
+            spelling_loc: None,
+            expansion_loc: None,
+            included_from: None,
+        };
+        let ast = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            id: None,
+            loc: Some(loc.clone()),
+            name: None,
+            type_info: None,
+            is_implicit: None,
+            is_virtual: None,
+            is_pure: None,
+            storage_class: None,
+            complete_definition: None,
+            tag_used: None,
+            access: None,
+            inner: Some(vec![
+                AstNode {
+                    kind: "ClassTemplateDecl".to_string(),
+                    id: None,
+                    loc: Some(loc.clone()),
+                    name: Some("Box".to_string()),
+                    type_info: None,
+                    is_implicit: None,
+                    is_virtual: None,
+                    is_pure: None,
+                    storage_class: None,
+                    complete_definition: None,
+                    tag_used: None,
+                    access: None,
+                    inner: None,
+                },
+                AstNode {
+                    kind: "FunctionDecl".to_string(),
+                    id: None,
+                    loc: Some(loc.clone()),
+                    name: Some("operator+".to_string()),
+                    type_info: Some(TypeInfo {
+                        qual_type: "int (int, int)".to_string(),
+                    }),
+                    is_implicit: None,
+                    is_virtual: None,
+                    is_pure: None,
+                    storage_class: None,
+                    complete_definition: None,
+                    tag_used: None,
+                    access: None,
+                    inner: Some(vec![]),
+                },
+                AstNode {
+                    kind: "CXXRecordDecl".to_string(),
+                    id: None,
+                    loc: Some(loc.clone()),
+                    name: Some("Widget".to_string()),
+                    type_info: None,
+                    is_implicit: None,
+                    is_virtual: None,
+                    is_pure: None,
+                    storage_class: None,
+                    complete_definition: Some(true),
+                    tag_used: Some("class".to_string()),
+                    access: None,
+                    inner: Some(vec![
+                        AstNode {
+                            kind: "AccessSpecDecl".to_string(),
+                            id: None,
+                            loc: Some(loc.clone()),
+                            name: None,
+                            type_info: None,
+                            is_implicit: None,
+                            is_virtual: None,
+                            is_pure: None,
+                            storage_class: None,
+                            complete_definition: None,
+                            tag_used: None,
+                            access: Some("public".to_string()),
+                            inner: None,
+                        },
+                        AstNode {
+                            kind: "CXXConstructorDecl".to_string(),
+                            id: None,
+                            loc: Some(loc.clone()),
+                            name: Some("Widget".to_string()),
+                            type_info: Some(TypeInfo {
+                                qual_type: "void ()".to_string(),
+                            }),
+                            is_implicit: None,
+                            is_virtual: None,
+                            is_pure: None,
+                            storage_class: None,
+                            complete_definition: None,
+                            tag_used: None,
+                            access: None,
+                            inner: Some(vec![]),
+                        },
+                        AstNode {
+                            kind: "CXXMethodDecl".to_string(),
+                            id: None,
+                            loc: Some(loc.clone()),
+                            name: Some("virt".to_string()),
+                            type_info: Some(TypeInfo {
+                                qual_type: "int ()".to_string(),
+                            }),
+                            is_implicit: None,
+                            is_virtual: Some(true),
+                            is_pure: Some(true),
+                            storage_class: None,
+                            complete_definition: None,
+                            tag_used: None,
+                            access: None,
+                            inner: Some(vec![]),
+                        },
+                        AstNode {
+                            kind: "CXXMethodDecl".to_string(),
+                            id: None,
+                            loc: Some(loc),
+                            name: Some("operator[]".to_string()),
+                            type_info: Some(TypeInfo {
+                                qual_type: "int (int) const".to_string(),
+                            }),
+                            is_implicit: None,
+                            is_virtual: Some(false),
+                            is_pure: Some(false),
+                            storage_class: None,
+                            complete_definition: None,
+                            tag_used: None,
+                            access: None,
+                            inner: Some(vec![]),
+                        },
+                    ]),
+                },
+            ]),
+        };
+
+        let decls = extract_declarations(&ast, &[target]);
+        assert!(decls.functions.is_empty());
+        assert_eq!(decls.classes.len(), 1);
+        assert!(decls.classes[0].methods.is_empty());
+        let reasons: Vec<&str> = decls.skipped.iter().map(|s| s.reason.as_str()).collect();
+        assert!(reasons.contains(&"template_decl"));
+        assert!(reasons.contains(&"operator_overload"));
+        assert!(reasons.contains(&"constructor"));
+        assert!(reasons.contains(&"pure_virtual"));
     }
 }

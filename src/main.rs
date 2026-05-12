@@ -9,8 +9,8 @@ mod selector;
 use crate::error::Result;
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
-use serde::Serialize;
 use selector::{FileSelector, InteractiveSelector};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 pub(crate) const SEMANTIC_TYPES_DIR: &str = "types";
@@ -65,6 +65,11 @@ struct InitArgs {
     #[arg(long)]
     link: String,
 
+    /// Header-only / no-link mode.
+    /// Skips linking the external target library in generated `build.rs`.
+    #[arg(long = "no-link", alias = "header-only")]
+    no_link: bool,
+
     /// Extra arguments forwarded to clang (e.g. `-std=c++17 -I./include`).
     #[arg(long = "extra-clang-args", value_name = "ARGS")]
     extra_clang_args: Option<String>,
@@ -98,6 +103,7 @@ struct MergeArgs {
 fn run_init(args: InitArgs) -> Result<()> {
     let feature = &args.feature;
     let link_name = &args.link;
+    let no_link = args.no_link;
     let build_cmd = &args.build_cmd;
 
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
@@ -107,6 +113,14 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("Project root : {}", project_root.display());
     println!("Feature      : {}", feature);
     println!("Link name    : {}", link_name);
+    println!(
+        "Link mode    : {}",
+        if no_link {
+            "header-only/no-link"
+        } else {
+            "normal"
+        }
+    );
     println!("Build command: {}", build_cmd.join(" "));
     println!();
 
@@ -157,7 +171,7 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     let files_to_process = selected_files;
 
-    lo.save_meta(&files_to_process, link_name)?;
+    lo.save_meta(&files_to_process, link_name, no_link)?;
 
     // Create the Rust project skeleton.
     let rust_src_dir = lo.rust_dir.join("src");
@@ -247,7 +261,9 @@ fn run_init(args: InitArgs) -> Result<()> {
 
         // `method/` is the sole layer that carries `hicc::import_class!` blocks in v1.
         let method_mod_name = format!("mtd_{}", stem);
-        let method_file_path = group_dir.join("method").join(format!("{method_mod_name}.rs"));
+        let method_file_path = group_dir
+            .join("method")
+            .join(format!("{method_mod_name}.rs"));
         let method_src = codegen::render_method_module(&decls);
         let has_method = !method_src.trim().is_empty();
         if has_method {
@@ -323,7 +339,10 @@ fn run_init(args: InitArgs) -> Result<()> {
             build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));
         }
         if has_method {
-            build_rs_sources.push(format!("src/{}/method/{}.rs", group_module, method_mod_name));
+            build_rs_sources.push(format!(
+                "src/{}/method/{}.rs",
+                group_module, method_mod_name
+            ));
         }
         build_rs_sources.push(format!("src/{}/types/mod.rs", group_module));
         lib_modules.push(group_module.to_string());
@@ -357,7 +376,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
         std::fs::write(
             &build_rs_path,
-            codegen::render_build_rs(link_name, &source_refs, &inc_refs),
+            codegen::render_build_rs(link_name, no_link, &source_refs, &inc_refs),
         )
         .map_err(|e| anyhow!("write build.rs: {}", e))?;
         println!("Created {}", build_rs_path.display());
@@ -421,7 +440,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
         ));
     }
 
-    let (link_name, stored_files) = lo.load_meta()?;
+    let (link_name, no_link, stored_files) = lo.load_meta()?;
 
     let rust_src_dir = lo.rust_dir.join("src");
     if !rust_src_dir.exists() {
@@ -432,7 +451,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     }
 
     let merged_src2 = lo.rust_dir.join("src.2");
-    let merged = merge::merge_grouped_modules(&rust_src_dir, &merged_src2, &link_name)?;
+    let merged = merge::merge_grouped_modules(&rust_src_dir, &merged_src2, &link_name, no_link)?;
 
     // Recompute unique include dirs from stored selected files.
     let include_dirs = middleware_include_dirs(&stored_files);
@@ -444,7 +463,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let build_rs_path = lo.rust_dir.join("build.rs");
     std::fs::write(
         &build_rs_path,
-        codegen::render_build_rs(&link_name, &["src/merged_ffi.rs"], &inc_refs),
+        codegen::render_build_rs(&link_name, no_link, &["src/merged_ffi.rs"], &inc_refs),
     )
     .map_err(|e| anyhow!("update build.rs: {}", e))?;
     println!("  Updated {}", build_rs_path.display());
@@ -510,8 +529,11 @@ fn write_common_modules(rust_src_dir: &Path, includes_src: &str, types_src: &str
     let common_dir = rust_src_dir.join("common");
     std::fs::create_dir_all(&common_dir)
         .map_err(|e| anyhow!("create {}: {}", common_dir.display(), e))?;
-    std::fs::write(common_dir.join("mod.rs"), "pub mod includes;\npub mod types;\n")
-        .map_err(|e| anyhow!("write common/mod.rs: {}", e))?;
+    std::fs::write(
+        common_dir.join("mod.rs"),
+        "pub mod includes;\npub mod types;\n",
+    )
+    .map_err(|e| anyhow!("write common/mod.rs: {}", e))?;
     std::fs::write(common_dir.join("includes.rs"), includes_src)
         .map_err(|e| anyhow!("write common/includes.rs: {}", e))?;
     std::fs::write(common_dir.join("types.rs"), types_src)
@@ -524,8 +546,11 @@ fn write_group_scaffold(group_dir: &Path, stem: &str) -> Result<()> {
         std::fs::create_dir_all(group_dir.join(sub))
             .map_err(|e| anyhow!("create {}: {}", group_dir.join(sub).display(), e))?;
     }
-    std::fs::write(group_dir.join("types").join("mod.rs"), format!("// Source stem: {}\n", stem))
-        .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
+    std::fs::write(
+        group_dir.join("types").join("mod.rs"),
+        format!("// Source stem: {}\n", stem),
+    )
+    .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
     std::fs::write(group_dir.join("method").join("mod.rs"), "")
         .map_err(|e| anyhow!("write method/mod.rs: {}", e))?;
     Ok(())
@@ -578,7 +603,8 @@ fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[S
                 .to_string()
         })
         .collect();
-    let mut out = String::from("// Shared include context derived from selected middleware files.\n");
+    let mut out =
+        String::from("// Shared include context derived from selected middleware files.\n");
     out.push_str("pub const MIDDLEWARE_FILES: &[&str] = &[\n");
     for file in &files {
         out.push_str(&format!("    {:?},\n", file));
@@ -745,7 +771,10 @@ fn middleware_stems(paths: &[PathBuf]) -> Vec<String> {
 }
 
 fn middleware_stem(path: &Path) -> String {
-    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
     let no_suffix = file_name
         .strip_suffix(".cpp2rust")
         .unwrap_or(file_name)
@@ -832,6 +861,7 @@ mod tests {
         };
         assert_eq!(init.feature, "default");
         assert_eq!(init.link, "mylib");
+        assert!(!init.no_link);
         assert_eq!(init.build_cmd, vec!["make", "-j4"]);
     }
 
@@ -879,6 +909,39 @@ mod tests {
             init.build_cmd,
             vec!["clang", "-x", "c++", "-fsyntax-only", "header.hpp"]
         );
+    }
+
+    #[test]
+    fn init_accepts_no_link_aliases() {
+        let args = Cli::try_parse_from([
+            "cpp2rust-demo",
+            "init",
+            "--link",
+            "rapidjson",
+            "--no-link",
+            "--",
+            "make",
+        ])
+        .unwrap();
+        let Commands::Init(init) = args.command else {
+            panic!("expected Init");
+        };
+        assert!(init.no_link);
+
+        let args = Cli::try_parse_from([
+            "cpp2rust-demo",
+            "init",
+            "--link",
+            "rapidjson",
+            "--header-only",
+            "--",
+            "make",
+        ])
+        .unwrap();
+        let Commands::Init(init) = args.command else {
+            panic!("expected Init");
+        };
+        assert!(init.no_link);
     }
 
     #[test]
@@ -941,6 +1004,7 @@ mod tests {
         let decls = ExtractedDecls {
             functions: vec![make_function("foo", false)],
             classes: vec![],
+            skipped: vec![],
         };
         assert!(has_free_bindings(&decls));
     }
@@ -954,6 +1018,7 @@ mod tests {
                 qualified_name: "Widget".to_string(),
                 methods: vec![make_function("update", false)],
             }],
+            skipped: vec![],
         };
         assert!(has_free_bindings(&decls));
     }
@@ -963,6 +1028,7 @@ mod tests {
         let decls = ExtractedDecls {
             functions: vec![],
             classes: vec![],
+            skipped: vec![],
         };
         assert!(!has_free_bindings(&decls));
     }
