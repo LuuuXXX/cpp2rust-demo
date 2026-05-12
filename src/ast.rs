@@ -1872,12 +1872,12 @@ pub(crate) fn cpp_to_rust_type_with_aliases(cpp_type: &str, alias_registry: &Ali
                 return alias.to_string();
             }
             // Then check for a simple (non-template) typedef alias and resolve it
-            // to its Rust type.  This lets `typedef unsigned int MyUint` be
-            // represented as `u32` in generated free-function bindings.
+            // to its Rust type.  Single-level only — recursive resolution would
+            // overflow the stack on deeply-chained std typedefs (e.g. spdlog).
             if let Some(underlying) = alias_registry.full_type_for_alias(&bare) {
                 if !underlying.contains('<') {
-                    let owned = underlying.to_string();
-                    return cpp_to_rust_type_with_aliases(&owned, alias_registry);
+                    let u = strip_top_level_const(underlying.trim());
+                    return cpp_to_rust_type(u);
                 }
             }
             bare
@@ -2062,12 +2062,12 @@ fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, al
     }
 
     // Check for a simple (non-template) typedef alias: look up the underlying
-    // type and recursively validate it.  This allows `typedef unsigned int MyUint`
-    // to be treated as a supported type in function parameter/return positions.
+    // type and validate it directly (single level only).  Recursive resolution
+    // would overflow the stack on deeply-chained std typedefs (e.g. spdlog).
     if let Some(underlying) = alias_registry.full_type_for_alias(base) {
         if !underlying.contains('<') {
-            let owned = underlying.to_string();
-            return is_supported_cpp_type(&owned, class_map, alias_registry);
+            let u = strip_top_level_const(underlying.trim());
+            return is_primitive_cpp_type(u) || is_known_class_type(u, class_map);
         }
     }
 
