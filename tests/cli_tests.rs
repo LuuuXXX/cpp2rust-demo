@@ -2342,3 +2342,420 @@ fn init_report_groups_skipped_by_category() {
         "report should have hicc_limitation category section: {report}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 新增特性一: C++ enum extraction
+// ---------------------------------------------------------------------------
+
+#[test]
+fn init_enum_extraction_generates_repr_c_enum() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "colors.hpp",
+        r#"
+        enum Color { Red, Green, Blue };
+        enum class Direction { North = 0, South = 1, East = 2, West = 3 };
+
+        Color flip(Color c);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "colors.cpp", "colors.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let types_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_colors/types/mod.rs"),
+    )
+    .unwrap();
+    // Both enum definitions should appear in the types module.
+    assert!(
+        types_src.contains("pub enum Color"),
+        "types module should contain 'pub enum Color': {types_src}"
+    );
+    assert!(
+        types_src.contains("#[repr(C)]"),
+        "enum should be marked #[repr(C)]: {types_src}"
+    );
+    assert!(
+        types_src.contains("Red"),
+        "Color variants should be present: {types_src}"
+    );
+    assert!(
+        types_src.contains("Green"),
+        "Color variants should be present: {types_src}"
+    );
+    assert!(
+        types_src.contains("Blue"),
+        "Color variants should be present: {types_src}"
+    );
+    assert!(
+        types_src.contains("pub enum Direction"),
+        "types module should contain 'pub enum Direction': {types_src}"
+    );
+    assert!(
+        types_src.contains("North = 0"),
+        "Direction variants should have explicit values: {types_src}"
+    );
+
+    // The free function that uses the enum type should be extracted.
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_colors/free/fn_colors.rs"),
+    )
+    .unwrap();
+    assert!(
+        free_src.contains("fn flip("),
+        "function using enum type should be extracted: {free_src}"
+    );
+
+    // Report should list the enums.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("Enums"),
+        "report should have an Enums section: {report}"
+    );
+    assert!(report.contains("Color"), "report should mention Color: {report}");
+}
+
+// ---------------------------------------------------------------------------
+// 新增特性二: simple typedef / using alias extraction
+// ---------------------------------------------------------------------------
+
+#[test]
+fn init_simple_typedef_generates_type_alias() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "aliases.hpp",
+        r#"
+        typedef unsigned int MyUint;
+        using MyInt = int;
+        typedef double Score;
+
+        MyUint compute(MyInt x, Score factor);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "aliases.cpp", "aliases.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let types_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_aliases/types/mod.rs"),
+    )
+    .unwrap();
+    // All three type aliases should appear in the types module.
+    assert!(
+        types_src.contains("pub type MyUint"),
+        "types module should contain 'pub type MyUint': {types_src}"
+    );
+    assert!(
+        types_src.contains("pub type MyInt"),
+        "types module should contain 'pub type MyInt': {types_src}"
+    );
+    assert!(
+        types_src.contains("pub type Score"),
+        "types module should contain 'pub type Score': {types_src}"
+    );
+    // The Rust type on the right-hand side should be mapped.
+    assert!(
+        types_src.contains("= u32") || types_src.contains("= i32") || types_src.contains("= f64"),
+        "type aliases should map to Rust primitives: {types_src}"
+    );
+
+    // The function using typedef types as parameters should be extracted into
+    // the free module (typedef aliases must be resolved through is_supported_cpp_type).
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_aliases/free/fn_aliases.rs"),
+    )
+    .unwrap();
+    assert!(
+        free_src.contains("fn compute("),
+        "function with typedef parameter types should be extracted: {free_src}"
+    );
+
+    // Report should list the aliases.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("Type Aliases"),
+        "report should have a Type Aliases section: {report}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 新增特性三: static class data member extraction
+// ---------------------------------------------------------------------------
+
+#[test]
+fn init_static_data_member_generates_data_binding() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "counter.hpp",
+        r#"
+        class Counter {
+        public:
+            static int count;
+            static const int max_count;
+            void inc();
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "counter.cpp", "counter.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_counter/free/fn_counter.rs"),
+    )
+    .unwrap();
+    // Static data members should be emitted as #[cpp(data = "ClassName::member")] bindings.
+    assert!(
+        free_src.contains("Counter::count"),
+        "static member should use qualified C++ name 'Counter::count': {free_src}"
+    );
+    assert!(
+        free_src.contains("Counter::max_count"),
+        "static member should use qualified C++ name 'Counter::max_count': {free_src}"
+    );
+    assert!(
+        free_src.contains("#[cpp(data"),
+        "static members should use #[cpp(data = ...)] attribute: {free_src}"
+    );
+
+    // Report should list the static data members.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("Static data members") || report.contains("counter_count"),
+        "report should list static data members: {report}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 新增特性四: concrete function template specialization extraction
+// ---------------------------------------------------------------------------
+
+#[test]
+fn init_function_template_explicit_spec_is_extracted() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "tmpl.hpp",
+        r#"
+        template <typename T>
+        T identity(T x);
+
+        // Explicit full specialization for int.
+        template <>
+        int identity<int>(int x);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "tmpl.cpp", "tmpl.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_tmpl/free/fn_tmpl.rs"),
+    )
+    .unwrap_or_default();
+
+    // The concrete specialization for int should be extracted.
+    assert!(
+        free_src.contains("fn identity(x: i32) -> i32") || free_src.contains("fn identity("),
+        "concrete template specialization should be extracted: {free_src}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 新增特性五: nested class extraction
+// ---------------------------------------------------------------------------
+
+#[test]
+fn init_nested_class_is_extracted() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "nested.hpp",
+        r#"
+        class Outer {
+        public:
+            void outer_method();
+
+            class Inner {
+            public:
+                void inner_method();
+                int value() const;
+            };
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "nested.cpp", "nested.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_nested/method/mtd_nested.rs"),
+    )
+    .unwrap();
+    // The outer class should be extracted.
+    assert!(
+        method_src.contains("class Outer"),
+        "outer class should be extracted: {method_src}"
+    );
+    // The nested inner class should also be extracted with its own import_class! block.
+    assert!(
+        method_src.contains("class Inner"),
+        "nested Inner class should be extracted: {method_src}"
+    );
+    assert!(
+        method_src.contains("fn inner_method"),
+        "Inner class methods should be extracted: {method_src}"
+    );
+    assert!(
+        method_src.contains("fn value(&self)"),
+        "const method on Inner should have &self: {method_src}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 新增特性六: SkipCategory fix – template_decl → ToolConservative
+// ---------------------------------------------------------------------------
+
+#[test]
+fn init_template_decl_skip_is_tool_conservative() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "generic.hpp",
+        r#"
+        template <typename T>
+        class Generic { T value; };
+
+        template <typename T>
+        T transform(T x);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "generic.cpp", "generic.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+
+    // template_decl skips should now be in the tool_conservative section,
+    // NOT the hicc_limitation section.
+    assert!(
+        report.contains("tool_conservative") || report.contains("Tool-conservative"),
+        "template_decl skips should appear in tool_conservative section: {report}"
+    );
+    // The template_decl entry should exist somewhere in the report.
+    assert!(
+        report.contains("template_decl"),
+        "report should mention template_decl: {report}"
+    );
+}
