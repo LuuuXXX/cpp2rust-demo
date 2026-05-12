@@ -1564,7 +1564,7 @@ mod tests {
                             tag_used: None,
                             access: Some("public".to_string()),
                             bases: vec![],
-                    inner: None,
+                            inner: None,
                         },
                         AstNode {
                             kind: "CXXConstructorDecl".to_string(),
@@ -1724,7 +1724,7 @@ mod tests {
                         tag_used: None,
                         access: Some("public".to_string()),
                         bases: vec![],
-                    inner: None,
+                        inner: None,
                     },
                     make_method("virt_concrete", true, false),
                     make_method("pure_one", true, true),
