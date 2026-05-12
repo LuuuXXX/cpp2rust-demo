@@ -161,9 +161,12 @@ for case_name in "${CASE_NAMES[@]}"; do
     check_file  "${OUT}/cpp/${middleware_file}"
     check_file  "${OUT}/cpp/${middleware_file}.opts"
     check_file  "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs"
+    check_file  "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs"
     check_file  "${OUT}/rust/src.1/mod_${case_name}/meta.json"
     check_contains "${OUT}/meta/selected_files.json" "${middleware_file}"
     check_contains "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs" "#include \"${middleware_file}\""
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs" "import_lib!"
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs" 'link_name = "rapidjson"'
     check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "\"group\": \"mod_${case_name}\""
     check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "${middleware_file}"
     check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${middleware_file}\""
