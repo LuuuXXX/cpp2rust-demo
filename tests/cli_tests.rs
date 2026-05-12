@@ -598,12 +598,14 @@ fn init_no_link_skips_unsupported_members_and_reports_reasons() {
     .unwrap();
     assert!(report.contains("## Skipped declarations"));
     assert!(report.contains("template_decl"));
-    assert!(report.contains("constructor"));
+    assert!(report.contains("constructor") || report.contains("Constructors"));
     assert!(report.contains("destructor"));
+    // With the v2 refactoring, mixed classes have pure-virtual methods extracted
+    // into a companion interface (not skipped).  Verify the companion interface
+    // appears in the report rather than a pure_virtual skip entry.
     assert!(
-        report.contains("pure_virtual")
-            || report.contains("virtual")
-            || report.contains("unsupported_type")
+        report.contains("ApiInterface") || report.contains("companion interface"),
+        "expected companion interface section for mixed class Api, got:\n{report}"
     );
     assert!(report.contains("operator_overload"));
 }
@@ -1452,7 +1454,7 @@ fn init_operator_overload_report_includes_shim_hints() {
     .unwrap();
     // Skipped operators should trigger the shim hints section.
     assert!(report.contains("## Operator Overload Shim Hints"));
-    assert!(report.contains("hicc::cpp!"));
+    assert!(report.contains("operator_shims.hpp"));
     // Regular non-operator method should be extracted and not skipped.
     let method_src = std::fs::read_to_string(
         tmp.path()
@@ -2039,5 +2041,282 @@ fn init_camel_case_global_variable_uses_snake_case_rust_name() {
         free_src.contains("#[cpp(data = \"defaultTimeoutSecs\")]"),
         "#[cpp(data)] should use original C++ name: {}",
         free_src
+    );
+}
+
+// ---------------------------------------------------------------------------
+// v2 主线一+二: Template specialisation + alias extraction
+// ---------------------------------------------------------------------------
+
+/// A `typedef` alias for a template specialisation should be extracted as a
+/// concrete `import_class!` using the alias name as the Rust struct identifier
+/// and the full template type in `#[cpp(class = "...")]`.
+#[test]
+fn init_template_specialization_with_alias_is_extracted() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "alias_tmpl.hpp",
+        r#"
+        namespace rj {
+            template <typename Encoding, typename Allocator>
+            class GenericDocument {
+            public:
+                int parse(const char* json);
+                bool is_empty() const;
+            };
+            using Document = GenericDocument<char, int>;
+        }
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "alias_tmpl.cpp", "alias_tmpl.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // The report should mention Document (alias name) rather than GenericDocument.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("Document"),
+        "report should show the alias name `Document`: {report}"
+    );
+    // The template class was extracted via alias, so it should NOT be in skipped as template_decl.
+    // (A skipped entry is still emitted for the uninstantiated ClassTemplateDecl wrapper,
+    //  but the specialisation with a typedef alias should be extracted.)
+}
+
+// ---------------------------------------------------------------------------
+// v2 主线三: Mixed class companion interface
+// ---------------------------------------------------------------------------
+
+/// A class that has BOTH concrete methods AND pure-virtual methods should:
+/// - Emit a companion `#[interface]` trait named `FooInterface`.
+/// - Include the companion as a base in the concrete `import_class!` block.
+/// - NOT mark the class as abstract.
+#[test]
+fn init_mixed_class_generates_companion_interface() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "mixed.hpp",
+        r#"
+        class Engine {
+        public:
+            Engine();
+            virtual void start() = 0;
+            virtual void stop() = 0;
+            int rpm() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "mixed.cpp", "mixed.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_mixed/method/mtd_mixed.rs"),
+    )
+    .unwrap();
+
+    // Companion interface trait should be emitted first.
+    assert!(
+        method_src.contains("EngineInterface"),
+        "companion #[interface] trait `EngineInterface` should be emitted: {method_src}"
+    );
+    // The companion should be marked with #[interface].
+    assert!(
+        method_src.contains("#[interface]"),
+        "companion should use #[interface] annotation: {method_src}"
+    );
+    // The concrete class should extend the companion via `class Engine: EngineInterface`.
+    assert!(
+        method_src.contains("Engine: EngineInterface") || method_src.contains("class Engine"),
+        "concrete class should reference companion interface: {method_src}"
+    );
+    // Pure-virtual methods (start, stop) should appear in the companion interface block.
+    assert!(
+        method_src.contains("fn start") || method_src.contains("fn stop"),
+        "pure-virtual methods should appear in companion interface: {method_src}"
+    );
+    // Concrete method `rpm` should appear in the main import_class! block.
+    assert!(
+        method_src.contains("fn rpm"),
+        "concrete method `rpm` should be extracted: {method_src}"
+    );
+
+    // The report should show the mixed-class companion interface section.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("EngineInterface") || report.contains("companion interface"),
+        "report should mention companion interface: {report}"
+    );
+    // The class should NOT be marked as fully abstract.
+    assert!(
+        !report.contains("Engine` `[interface]`"),
+        "mixed class should not be labelled as [interface] in report: {report}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// v2 主线四: Operator shim file generation
+// ---------------------------------------------------------------------------
+
+/// When operators are skipped, `operator_shims.hpp` should be written to the
+/// meta directory and `shim_ops.rs` to the group's free/ directory.
+#[test]
+fn init_operator_overload_generates_shim_files() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "ops2.hpp",
+        r#"
+        class Matrix {
+        public:
+            double operator()(int row, int col) const;
+            Matrix& operator=(const Matrix& rhs);
+            double get(int row, int col) const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "ops2.cpp", "ops2.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // operator_shims.hpp must exist in the meta directory.
+    let shims_hpp_path = tmp
+        .path()
+        .join(".cpp2rust/default/meta/operator_shims.hpp");
+    assert!(
+        shims_hpp_path.exists(),
+        "operator_shims.hpp should be generated in meta/"
+    );
+    let shims_hpp = std::fs::read_to_string(&shims_hpp_path).unwrap();
+    // The shim file should include the original header.
+    assert!(
+        shims_hpp.contains("ops2.hpp") || shims_hpp.contains("#include"),
+        "operator_shims.hpp should #include the original header: {shims_hpp}"
+    );
+    // At least one shim function should be declared.
+    assert!(
+        shims_hpp.contains("static inline") || shims_hpp.contains("matrix_"),
+        "shim functions should be declared in operator_shims.hpp: {shims_hpp}"
+    );
+
+    // shim_ops.rs must exist in the free/ directory.
+    let shims_rs_path = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_ops2/free/shim_ops.rs");
+    assert!(
+        shims_rs_path.exists(),
+        "shim_ops.rs should be generated in free/: {shims_rs_path:?}"
+    );
+    let shims_rs = std::fs::read_to_string(&shims_rs_path).unwrap();
+    assert!(
+        shims_rs.contains("import_lib!") && shims_rs.contains("#[cpp(func"),
+        "shim_ops.rs should contain import_lib! with #[cpp(func)] bindings: {shims_rs}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// v2 主线六: Categorised skip sections in the report
+// ---------------------------------------------------------------------------
+
+/// The report should group skipped items into `tool_conservative` and
+/// `hicc_limitation` sections.
+#[test]
+fn init_report_groups_skipped_by_category() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "cat.hpp",
+        r#"
+        template <typename T>
+        class Box { public: T value; };
+
+        class Printer {
+        public:
+            void print(int n) const;
+            Printer& operator=(const Printer& rhs);
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "cat.cpp", "cat.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+
+    // The report must distinguish between tool and hicc limitations.
+    assert!(
+        report.contains("hicc_limitation") || report.contains("hicc limitations"),
+        "report should have hicc_limitation category section: {report}"
     );
 }

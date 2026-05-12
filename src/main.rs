@@ -295,6 +295,23 @@ fn run_init(args: InitArgs) -> Result<()> {
         std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
             .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
 
+        // 主线四: operator shims – write C++ shim header to meta/ and Rust stubs to free/.
+        if !decls.operator_shims.is_empty() {
+            let middleware_basename = selected_file
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("middleware.hpp");
+            let shims_hpp = codegen::render_operator_shims_hpp(&decls.operator_shims, middleware_basename);
+            let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
+            std::fs::write(&shims_hpp_path, &shims_hpp)
+                .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
+            let shims_rs = codegen::render_operator_shims_rs(&decls.operator_shims, link_name);
+            let shims_rs_path = group_dir.join("free").join("shim_ops.rs");
+            std::fs::write(&shims_rs_path, &shims_rs)
+                .map_err(|e| anyhow!("write shim_ops.rs: {}", e))?;
+            println!("  Operator shims → {}", shims_hpp_path.display());
+        }
+
         let group_mod_path = group_dir.join("mod.rs");
         std::fs::write(
             &group_mod_path,
@@ -365,6 +382,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         all_decls.functions.extend(decls.functions);
         all_decls.classes.extend(decls.classes);
         all_decls.globals.extend(decls.globals);
+        all_decls.skipped.extend(decls.skipped);
+        all_decls.operator_shims.extend(decls.operator_shims);
     }
 
     // Write interface report.
@@ -1009,9 +1028,7 @@ mod tests {
     fn has_free_bindings_detects_free_functions() {
         let decls = ExtractedDecls {
             functions: vec![make_function("foo", false)],
-            classes: vec![],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
         assert!(has_free_bindings(&decls));
     }
@@ -1019,29 +1036,20 @@ mod tests {
     #[test]
     fn has_free_bindings_detects_class_forward_decls_requirement() {
         let decls = ExtractedDecls {
-            functions: vec![],
             classes: vec![ClassIR {
                 name: "Widget".to_string(),
                 qualified_name: "Widget".to_string(),
                 methods: vec![make_function("update", false)],
-                is_abstract: false,
-                ctors: vec![],
-                bases: vec![],
+                ..ClassIR::default()
             }],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
         assert!(has_free_bindings(&decls));
     }
 
     #[test]
     fn has_free_bindings_false_for_empty_decls() {
-        let decls = ExtractedDecls {
-            functions: vec![],
-            classes: vec![],
-            globals: vec![],
-            skipped: vec![],
-        };
+        let decls = ExtractedDecls::default();
         assert!(!has_free_bindings(&decls));
     }
 

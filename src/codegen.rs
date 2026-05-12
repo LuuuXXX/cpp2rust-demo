@@ -12,7 +12,7 @@
 //!    compile the C++ adapter code.
 //! 4. A minimal **`Cargo.toml`** for the generated crate.
 
-use crate::ast::{ClassIR, ExtractedDecls, FunctionIR, SkippedDecl};
+use crate::ast::{ClassIR, ExtractedDecls, FunctionIR, OperatorShimIR, SkippedDecl, SkipCategory};
 use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------
@@ -153,6 +153,11 @@ pub fn class_instance_methods(class_name: &str) -> Vec<&'static str> {\n\
 pub fn render_method_module(decls: &ExtractedDecls) -> String {
     let mut out = String::new();
     for class in &decls.classes {
+        // 主线三: For mixed classes, emit the companion #[interface] trait first.
+        if class.has_pure_virtual && !class.pure_virtual_methods.is_empty() {
+            render_companion_interface(&mut out, class);
+            writeln!(out).unwrap();
+        }
         render_import_class(&mut out, class);
         writeln!(out).unwrap();
     }
@@ -161,12 +166,11 @@ pub fn render_method_module(decls: &ExtractedDecls) -> String {
 
 pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
     let mut out = String::new();
-    // When abstract classes are present we need @make_proxy support, which
-    // requires the hicc memory header.  Emit a real hicc::cpp! include block
-    // so that both the standalone module file and the merged_ffi.rs work
-    // without manual edits.
+    // When abstract classes or mixed classes with companion interfaces are
+    // present we need @make_proxy support.
     let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
-    if has_abstract {
+    let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
+    if has_abstract || has_mixed {
         writeln!(out, "// @make_proxy support: required for wrapping Rust structs as C++ interfaces.").unwrap();
         writeln!(out, "hicc::cpp! {{").unwrap();
         writeln!(out, "    #include <hicc/std/memory.hpp>").unwrap();
@@ -321,38 +325,46 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
     let instance_methods: Vec<&FunctionIR> =
         class.methods.iter().filter(|m| !m.is_static).collect();
 
-    if instance_methods.is_empty() {
+    if instance_methods.is_empty() && !class.is_abstract {
         // Don't emit an empty import_class! block; the class will still be
         // forward-declared in import_lib! (if it is not abstract).
         return;
     }
+    if instance_methods.is_empty() && class.is_abstract {
+        // Abstract class with no methods — still need the #[interface] block.
+    }
 
-    // Build the inheritance suffix, e.g. `: Foo, Bar`.
-    let bases_suffix = if class.bases.is_empty() {
+    // Build the inheritance suffix.
+    // For mixed classes, always include the companion interface in the bases list.
+    let mut extra_bases: Vec<String> = Vec::new();
+    if class.has_pure_virtual && !class.pure_virtual_methods.is_empty() {
+        extra_bases.push(format!("{}Interface", class.name));
+    }
+    let all_bases: Vec<String> = class
+        .bases
+        .iter()
+        .map(|b| b.rsplit("::").next().unwrap_or(b.as_str()).to_string())
+        .chain(extra_bases)
+        .collect();
+    let bases_suffix = if all_bases.is_empty() {
         String::new()
     } else {
-        // Use only the bare (last-segment) name so the hicc macro can resolve
-        // it against the Rust struct names in scope.
-        let bare_bases: Vec<String> = class
-            .bases
-            .iter()
-            .map(|b| {
-                b.rsplit("::").next().unwrap_or(b.as_str()).to_string()
-            })
-            .collect();
-        format!(": {}", bare_bases.join(", "))
+        format!(": {}", all_bases.join(", "))
     };
+
+    // The Rust struct name: use canonical_name (alias) for template specialisations.
+    let rust_name = class
+        .canonical_name
+        .as_deref()
+        .unwrap_or(class.name.as_str());
 
     writeln!(out, "hicc::import_class! {{").unwrap();
     if class.is_abstract {
         // Fully-abstract C++ class: map to a hicc `#[interface]` trait.
-        // hicc uses #[interface] instead of #[cpp(class = "...")] for pure-virtual
-        // interfaces; the generated Rust trait can then be used as a bound.
         writeln!(out, "    #[interface]").unwrap();
-        writeln!(out, "    class {}{} {{", class.name, bases_suffix).unwrap();
+        writeln!(out, "    class {}{} {{", rust_name, bases_suffix).unwrap();
     } else {
-        // ctors are sorted ascending by param count in ast.rs, so ctors[0] is
-        // always the simplest (fewest parameters) constructor.
+        // Concrete class.
         let primary_ctor = class.ctors.first();
         if let Some(ctor) = primary_ctor {
             writeln!(
@@ -364,13 +376,37 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
         } else {
             writeln!(out, "    #[cpp(class = \"{}\")]", class.qualified_name).unwrap();
         }
-        writeln!(out, "    class {}{} {{", class.name, bases_suffix).unwrap();
+        writeln!(out, "    class {}{} {{", rust_name, bases_suffix).unwrap();
     }
 
     for method in &instance_methods {
         render_method(out, method);
     }
 
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}").unwrap();
+}
+
+/// Render the companion `#[interface]` trait for a mixed class (主线三).
+///
+/// This emits:
+/// ```text
+/// hicc::import_class! {
+///     #[interface]
+///     class FooInterface {
+///         fn pure_method(&mut self) -> i32;
+///         ...
+///     }
+/// }
+/// ```
+fn render_companion_interface(out: &mut String, class: &ClassIR) {
+    let interface_name = format!("{}Interface", class.name);
+    writeln!(out, "hicc::import_class! {{").unwrap();
+    writeln!(out, "    #[interface]").unwrap();
+    writeln!(out, "    class {} {{", interface_name).unwrap();
+    for method in &class.pure_virtual_methods {
+        render_method(out, method);
+    }
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
 }
@@ -440,6 +476,7 @@ fn render_method(out: &mut String, func: &FunctionIR) {
 fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) {
     // Determine whether we need hicc/std/memory.hpp for @make_proxy.
     let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
+    let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
     // Determine whether any class has extra (non-primary) constructors exposed
     // as factory functions.
     let has_extra_ctors = decls
@@ -452,11 +489,10 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
     writeln!(out).unwrap();
 
     // Forward-declare every concrete class used so hicc knows they are C++ types.
-    // Abstract classes (mapped to #[interface] traits) are not forward-declared
-    // here: they are not concrete value types in hicc.
     for class in &decls.classes {
         if !class.is_abstract {
-            writeln!(out, "    class {};", class.name).unwrap();
+            let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+            writeln!(out, "    class {};", rust_name).unwrap();
         }
     }
 
@@ -471,6 +507,7 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
     let has_content = !decls.functions.is_empty()
         || !static_methods.is_empty()
         || has_abstract
+        || has_mixed
         || has_extra_ctors
         || !decls.globals.is_empty();
     // Only add a blank separator if at least one concrete (non-abstract) class
@@ -504,14 +541,15 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         if class.is_abstract {
             continue;
         }
+        let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
         for (i, ctor) in class.ctors.iter().enumerate().skip(1) {
             let method_name = format!("new_{}", i + 1);
             let rust_params = render_rust_params(&ctor.params, "");
-            let ret = format!(" -> {}", class.name);
+            let ret = format!(" -> {}", rust_name);
             writeln!(
                 out,
                 "    #[member(class = \"{}\", method = \"{}\")]",
-                class.name, method_name
+                rust_name, method_name
             )
             .unwrap();
             writeln!(
@@ -523,7 +561,7 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
             writeln!(
                 out,
                 "    fn {}_{}{}{};",
-                crate::ast::to_snake_case(&class.name),
+                crate::ast::to_snake_case(rust_name),
                 method_name,
                 rust_params,
                 ret
@@ -534,22 +572,44 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
     }
 
     // @make_proxy bindings for fully-abstract classes.
-    // These let Rust structs implement C++ abstract interfaces.
     for class in &decls.classes {
         if !class.is_abstract {
             continue;
         }
-        let snake = crate::ast::to_snake_case(&class.name);
+        let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+        let snake = crate::ast::to_snake_case(rust_name);
         let proxy_fn = format!("new_{}_proxy", snake);
-        writeln!(out, "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]", name = class.name)
+        writeln!(out, "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]", name = rust_name)
             .unwrap();
-        writeln!(out, "    #[interface(name = \"{}\")]", class.name).unwrap();
+        writeln!(out, "    #[interface(name = \"{}\")]", rust_name).unwrap();
         writeln!(
             out,
             "    fn {}(intf: hicc::Interface<{}>){};",
             proxy_fn,
-            class.name,
-            format!(" -> {}", class.name)
+            rust_name,
+            format!(" -> {}", rust_name)
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+    }
+
+    // @make_proxy bindings for companion interfaces of mixed classes (主线三).
+    for class in &decls.classes {
+        if !class.has_pure_virtual || class.pure_virtual_methods.is_empty() {
+            continue;
+        }
+        let interface_name = format!("{}Interface", class.name);
+        let snake = crate::ast::to_snake_case(&interface_name);
+        let proxy_fn = format!("new_{}_proxy", snake);
+        writeln!(out, "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]", name = interface_name)
+            .unwrap();
+        writeln!(out, "    #[interface(name = \"{}\")]", interface_name).unwrap();
+        writeln!(
+            out,
+            "    fn {}(intf: hicc::Interface<{}>){};",
+            proxy_fn,
+            interface_name,
+            format!(" -> {}", interface_name)
         )
         .unwrap();
         writeln!(out).unwrap();
@@ -627,6 +687,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 
     let total_ctors: usize = decls.classes.iter().map(|c| c.ctors.len()).sum();
     let abstract_classes: usize = decls.classes.iter().filter(|c| c.is_abstract).count();
+    let mixed_classes: usize = decls.classes.iter().filter(|c| c.has_pure_virtual).count();
 
     writeln!(out, "# FFI Interface Report").unwrap();
     writeln!(out).unwrap();
@@ -637,6 +698,9 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     writeln!(out, "| Free functions | {} |", decls.functions.len()).unwrap();
     writeln!(out, "| Classes | {} |", decls.classes.len()).unwrap();
     writeln!(out, "| Abstract classes (interfaces) | {} |", abstract_classes).unwrap();
+    if mixed_classes > 0 {
+        writeln!(out, "| Mixed classes (companion interface) | {} |", mixed_classes).unwrap();
+    }
     writeln!(out, "| Extracted constructors | {} |", total_ctors).unwrap();
     writeln!(out, "| Global variables | {} |", decls.globals.len()).unwrap();
     writeln!(out, "| Skipped | {} |", decls.skipped.len()).unwrap();
@@ -658,10 +722,17 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     }
 
     for class in &decls.classes {
+        // Header: show canonical name (alias) for template specialisations.
+        let display_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
         if class.is_abstract {
-            writeln!(out, "## Class `{}` `[interface]`\n", class.qualified_name).unwrap();
+            writeln!(out, "## Class `{}` `[interface]`\n", display_name).unwrap();
+        } else if class.has_pure_virtual {
+            writeln!(out, "## Class `{}` (mixed; companion interface `{}Interface`)\n", display_name, class.name).unwrap();
         } else {
-            writeln!(out, "## Class `{}`\n", class.qualified_name).unwrap();
+            writeln!(out, "## Class `{}`\n", display_name).unwrap();
+        }
+        if class.is_template_specialization {
+            writeln!(out, "_Template specialisation of `{}`._\n", class.qualified_name).unwrap();
         }
 
         // Constructors
@@ -695,26 +766,40 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .unwrap();
         }
 
-        writeln!(out, "| Method | Rust name | Const | Static |").unwrap();
-        writeln!(out, "|--------|-----------|-------|--------|").unwrap();
-        for m in &class.methods {
-            writeln!(
-                out,
-                "| `{}` | `{}` | {} | {} |",
-                m.name, m.rust_name, m.is_const, m.is_static
-            )
-            .unwrap();
+        if !class.methods.is_empty() {
+            writeln!(out, "| Method | Rust name | Const | Static |").unwrap();
+            writeln!(out, "|--------|-----------|-------|--------|").unwrap();
+            for m in &class.methods {
+                writeln!(
+                    out,
+                    "| `{}` | `{}` | {} | {} |",
+                    m.name, m.rust_name, m.is_const, m.is_static
+                )
+                .unwrap();
+            }
+            writeln!(out).unwrap();
         }
-        writeln!(out).unwrap();
+
+        // Pure-virtual methods (companion interface) for mixed classes.
+        if !class.pure_virtual_methods.is_empty() {
+            writeln!(out, "### Companion Interface (`{}Interface`)\n", class.name).unwrap();
+            writeln!(out, "| Method | Rust name | Const |").unwrap();
+            writeln!(out, "|--------|-----------|-------|").unwrap();
+            for m in &class.pure_virtual_methods {
+                writeln!(out, "| `{}` | `{}` | {} |", m.name, m.rust_name, m.is_const).unwrap();
+            }
+            writeln!(out).unwrap();
+        }
 
         // @make_proxy hint for abstract classes
         if class.is_abstract {
-            let snake = crate::ast::to_snake_case(&class.name);
+            let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+            let snake = crate::ast::to_snake_case(rust_name);
             writeln!(out, "### @make_proxy Binding\n").unwrap();
             writeln!(
                 out,
                 "Use `new_{snake}_proxy(impl_struct)` to wrap a Rust struct as a `{}` instance.\n",
-                class.name
+                rust_name
             )
             .unwrap();
         }
@@ -738,17 +823,40 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 
     if !decls.skipped.is_empty() {
         writeln!(out, "## Skipped declarations\n").unwrap();
-        writeln!(out, "| AST kind | Name | Reason |").unwrap();
-        writeln!(out, "|----------|------|--------|").unwrap();
-        for item in &decls.skipped {
-            writeln!(
-                out,
-                "| `{}` | `{}` | `{}` |",
-                item.kind, item.name, item.reason
-            )
-            .unwrap();
+
+        // 主线六: Group skipped items by category.
+        let tool_conservative: Vec<&SkippedDecl> = decls
+            .skipped
+            .iter()
+            .filter(|s| s.category == SkipCategory::ToolConservative)
+            .collect();
+        let hicc_limitation: Vec<&SkippedDecl> = decls
+            .skipped
+            .iter()
+            .filter(|s| s.category == SkipCategory::HiccLimitation)
+            .collect();
+
+        if !tool_conservative.is_empty() {
+            writeln!(out, "### Tool-conservative skips (`tool_conservative`)\n").unwrap();
+            writeln!(out, "_These were skipped due to conservative tooling decisions. Future versions of cpp2rust-demo may extract them automatically._\n").unwrap();
+            writeln!(out, "| AST kind | Name | Reason |").unwrap();
+            writeln!(out, "|----------|------|--------|").unwrap();
+            for item in &tool_conservative {
+                writeln!(out, "| `{}` | `{}` | `{}` |", item.kind, item.name, item.reason).unwrap();
+            }
+            writeln!(out).unwrap();
         }
-        writeln!(out).unwrap();
+
+        if !hicc_limitation.is_empty() {
+            writeln!(out, "### hicc limitations (`hicc_limitation`)\n").unwrap();
+            writeln!(out, "_These require a hand-written C++ shim or are not supported by hicc._\n").unwrap();
+            writeln!(out, "| AST kind | Name | Reason |").unwrap();
+            writeln!(out, "|----------|------|--------|").unwrap();
+            for item in &hicc_limitation {
+                writeln!(out, "| `{}` | `{}` | `{}` |", item.kind, item.name, item.reason).unwrap();
+            }
+            writeln!(out).unwrap();
+        }
 
         // Dedicated section for operator overloads: guide users on how to
         // expose them manually via a hicc::cpp! wrapper.
@@ -762,34 +870,219 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             out.push_str(
                 "The following C++ operators were skipped. \
                  hicc does not support operator overloads directly. \
-                 Expose them by writing a named C++ wrapper function inside a `hicc::cpp!` block \
-                 and then binding that wrapper via `#[cpp(func = \"...\")]` in `import_lib!`.\n\n",
+                 Auto-generated C++ shims have been written to `meta/<group>/operator_shims.hpp`. \
+                 Use `#[cpp(func = \"...\")]` in `import_lib!` to bind them.\n\n",
             );
-            writeln!(out, "| Skipped operator | Suggested approach |").unwrap();
-            writeln!(out, "|-----------------|-------------------|").unwrap();
+            writeln!(out, "| Skipped operator | Suggested shim name |").unwrap();
+            writeln!(out, "|-----------------|---------------------|").unwrap();
             for op in &operators {
-                let suggestion = operator_shim_suggestion(&op.name);
-                writeln!(out, "| `{}` | {} |", op.name, suggestion).unwrap();
+                let shim = decls
+                    .operator_shims
+                    .iter()
+                    .find(|s| s.operator_name == op.name.rsplit("::").next().unwrap_or(&op.name)
+                        || op.name.contains(&s.operator_name))
+                    .map(|s| s.shim_name.as_str())
+                    .unwrap_or("(see operator_shims.hpp)");
+                writeln!(out, "| `{}` | `{}` |", op.name, shim).unwrap();
             }
             writeln!(out).unwrap();
-            out.push_str(
-                "**Example** – wrapping `operator[]` as a named function:\n\
-                 \n\
-                 ```rust\n\
-                 hicc::cpp! {\n\
-                 //   static ReturnType get_at(MyClass& obj, IndexType idx) { return obj[idx]; }\n\
-                 }\n\
-                 hicc::import_lib! {\n\
-                 //   #![link_name = \"mylib\"]\n\
-                 //   class MyClass;\n\
-                 //   #[cpp(func = \"ReturnType get_at(MyClass&, IndexType)\")]\n\
-                 //   fn get_at(obj: &mut MyClass, idx: IndexType) -> ReturnType;\n\
-                 }\n\
-                 ```\n\n",
-            );
+            out.push_str("See `meta/<group>/operator_shims.hpp` for the generated shim signatures.\n\n");
         }
     }
 
+    out
+}
+
+/// Render the C++ shim header for operator overloads (主线四).
+///
+/// Each operator that was skipped during extraction gets a named wrapper
+/// function written into `operator_shims.hpp`.  Users can `#include` this
+/// file in their `hicc::cpp!` block and then bind the wrappers via
+/// `#[cpp(func = "...")]` in `import_lib!`.
+pub fn render_operator_shims_hpp(
+    shims: &[OperatorShimIR],
+    middleware_basename: &str,
+) -> String {
+    if shims.is_empty() {
+        return String::new();
+    }
+
+    let guard = "OPERATOR_SHIMS_HPP";
+    let mut out = String::new();
+    writeln!(out, "// Auto-generated operator shims by cpp2rust-demo.").unwrap();
+    writeln!(out, "// Include this file in your hicc::cpp! block, then bind").unwrap();
+    writeln!(out, "// the functions below via #[cpp(func = \"...\")] in import_lib!.").unwrap();
+    writeln!(out, "#pragma once").unwrap();
+    writeln!(out, "#ifndef {}", guard).unwrap();
+    writeln!(out, "#define {}", guard).unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "#include \"{}\"", middleware_basename).unwrap();
+    writeln!(out).unwrap();
+
+    for shim in shims {
+        let class_ref = shim.qualified_class.as_deref().unwrap_or("");
+        let self_param = if let Some(ref _cls) = shim.class_name {
+            if !class_ref.is_empty() {
+                let const_q = if shim.is_const { "const " } else { "" };
+                format!("{}{} &self", const_q, class_ref)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let extra_params: Vec<String> = shim
+            .params
+            .iter()
+            .map(|p| format!("{} {}", p.cpp_type, p.name))
+            .collect();
+
+        let all_params: Vec<String> = if self_param.is_empty() {
+            extra_params
+        } else {
+            std::iter::once(self_param).chain(extra_params).collect()
+        };
+
+        let ret = if shim.return_cpp_type.is_empty() || shim.return_cpp_type == "()" {
+            "void".to_string()
+        } else {
+            shim.return_cpp_type.clone()
+        };
+
+        let call_self = if shim.class_name.is_some() { "self" } else { "" };
+        let call_extra: Vec<&str> = shim.params.iter().map(|p| p.name.as_str()).collect();
+        let call_args = if call_extra.is_empty() {
+            call_extra.join(", ")
+        } else {
+            call_extra.join(", ")
+        };
+
+        let call_expr = if let Some(ref _cls) = shim.class_name {
+            match shim.operator_name.as_str() {
+                "operator[]" => {
+                    format!("{}[{}]", call_self, call_args)
+                }
+                "operator=" => {
+                    format!("{} = {}", call_self, call_args)
+                }
+                "operator()" => {
+                    format!("{}({})", call_self, call_args)
+                }
+                op => {
+                    // Binary / comparison operators.
+                    let op_token = op.strip_prefix("operator").unwrap_or(op).trim();
+                    if call_args.is_empty() {
+                        // Unary prefix
+                        format!("{}{}", op_token, call_self)
+                    } else {
+                        format!("{} {} {}", call_self, op_token, call_args)
+                    }
+                }
+            }
+        } else {
+            // Free-standing operator.
+            let all_args: Vec<&str> = shim.params.iter().map(|p| p.name.as_str()).collect();
+            let op_token = shim.operator_name
+                .strip_prefix("operator")
+                .unwrap_or(&shim.operator_name)
+                .trim();
+            if all_args.len() == 2 {
+                format!("{} {} {}", all_args[0], op_token, all_args[1])
+            } else {
+                format!("{}({})", shim.operator_name, all_args.join(", "))
+            }
+        };
+
+        writeln!(out, "/// Shim for `{}`", shim.operator_name).unwrap();
+        writeln!(
+            out,
+            "static inline {} {}({}) {{ return {}; }}",
+            ret,
+            shim.shim_name,
+            all_params.join(", "),
+            call_expr
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+    }
+
+    writeln!(out, "#endif // {}", guard).unwrap();
+    out
+}
+
+/// Render the Rust free-function stubs for operator shims (主线四).
+///
+/// These stubs go into `free/<group>/shim_ops.rs`.  They provide
+/// `#[cpp(func = "...")]` bindings for each operator shim so that
+/// Rust can call the wrapper functions.
+pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> String {
+    if shims.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    writeln!(out, "// Auto-generated operator shim Rust bindings by cpp2rust-demo.").unwrap();
+    writeln!(out, "// Add the shim functions from operator_shims.hpp to your hicc::cpp! block,").unwrap();
+    writeln!(out, "// then uncomment the bindings below.").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "hicc::import_lib! {{").unwrap();
+    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
+    writeln!(out).unwrap();
+
+    for shim in shims {
+        let ret = if shim.return_cpp_type.is_empty() || shim.return_cpp_type == "()" {
+            "()".to_string()
+        } else {
+            crate::ast::cpp_to_rust_type(&shim.return_cpp_type)
+        };
+
+        // Build Rust param list.
+        let mut rust_params: Vec<String> = Vec::new();
+        if let Some(ref cls) = shim.class_name {
+            if shim.is_const {
+                rust_params.push(format!("this_val: &{}", cls));
+            } else {
+                rust_params.push(format!("this_val: &mut {}", cls));
+            }
+        }
+        for p in &shim.params {
+            rust_params.push(format!(
+                "{}: {}",
+                sanitize_ident(&p.name),
+                p.rust_type
+            ));
+        }
+        let param_str = rust_params.join(", ");
+
+        let ret_str = if ret == "()" {
+            String::new()
+        } else {
+            format!(" -> {}", ret)
+        };
+
+        // Compute C++ signature for the shim function.
+        let cpp_ret = if shim.return_cpp_type.is_empty() {
+            "void"
+        } else {
+            &shim.return_cpp_type
+        };
+        let mut cpp_params: Vec<String> = Vec::new();
+        if let Some(ref cls) = shim.qualified_class {
+            let const_q = if shim.is_const { "const " } else { "" };
+            cpp_params.push(format!("{}{} &", const_q, cls));
+        }
+        for p in &shim.params {
+            cpp_params.push(p.cpp_type.clone());
+        }
+        let cpp_sig = format!("{} {}({})", cpp_ret, shim.shim_name, cpp_params.join(", "));
+
+        writeln!(out, "    // Shim for `{}`", shim.operator_name).unwrap();
+        writeln!(out, "    #[cpp(func = \"{}\")]", cpp_sig).unwrap();
+        writeln!(out, "    fn {}({}){};\n", shim.shim_name, param_str, ret_str).unwrap();
+    }
+
+    writeln!(out, "}}").unwrap();
     out
 }
 
@@ -882,9 +1175,7 @@ mod tests {
                 "int",
                 vec![int_param("a"), int_param("b")],
             )],
-            classes: vec![],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
         let src = render_ffi(&decls, "mylib", "mylib.hpp");
         assert!(src.contains("import_lib!"));
@@ -898,9 +1189,7 @@ mod tests {
     fn render_ffi_void_return() {
         let decls = ExtractedDecls {
             functions: vec![make_fn("process", "process", "void", vec![int_param("v")])],
-            classes: vec![],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
         let src = render_ffi(&decls, "mylib", "mylib.hpp");
         // void return should not produce `-> ()`.
@@ -947,15 +1236,11 @@ mod tests {
             name: "Widget".to_string(),
             qualified_name: "Widget".to_string(),
             methods: vec![method],
-            is_abstract: false,
-            ctors: vec![],
-            bases: vec![],
+            ..ClassIR::default()
         };
         let decls = ExtractedDecls {
-            functions: vec![],
             classes: vec![class],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
         let method_src = render_method_module(&decls);
         assert!(method_src.contains("import_class!"));
@@ -994,22 +1279,20 @@ mod tests {
     #[test]
     fn render_interface_report_includes_skipped_reasons() {
         let decls = ExtractedDecls {
-            functions: vec![],
-            classes: vec![],
-            globals: vec![],
             skipped: vec![SkippedDecl {
                 kind: "CXXMethodDecl".to_string(),
                 name: "rapidjson::Value::operator[]".to_string(),
                 reason: "operator_overload".to_string(),
+                ..SkippedDecl::default()
             }],
+            ..ExtractedDecls::default()
         };
         let report = render_interface_report(&decls, "rapidjson", "rapid.cpp.cpp2rust");
         assert!(report.contains("## Skipped declarations"));
         assert!(report.contains("operator_overload"));
         // Operator shim hints section should appear.
         assert!(report.contains("## Operator Overload Shim Hints"));
-        assert!(report.contains("get_at"));
-        assert!(report.contains("hicc::cpp!"));
+        assert!(report.contains("operator_shims.hpp"));
     }
 
     #[test]
@@ -1033,14 +1316,11 @@ mod tests {
             qualified_name: "IFoo".to_string(),
             methods: vec![process],
             is_abstract: true,
-            ctors: vec![],
-            bases: vec![],
+            ..ClassIR::default()
         };
         let decls = ExtractedDecls {
-            functions: vec![],
             classes: vec![class],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
 
         let method_src = render_method_module(&decls);
@@ -1076,15 +1356,11 @@ mod tests {
             name: "Base".to_string(),
             qualified_name: "Base".to_string(),
             methods: vec![method],
-            is_abstract: false,
-            ctors: vec![],
-            bases: vec![],
+            ..ClassIR::default()
         };
         let decls = ExtractedDecls {
-            functions: vec![],
             classes: vec![class],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
 
         let method_src = render_method_module(&decls);
@@ -1135,17 +1411,14 @@ mod tests {
             class_name: Some("ITask".to_string()),
         };
         let decls = ExtractedDecls {
-            functions: vec![],
             classes: vec![ClassIR {
                 name: "ITask".to_string(),
                 qualified_name: "ITask".to_string(),
                 methods: vec![method],
                 is_abstract: true,
-                ctors: vec![],
-                bases: vec![],
+                ..ClassIR::default()
             }],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
         let report = render_interface_report(&decls, "mylib", "itask.cpp.cpp2rust");
         // Abstract class heading should carry [interface] label.
@@ -1163,16 +1436,13 @@ mod tests {
         let class = ClassIR {
             name: "IFoo".to_string(),
             qualified_name: "IFoo".to_string(),
-            methods: vec![],
             is_abstract: true,
-            ctors: vec![],
-            bases: vec![],
+            ..ClassIR::default()
         };
         let decls = ExtractedDecls {
             functions: vec![func],
             classes: vec![class],
-            globals: vec![],
-            skipped: vec![],
+            ..ExtractedDecls::default()
         };
         let free_src = render_free_module(&decls, "mylib");
         // Should not have a double blank line (which would come from an extra writeln!).
