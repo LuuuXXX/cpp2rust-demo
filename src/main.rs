@@ -321,7 +321,11 @@ fn run_init(args: InitArgs) -> Result<()> {
                 .iter()
                 .flat_map(|c| c.methods.iter().map(|m| m.qualified_name.clone()))
                 .collect(),
-            globals: vec![],
+            globals: decls
+                .globals
+                .iter()
+                .map(|g| g.qualified_name.clone())
+                .collect(),
         };
         let meta_path = group_dir.join("meta.json");
         std::fs::write(
@@ -360,6 +364,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         // Merge into all_decls for the report.
         all_decls.functions.extend(decls.functions);
         all_decls.classes.extend(decls.classes);
+        all_decls.globals.extend(decls.globals);
     }
 
     // Write interface report.
@@ -582,6 +587,7 @@ fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool) -> Str
 fn has_free_bindings(decls: &ast::ExtractedDecls) -> bool {
     !decls.functions.is_empty()
         || !decls.classes.is_empty()
+        || !decls.globals.is_empty()
         || decls
             .classes
             .iter()
@@ -1004,6 +1010,7 @@ mod tests {
         let decls = ExtractedDecls {
             functions: vec![make_function("foo", false)],
             classes: vec![],
+            globals: vec![],
             skipped: vec![],
         };
         assert!(has_free_bindings(&decls));
@@ -1018,7 +1025,10 @@ mod tests {
                 qualified_name: "Widget".to_string(),
                 methods: vec![make_function("update", false)],
                 is_abstract: false,
+                ctors: vec![],
+                bases: vec![],
             }],
+            globals: vec![],
             skipped: vec![],
         };
         assert!(has_free_bindings(&decls));
@@ -1029,6 +1039,7 @@ mod tests {
         let decls = ExtractedDecls {
             functions: vec![],
             classes: vec![],
+            globals: vec![],
             skipped: vec![],
         };
         assert!(!has_free_bindings(&decls));

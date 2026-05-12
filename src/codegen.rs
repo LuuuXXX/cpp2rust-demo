@@ -161,6 +161,18 @@ pub fn render_method_module(decls: &ExtractedDecls) -> String {
 
 pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
     let mut out = String::new();
+    // When abstract classes are present we need @make_proxy support, which
+    // requires the hicc memory header.  Emit a real hicc::cpp! include block
+    // so that both the standalone module file and the merged_ffi.rs work
+    // without manual edits.
+    let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
+    if has_abstract {
+        writeln!(out, "// @make_proxy support: required for wrapping Rust structs as C++ interfaces.").unwrap();
+        writeln!(out, "hicc::cpp! {{").unwrap();
+        writeln!(out, "    #include <hicc/std/memory.hpp>").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+    }
     render_import_lib(&mut out, decls, link_name);
     out
 }
@@ -315,16 +327,44 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
         return;
     }
 
+    // Build the inheritance suffix, e.g. `: Foo, Bar`.
+    let bases_suffix = if class.bases.is_empty() {
+        String::new()
+    } else {
+        // Use only the bare (last-segment) name so the hicc macro can resolve
+        // it against the Rust struct names in scope.
+        let bare_bases: Vec<String> = class
+            .bases
+            .iter()
+            .map(|b| {
+                b.rsplit("::").next().unwrap_or(b.as_str()).to_string()
+            })
+            .collect();
+        format!(": {}", bare_bases.join(", "))
+    };
+
     writeln!(out, "hicc::import_class! {{").unwrap();
     if class.is_abstract {
         // Fully-abstract C++ class: map to a hicc `#[interface]` trait.
         // hicc uses #[interface] instead of #[cpp(class = "...")] for pure-virtual
         // interfaces; the generated Rust trait can then be used as a bound.
         writeln!(out, "    #[interface]").unwrap();
-        writeln!(out, "    class {} {{", class.name).unwrap();
+        writeln!(out, "    class {}{} {{", class.name, bases_suffix).unwrap();
     } else {
-        writeln!(out, "    #[cpp(class = \"{}\")]", class.qualified_name).unwrap();
-        writeln!(out, "    class {} {{", class.name).unwrap();
+        // ctors are sorted ascending by param count in ast.rs, so ctors[0] is
+        // always the simplest (fewest parameters) constructor.
+        let primary_ctor = class.ctors.first();
+        if let Some(ctor) = primary_ctor {
+            writeln!(
+                out,
+                "    #[cpp(class = \"{}\", ctor = \"{}\")]",
+                class.qualified_name, ctor.cpp_signature
+            )
+            .unwrap();
+        } else {
+            writeln!(out, "    #[cpp(class = \"{}\")]", class.qualified_name).unwrap();
+        }
+        writeln!(out, "    class {}{} {{", class.name, bases_suffix).unwrap();
     }
 
     for method in &instance_methods {
@@ -398,6 +438,15 @@ fn render_method(out: &mut String, func: &FunctionIR) {
 }
 
 fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) {
+    // Determine whether we need hicc/std/memory.hpp for @make_proxy.
+    let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
+    // Determine whether any class has extra (non-primary) constructors exposed
+    // as factory functions.
+    let has_extra_ctors = decls
+        .classes
+        .iter()
+        .any(|c| !c.is_abstract && c.ctors.len() > 1);
+
     writeln!(out, "hicc::import_lib! {{").unwrap();
     writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
     writeln!(out).unwrap();
@@ -419,7 +468,11 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         .filter(|m| m.is_static)
         .collect();
 
-    let has_content = !decls.functions.is_empty() || !static_methods.is_empty();
+    let has_content = !decls.functions.is_empty()
+        || !static_methods.is_empty()
+        || has_abstract
+        || has_extra_ctors
+        || !decls.globals.is_empty();
     // Only add a blank separator if at least one concrete (non-abstract) class
     // forward-declaration was actually written above.
     let has_concrete_classes = decls.classes.iter().any(|c| !c.is_abstract);
@@ -443,6 +496,73 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         };
         render_free_function_with_name(out, func, &prefixed);
         writeln!(out).unwrap();
+    }
+
+    // Extra constructors (index ≥ 1) exposed as named factory functions via
+    // `#[member(class = ..., method = "new_N")]`.
+    for class in &decls.classes {
+        if class.is_abstract {
+            continue;
+        }
+        for (i, ctor) in class.ctors.iter().enumerate().skip(1) {
+            let method_name = format!("new_{}", i + 1);
+            let rust_params = render_rust_params(&ctor.params, "");
+            let ret = format!(" -> {}", class.name);
+            writeln!(
+                out,
+                "    #[member(class = \"{}\", method = \"{}\")]",
+                class.name, method_name
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    #[cpp(func = \"{} {}\")]",
+                class.qualified_name, ctor.cpp_signature
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    fn {}_{}{}{};",
+                crate::ast::to_snake_case(&class.name),
+                method_name,
+                rust_params,
+                ret
+            )
+            .unwrap();
+            writeln!(out).unwrap();
+        }
+    }
+
+    // @make_proxy bindings for fully-abstract classes.
+    // These let Rust structs implement C++ abstract interfaces.
+    for class in &decls.classes {
+        if !class.is_abstract {
+            continue;
+        }
+        let snake = crate::ast::to_snake_case(&class.name);
+        let proxy_fn = format!("new_{}_proxy", snake);
+        writeln!(out, "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]", name = class.name)
+            .unwrap();
+        writeln!(out, "    #[interface(name = \"{}\")]", class.name).unwrap();
+        writeln!(
+            out,
+            "    fn {}(intf: hicc::Interface<{}>){};",
+            proxy_fn,
+            class.name,
+            format!(" -> {}", class.name)
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+    }
+
+    // Global variable bindings via `#[cpp(data = "...")]`.
+    if !decls.globals.is_empty() {
+        writeln!(out, "    // Global variable bindings.").unwrap();
+        for gv in &decls.globals {
+            writeln!(out, "    #[cpp(data = \"{}\")]", gv.qualified_name).unwrap();
+            writeln!(out, "    fn {}() -> {};", gv.rust_name, gv.rust_type).unwrap();
+            writeln!(out).unwrap();
+        }
     }
 
     writeln!(out, "}}").unwrap();
@@ -505,6 +625,9 @@ fn sanitize_ident(name: &str) -> &str {
 pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: &str) -> String {
     let mut out = String::new();
 
+    let total_ctors: usize = decls.classes.iter().map(|c| c.ctors.len()).sum();
+    let abstract_classes: usize = decls.classes.iter().filter(|c| c.is_abstract).count();
+
     writeln!(out, "# FFI Interface Report").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "| Field | Value |").unwrap();
@@ -513,6 +636,9 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     writeln!(out, "| Link name | `{}` |", link_name).unwrap();
     writeln!(out, "| Free functions | {} |", decls.functions.len()).unwrap();
     writeln!(out, "| Classes | {} |", decls.classes.len()).unwrap();
+    writeln!(out, "| Abstract classes (interfaces) | {} |", abstract_classes).unwrap();
+    writeln!(out, "| Extracted constructors | {} |", total_ctors).unwrap();
+    writeln!(out, "| Global variables | {} |", decls.globals.len()).unwrap();
     writeln!(out, "| Skipped | {} |", decls.skipped.len()).unwrap();
     writeln!(out).unwrap();
 
@@ -537,6 +663,38 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
         } else {
             writeln!(out, "## Class `{}`\n", class.qualified_name).unwrap();
         }
+
+        // Constructors
+        if !class.ctors.is_empty() {
+            writeln!(out, "### Constructors\n").unwrap();
+            writeln!(out, "| C++ signature | hicc role |").unwrap();
+            writeln!(out, "|---------------|-----------|").unwrap();
+            for (i, ctor) in class.ctors.iter().enumerate() {
+                let role = if i == 0 {
+                    "primary (`ctor = \"...\"`)"
+                } else {
+                    "extra factory fn"
+                };
+                writeln!(out, "| `{}` | {} |", ctor.cpp_signature, role).unwrap();
+            }
+            writeln!(out).unwrap();
+        }
+
+        // Base classes
+        if !class.bases.is_empty() {
+            writeln!(
+                out,
+                "**Bases:** {}\n",
+                class
+                    .bases
+                    .iter()
+                    .map(|b| format!("`{}`", b))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .unwrap();
+        }
+
         writeln!(out, "| Method | Rust name | Const | Static |").unwrap();
         writeln!(out, "|--------|-----------|-------|--------|").unwrap();
         for m in &class.methods {
@@ -544,6 +702,34 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
                 out,
                 "| `{}` | `{}` | {} | {} |",
                 m.name, m.rust_name, m.is_const, m.is_static
+            )
+            .unwrap();
+        }
+        writeln!(out).unwrap();
+
+        // @make_proxy hint for abstract classes
+        if class.is_abstract {
+            let snake = crate::ast::to_snake_case(&class.name);
+            writeln!(out, "### @make_proxy Binding\n").unwrap();
+            writeln!(
+                out,
+                "Use `new_{snake}_proxy(impl_struct)` to wrap a Rust struct as a `{}` instance.\n",
+                class.name
+            )
+            .unwrap();
+        }
+    }
+
+    // Global variables section
+    if !decls.globals.is_empty() {
+        writeln!(out, "## Global Variables\n").unwrap();
+        writeln!(out, "| C++ name | Rust fn name | Qualified name | C++ type | Rust type | Const |").unwrap();
+        writeln!(out, "|----------|--------------|----------------|----------|-----------|-------|").unwrap();
+        for gv in &decls.globals {
+            writeln!(
+                out,
+                "| `{}` | `{}` | `{}` | `{}` | `{}` | {} |",
+                gv.name, gv.rust_name, gv.qualified_name, gv.cpp_type, gv.rust_type, gv.is_const
             )
             .unwrap();
         }
@@ -697,6 +883,7 @@ mod tests {
                 vec![int_param("a"), int_param("b")],
             )],
             classes: vec![],
+            globals: vec![],
             skipped: vec![],
         };
         let src = render_ffi(&decls, "mylib", "mylib.hpp");
@@ -712,6 +899,7 @@ mod tests {
         let decls = ExtractedDecls {
             functions: vec![make_fn("process", "process", "void", vec![int_param("v")])],
             classes: vec![],
+            globals: vec![],
             skipped: vec![],
         };
         let src = render_ffi(&decls, "mylib", "mylib.hpp");
@@ -760,10 +948,13 @@ mod tests {
             qualified_name: "Widget".to_string(),
             methods: vec![method],
             is_abstract: false,
+            ctors: vec![],
+            bases: vec![],
         };
         let decls = ExtractedDecls {
             functions: vec![],
             classes: vec![class],
+            globals: vec![],
             skipped: vec![],
         };
         let method_src = render_method_module(&decls);
@@ -805,6 +996,7 @@ mod tests {
         let decls = ExtractedDecls {
             functions: vec![],
             classes: vec![],
+            globals: vec![],
             skipped: vec![SkippedDecl {
                 kind: "CXXMethodDecl".to_string(),
                 name: "rapidjson::Value::operator[]".to_string(),
@@ -841,10 +1033,13 @@ mod tests {
             qualified_name: "IFoo".to_string(),
             methods: vec![process],
             is_abstract: true,
+            ctors: vec![],
+            bases: vec![],
         };
         let decls = ExtractedDecls {
             functions: vec![],
             classes: vec![class],
+            globals: vec![],
             skipped: vec![],
         };
 
@@ -882,10 +1077,13 @@ mod tests {
             qualified_name: "Base".to_string(),
             methods: vec![method],
             is_abstract: false,
+            ctors: vec![],
+            bases: vec![],
         };
         let decls = ExtractedDecls {
             functions: vec![],
             classes: vec![class],
+            globals: vec![],
             skipped: vec![],
         };
 
@@ -943,7 +1141,10 @@ mod tests {
                 qualified_name: "ITask".to_string(),
                 methods: vec![method],
                 is_abstract: true,
+                ctors: vec![],
+                bases: vec![],
             }],
+            globals: vec![],
             skipped: vec![],
         };
         let report = render_interface_report(&decls, "mylib", "itask.cpp.cpp2rust");
@@ -964,10 +1165,13 @@ mod tests {
             qualified_name: "IFoo".to_string(),
             methods: vec![],
             is_abstract: true,
+            ctors: vec![],
+            bases: vec![],
         };
         let decls = ExtractedDecls {
             functions: vec![func],
             classes: vec![class],
+            globals: vec![],
             skipped: vec![],
         };
         let free_src = render_free_module(&decls, "mylib");

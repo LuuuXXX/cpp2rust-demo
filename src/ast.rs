@@ -44,6 +44,22 @@ pub struct AstNode {
     pub tag_used: Option<String>,
     pub access: Option<String>,
     pub inner: Option<Vec<AstNode>>,
+    /// Direct base class specifiers for `CXXRecordDecl` nodes.
+    ///
+    /// Clang emits these as a top-level `"bases"` array on the record node,
+    /// **not** as children inside `"inner"`.  Each entry has an `access` field
+    /// (`"public"`, `"protected"`, `"private"`) and a `type.qualType` with the
+    /// base class name.
+    #[serde(default)]
+    pub bases: Vec<BaseSpecifier>,
+}
+
+/// A direct base class entry as emitted in clang's `"bases"` array.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BaseSpecifier {
+    pub access: String,
+    #[serde(rename = "type")]
+    pub type_info: TypeInfo,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -155,6 +171,39 @@ pub struct ParamIR {
     pub rust_type: String,
 }
 
+/// A public constructor extracted from a C++ class.
+///
+/// hicc uses this via `#[cpp(class = "...", ctor = "...")]` to let Rust
+/// construct the C++ object directly (no separate factory function needed).
+#[derive(Debug, Clone)]
+pub struct CtorIR {
+    /// Parameter list (same type as method params).
+    pub params: Vec<ParamIR>,
+    /// The string placed in `ctor = "..."`, e.g. `"Widget(int, double)"`.
+    pub cpp_signature: String,
+}
+
+/// A C++ global variable that can be accessed from Rust via
+/// `#[cpp(data = "qualified_name")]` in `hicc::import_lib!`.
+#[derive(Debug, Clone)]
+pub struct GlobalVarIR {
+    /// Bare C++ identifier.
+    pub name: String,
+    /// Rust-idiomatic snake_case name for the accessor function.
+    ///
+    /// Derived from `name` via [`to_snake_case`], keeping consistency with
+    /// how `FunctionIR::rust_name` is produced for free functions.
+    pub rust_name: String,
+    /// Fully namespace-qualified name, e.g. `"myns::g_counter"`.
+    pub qualified_name: String,
+    /// C++ type string as emitted by clang.
+    pub cpp_type: String,
+    /// Mapped Rust type string.
+    pub rust_type: String,
+    /// Whether the variable is `const`-qualified.
+    pub is_const: bool,
+}
+
 /// A C++ class or struct declaration.
 #[derive(Debug, Clone)]
 pub struct ClassIR {
@@ -169,6 +218,19 @@ pub struct ClassIR {
     /// struct.  Non-pure virtual methods on non-abstract classes are extracted
     /// normally; hicc calls them through the C++ vtable transparently.
     pub is_abstract: bool,
+    /// Public constructors extracted from this class.
+    ///
+    /// Empty when no usable constructor was found (e.g. all constructors are
+    /// copy/move/implicit).  When non-empty the first entry is used as the
+    /// primary `ctor = "..."` in `import_class!`; additional entries are
+    /// exposed as factory functions via `#[member(class = ..., method = "new_N")]`
+    /// in `import_lib!`.
+    pub ctors: Vec<CtorIR>,
+    /// Names of direct public base classes, in declaration order.
+    ///
+    /// Used to generate the `class Foo: Base1, Base2 { ... }` syntax in
+    /// `import_class!` so hicc knows the inheritance chain.
+    pub bases: Vec<String>,
 }
 
 /// A declaration that is intentionally skipped during extraction.
@@ -187,6 +249,7 @@ pub struct SkippedDecl {
 pub struct ExtractedDecls {
     pub functions: Vec<FunctionIR>,
     pub classes: Vec<ClassIR>,
+    pub globals: Vec<GlobalVarIR>,
     pub skipped: Vec<SkippedDecl>,
 }
 
@@ -486,7 +549,29 @@ fn walk_node(
                 qualified_name,
                 methods: vec![],
                 is_abstract: false,
+                ctors: vec![],
+                bases: vec![],
             };
+
+            // Extract public base classes from the top-level `bases` array
+            // (clang emits base-class specifiers here, NOT in `inner`).
+            for base in &node.bases {
+                if base.access == "public" {
+                    let raw = base.type_info.qual_type.trim();
+                    let bare = raw
+                        .strip_prefix("class ")
+                        .or_else(|| raw.strip_prefix("struct "))
+                        .unwrap_or(raw)
+                        .trim();
+                    if !bare.is_empty() {
+                        let qualified_base = class_map
+                            .get(bare)
+                            .cloned()
+                            .unwrap_or_else(|| bare.to_string());
+                        class_ir.bases.push(qualified_base);
+                    }
+                }
+            }
 
             // C++ class members are private by default; struct members are public.
             let is_struct = node.tag_used.as_deref() == Some("struct");
@@ -520,17 +605,26 @@ fn walk_node(
 
                 match child.kind.as_str() {
                     "CXXMethodDecl" | "CXXConstructorDecl" | "CXXDestructorDecl" => {
-                        // Skip constructors and destructors – they need special hicc handling.
-                        if matches!(
-                            child.kind.as_str(),
-                            "CXXConstructorDecl" | "CXXDestructorDecl"
-                        ) {
-                            let reason = if child.kind == "CXXConstructorDecl" {
-                                "constructor"
+                        if child.kind == "CXXDestructorDecl" {
+                            record_skipped(result, child, namespace, Some(class_name), "destructor");
+                            continue;
+                        }
+                        if child.kind == "CXXConstructorDecl" {
+                            // Attempt to extract this constructor for hicc ctor support.
+                            // Skip copy/move constructors (single parameter of `const T &`
+                            // or `T &&` pattern) — these are compiler-generated plumbing,
+                            // not user-facing factory constructors.
+                            if let Some(ctor) = extract_ctor(child, class_name, class_map) {
+                                class_ir.ctors.push(ctor);
                             } else {
-                                "destructor"
-                            };
-                            record_skipped(result, child, namespace, Some(class_name), reason);
+                                record_skipped(
+                                    result,
+                                    child,
+                                    namespace,
+                                    Some(class_name),
+                                    "constructor",
+                                );
+                            }
                             continue;
                         }
                         // Pure-virtual methods are held aside; we decide below whether
@@ -598,6 +692,12 @@ fn walk_node(
             }
             class_ir.is_abstract = is_abstract;
 
+            // Sort ctors by ascending parameter count so that ctors[0] is
+            // always the "simplest" (fewest parameters) constructor.  This
+            // guarantees that render_import_class's `skip(1)` factory loop
+            // stays in sync with the primary ctor selection.
+            class_ir.ctors.sort_by_key(|c| c.params.len());
+
             result.classes.push(class_ir);
         }
 
@@ -619,6 +719,20 @@ fn walk_node(
         "ClassTemplateDecl" | "FunctionTemplateDecl" | "ClassTemplateSpecializationDecl" => {
             if is_target(current_file, targets) {
                 record_skipped(result, node, namespace, None, "template_decl");
+            }
+        }
+
+        "VarDecl" => {
+            if !is_target(current_file, targets) {
+                return;
+            }
+            // Only extract non-static (i.e. namespace-scope / file-scope) variables.
+            // `static` storage class here means a local static, not a global; skip those.
+            if node.storage_class.as_deref() == Some("static") {
+                return;
+            }
+            if let Some(global) = extract_global_var(node, namespace, class_map) {
+                result.globals.push(global);
             }
         }
 
@@ -1118,6 +1232,118 @@ fn bare_class_name(t: &str) -> String {
     last.split('<').next().unwrap_or(last).trim().to_string()
 }
 
+/// Extract a `CtorIR` from a `CXXConstructorDecl` node.
+///
+/// Returns `None` when the constructor is copy/move (single param of type
+/// `const ClassName &` or `ClassName &&`) or when any parameter has an
+/// unsupported type.  All other user-defined constructors are extracted.
+fn extract_ctor(
+    node: &AstNode,
+    class_name: &str,
+    class_map: &HashMap<String, String>,
+) -> Option<CtorIR> {
+    // Collect ParmVarDecl children.
+    let parm_nodes: Vec<&AstNode> = node
+        .inner
+        .iter()
+        .flatten()
+        .filter(|c| c.kind == "ParmVarDecl")
+        .collect();
+
+    // Detect copy/move constructor: single parameter whose type is
+    // `const ClassName &` (copy) or `ClassName &&` (move).
+    if parm_nodes.len() == 1 {
+        if let Some(ref ti) = parm_nodes[0].type_info {
+            let qt = ti.qual_type.trim();
+            let bare = bare_class_name(class_name);
+            // Copy: `const ClassName &`
+            let is_copy = qt == format!("const {} &", bare)
+                || qt == format!("const {} &", class_name);
+            // Move: `ClassName &&`
+            let is_move =
+                qt == format!("{} &&", bare) || qt == format!("{} &&", class_name);
+            if is_copy || is_move {
+                return None;
+            }
+        }
+    }
+
+    let mut params: Vec<ParamIR> = Vec::new();
+    for (i, p) in parm_nodes.iter().enumerate() {
+        let pname = p
+            .name
+            .as_deref()
+            .filter(|n| !n.is_empty())
+            .unwrap_or(&format!("arg{}", i))
+            .to_string();
+        let Some(ref cpp_type_str) = p.type_info.as_ref().map(|t| t.qual_type.clone()) else {
+            return None;
+        };
+        if !is_supported_cpp_type(cpp_type_str, class_map) {
+            return None;
+        }
+        let rust_type = cpp_to_rust_type(cpp_type_str);
+        params.push(ParamIR {
+            name: pname,
+            cpp_type: cpp_type_str.clone(),
+            rust_type,
+        });
+    }
+
+    let param_types: Vec<String> = params
+        .iter()
+        .map(|p| qualify_cpp_type(&p.cpp_type, class_map))
+        .collect();
+    let cpp_signature = format!("{}({})", class_name, param_types.join(", "));
+
+    Some(CtorIR {
+        params,
+        cpp_signature,
+    })
+}
+
+/// Extract a `GlobalVarIR` from a `VarDecl` node.
+///
+/// Returns `None` when the variable's type is unsupported (e.g. template
+/// instantiation, function pointer, etc.).
+fn extract_global_var(
+    node: &AstNode,
+    namespace: &[String],
+    class_map: &HashMap<String, String>,
+) -> Option<GlobalVarIR> {
+    let name = node.name.as_deref()?.to_string();
+    // Skip anonymous variables.
+    if name.is_empty() || name == "<anonymous>" {
+        return None;
+    }
+
+    let cpp_type = node.type_info.as_ref().map(|t| t.qual_type.clone())?;
+
+    // Skip unsupported types (templates, function pointers, etc.).
+    if !is_supported_cpp_type(&cpp_type, class_map) {
+        return None;
+    }
+
+    let is_const = has_top_level_const(&cpp_type);
+    let rust_type = if is_const {
+        format!("&'static {}", cpp_to_rust_type(strip_top_level_const(&cpp_type)))
+    } else {
+        format!("&'static mut {}", cpp_to_rust_type(&cpp_type))
+    };
+
+    let rust_name = to_snake_case(&name);
+    let qualified_name = make_qualified(namespace, &name);
+
+    Some(GlobalVarIR {
+        name,
+        rust_name,
+        qualified_name,
+        cpp_type,
+        rust_type,
+        is_const,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
@@ -1273,6 +1499,7 @@ mod tests {
             complete_definition: None,
             tag_used: None,
             access: None,
+            bases: vec![],
             inner: Some(vec![
                 AstNode {
                     kind: "ClassTemplateDecl".to_string(),
@@ -1287,6 +1514,7 @@ mod tests {
                     complete_definition: None,
                     tag_used: None,
                     access: None,
+                    bases: vec![],
                     inner: None,
                 },
                 AstNode {
@@ -1304,6 +1532,7 @@ mod tests {
                     complete_definition: None,
                     tag_used: None,
                     access: None,
+                    bases: vec![],
                     inner: Some(vec![]),
                 },
                 AstNode {
@@ -1319,6 +1548,7 @@ mod tests {
                     complete_definition: Some(true),
                     tag_used: Some("class".to_string()),
                     access: None,
+                    bases: vec![],
                     inner: Some(vec![
                         AstNode {
                             kind: "AccessSpecDecl".to_string(),
@@ -1333,6 +1563,7 @@ mod tests {
                             complete_definition: None,
                             tag_used: None,
                             access: Some("public".to_string()),
+                            bases: vec![],
                             inner: None,
                         },
                         AstNode {
@@ -1350,6 +1581,7 @@ mod tests {
                             complete_definition: None,
                             tag_used: None,
                             access: None,
+                            bases: vec![],
                             inner: Some(vec![]),
                         },
                         AstNode {
@@ -1367,6 +1599,7 @@ mod tests {
                             complete_definition: None,
                             tag_used: None,
                             access: None,
+                            bases: vec![],
                             inner: Some(vec![]),
                         },
                         AstNode {
@@ -1384,6 +1617,7 @@ mod tests {
                             complete_definition: None,
                             tag_used: None,
                             access: None,
+                            bases: vec![],
                             inner: Some(vec![]),
                         },
                     ]),
@@ -1399,10 +1633,13 @@ mod tests {
         assert!(decls.classes[0].is_abstract);
         assert_eq!(decls.classes[0].methods.len(), 1);
         assert_eq!(decls.classes[0].methods[0].name, "virt");
+        // The default constructor (0 params) is now extracted as a CtorIR, not skipped.
+        assert_eq!(decls.classes[0].ctors.len(), 1, "Widget() should be extracted as a CtorIR");
         let reasons: Vec<&str> = decls.skipped.iter().map(|s| s.reason.as_str()).collect();
         assert!(reasons.contains(&"template_decl"));
         assert!(reasons.contains(&"operator_overload"));
-        assert!(reasons.contains(&"constructor"));
+        // constructor is NOT in skipped – it was extracted as CtorIR.
+        assert!(!reasons.contains(&"constructor"), "extracted ctors should not appear in skipped list");
         // pure_virtual is NOT in skipped for fully-abstract classes (it was extracted).
         assert!(!reasons.contains(&"pure_virtual"));
     }
@@ -1441,6 +1678,7 @@ mod tests {
             complete_definition: None,
             tag_used: None,
             access: None,
+            bases: vec![],
             inner: Some(vec![]),
         };
         let ast = AstNode {
@@ -1456,6 +1694,7 @@ mod tests {
             complete_definition: None,
             tag_used: None,
             access: None,
+            bases: vec![],
             inner: Some(vec![AstNode {
                 kind: "CXXRecordDecl".to_string(),
                 id: None,
@@ -1469,6 +1708,7 @@ mod tests {
                 complete_definition: Some(true),
                 tag_used: Some("class".to_string()),
                 access: None,
+                bases: vec![],
                 inner: Some(vec![
                     AstNode {
                         kind: "AccessSpecDecl".to_string(),
@@ -1483,6 +1723,7 @@ mod tests {
                         complete_definition: None,
                         tag_used: None,
                         access: Some("public".to_string()),
+                        bases: vec![],
                         inner: None,
                     },
                     make_method("virt_concrete", true, false),

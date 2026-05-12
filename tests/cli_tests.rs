@@ -1461,3 +1461,583 @@ fn init_operator_overload_report_includes_shim_hints() {
     .unwrap();
     assert!(method_src.contains("fn get(&self, idx: i32) -> f64"));
 }
+
+// ---------------------------------------------------------------------------
+// hicc capability expansion: constructor extraction
+// ---------------------------------------------------------------------------
+
+/// When a class has a public constructor with supported parameter types,
+/// the generated `import_class!` block should include `ctor = "..."`.
+#[test]
+fn init_class_with_ctor_generates_ctor_attribute() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "widget_ctor.hpp",
+        r#"
+        class Widget {
+        public:
+            Widget(int id, double scale);
+            void update(double x, double y);
+            int getId() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "widget_ctor.cpp", "widget_ctor.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_widget_ctor/method/mtd_widget_ctor.rs"),
+    )
+    .unwrap();
+
+    // The import_class! block should include ctor = "...".
+    assert!(
+        method_src.contains("ctor = \"Widget("),
+        "import_class! should include ctor attribute: {}",
+        method_src
+    );
+    // Regular methods should still be present.
+    assert!(method_src.contains("fn update(&mut self"));
+    assert!(method_src.contains("fn get_id(&self)"));
+
+    // Report should show the extracted constructor.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("### Constructors") || report.contains("Constructors"),
+        "report should document extracted constructors"
+    );
+    assert!(
+        report.contains("primary"),
+        "report should label primary constructor"
+    );
+}
+
+/// When a class has multiple constructors, the primary (fewest params) goes
+/// into `import_class!`; additional ones become named factory functions in
+/// `import_lib!`.
+#[test]
+fn init_class_multiple_ctors_generates_factory_functions() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "multi_ctor.hpp",
+        r#"
+        class Counter {
+        public:
+            Counter();
+            Counter(int start);
+            Counter(int start, int step);
+            void inc();
+            int value() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "multi_ctor.cpp", "multi_ctor.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_multi_ctor/method/mtd_multi_ctor.rs"),
+    )
+    .unwrap();
+    // Primary ctor (fewest params = 0-param default ctor) in import_class!.
+    assert!(
+        method_src.contains("ctor = \"Counter()\""),
+        "primary ctor (0-param) should be in import_class!: {}",
+        method_src
+    );
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_multi_ctor/free/fn_multi_ctor.rs"),
+    )
+    .unwrap();
+    // Extra ctors should become factory functions in import_lib!.
+    assert!(
+        free_src.contains("new_2") || free_src.contains("new_3"),
+        "extra constructors should appear as factory fns in import_lib!: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("#[member(class"),
+        "extra ctor factory should use #[member(...)] attribute: {}",
+        free_src
+    );
+}
+
+/// When constructors are declared in reverse param-count order (most params
+/// first), the 0-param constructor should still be selected as the primary
+/// `ctor = "..."` and the higher-param constructors should become factories.
+#[test]
+fn init_class_ctors_sorted_by_param_count() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "rev_ctor.hpp",
+        r#"
+        class Stack {
+        public:
+            Stack(int capacity, int flags);
+            Stack(int capacity);
+            Stack();
+            void push(int val);
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "rev_ctor.cpp", "rev_ctor.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_rev_ctor/method/mtd_rev_ctor.rs"),
+    )
+    .unwrap();
+    // Even though Stack() is declared last, it should be the primary ctor.
+    assert!(
+        method_src.contains("ctor = \"Stack()\""),
+        "0-param ctor should be primary even when declared last: {}",
+        method_src
+    );
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_rev_ctor/free/fn_rev_ctor.rs"),
+    )
+    .unwrap();
+    // The 1-param and 2-param ctors should become factory fns, NOT the 0-param.
+    assert!(
+        free_src.contains("new_2"),
+        "non-primary ctors should be factory fns: {}",
+        free_src
+    );
+    // The 0-param ctor (primary) should NOT appear as a factory fn.
+    assert!(
+        !free_src.contains("Stack()"),
+        "primary ctor Stack() should not be repeated as a factory fn: {}",
+        free_src
+    );
+}
+
+
+/// When a class publicly inherits from another, the generated `import_class!`
+/// block should use `class Foo: Base { ... }` syntax.
+#[test]
+fn init_class_inheritance_generates_bases_syntax() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "inherit.hpp",
+        r#"
+        class Shape {
+        public:
+            virtual double area() const = 0;
+        };
+
+        class Circle: public Shape {
+        public:
+            explicit Circle(double radius);
+            double area() const;
+            double radius() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "inherit.cpp", "inherit.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_inherit/method/mtd_inherit.rs"),
+    )
+    .unwrap();
+
+    // Shape should be abstract (#[interface]).
+    assert!(
+        method_src.contains("#[interface]"),
+        "Shape (fully abstract) should use #[interface]: {}",
+        method_src
+    );
+    // Circle should inherit from Shape in the hicc syntax.
+    assert!(
+        method_src.contains(": Shape"),
+        "Circle should include base class in import_class!: {}",
+        method_src
+    );
+    // Circle should have its own methods.
+    assert!(method_src.contains("fn area(&self)"));
+    assert!(method_src.contains("fn radius(&self)"));
+}
+
+// ---------------------------------------------------------------------------
+// hicc capability expansion: @make_proxy for abstract classes
+// ---------------------------------------------------------------------------
+
+/// Fully-abstract classes should generate a `@make_proxy` binding in
+/// `import_lib!` so Rust code can implement the interface.
+#[test]
+fn init_abstract_class_generates_make_proxy() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "listener.hpp",
+        r#"
+        class Listener {
+        public:
+            virtual void onEvent(int event_id) = 0;
+            virtual bool shouldStop() const = 0;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "listener.cpp", "listener.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_listener/free/fn_listener.rs"),
+    )
+    .unwrap();
+
+    // @make_proxy binding should be generated.
+    assert!(
+        free_src.contains("@make_proxy"),
+        "abstract class should have @make_proxy binding: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("#[interface(name = \"Listener\")]"),
+        "make_proxy binding should have #[interface(name = ...)] attribute: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("new_listener_proxy"),
+        "make_proxy should be named new_<snake>_proxy: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("hicc::Interface<Listener>"),
+        "make_proxy fn should take hicc::Interface<T>: {}",
+        free_src
+    );
+    // The free module should emit an actual hicc::cpp! block with the memory
+    // header so @make_proxy compiles without manual edits.
+    assert!(
+        free_src.contains("hicc/std/memory.hpp"),
+        "free module should include hicc/std/memory.hpp for @make_proxy: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("hicc::cpp!"),
+        "free module should have a hicc::cpp! block (not just a comment) when abstract classes present: {}",
+        free_src
+    );
+
+    // The @make_proxy comment hint should be in the report.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("@make_proxy") || report.contains("make_proxy"),
+        "report should mention @make_proxy for abstract class: {}",
+        report
+    );
+}
+
+// ---------------------------------------------------------------------------
+// hicc capability expansion: global variable extraction
+// ---------------------------------------------------------------------------
+
+/// Global variables at namespace scope should be extracted and generate
+/// `#[cpp(data = "...")]` bindings in `import_lib!`.
+#[test]
+fn init_global_variable_generates_data_binding() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "globals.hpp",
+        r#"
+        extern int g_count;
+        extern const double g_pi;
+        extern const char* g_name;
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "globals.cpp", "globals.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_globals/free/fn_globals.rs"),
+    )
+    .unwrap();
+
+    // Mutable global: `&'static mut T`
+    assert!(
+        free_src.contains("#[cpp(data = \"g_count\")]"),
+        "g_count should have #[cpp(data = ...)] binding: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("&'static mut i32"),
+        "mutable g_count should return &'static mut i32: {}",
+        free_src
+    );
+
+    // Const global: `&'static T`
+    assert!(
+        free_src.contains("#[cpp(data = \"g_pi\")]"),
+        "g_pi should have #[cpp(data = ...)] binding: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("&'static f64"),
+        "const g_pi should return &'static f64: {}",
+        free_src
+    );
+
+    // Report should show global variables section.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("## Global Variables"),
+        "report should have Global Variables section: {}",
+        report
+    );
+    assert!(report.contains("g_count"));
+    assert!(report.contains("g_pi"));
+    // Report should include the "Rust fn name" column header.
+    assert!(
+        report.contains("Rust fn name"),
+        "report Global Variables table should have Rust fn name column: {}",
+        report
+    );
+}
+
+/// Global variables inside namespaces should have their qualified name used in
+/// `#[cpp(data = "ns::var")]`.
+#[test]
+fn init_namespaced_global_variable_uses_qualified_name() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "ns_globals.hpp",
+        r#"
+        namespace config {
+            extern int max_retries;
+            extern const double timeout_secs;
+        }
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "ns_globals.cpp", "ns_globals.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_ns_globals/free/fn_ns_globals.rs"),
+    )
+    .unwrap();
+
+    // Qualified name should be used in the data attribute.
+    assert!(
+        free_src.contains("#[cpp(data = \"config::max_retries\")]"),
+        "namespaced global should use qualified name: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("#[cpp(data = \"config::timeout_secs\")]"),
+        "namespaced const global should use qualified name: {}",
+        free_src
+    );
+
+    // meta.json should list the extracted globals.
+    let meta_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_ns_globals/meta.json"),
+    )
+    .unwrap();
+    assert!(
+        meta_src.contains("config::max_retries"),
+        "meta.json globals should include qualified global name: {}",
+        meta_src
+    );
+    assert!(
+        meta_src.contains("config::timeout_secs"),
+        "meta.json globals should include qualified global name: {}",
+        meta_src
+    );
+}
+
+/// Global variables with camelCase C++ names should have their Rust accessor
+/// function name converted to snake_case, matching how free functions work.
+#[test]
+fn init_camel_case_global_variable_uses_snake_case_rust_name() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "camel_globals.hpp",
+        r#"
+        extern int maxRetryCount;
+        extern const double defaultTimeoutSecs;
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "camel_globals.cpp", "camel_globals.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_camel_globals/free/fn_camel_globals.rs"),
+    )
+    .unwrap();
+
+    // Rust accessor functions must use snake_case names.
+    assert!(
+        free_src.contains("fn max_retry_count()"),
+        "camelCase global should produce snake_case Rust fn name: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("fn default_timeout_secs()"),
+        "camelCase const global should produce snake_case Rust fn name: {}",
+        free_src
+    );
+
+    // C++ names in #[cpp(data)] should be the original C++ identifiers.
+    assert!(
+        free_src.contains("#[cpp(data = \"maxRetryCount\")]"),
+        "#[cpp(data)] should use original C++ name: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("#[cpp(data = \"defaultTimeoutSecs\")]"),
+        "#[cpp(data)] should use original C++ name: {}",
+        free_src
+    );
+}
