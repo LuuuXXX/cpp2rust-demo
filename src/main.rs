@@ -228,9 +228,6 @@ fn run_init(args: InitArgs) -> Result<()> {
                 codegen::render_lib_rs(&[&class_mod_name]),
             )
             .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
-        } else {
-            std::fs::write(group_dir.join("class").join("mod.rs"), "")
-                .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
         }
 
         let free_mod_name = format!("fn_{}", stem);
@@ -245,14 +242,11 @@ fn run_init(args: InitArgs) -> Result<()> {
                 codegen::render_lib_rs(&[&free_mod_name]),
             )
             .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
-        } else {
-            std::fs::write(group_dir.join("free").join("mod.rs"), "")
-                .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
         }
 
         // v1 currently does not split member methods/global entities into dedicated files yet.
-        let has_method = false;
-        let has_global = false;
+        let has_method = has_method_bindings(&decls);
+        let has_global = has_global_bindings(&decls);
 
         let group_mod_path = group_dir.join("mod.rs");
         std::fs::write(
@@ -547,6 +541,14 @@ fn has_free_bindings(decls: &ast::ExtractedDecls) -> bool {
             .any(|m| m.is_static)
 }
 
+fn has_method_bindings(_decls: &ast::ExtractedDecls) -> bool {
+    false
+}
+
+fn has_global_bindings(_decls: &ast::ExtractedDecls) -> bool {
+    false
+}
+
 fn middleware_group_modules(cpp_dir: &Path, paths: &[PathBuf]) -> Vec<String> {
     use std::collections::HashMap;
 
@@ -722,6 +724,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::{ClassIR, ExtractedDecls, FunctionIR};
     use clap::CommandFactory;
 
     #[test]
@@ -843,6 +846,54 @@ mod tests {
         assert!(!src.contains("pub mod class;"));
         assert!(src.contains("pub use free::*;"));
         assert!(!src.contains("pub use class::*;"));
+    }
+
+    fn make_function(name: &str, is_static: bool) -> FunctionIR {
+        FunctionIR {
+            name: name.to_string(),
+            rust_name: name.to_string(),
+            return_type: "int".to_string(),
+            rust_return_type: "i32".to_string(),
+            params: vec![],
+            qualified_name: name.to_string(),
+            cpp_signature: format!("int {}()", name),
+            is_const: false,
+            is_static,
+            is_virtual: false,
+            is_pure: false,
+            class_name: None,
+        }
+    }
+
+    #[test]
+    fn has_free_bindings_detects_free_functions() {
+        let decls = ExtractedDecls {
+            functions: vec![make_function("foo", false)],
+            classes: vec![],
+        };
+        assert!(has_free_bindings(&decls));
+    }
+
+    #[test]
+    fn has_free_bindings_detects_class_forward_decls_requirement() {
+        let decls = ExtractedDecls {
+            functions: vec![],
+            classes: vec![ClassIR {
+                name: "Widget".to_string(),
+                qualified_name: "Widget".to_string(),
+                methods: vec![make_function("update", false)],
+            }],
+        };
+        assert!(has_free_bindings(&decls));
+    }
+
+    #[test]
+    fn has_free_bindings_false_for_empty_decls() {
+        let decls = ExtractedDecls {
+            functions: vec![],
+            classes: vec![],
+        };
+        assert!(!has_free_bindings(&decls));
     }
 
     #[test]

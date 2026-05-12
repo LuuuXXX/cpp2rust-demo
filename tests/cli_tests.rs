@@ -364,7 +364,7 @@ fn init_class_generates_import_class_and_import_lib() {
 }
 
 #[test]
-fn init_free_only_group_exports_free_not_class() {
+fn init_free_only_group_conditional_exports() {
     let tmp = TempDir::new().unwrap();
     write_header(&tmp, "free_only.hpp", "int ping(int v);");
     let tu = write_translation_unit(&tmp, "free_only.cpp", "free_only.hpp");
@@ -399,7 +399,7 @@ fn init_free_only_group_exports_free_not_class() {
 }
 
 #[test]
-fn init_class_only_group_exports_class_not_free() {
+fn init_class_only_group_conditional_exports() {
     let tmp = TempDir::new().unwrap();
     write_header(
         &tmp,
