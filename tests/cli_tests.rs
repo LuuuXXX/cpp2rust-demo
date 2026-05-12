@@ -1973,3 +1973,65 @@ fn init_namespaced_global_variable_uses_qualified_name() {
         meta_src
     );
 }
+
+/// Global variables with camelCase C++ names should have their Rust accessor
+/// function name converted to snake_case, matching how free functions work.
+#[test]
+fn init_camel_case_global_variable_uses_snake_case_rust_name() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "camel_globals.hpp",
+        r#"
+        extern int maxRetryCount;
+        extern const double defaultTimeoutSecs;
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "camel_globals.cpp", "camel_globals.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_camel_globals/free/fn_camel_globals.rs"),
+    )
+    .unwrap();
+
+    // Rust accessor functions must use snake_case names.
+    assert!(
+        free_src.contains("fn max_retry_count()"),
+        "camelCase global should produce snake_case Rust fn name: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("fn default_timeout_secs()"),
+        "camelCase const global should produce snake_case Rust fn name: {}",
+        free_src
+    );
+
+    // C++ names in #[cpp(data)] should be the original C++ identifiers.
+    assert!(
+        free_src.contains("#[cpp(data = \"maxRetryCount\")]"),
+        "#[cpp(data)] should use original C++ name: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("#[cpp(data = \"defaultTimeoutSecs\")]"),
+        "#[cpp(data)] should use original C++ name: {}",
+        free_src
+    );
+}

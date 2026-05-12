@@ -189,6 +189,11 @@ pub struct CtorIR {
 pub struct GlobalVarIR {
     /// Bare C++ identifier.
     pub name: String,
+    /// Rust-idiomatic snake_case name for the accessor function.
+    ///
+    /// Derived from `name` via [`to_snake_case`], keeping consistency with
+    /// how `FunctionIR::rust_name` is produced for free functions.
+    pub rust_name: String,
     /// Fully namespace-qualified name, e.g. `"myns::g_counter"`.
     pub qualified_name: String,
     /// C++ type string as emitted by clang.
@@ -1326,10 +1331,12 @@ fn extract_global_var(
         format!("&'static mut {}", cpp_to_rust_type(&cpp_type))
     };
 
+    let rust_name = to_snake_case(&name);
     let qualified_name = make_qualified(namespace, &name);
 
     Some(GlobalVarIR {
         name,
+        rust_name,
         qualified_name,
         cpp_type,
         rust_type,

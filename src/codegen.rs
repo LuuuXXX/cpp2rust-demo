@@ -340,7 +340,7 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
                 b.rsplit("::").next().unwrap_or(b.as_str()).to_string()
             })
             .collect();
-        format!(": {} ", bare_bases.join(", "))
+        format!(": {}", bare_bases.join(", "))
     };
 
     writeln!(out, "hicc::import_class! {{").unwrap();
@@ -351,9 +351,9 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
         writeln!(out, "    #[interface]").unwrap();
         writeln!(out, "    class {}{} {{", class.name, bases_suffix).unwrap();
     } else {
-        // Choose the primary constructor for the `ctor = "..."` attribute.
-        // We pick the simplest one: fewest parameters.
-        let primary_ctor = class.ctors.iter().min_by_key(|c| c.params.len());
+        // ctors are sorted ascending by param count in ast.rs, so ctors[0] is
+        // always the simplest (fewest parameters) constructor.
+        let primary_ctor = class.ctors.first();
         if let Some(ctor) = primary_ctor {
             writeln!(
                 out,
@@ -560,7 +560,7 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         writeln!(out, "    // Global variable bindings.").unwrap();
         for gv in &decls.globals {
             writeln!(out, "    #[cpp(data = \"{}\")]", gv.qualified_name).unwrap();
-            writeln!(out, "    fn {}() -> {};", gv.name, gv.rust_type).unwrap();
+            writeln!(out, "    fn {}() -> {};", gv.rust_name, gv.rust_type).unwrap();
             writeln!(out).unwrap();
         }
     }
