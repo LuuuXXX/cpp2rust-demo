@@ -77,8 +77,54 @@
 
 ---
 
+## 不支持特性说明
+
+以下特性当前不被提取，工具会在 `meta/init-interface-report.md` 中记录跳过原因。
+
+### ❌ hicc 限制（HiccLimitation）
+
+以下特性是 **hicc 本身的能力边界**，无法通过调整 cpp2rust-demo 来绕过；需要手写 C++ shim：
+
+| C++ 特性 | 跳过原因 | 建议方案 |
+|---------|---------|---------|
+| 析构函数 | hicc 不支持显式析构绑定语法 | 由 C++ RAII / 对象生命周期管理；无需 Rust 侧显式析构 |
+| 运算符重载 | hicc 不支持运算符名称作为绑定符号（`hicc_limitation`）；工具自动生成 `operator_shims.hpp` starter | 补全 `operator_shims.hpp` + 在 `hicc::cpp!` 中引入（见 `rapidjson-07-operator-shim`） |
+| `std::string` 参数/返回 | hicc 无 `std::string` ABI 支持 | 手写 C++ shim，将结果转为 `const char*` 或通过输出参数传出 |
+| `std::function` / lambda 参数 | 无法映射到 Rust 闭包 | 封装为虚函数接口 + `@make_proxy` 反向绑定（见 `rapidjson-04-abstract-interface`） |
+| Variadic 函数（`...`） | hicc 不支持可变参数 | 手写固定参数 C++ 包装函数 |
+| `auto`/`decltype` 返回类型 | 无法在 hicc 签名中表达 | 手写包装函数，显式写出返回类型 |
+| 函数指针参数 | Rust 函数指针 ABI 与 C++ 不兼容 | 封装为接口类 + `@make_proxy` |
+| 右值引用参数（`T&&`，非 move ctor） | hicc 不支持 `&&` 语义 | 手写接受 `const T&` 的 shim |
+| 方法模板（类内函数模板） | 无法生成通用 Rust 泛型方法 | 针对具体实例化写独立 shim 函数 |
+| 友元函数 | `FriendDecl` AST 提取不可靠 | 以普通自由函数形式重写 shim |
+
+### ⚠️ 工具条件限制（ToolConservative）
+
+以下特性在**满足特定条件**后可自动解锁；不满足时跳过并标记 `tool_conservative`：
+
+| C++ 特性 | 默认状态 | 解锁方式 |
+|---------|---------|---------|
+| 模板类（无 typedef/using 别名） | 跳过 | 在 entry.cpp 添加 `typedef`/`using` 别名，触发 AliasRegistry 注册 |
+| `std::` 容器参数（无别名） | 跳过 | 为容器类型添加 `using` 别名 |
+| 函数模板（无显式特化） | 跳过 | 在 AST 中提供 concrete specialization 可见 |
+
+### ⛔ 工具层面限制（ToolLimit，可改进）
+
+以下特性是 **cpp2rust-demo 当前实现的技术限制**（与 hicc 无关），原则上可以在工具侧解决，详见 `docs/future-plan.md`：
+
+| C++ 特性 | 当前行为 | 计划改进 |
+|---------|---------|---------|
+| 多重继承（`class C: public A, public B`） | 只处理首个 public 基类 `A`，`B` 被忽略 | `future-plan.md §2` |
+| 链式类型别名（`using B = A; using A = Foo<T>;`） | AliasRegistry 不追踪两层别名，`B` 无法解锁模板 | `future-plan.md §3` |
+| Virtual 继承（菱形继承） | Virtual 基类被跳过，链路不完整 | `future-plan.md §4` |
+
+---
+
 ## 相关文档
 
 - [docs/design.md](../docs/design.md) — 架构设计、v1 能力边界、完整能力矩阵、AliasRegistry 指南
-- [docs/hicc-usage.md](../docs/hicc-usage.md) — hicc 语法参考、模板密集型库配置建议
+- [docs/cpp-features.md](../docs/cpp-features.md) — 完整 C++ 特性支持状态表
+- [docs/future-plan.md](../docs/future-plan.md) — 可落地的工具改进计划
+- [docs/rapidjson-support.md](../docs/rapidjson-support.md) — RapidJSON 完整验证文档
+- [docs/hicc-usage.md](../docs/hicc-usage.md) — hicc 语法参考
 - [docs/clang-ast.md](../docs/clang-ast.md) — Clang AST JSON 格式参考
