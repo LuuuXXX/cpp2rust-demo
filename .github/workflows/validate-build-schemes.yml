@@ -64,7 +64,7 @@ jobs:
       - name: Clone test project
         run: git clone --depth=1 "${{ matrix.repo_url }}" "${{ matrix.repo_dir }}"
 
-      - name: Prepare translation unit and build files
+      - name: Prepare translation unit
         working-directory: ${{ matrix.repo_dir }}
         run: |
           cat > "${{ matrix.source_file }}" <<'CPP'
@@ -72,24 +72,30 @@ jobs:
           int main() { return 0; }
           CPP
 
-          if [ "${{ matrix.build_system }}" = "cmake" ]; then
-            cat > CMakeLists.txt <<'CMAKE'
-            cmake_minimum_required(VERSION 3.10)
-            project(cpp2rust_validate LANGUAGES CXX)
-            add_executable(cpp2rust_entry ${{ matrix.source_file }})
-            target_include_directories(cpp2rust_entry PRIVATE include)
-            target_compile_features(cpp2rust_entry PRIVATE cxx_std_11)
-            CMAKE
-          else
-            cat > Makefile <<'MAKE'
-            CXX ?= clang++
-            CXXFLAGS ?= -std=c++17 -Iinclude
-            all: cpp2rust_entry
+      - name: Prepare CMake build files
+        if: matrix.build_system == 'cmake'
+        working-directory: ${{ matrix.repo_dir }}
+        run: |
+          cat > CMakeLists.txt <<'CMAKE'
+          cmake_minimum_required(VERSION 3.10)
+          project(cpp2rust_validate LANGUAGES CXX)
+          add_executable(cpp2rust_entry ${{ matrix.source_file }})
+          target_include_directories(cpp2rust_entry PRIVATE include)
+          target_compile_features(cpp2rust_entry PRIVATE cxx_std_11)
+          CMAKE
 
-            cpp2rust_entry: ${{ matrix.source_file }}
-            	$(CXX) $(CXXFLAGS) -fsyntax-only ${{ matrix.source_file }}
-            MAKE
-          fi
+      - name: Prepare Make build files
+        if: matrix.build_system == 'make'
+        working-directory: ${{ matrix.repo_dir }}
+        run: |
+          cat > Makefile <<'MAKE'
+          CXX ?= clang++
+          CXXFLAGS ?= -std=c++17 -Iinclude
+          all: cpp2rust_entry
+
+          cpp2rust_entry: ${{ matrix.source_file }}
+          	$(CXX) $(CXXFLAGS) -fsyntax-only ${{ matrix.source_file }}
+          MAKE
 
       - name: Run cpp2rust-demo init
         working-directory: ${{ matrix.repo_dir }}
