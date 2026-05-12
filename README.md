@@ -1,50 +1,79 @@
 # cpp2rust-demo
 
-`cpp2rust-demo` 是一个面向 C++ 项目的命令行工具，使用 `LD_PRELOAD` 捕获真实编译过程中的 **C++ 编译单元（translation units）**，生成 `.cpp2rust` 预处理中间件，并基于 `hicc` 生成 Rust FFI 脚手架。
+`cpp2rust-demo` 是一个 **从真实 C++ 构建过程提取接口并生成 Rust FFI 项目** 的命令行工具。  
+核心目标是：尽量复用现有 C++ 工程的构建命令，通过 `LD_PRELOAD` 捕获编译单元，自动生成可由 `hicc` 使用的 Rust 侧绑定脚手架。
 
-## 核心流程（init）
+## 项目介绍（它解决什么问题）
+
+传统 C++ -> Rust 绑定常见痛点是手工维护头文件列表、手写大量 FFI 声明。  
+本项目通过两步流程减少手工工作：
+
+1. `init`：执行真实构建命令并捕获 `.cpp2rust` 中间件，再生成分组的 Rust 绑定模块。
+2. `merge`：把分组模块整合为更易消费的 `merged_ffi.rs`。
+
+> 自动捕获对象是 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`），头文件内容通过预处理展开进入中间件。
+
+## 仓库目录说明（基于当前源码）
 
 ```text
-C++ 项目目录
-   │
-   ├─ cpp2rust-demo init --link <libname> -- <构建命令>
-   │    ├─ 编译 hook/libhook.so
-   │    ├─ 通过 LD_PRELOAD 注入构建过程，仅捕获 C++ 编译单元并生成 `.cpp2rust` 中间件（例如 `a.cpp -> a.cpp.cpp2rust`）
-   │    ├─ 扫描 .cpp2rust/<feature>/cpp/**/*.cpp2rust
-   │    ├─ 交互式选择参与转换的中间件文件（非交互环境自动全选）
-   │    ├─ 对每个选中文件执行 clang -ast-dump=json
-   │    ├─ 识别 hicc 所需信息（函数名、参数类型、类/命名空间等）
-   │    └─ 生成 hicc Rust 项目与 init-interface-report.md
-   │
-   └─ cpp2rust-demo merge [--feature <name>]
-         ├─ 按 mod_<group> 汇总 include/types/free/class/method/global（global 当前为可选目录）
-        ├─ 产出 rust/src.2/mod_<group>.rs + rust/src.2/lib.rs + rust/src.2/merged_ffi.rs
-        └─ 切换 rust/src 为指向 src.2 的符号链接（rust/src.1 备份 init 原始输出）
+.
+├── src/
+│   ├── main.rs       # CLI 定义与 init/merge 主流程
+│   ├── capture.rs    # 构建 hook 并通过 LD_PRELOAD 执行真实构建命令
+│   ├── layout.rs     # .cpp2rust/<feature> 目录布局与元数据读写
+│   ├── ast.rs        # clang AST JSON 解析与声明抽取
+│   ├── codegen.rs    # 生成 hicc 所需 Rust 代码（include/free/class/method/types/common）
+│   ├── merge.rs      # 将 rust/src/mod_<group> 合并到 rust/src.2
+│   └── selector.rs   # 交互式/非交互式中间件选择
+├── hook/
+│   ├── hook.c        # 编译拦截逻辑（识别编译器调用并输出 *2rust 中间件）
+│   └── Makefile      # 生成 libhook.so
+├── tests/
+│   └── cli_tests.rs  # 端到端与生成结果校验
+├── examples/
+│   ├── simple/       # 自由函数示例
+│   └── class/        # 类与方法示例
+├── docs/
+│   ├── design.md     # 设计与语义边界说明
+│   ├── clang-ast.md  # AST 提取说明
+│   └── hicc-usage.md # hicc 生成约定
+└── scripts/
+    └── validate-rapidjson.sh # CI 对应本地复现实验脚本
 ```
 
-## 环境要求
+## 构建方式
+
+### 依赖条件
 
 - Linux（依赖 `LD_PRELOAD`）
-- Rust/Cargo
-- `gcc`/`g++`/`clang`/`clang++`
-- `make`（用于构建 `hook/libhook.so`）
+- Rust/Cargo（`Cargo.toml` 声明 `rust-version = 1.82`）
+- `make` + `gcc`（用于构建 `hook/libhook.so`）
+- `clang` 或兼容 clang 的工具链（用于 AST dump；`init --clang` 可指定）
 
-## 构建与测试
+### 构建与测试命令
 
 ```bash
 cargo build
 cargo test
 ```
 
-## 使用方式
+## 运行方式
 
-### 1) init
+### 1) 生成分组绑定（`init`）
 
 ```bash
 cpp2rust-demo init --link mylib -- make -j4
 ```
 
-也可直接用单个翻译单元触发完整流程（推荐用于 header-only 库）：
+常用参数（以 `cpp2rust-demo init --help` 为准）：
+
+- `--feature <name>`：输出目录分组名，默认 `default`
+- `--link <libname>`：写入 `hicc::import_lib!` 的 `link_name`
+- `--clang <bin>`：指定 clang 可执行文件（默认 `clang`，也可用 `CPP2RUST_CLANG` 环境变量）
+- `--extra-clang-args "<args>"`：附加 AST 阶段 clang 参数（例如 `-std=c++17 -Iinclude`）
+- `-- <BUILD_CMD...>`：真实构建命令（必填）
+
+也可用单个翻译单元触发流程（如 header-only 库）：
 
 ```bash
 cat > entry.cpp <<'CPP'
@@ -53,21 +82,14 @@ CPP
 cpp2rust-demo init --link mylib -- clang++ -x c++ -std=c++17 -fsyntax-only -Iinclude entry.cpp
 ```
 
-说明：
-
-- `--feature` 默认为 `default`
-- `--` 后为真实构建命令，工具不再要求用户单独手工输入头文件列表
-- 自动捕获仅面向 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`），不会直接捕获 `.h/.hpp/.hh/.hxx`
-- 头文件信息通过编译单元预处理展开进入 `*.cpp2rust`，后续 AST/`hicc` 提取均基于这些预处理中间件
-
-### 2) merge
+### 2) 合并输出（`merge`）
 
 ```bash
 cpp2rust-demo merge
 cpp2rust-demo merge --feature myfeature
 ```
 
-## 输出目录
+## 产物目录说明
 
 `init` 后：
 
@@ -94,8 +116,8 @@ cpp2rust-demo merge --feature myfeature
             ├── include/mod.rs
             ├── types/mod.rs
             ├── free/mod.rs + fn_*.rs
-            ├── class/mod.rs + cls_*.rs（类级语义结构/元信息）
-            ├── method/mod.rs + mtd_*.rs (有实例方法时)
+            ├── class/mod.rs + cls_*.rs
+            ├── method/mod.rs + mtd_*.rs
             └── meta.json
 ```
 
@@ -113,30 +135,27 @@ cpp2rust-demo merge --feature myfeature
         └── merged_ffi.rs
 ```
 
-## hicc 集成约定
+## C 与 Rust 代码关系（如何协作）
 
-- 生成代码统一使用 `hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!`
-- `build.rs` 使用 `hicc_build::Build` 作为唯一 Rust 侧框架搭建方式
-- `build.rs` 始终引用 `src/...`（活跃视图）；merge 后通过 `src -> src.2` symlink 指向最新产物
-- include 路径来自选中的 `*.cpp2rust` 文件所在目录
-- 第一版语义分类以 middleware 路径分组：`src/foo/bar.cpp.cpp2rust -> mod_src_foo_bar`
-- 当前能力边界（v1）：
-  - `include/`：`hicc::cpp!` include 上下文
-  - `free/`：自由函数 + 静态方法（`hicc::import_lib!`）
-  - `method/`：实例方法绑定（当前唯一承接 `hicc::import_class!` 的目录）
-  - `class/`：类级语义结构层（类名、方法计数、类-方法归属关系 + 访问函数），不是方法绑定层
-  - `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），参与 merge 产物组织
-  - `common/*`：共享语义层（共享 include/type 语义索引 + 查询函数），会进入全局 merged 输出
-  - `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围
+- C/C++ 侧输入：真实编译命令中的 C++ 编译单元。`hook/hook.c` 在构建时拦截编译器调用并生成中间件。
+- 中间表示：`*.cpp2rust` + clang AST JSON（`ast.rs` 解析）。
+- Rust 侧输出：`codegen.rs` 生成 `hicc::cpp!`、`hicc::import_lib!`、`hicc::import_class!` 及语义清单模块。
+- 合并阶段：`merge.rs` 将 `mod_<group>` 的 include/types/free/class/method 与 common 语义整合为 `merged_ffi.rs`。
 
-- merge 语义（当前）：
-  - `include/`、`method/`、`free/`、`types/`、`class/` 会参与 `src.2/*` 产物拼装
-  - `method/` 负责输出 `import_class!` 绑定块，`free/` 负责输出 `import_lib!` 绑定块
-  - `class/` 参与 merged 输出中的类级语义块；`common/*` 参与全局 merged 输出中的共享语义块
+当前语义边界（v1）：
 
-## CI 与脚本
+- `include/`：`hicc::cpp!` include 上下文
+- `free/`：自由函数与静态方法（`import_lib!`）
+- `method/`：实例方法绑定（`import_class!`）
+- `class/`：类级语义结构（类名、关系、计数等）
+- `types/`：类型清单、C++->Rust 映射与查询函数
+- `common/*`：跨 group 的共享 include/type 语义
 
-- CI: `.github/workflows/validate-rapidjson.yml`
-- 本地复现脚本: `scripts/validate-rapidjson.sh`
+## 相关文档与示例
 
-二者均覆盖新的“编译→捕获→中间件→选择→转换→hicc 项目生成”流程。
+- 设计说明：`docs/design.md`
+- AST 处理：`docs/clang-ast.md`
+- hicc 用法：`docs/hicc-usage.md`
+- 示例：
+  - `examples/simple/README.md`
+  - `examples/class/README.md`

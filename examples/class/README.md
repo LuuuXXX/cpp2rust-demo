@@ -1,36 +1,33 @@
-# Class Example – C++ Class with Methods
+# 类示例：包含成员方法的 C++ 类
 
-This example demonstrates generating Rust FFI for a C++ class by compiling a
-translation unit and extracting APIs from the captured preprocessed middleware.
+该示例演示如何从 C++ 类声明/实现生成 Rust FFI，并观察实例方法与静态方法的分层输出。
 
-## Source
+## 源码文件
 
-- `widget.hpp` – C++ class declaration
-- `widget.cpp` – implementation
+- `widget.hpp`：类声明
+- `widget.cpp`：类实现
 
-## Running the Example
+## 运行步骤
 
-From the repository root:
+在仓库根目录执行：
 
 ```bash
-# Step 1: generate FFI (use a separate feature to avoid mixing with other examples)
+# 第 1 步：生成分组 FFI（用独立 feature，避免和其他示例混合）
 cpp2rust-demo init --feature widget --link widget -- clang -x c++ -fsyntax-only examples/class/widget.cpp
 
-# Step 2: consolidate
+# 第 2 步：合并
 cpp2rust-demo merge --feature widget
 
-# Step 3: review
+# 第 3 步：查看结果
 cat .cpp2rust/widget/rust/src/merged_ffi.rs
 ```
 
-> **Note**: In an interactive terminal, step 1 will prompt you to select which
-> captured middleware files to include. Press `Space` to toggle, `Enter` to confirm.
-> In non-interactive environments (CI, pipes) all files are selected automatically.
+> 说明：交互终端下，`init` 会提示选择要纳入转换的中间件文件（`Space` 勾选，`Enter` 确认）；非交互环境会自动全选。
 
-## Expected Generated FFI
+## 预期生成结果
 
 ```rust
-// Instance methods go into import_class!
+// 实例方法进入 import_class!
 hicc::import_class! {
     #[cpp(class = "Widget")]
     class Widget {
@@ -45,7 +42,7 @@ hicc::import_class! {
     }
 }
 
-// Static methods and forward declarations go into import_lib!
+// 静态方法与前置声明进入 import_lib!
 hicc::import_lib! {
     #![link_name = "widget"]
 
@@ -56,22 +53,22 @@ hicc::import_lib! {
 }
 ```
 
-## How hicc Handles Classes
+## hicc 中类相关绑定的映射方式
 
-- Instance methods → `import_class!` with `#[cpp(method = "...")]`
-- Static methods → `import_lib!` with `#[cpp(func = "...")]`  
-- The class is forward-declared in `import_lib!` with `class Widget;`
+- 实例方法：`import_class!` + `#[cpp(method = "...")]`
+- 静态方法：`import_lib!` + `#[cpp(func = "...")]`
+- 类前置声明：`import_lib!` 中的 `class Widget;`
 
-## Current Limitations
+## 当前限制
 
-| Feature | Status |
+| 能力项 | 状态 |
 |---------|--------|
-| Public instance methods | ✅ Supported |
-| `const` methods | ✅ Supported (→ `&self`) |
-| `static` methods | ✅ Supported (→ free fn in `import_lib!`) |
-| Constructors / destructors | ⚠️ Skipped – use factory functions |
-| Private / protected members | ✅ Automatically skipped |
-| Virtual / pure-virtual methods | ⚠️ Skipped for now; add manually |
-| Inheritance | ❌ Not yet supported |
-| Templates | ❌ Not yet supported |
-| Operator overloads | ❌ Not yet supported (hicc limitation) |
+| public 实例方法 | ✅ 已支持 |
+| `const` 方法 | ✅ 已支持（映射为 `&self`） |
+| `static` 方法 | ✅ 已支持（映射到 `import_lib!`） |
+| 构造/析构函数 | ⚠️ 当前跳过，建议用工厂函数 |
+| private/protected 成员 | ✅ 自动跳过 |
+| virtual / pure-virtual 方法 | ⚠️ 当前跳过，可手工补充 |
+| 继承 | ❌ 暂不支持 |
+| 模板 | ❌ 暂不支持 |
+| 运算符重载 | ❌ 暂不支持（受 hicc 能力限制） |
