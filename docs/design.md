@@ -15,7 +15,7 @@
 5. 扫描 `.cpp2rust/<feature>/cpp/**/*.cpp2rust`
 6. 交互式选择参与转换的中间件文件（非交互自动全选）
 7. 对选中文件执行 `clang -ast-dump=json`
-8. 抽取函数/类/方法与类型信息，生成按 `mod_<group>` 组织的语义模块（include/types/free/class/method/global）
+8. 抽取函数/类/方法与类型信息，生成按 `mod_<group>` 组织的语义模块（include/types/free/class/method）
 9. 生成 `Cargo.toml` / `build.rs` / `src/lib.rs` 与接口报告
 
 说明：
@@ -88,10 +88,10 @@
 |------|---------|
 | 非纯 virtual 方法（有实现）| 直接提取为 `#[cpp(method = "...")]`，hicc 通过 vtable 透明调用 |
 | 全纯虚类（所有公有方法均为 `= 0`）| 提取为 `hicc::import_class!` 中的 `#[interface]` trait |
-| 混合类（有普通方法 + 纯虚方法）| 普通方法正常提取；纯虚方法记录为 skipped（保守处理）|
+| 混合类（有普通方法 + 纯虚方法）| 普通方法正常提取；纯虚方法提取为 companion `#[interface]` trait，混合类自动继承该接口 |
 | operator 重载 | 跳过，但接口报告新增「Operator Overload Shim Hints」指导手写 C++ shim |
 
-抽取阶段仍会跳过并报告：constructor、destructor、operator overload、template declarations、部分 unsupported_type、混合类中的纯虚方法。
+抽取阶段会跳过并报告：constructor、destructor、operator overload、无法解锁的 template declarations、部分 unsupported_type。
 
 merge 语义边界（当前）：
 - 参与 merged 输出的目录：`include/`、`types/`、`method/`、`free/`、`class/`。

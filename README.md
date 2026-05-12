@@ -164,7 +164,7 @@ cpp2rust-demo merge --feature myfeature
 
 - constructor / destructor
 - operator overload
-- 无别名的 template 声明
+- 模板声明：类模板需 `typedef`/`using` 别名才可提取；函数模板需有 concrete specialization
 
 虚函数处理：
 
