@@ -842,8 +842,8 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     // Global variables section
     if !decls.globals.is_empty() {
         writeln!(out, "## Global Variables\n").unwrap();
-        writeln!(out, "| C++ name | Rust fn name | Qualified name | C++ type | Rust type | Const |").unwrap();
-        writeln!(out, "|----------|--------------|----------------|----------|-----------|-------|").unwrap();
+        writeln!(out, "| C++ name | Rust fn name | Qualified name | C++ type | Rust type | Const | Owner |").unwrap();
+        writeln!(out, "|----------|--------------|----------------|----------|-----------|-------|-------|").unwrap();
         for gv in &decls.globals {
             let owner = gv.class_name.as_deref().unwrap_or("(global)");
             writeln!(
