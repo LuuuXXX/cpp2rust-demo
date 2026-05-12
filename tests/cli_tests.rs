@@ -178,7 +178,10 @@ fn init_build_cmd_via_sh_c() {
     let ffi = tmp
         .path()
         .join(".cpp2rust/default/rust/src/mod_quoted/free/fn_quoted.rs");
-    assert!(ffi.exists(), "ffi_quoted.rs should exist");
+    assert!(
+        ffi.exists(),
+        "mod_quoted/free/fn_quoted.rs should exist"
+    );
     let ffi_content = std::fs::read_to_string(&ffi).unwrap();
     assert!(
         ffi_content.contains("fn quoted_add(a: i32, b: i32) -> i32"),

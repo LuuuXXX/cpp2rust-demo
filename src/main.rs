@@ -587,17 +587,20 @@ fn link_src_to_src2(rust_dir: &Path) -> Result<()> {
         std::fs::remove_file(&src).map_err(|e| anyhow!("remove {}: {}", src.display(), e))?;
     } else {
         let _ = std::fs::remove_dir_all(&src1);
-        std::fs::rename(&src, &src1).map_err(|e| anyhow!("rename {} -> {}: {}", src.display(), src1.display(), e))?;
+        std::fs::rename(&src, &src1)
+            .map_err(|e| anyhow!("rename {} to {}: {}", src.display(), src1.display(), e))?;
     }
 
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(&src2, &src)
-            .map_err(|e| anyhow!("symlink {} -> {}: {}", src.display(), src2.display(), e))?;
+            .map_err(|e| anyhow!("symlink {} to {}: {}", src.display(), src2.display(), e))?;
     }
     #[cfg(not(unix))]
     {
-        return Err(anyhow!("src -> src.2 symlink is only supported on unix"));
+        return Err(anyhow!(
+            "symlink from rust/src to rust/src.2 is only supported on Unix systems"
+        ));
     }
     Ok(())
 }

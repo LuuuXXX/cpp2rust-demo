@@ -13,6 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+const TYPES_PLACEHOLDER_COMMENT: &str = "// Type helpers";
+
 #[derive(Debug)]
 pub struct MergeOutput {
     pub merged_path: PathBuf,
@@ -118,7 +120,7 @@ fn merge_group_module(group_dir: &Path, output_file: &Path, link_name: &str) -> 
             && file.file_name().and_then(|n| n.to_str()) == Some("mod.rs")
         {
             let trimmed = src.trim();
-            if !trimmed.is_empty() && !trimmed.starts_with("// Type helpers") {
+            if !trimmed.is_empty() && !trimmed.starts_with(TYPES_PLACEHOLDER_COMMENT) {
                 fragments.type_blocks.insert(trimmed.to_string());
             }
         }
