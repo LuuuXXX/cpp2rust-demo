@@ -229,16 +229,16 @@ pub enum SkipCategory {
 }
 
 // ---------------------------------------------------------------------------
-// Alias registry (主线二)
+// Alias registry
 // ---------------------------------------------------------------------------
 
 /// Registry of C++ `typedef`/`using` aliases built during the first AST pass.
 ///
 /// Used to:
 /// - Allow template-specialisation types through the type gate when they have
-///   a user-defined alias (主线二 + 主线五).
+///   a user-defined alias.
 /// - Determine the canonical Rust struct name for extracted template
-///   specialisations (主线一).
+///   specialisations.
 #[derive(Debug, Default)]
 pub struct AliasRegistry {
     /// Bare template name → first matching alias name.
@@ -336,7 +336,7 @@ fn collect_alias_nodes(node: &AstNode, namespace: &[String], reg: &mut AliasRegi
 }
 
 // ---------------------------------------------------------------------------
-// Operator shim IR (主线四)
+// Operator shim IR
 // ---------------------------------------------------------------------------
 
 /// A C++ operator overload that was skipped during extraction.
@@ -439,7 +439,7 @@ pub struct GlobalVarIR {
 }
 
 // ---------------------------------------------------------------------------
-// Enum IR (新增特性一: C++ enum / enum class extraction)
+// Enum IR
 // ---------------------------------------------------------------------------
 
 /// A single enumerator constant from a C++ `enum` or `enum class`.
@@ -470,7 +470,7 @@ pub struct EnumIR {
 }
 
 // ---------------------------------------------------------------------------
-// Alias IR (新增特性二: simple typedef / using alias extraction)
+// Alias IR
 // ---------------------------------------------------------------------------
 
 /// A simple C++ `typedef` or `using` alias whose underlying type is a
@@ -558,9 +558,9 @@ pub struct ExtractedDecls {
     pub functions: Vec<FunctionIR>,
     pub classes: Vec<ClassIR>,
     pub globals: Vec<GlobalVarIR>,
-    /// C++ `enum` / `enum class` declarations (新增特性一).
+    /// C++ `enum` / `enum class` declarations.
     pub enums: Vec<EnumIR>,
-    /// Simple `typedef` / `using` aliases for supported types (新增特性二).
+    /// Simple `typedef` / `using` aliases for supported types.
     pub aliases: Vec<AliasIR>,
     pub skipped: Vec<SkippedDecl>,
     /// Operator overloads that were skipped.
@@ -634,7 +634,7 @@ pub fn extract_declarations_with_strategy(
     // `geo::Vec2 &` in the generated C++ signature so hicc-build can resolve it).
     let class_name_map = collect_class_name_map(ast_root);
 
-    // Second pass (主线二): collect typedef/using aliases for template types.
+    // Second pass: collect typedef/using aliases for template types.
     // This lets us extract `ClassTemplateSpecializationDecl` nodes that have a
     // user-facing alias (e.g. `Document = GenericDocument<UTF8<char>, …>`).
     let alias_registry = AliasRegistry::collect_from_ast(ast_root);
@@ -922,7 +922,7 @@ fn walk_node(
             }
         }
 
-        // 主线一: Template specialisation extraction.
+        // Template specialisation extraction.
         //
         // `ClassTemplateDecl` wraps a generic template.  We descend into it
         // looking for `ClassTemplateSpecializationDecl` children (concrete
@@ -995,7 +995,7 @@ fn walk_node(
             }
         }
 
-        // 新增特性四: FunctionTemplateDecl — try to extract any concrete
+        // `FunctionTemplateDecl` — try to extract any concrete
         // (`FunctionDecl`) specialisations nested inside the template wrapper.
         // A concrete child has a `qualType` that does not mention
         // `"type-parameter-"` or `"dependent"`, meaning all template
@@ -1059,7 +1059,7 @@ fn walk_node(
             }
         }
 
-        // 新增特性一: C++ enum / enum class extraction.
+        // C++ enum / enum class extraction.
         "EnumDecl" => {
             if !is_target(current_file, targets) {
                 return;
@@ -1069,7 +1069,7 @@ fn walk_node(
             }
         }
 
-        // 新增特性二: simple typedef / using aliases for supported types.
+        // Simple typedef / using aliases for supported types.
         "TypedefDecl" | "TypeAliasDecl" => {
             if !is_target(current_file, targets) {
                 return;
@@ -1148,7 +1148,7 @@ fn try_extract_template_spec(
 ) -> Option<ClassIR> {
     let template_name = node.name.as_deref()?;
 
-    // Only extract specialisations that have a typedef alias (主线一+二).
+    // Only extract specialisations that have a typedef alias.
     let alias = alias_registry.alias_for_template(template_name)?;
 
     // Determine the full C++ type to use in `#[cpp(class = "…")]`.
@@ -1325,7 +1325,7 @@ fn extract_class_body(
                     class_ir.methods.push(ir);
                 }
             }
-            // 新增特性三: static data members.
+            // Static data members.
             "VarDecl" => {
                 if child.storage_class.as_deref() == Some("static") {
                     if let Some(gv) = extract_static_member(
@@ -1339,7 +1339,7 @@ fn extract_class_body(
                     }
                 }
             }
-            // 新增特性五: nested class / struct definitions.
+            // Nested class / struct definitions.
             "CXXRecordDecl" => {
                 if child.complete_definition.unwrap_or(false) {
                     if let Some(nested_name) = child.name.as_deref().filter(|n| !n.is_empty()) {
@@ -1373,7 +1373,7 @@ fn extract_class_body(
         }
     }
 
-    // Decide how to handle pure-virtual methods (主线三).
+    // Decide how to handle pure-virtual methods.
     //
     // - Fully abstract (no concrete methods): emit #[interface] with all PVMs.
     // - Mixed (concrete + pure-virtual): put PVMs in `pure_virtual_methods`
@@ -1412,7 +1412,7 @@ fn extract_class_body(
         }
         class_ir.is_abstract = true;
     } else if has_concrete && has_pvm {
-        // Mixed class → companion interface (主线三).
+        // Mixed class: extract pure-virtual methods into a companion interface.
         for pvm in &pure_virtual_nodes {
             if is_operator_name(pvm.name.as_deref()) {
                 collect_operator_shim(pvm, namespace, Some(class_name), Some(qualified_name), result);
@@ -2050,7 +2050,7 @@ fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, al
 
     let base = strip_top_level_const(t);
 
-    // 主线五: Allow template types whose bare name has a typedef alias.
+    // Allow template types whose bare name has a typedef alias.
     if base.contains('<') {
         let bare_template = bare_template_name(base);
         if alias_registry.has_template_alias(bare_template) {

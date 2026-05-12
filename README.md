@@ -144,35 +144,33 @@ cpp2rust-demo merge --feature myfeature
         └── merged_ffi.rs
 ```
 
-## C 与 Rust 代码关系（如何协作）
+## C++ 与 Rust 代码关系
 
-- C/C++ 侧输入：真实编译命令中的 C++ 编译单元。`hook/hook.c` 在构建时拦截编译器调用并生成中间件。
-- 中间表示：`*.cpp2rust` + clang AST JSON（`ast.rs` 解析）。
-- Rust 侧输出：`codegen.rs` 生成 `hicc::cpp!`、`hicc::import_lib!`、`hicc::import_class!` 及语义清单模块。
-- 合并阶段：`merge.rs` 将 `mod_<group>` 的 include/types/free/class/method 与 common 语义整合为 `merged_ffi.rs`。
+- **C++ 侧输入**：`hook/hook.c` 拦截编译器调用，生成 `*.cpp2rust` 中间件。
+- **中间表示**：`*.cpp2rust` + clang AST JSON（`ast.rs` 解析）。
+- **Rust 侧输出**：`codegen.rs` 生成 `hicc::cpp!`、`hicc::import_lib!`、`hicc::import_class!` 及语义清单模块。
+- **合并阶段**：`merge.rs` 将 `mod_<group>` 的 include/types/free/class/method 与 common 整合为 `merged_ffi.rs`。
 
-当前语义边界（v1）：
+语义边界（v1）：
 
 - `include/`：`hicc::cpp!` include 上下文
 - `free/`：自由函数与静态方法（`import_lib!`）
 - `method/`：实例方法绑定（`import_class!`）
 - `class/`：类级语义结构（类名、关系、计数等）
-- `types/`：类型清单、C++->Rust 映射与查询函数
-- `common/*`：跨 group 的共享 include/type 语义
+- `types/`：类型清单、C++→Rust 映射与查询函数
+- `common/*`：跨 group 共享 include/type 语义
 
-当前会显式跳过并在 `init-interface-report.md` 记录：
+跳过规则（记录在 `init-interface-report.md`）：
 
 - constructor / destructor
 - operator overload
-- template 声明（如 `ClassTemplateDecl` / `FunctionTemplateDecl` / `ClassTemplateSpecializationDecl`）
+- 模板声明：类模板需 `typedef`/`using` 别名才可提取；函数模板需有 concrete specialization
 
-虚函数与抽象类的处理规则：
+虚函数处理：
 
-- **非纯 virtual 方法**：直接提取为 `#[cpp(method = "...")]`，hicc 通过 vtable 透明调用
-- **全纯虚类**（所有公有方法均为 `= 0`）：提取为 `import_class!` 中的 `#[interface]` trait
-- **混合类**（含普通方法 + 纯虚方法）：普通方法正常提取；纯虚方法记录为 skipped（保守处理）
-
-对 RapidJSON 这类模板、重载、operator、allocator/lifetime 密集的库，建议通过 C++ shim 暴露稳定 C ABI 或简化后的 C++ ABI，再由本工具生成 Rust 侧脚手架。
+- **非纯 virtual 方法**：直接提取为 `#[cpp(method = "...")]`
+- **全纯虚类**：提取为 `#[interface]` trait
+- **混合类**（含普通方法 + 纯虚方法）：普通方法正常提取；纯虚方法生成 companion interface
 
 ## 相关文档与示例
 
