@@ -17,7 +17,7 @@ C++ 项目目录
    │    └─ 生成 hicc Rust 项目与 init-interface-report.md
    │
    └─ cpp2rust-demo merge [--feature <name>]
-        ├─ 按 mod_<group> 汇总 include/types/free/class/method/global
+         ├─ 按 mod_<group> 汇总 include/types/free/class/method/global（v1 以 include/class/free 为主）
         ├─ 产出 rust/src.2/mod_<group>.rs + rust/src.2/lib.rs + rust/src.2/merged_ffi.rs
         └─ 切换 rust/src 为指向 src.2 的符号链接（rust/src.1 备份 init 原始输出）
 ```
@@ -118,9 +118,13 @@ cpp2rust-demo merge --feature myfeature
 
 - 生成代码统一使用 `hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!`
 - `build.rs` 使用 `hicc_build::Build` 作为唯一 Rust 侧框架搭建方式
+- `build.rs` 始终引用 `src/...`（活跃视图）；merge 后通过 `src -> src.2` symlink 指向最新产物
 - include 路径来自选中的 `*.cpp2rust` 文件所在目录
 - 第一版语义分类以 middleware 路径分组：`src/foo/bar.cpp.cpp2rust -> mod_src_foo_bar`
-- 当前能力边界：`method/global/types` 目录先落地结构；函数与静态方法主要进入 `free/`，类实例方法进入 `class/`
+- 当前能力边界（v1）：
+  - 真实绑定主要落在 `include/`、`free/`、`class/`
+  - `types/method/global/common` 目前先提供结构与占位，便于后续增强
+  - `method/` 目录已建但成员函数当前仍随 `class/` 输出，`global/` 暂未做 AST 细分落盘
 
 ## CI 与脚本
 

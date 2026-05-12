@@ -10,8 +10,9 @@
 ## 关键约定
 
 1. 每个 `mod_<group>/include/mod.rs` 都会包含 `hicc::cpp! { #include "*.cpp2rust" }`
-2. `build.rs` 会为 `hicc_build::Build` 注入中间件所在目录的 include path，并在 init 阶段指向分组语义文件
-3. `merge` 后会生成 `rust/src.2/mod_<group>.rs` 与 `rust/src.2/merged_ffi.rs`，并将 `rust/src` 切换到 `src.2`
+2. `build.rs` 会为 `hicc_build::Build` 注入中间件所在目录的 include path，并始终引用 `src/...` 活跃视图路径
+3. `merge` 后会生成 `rust/src.2/mod_<group>.rs` 与 `rust/src.2/merged_ffi.rs`，并将 `rust/src` 切换到 `src.2`（因此 `build.rs` 无需改成 `src.2/...`）
+4. 当前版本里 `method/global/types/common` 仍以结构占位为主，实际绑定主要来自 `include/class/free`
 
 ## Cargo 依赖
 

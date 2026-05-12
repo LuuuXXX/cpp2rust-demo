@@ -66,6 +66,15 @@
 - 额外生成全局 `rust/src.2/merged_ffi.rs`
 - 同时生成 `rust/src.2/lib.rs`
 - 完成后将 init 原始 `rust/src` 备份为 `rust/src.1`，并将 `rust/src` 切换为指向 `src.2` 的符号链接
+- `build.rs` 持续引用 `src/...` 路径，依赖该活跃视图机制在 merge 后自动指向 `src.2` 产物
+
+## v1 能力边界（当前实现）
+
+- 当前语义拆分的实际绑定内容主要是：
+  - `include/`：`hicc::cpp!` include 上下文
+  - `free/`：自由函数与静态方法
+  - `class/`：类实例方法
+- `types/`、`method/`、`global/` 与 `common/*` 目前以结构占位为主，尚未完成全面 AST 语义细分落盘。
 
 ## hicc 约束
 

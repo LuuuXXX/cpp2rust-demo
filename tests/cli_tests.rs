@@ -364,6 +364,126 @@ fn init_class_generates_import_class_and_import_lib() {
 }
 
 #[test]
+fn init_free_only_group_exports_free_not_class() {
+    let tmp = TempDir::new().unwrap();
+    write_header(&tmp, "free_only.hpp", "int ping(int v);");
+    let tu = write_translation_unit(&tmp, "free_only.cpp", "free_only.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let group_mod =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/mod_free_only/mod.rs"))
+            .unwrap();
+    assert!(group_mod.contains("pub mod free;"));
+    assert!(group_mod.contains("pub use free::*;"));
+    assert!(!group_mod.contains("pub mod class;"));
+
+    let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
+        .unwrap();
+    assert!(build_rs.contains("src/mod_free_only/free/fn_free_only.rs"));
+    assert!(!build_rs.contains("src/mod_free_only/class/cls_free_only.rs"));
+}
+
+#[test]
+fn init_class_only_group_exports_class_not_free() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "class_only.hpp",
+        r#"
+        class Counter {
+        public:
+            void inc();
+            int value() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "class_only.cpp", "class_only.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let group_mod = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_class_only/mod.rs"),
+    )
+    .unwrap();
+    assert!(group_mod.contains("pub mod class;"));
+    assert!(group_mod.contains("pub use class::*;"));
+    // class-only groups still keep free/import_lib for class forward declarations.
+    assert!(group_mod.contains("pub mod free;"));
+
+    let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
+        .unwrap();
+    assert!(build_rs.contains("src/mod_class_only/class/cls_class_only.rs"));
+    assert!(build_rs.contains("src/mod_class_only/free/fn_class_only.rs"));
+}
+
+#[test]
+fn init_no_declarations_group_generates_include_only_active_files() {
+    let tmp = TempDir::new().unwrap();
+    write_header(&tmp, "empty.hpp", "#pragma once\n");
+    let tu = write_translation_unit(&tmp, "empty.cpp", "empty.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let group_mod =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/mod_empty/mod.rs"))
+            .unwrap();
+    assert!(group_mod.contains("pub mod include;"));
+    assert!(group_mod.contains("pub mod types;"));
+    assert!(!group_mod.contains("pub mod free;"));
+    assert!(!group_mod.contains("pub mod class;"));
+
+    let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
+        .unwrap();
+    assert!(build_rs.contains("src/mod_empty/include/mod.rs"));
+    assert!(!build_rs.contains("src/mod_empty/free/fn_empty.rs"));
+    assert!(!build_rs.contains("src/mod_empty/class/cls_empty.rs"));
+}
+
+#[test]
 fn init_creates_cargo_toml_with_hicc() {
     let tmp = TempDir::new().unwrap();
     write_header(&tmp, "simple.hpp", "void foo();");
@@ -884,8 +1004,25 @@ namespace mathlib {
         .assert()
         .success();
 
-    // Run `cargo check` on the generated project.
     let rust_proj = tmp.path().join(".cpp2rust/default/rust");
+    let src = rust_proj.join("src");
+    assert!(
+        std::fs::symlink_metadata(&src)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false),
+        "merge should keep rust/src as active symlink view"
+    );
+    let build_rs = std::fs::read_to_string(rust_proj.join("build.rs")).unwrap();
+    assert!(
+        build_rs.contains("src/merged_ffi.rs"),
+        "build.rs should target active src/ view"
+    );
+    assert!(
+        rust_proj.join("src/merged_ffi.rs").exists(),
+        "active src/ view should resolve merged_ffi.rs after merge"
+    );
+
+    // Run `cargo check` on the generated project.
     let check_output = Command::new("cargo")
         .args(["check", "--message-format=short"])
         .current_dir(&rust_proj)

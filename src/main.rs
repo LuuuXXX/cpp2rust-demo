@@ -219,29 +219,45 @@ fn run_init(args: InitArgs) -> Result<()> {
         let class_mod_name = format!("cls_{}", stem);
         let class_file_path = group_dir.join("class").join(format!("{class_mod_name}.rs"));
         let class_src = codegen::render_class_module(&decls);
-        std::fs::write(&class_file_path, class_src)
-            .map_err(|e| anyhow!("write {}: {}", class_file_path.display(), e))?;
-        std::fs::write(
-            group_dir.join("class").join("mod.rs"),
-            codegen::render_lib_rs(&[&class_mod_name]),
-        )
-        .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
+        let has_class = !class_src.trim().is_empty();
+        if has_class {
+            std::fs::write(&class_file_path, class_src)
+                .map_err(|e| anyhow!("write {}: {}", class_file_path.display(), e))?;
+            std::fs::write(
+                group_dir.join("class").join("mod.rs"),
+                codegen::render_lib_rs(&[&class_mod_name]),
+            )
+            .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
+        } else {
+            std::fs::write(group_dir.join("class").join("mod.rs"), "")
+                .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
+        }
 
         let free_mod_name = format!("fn_{}", stem);
         let free_file_path = group_dir.join("free").join(format!("{free_mod_name}.rs"));
-        let free_src = codegen::render_free_module(&decls, link_name);
-        std::fs::write(&free_file_path, free_src)
-            .map_err(|e| anyhow!("write {}: {}", free_file_path.display(), e))?;
-        std::fs::write(
-            group_dir.join("free").join("mod.rs"),
-            codegen::render_lib_rs(&[&free_mod_name]),
-        )
-        .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
+        let has_free = has_free_bindings(&decls);
+        if has_free {
+            let free_src = codegen::render_free_module(&decls, link_name);
+            std::fs::write(&free_file_path, free_src)
+                .map_err(|e| anyhow!("write {}: {}", free_file_path.display(), e))?;
+            std::fs::write(
+                group_dir.join("free").join("mod.rs"),
+                codegen::render_lib_rs(&[&free_mod_name]),
+            )
+            .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
+        } else {
+            std::fs::write(group_dir.join("free").join("mod.rs"), "")
+                .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
+        }
+
+        // v1 currently does not split member methods/global entities into dedicated files yet.
+        let has_method = false;
+        let has_global = false;
 
         let group_mod_path = group_dir.join("mod.rs");
         std::fs::write(
             &group_mod_path,
-            render_group_mod_rs(true, true, false, false),
+            render_group_mod_rs(has_free, has_class, has_method, has_global),
         )
         .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
 
@@ -269,13 +285,16 @@ fn run_init(args: InitArgs) -> Result<()> {
         let meta_path = group_dir.join("meta.json");
         std::fs::write(
             &meta_path,
-            serde_json::to_string_pretty(&group_meta).map_err(|e| anyhow!("serialize meta: {}", e))?,
+            serde_json::to_string_pretty(&group_meta)
+                .map_err(|e| anyhow!("serialize meta: {}", e))?,
         )
         .map_err(|e| anyhow!("write {}: {}", meta_path.display(), e))?;
 
         build_rs_sources.push(format!("src/{}/include/mod.rs", group_module));
-        build_rs_sources.push(format!("src/{}/free/{}.rs", group_module, free_mod_name));
-        if !decls.classes.is_empty() {
+        if has_free {
+            build_rs_sources.push(format!("src/{}/free/{}.rs", group_module, free_mod_name));
+        }
+        if has_class {
             build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));
         }
         lib_modules.push(group_module.to_string());
@@ -384,7 +403,9 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let include_dirs = middleware_include_dirs(&stored_files);
     let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
-    // Update build.rs to reference merged_ffi.rs.
+    // Update build.rs to reference merged_ffi.rs through the active view path `src/`.
+    // After link_src_to_src2(), `rust/src` is a symlink to `rust/src.2`, so keeping
+    // this path stable means build.rs always targets the current active source view.
     let build_rs_path = lo.rust_dir.join("build.rs");
     std::fs::write(
         &build_rs_path,
@@ -408,6 +429,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("\nMerged output:");
     println!("  {}", merged.merged_path.display());
     println!("\nThe merged output now lives under rust/src.2 (with rust/src -> src.2).");
+    println!("build.rs keeps using src/... paths so it always targets the active source view.");
     println!("It combines grouped include/types/class/method/free/global content.");
     println!();
     println!("To use in your project:");
@@ -487,7 +509,19 @@ fn write_group_scaffold(group_dir: &Path, stem: &str) -> Result<()> {
 }
 
 fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool, has_global: bool) -> String {
-    let mut out = String::from("pub mod include;\npub mod types;\npub mod free;\npub mod class;\npub mod method;\npub mod global;\n");
+    let mut out = String::from("pub mod include;\npub mod types;\n");
+    if has_free {
+        out.push_str("pub mod free;\n");
+    }
+    if has_class {
+        out.push_str("pub mod class;\n");
+    }
+    if has_method {
+        out.push_str("pub mod method;\n");
+    }
+    if has_global {
+        out.push_str("pub mod global;\n");
+    }
     if has_free {
         out.push_str("pub use free::*;\n");
     }
@@ -501,6 +535,16 @@ fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool, has_gl
         out.push_str("pub use global::*;\n");
     }
     out
+}
+
+fn has_free_bindings(decls: &ast::ExtractedDecls) -> bool {
+    !decls.functions.is_empty()
+        || !decls.classes.is_empty()
+        || decls
+            .classes
+            .iter()
+            .flat_map(|c| c.methods.iter())
+            .any(|m| m.is_static)
 }
 
 fn middleware_group_modules(cpp_dir: &Path, paths: &[PathBuf]) -> Vec<String> {
@@ -788,6 +832,17 @@ mod tests {
         let path = cpp_dir.join("src/foo/bar.cpp.cpp2rust");
         let group = middleware_group_module(&cpp_dir, &path);
         assert_eq!(group, "mod_src_foo_bar");
+    }
+
+    #[test]
+    fn render_group_mod_rs_tracks_real_content_flags() {
+        let src = render_group_mod_rs(true, false, false, false);
+        assert!(src.contains("pub mod include;"));
+        assert!(src.contains("pub mod types;"));
+        assert!(src.contains("pub mod free;"));
+        assert!(!src.contains("pub mod class;"));
+        assert!(src.contains("pub use free::*;"));
+        assert!(!src.contains("pub use class::*;"));
     }
 
     #[test]
