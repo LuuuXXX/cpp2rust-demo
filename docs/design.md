@@ -47,8 +47,8 @@
         │   ├── types/mod.rs
         │   ├── free/mod.rs + fn_*.rs
         │   ├── class/mod.rs + cls_*.rs
-        │   ├── method/mod.rs
-        │   ├── global/mod.rs
+        │   ├── method/mod.rs + mtd_*.rs（实例方法）
+        │   ├── global/（可选，当前默认不生成）
         │   └── meta.json
         ├── (merge 后) -> src.2
         ├── src.1/
@@ -73,8 +73,10 @@
 - 当前语义拆分的实际绑定内容主要是：
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数与静态方法
-  - `class/`：类实例方法
-- `types/`、`method/`、`global/` 与 `common/*` 目前以结构占位为主，尚未完成全面 AST 语义细分落盘。
+  - `method/`：类实例方法
+  - `class/`：类级元信息（如 class 名称清单）
+- `types/` 与 `common/*` 已承接基础真实内容（类型清单、共享 include/中间件清单）。
+- `global/` 当前尚无独立 AST 产物，默认不生成该目录。
 
 ## hicc 约束
 

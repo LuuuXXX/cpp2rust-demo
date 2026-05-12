@@ -67,6 +67,24 @@ pub fn render_include_module(source_file_path: &str) -> String {
 
 pub fn render_class_module(decls: &ExtractedDecls) -> String {
     let mut out = String::new();
+    if decls.classes.is_empty() {
+        return out;
+    }
+    writeln!(out, "// Class-level metadata for this middleware group.").unwrap();
+    writeln!(out, "pub const CLASS_COUNT: usize = {};", decls.classes.len()).unwrap();
+    out.push_str(&render_string_slice(
+        "CLASS_NAMES",
+        &decls
+            .classes
+            .iter()
+            .map(|c| c.qualified_name.as_str())
+            .collect::<Vec<_>>(),
+    ));
+    out
+}
+
+pub fn render_method_module(decls: &ExtractedDecls) -> String {
+    let mut out = String::new();
     for class in &decls.classes {
         render_import_class(&mut out, class);
         writeln!(out).unwrap();
@@ -77,6 +95,28 @@ pub fn render_class_module(decls: &ExtractedDecls) -> String {
 pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
     let mut out = String::new();
     render_import_lib(&mut out, decls, link_name);
+    out
+}
+
+pub fn render_types_module(decls: &ExtractedDecls) -> String {
+    let mut cpp_types = std::collections::BTreeSet::new();
+    for f in &decls.functions {
+        cpp_types.insert(f.return_type.as_str());
+        for p in &f.params {
+            cpp_types.insert(p.cpp_type.as_str());
+        }
+    }
+    for c in &decls.classes {
+        for m in &c.methods {
+            cpp_types.insert(m.return_type.as_str());
+            for p in &m.params {
+                cpp_types.insert(p.cpp_type.as_str());
+            }
+        }
+    }
+    let values: Vec<&str> = cpp_types.into_iter().collect();
+    let mut out = String::from("// Per-group C++ type inventory extracted from AST.\n");
+    out.push_str(&render_string_slice("CPP_TYPES", &values));
     out
 }
 
@@ -174,6 +214,16 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
 
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
+}
+
+fn render_string_slice(name: &str, values: &[&str]) -> String {
+    let mut out = String::new();
+    writeln!(out, "pub const {}: &[&str] = &[", name).unwrap();
+    for value in values {
+        writeln!(out, "    {:?},", value).unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    out
 }
 
 fn render_method(out: &mut String, func: &FunctionIR) {
@@ -463,10 +513,16 @@ mod tests {
             functions: vec![],
             classes: vec![class],
         };
-        let src = render_ffi(&decls, "mywidget", "widget.hpp");
-        assert!(src.contains("import_class!"));
-        assert!(src.contains(r#"cpp(class = "Widget")"#));
-        assert!(src.contains("fn update(&mut self, x: f64, y: f64)"));
-        assert!(src.contains("class Widget;"));
+        let method_src = render_method_module(&decls);
+        assert!(method_src.contains("import_class!"));
+        assert!(method_src.contains(r#"cpp(class = "Widget")"#));
+        assert!(method_src.contains("fn update(&mut self, x: f64, y: f64)"));
+
+        let class_src = render_class_module(&decls);
+        assert!(class_src.contains("CLASS_COUNT"));
+        assert!(class_src.contains("CLASS_NAMES"));
+
+        let free_src = render_free_module(&decls, "mywidget");
+        assert!(free_src.contains("class Widget;"));
     }
 }

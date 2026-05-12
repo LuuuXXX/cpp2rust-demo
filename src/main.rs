@@ -168,7 +168,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     }
 
     // Prepare shared/common module scaffolding.
-    write_common_modules(&rust_src_dir)?;
+    write_common_modules(&rust_src_dir, "", "")?;
 
     // Process each selected middleware file.
     let mut all_decls = ast::ExtractedDecls::default();
@@ -230,6 +230,20 @@ fn run_init(args: InitArgs) -> Result<()> {
             .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
         }
 
+        let method_mod_name = format!("mtd_{}", stem);
+        let method_file_path = group_dir.join("method").join(format!("{method_mod_name}.rs"));
+        let method_src = codegen::render_method_module(&decls);
+        let has_method = !method_src.trim().is_empty();
+        if has_method {
+            std::fs::write(&method_file_path, method_src)
+                .map_err(|e| anyhow!("write {}: {}", method_file_path.display(), e))?;
+            std::fs::write(
+                group_dir.join("method").join("mod.rs"),
+                codegen::render_lib_rs(&[&method_mod_name]),
+            )
+            .map_err(|e| anyhow!("write method/mod.rs: {}", e))?;
+        }
+
         let free_mod_name = format!("fn_{}", stem);
         let free_file_path = group_dir.join("free").join(format!("{free_mod_name}.rs"));
         let has_free = has_free_bindings(&decls);
@@ -244,8 +258,10 @@ fn run_init(args: InitArgs) -> Result<()> {
             .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
         }
 
-        // v1 currently does not split member methods/global entities into dedicated files yet.
-        let has_method = has_method_bindings(&decls);
+        let types_src = codegen::render_types_module(&decls);
+        std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
+            .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
+
         let has_global = has_global_bindings(&decls);
 
         let group_mod_path = group_dir.join("mod.rs");
@@ -291,6 +307,10 @@ fn run_init(args: InitArgs) -> Result<()> {
         if has_class {
             build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));
         }
+        if has_method {
+            build_rs_sources.push(format!("src/{}/method/{}.rs", group_module, method_mod_name));
+        }
+        build_rs_sources.push(format!("src/{}/types/mod.rs", group_module));
         lib_modules.push(group_module.to_string());
 
         println!("  Grouped module → {}", group_dir.display());
@@ -326,6 +346,10 @@ fn run_init(args: InitArgs) -> Result<()> {
         )
         .map_err(|e| anyhow!("write build.rs: {}", e))?;
         println!("Created {}", build_rs_path.display());
+
+        let common_includes = render_common_includes_module(&files_to_process, &include_dirs);
+        let common_types = codegen::render_types_module(&all_decls);
+        write_common_modules(&rust_src_dir, &common_includes, &common_types)?;
     }
 
     // lib.rs: expose common + grouped modules.
@@ -349,7 +373,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("        └── src/");
     println!("            ├── lib.rs");
     println!("            ├── common/...");
-    println!("            └── mod_<group>/include|types|free|class|method|global + meta.json");
+    println!("            └── mod_<group>/include|types|free|class|method (+ optional global) + meta.json");
     println!();
     println!("Next steps:");
     println!("  1. Review .cpp2rust/{}/rust/src/mod_<group>/", feature);
@@ -463,42 +487,28 @@ struct GroupMeta {
     globals: Vec<String>,
 }
 
-fn write_common_modules(rust_src_dir: &Path) -> Result<()> {
+fn write_common_modules(rust_src_dir: &Path, includes_src: &str, types_src: &str) -> Result<()> {
     let common_dir = rust_src_dir.join("common");
     std::fs::create_dir_all(&common_dir)
         .map_err(|e| anyhow!("create {}: {}", common_dir.display(), e))?;
     std::fs::write(common_dir.join("mod.rs"), "pub mod includes;\npub mod types;\n")
         .map_err(|e| anyhow!("write common/mod.rs: {}", e))?;
-    std::fs::write(
-        common_dir.join("includes.rs"),
-        "// Shared include context placeholder.\n",
-    )
-    .map_err(|e| anyhow!("write common/includes.rs: {}", e))?;
-    std::fs::write(
-        common_dir.join("types.rs"),
-        "// Shared type helper placeholder.\n",
-    )
-    .map_err(|e| anyhow!("write common/types.rs: {}", e))?;
+    std::fs::write(common_dir.join("includes.rs"), includes_src)
+        .map_err(|e| anyhow!("write common/includes.rs: {}", e))?;
+    std::fs::write(common_dir.join("types.rs"), types_src)
+        .map_err(|e| anyhow!("write common/types.rs: {}", e))?;
     Ok(())
 }
 
 fn write_group_scaffold(group_dir: &Path, stem: &str) -> Result<()> {
-    for sub in ["include", "types", "free", "class", "method", "global"] {
+    for sub in ["include", "types", "free", "class", "method"] {
         std::fs::create_dir_all(group_dir.join(sub))
             .map_err(|e| anyhow!("create {}: {}", group_dir.join(sub).display(), e))?;
     }
-    std::fs::write(
-        group_dir.join("types").join("mod.rs"),
-        format!(
-            "// Type helpers for this middleware group.\n// Source stem: {}\n",
-            stem
-        ),
-    )
-    .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
+    std::fs::write(group_dir.join("types").join("mod.rs"), format!("// Source stem: {}\n", stem))
+        .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
     std::fs::write(group_dir.join("method").join("mod.rs"), "")
         .map_err(|e| anyhow!("write method/mod.rs: {}", e))?;
-    std::fs::write(group_dir.join("global").join("mod.rs"), "")
-        .map_err(|e| anyhow!("write global/mod.rs: {}", e))?;
     Ok(())
 }
 
@@ -541,12 +551,27 @@ fn has_free_bindings(decls: &ast::ExtractedDecls) -> bool {
             .any(|m| m.is_static)
 }
 
-fn has_method_bindings(_decls: &ast::ExtractedDecls) -> bool {
+fn has_global_bindings(_decls: &ast::ExtractedDecls) -> bool {
     false
 }
 
-fn has_global_bindings(_decls: &ast::ExtractedDecls) -> bool {
-    false
+fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[String]) -> String {
+    let files: Vec<String> = middleware_files
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+    let mut out = String::from("// Shared include context derived from selected middleware files.\n");
+    out.push_str("pub const MIDDLEWARE_FILES: &[&str] = &[\n");
+    for file in &files {
+        out.push_str(&format!("    {:?},\n", file));
+    }
+    out.push_str("];\n\n");
+    out.push_str("pub const INCLUDE_DIRS: &[&str] = &[\n");
+    for dir in include_dirs {
+        out.push_str(&format!("    {:?},\n", dir));
+    }
+    out.push_str("];\n");
+    out
 }
 
 fn middleware_group_modules(cpp_dir: &Path, paths: &[PathBuf]) -> Vec<String> {

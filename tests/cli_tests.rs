@@ -326,27 +326,39 @@ fn init_class_generates_import_class_and_import_lib() {
     let class_ffi = tmp
         .path()
         .join(".cpp2rust/default/rust/src/mod_widget/class/cls_widget.rs");
+    let method_ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_widget/method/mtd_widget.rs");
     let free_ffi = tmp
         .path()
         .join(".cpp2rust/default/rust/src/mod_widget/free/fn_widget.rs");
     let class_content = std::fs::read_to_string(&class_ffi).unwrap();
+    let method_content = std::fs::read_to_string(&method_ffi).unwrap();
     let free_content = std::fs::read_to_string(&free_ffi).unwrap();
 
-    // Instance methods go into import_class!
+    // Class-level metadata stays in class/, method bindings go into method/.
     assert!(
-        class_content.contains("import_class!"),
-        "should have import_class!"
+        class_content.contains("CLASS_COUNT"),
+        "class module should expose class-level metadata"
     );
     assert!(
-        class_content.contains("class Widget {"),
+        class_content.contains("CLASS_NAMES"),
+        "class module should expose class name list"
+    );
+    assert!(
+        method_content.contains("import_class!"),
+        "method module should have import_class!"
+    );
+    assert!(
+        method_content.contains("class Widget {"),
         "should declare Widget class"
     );
     assert!(
-        class_content.contains("fn update(&mut self"),
+        method_content.contains("fn update(&mut self"),
         "update should take &mut self"
     );
     assert!(
-        class_content.contains("fn get_id(&self)"),
+        method_content.contains("fn get_id(&self)"),
         "const getId should take &self"
     );
 
@@ -391,6 +403,18 @@ fn init_free_only_group_conditional_exports() {
     assert!(group_mod.contains("pub mod free;"));
     assert!(group_mod.contains("pub use free::*;"));
     assert!(!group_mod.contains("pub mod class;"));
+    assert!(!group_mod.contains("pub mod method;"));
+
+    let types_mod =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/mod_free_only/types/mod.rs"))
+            .unwrap();
+    assert!(types_mod.contains("CPP_TYPES"));
+
+    let common_includes =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/common/includes.rs"))
+            .unwrap();
+    assert!(common_includes.contains("MIDDLEWARE_FILES"));
+    assert!(common_includes.contains("INCLUDE_DIRS"));
 
     let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
         .unwrap();
@@ -437,12 +461,15 @@ fn init_class_only_group_conditional_exports() {
     .unwrap();
     assert!(group_mod.contains("pub mod class;"));
     assert!(group_mod.contains("pub use class::*;"));
-    // class-only groups still keep free/import_lib for class forward declarations.
+    assert!(group_mod.contains("pub mod method;"));
+    assert!(group_mod.contains("pub use method::*;"));
+    // class-only groups still keep free/import_lib for class forward declarations/static methods.
     assert!(group_mod.contains("pub mod free;"));
 
     let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
         .unwrap();
     assert!(build_rs.contains("src/mod_class_only/class/cls_class_only.rs"));
+    assert!(build_rs.contains("src/mod_class_only/method/mtd_class_only.rs"));
     assert!(build_rs.contains("src/mod_class_only/free/fn_class_only.rs"));
 }
 
@@ -475,6 +502,11 @@ fn init_no_declarations_group_generates_include_only_active_files() {
     assert!(group_mod.contains("pub mod types;"));
     assert!(!group_mod.contains("pub mod free;"));
     assert!(!group_mod.contains("pub mod class;"));
+    assert!(!group_mod.contains("pub mod method;"));
+    assert!(!tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_empty/global")
+        .exists());
 
     let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
         .unwrap();

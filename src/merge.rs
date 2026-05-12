@@ -11,7 +11,6 @@ use crate::error::Result;
 use anyhow::anyhow;
 use std::fs;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 const TYPES_PLACEHOLDER_COMMENT: &str = "// Type helpers";
 
@@ -100,43 +99,42 @@ pub fn merge_grouped_modules(init_src_dir: &Path, out_src2_dir: &Path, link_name
 }
 
 fn merge_group_module(group_dir: &Path, output_file: &Path, link_name: &str) -> Result<ModuleFragments> {
-    let mut rs_files: Vec<PathBuf> = WalkDir::new(group_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .map(|e| e.into_path())
-        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
-        .collect();
-    rs_files.sort();
-
     let mut fragments = ModuleFragments::default();
+    for semantic_dir in ["include", "types", "free", "class", "method", "global"] {
+        let dir = group_dir.join(semantic_dir);
+        if !dir.exists() {
+            continue;
+        }
+        let mut rs_files: Vec<PathBuf> = fs::read_dir(&dir)
+            .map_err(|e| anyhow!("read dir {}: {}", dir.display(), e))?
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("rs"))
+            .collect();
+        rs_files.sort();
 
-    for file in &rs_files {
-        let src = fs::read_to_string(file).map_err(|e| anyhow!("read {}: {}", file.display(), e))?;
+        for file in &rs_files {
+            let src = fs::read_to_string(file).map_err(|e| anyhow!("read {}: {}", file.display(), e))?;
 
-        if file
-            .components()
-            .any(|c| c.as_os_str().to_string_lossy() == "types")
-            && file.file_name().and_then(|n| n.to_str()) == Some("mod.rs")
-        {
-            let trimmed = src.trim();
-            if !trimmed.is_empty() && !trimmed.starts_with(TYPES_PLACEHOLDER_COMMENT) {
-                fragments.type_blocks.insert(trimmed.to_string());
+            if semantic_dir == "types" && file.file_name().and_then(|n| n.to_str()) == Some("mod.rs") {
+                let trimmed = src.trim();
+                if !trimmed.is_empty() && !trimmed.starts_with(TYPES_PLACEHOLDER_COMMENT) {
+                    fragments.type_blocks.insert(trimmed.to_string());
+                }
             }
-        }
 
-        for include in extract_cpp_includes(&src) {
-            fragments.includes.insert(include);
-        }
-        for block in extract_import_class_blocks(&src) {
-            fragments.import_class_blocks.push(block);
-        }
-        for block in extract_import_lib_blocks(&src) {
-            let (fwd, fns) = parse_lib_block_contents(&block);
-            for f in fwd {
-                fragments.forward_decls.insert(f);
+            for include in extract_cpp_includes(&src) {
+                fragments.includes.insert(include);
             }
-            fragments.fn_items.extend(fns);
+            for block in extract_import_class_blocks(&src) {
+                fragments.import_class_blocks.push(block);
+            }
+            for block in extract_import_lib_blocks(&src) {
+                let (fwd, fns) = parse_lib_block_contents(&block);
+                for f in fwd {
+                    fragments.forward_decls.insert(f);
+                }
+                fragments.fn_items.extend(fns);
+            }
         }
     }
 
