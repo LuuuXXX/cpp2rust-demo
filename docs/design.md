@@ -109,11 +109,98 @@ Rust 侧项目搭建统一使用：
 
 不再保留与 `hicc` 冲突的自定义构建链路。
 
+## 完整能力矩阵
+
+下表覆盖 hicc 所有已知的绑定能力。标记说明：
+- ✅ **已支持**：cpp2rust-demo 自动提取，无需用户干预。
+- ⚠️ **有条件支持（ToolConservative）**：满足条件时自动支持；不满足时跳过并在报告中标记为 `tool_conservative`（可通过用户操作解锁）。
+- ❌ **需要 C++ shim（HiccLimitation）**：hicc 本身不支持，需要手写 C++ 包装函数；cpp2rust-demo 会生成 starter shim 文件辅助用户补全。
+
+| C++ 特性 | 状态 | 输出位置 | 说明 |
+|----------|------|---------|------|
+| 自由函数（非模板） | ✅ | `free/fn_*.rs` | `import_lib!` + `#[cpp(func = "...")]` |
+| 函数重载 | ✅ | `free/fn_*.rs` | 自动追加 `_2`, `_3`, … 后缀 |
+| 命名空间函数 | ✅ | `free/fn_*.rs` | 限定名嵌入 `#[cpp(func = "ns::foo(...)")]` |
+| 类实例方法 | ✅ | `method/mtd_*.rs` | `import_class!` + `#[cpp(method = "...")]` |
+| `const` 方法 | ✅ | `method/mtd_*.rs` | 映射为 `fn foo(&self)` |
+| 非 `const` 方法 | ✅ | `method/mtd_*.rs` | 映射为 `fn foo(&mut self)` |
+| 非纯 `virtual` 方法 | ✅ | `method/mtd_*.rs` | hicc 通过 vtable 透明调用 |
+| 全纯虚类（抽象接口）| ✅ | `method/mtd_*.rs` | `#[interface]` trait 语法 |
+| 混合类（部分纯虚）| ✅ | `method/mtd_*.rs` | 普通方法正常提取；纯虚方法生成 companion interface |
+| 构造函数 | ✅ | `method/mtd_*.rs` | 主构造函数 `ctor="..."`；额外构造函数为工厂函数 |
+| `static` 方法 | ✅ | `free/fn_*.rs` | `import_lib!` + `#[cpp(func = "ClassName::method(...)")]` |
+| public 继承 | ✅ | `method/mtd_*.rs` | `class Derived: Base` 语法 |
+| `@make_proxy` | ✅ | `free/fn_*.rs` | 全纯虚类自动生成；支持 Rust 实现 C++ 接口 |
+| 全局变量 | ✅ | `free/fn_*.rs` | `#[cpp(data = "...")]` 绑定 |
+| 枚举（`enum`/`enum class`）| ✅ | `types/mod.rs` | `#[repr(C)] enum` |
+| `typedef`/`using` 别名 | ✅ | `types/mod.rs` | 注册到 AliasRegistry，解锁模板提取 |
+| 模板特化（有别名） | ⚠️ | `method/mtd_*.rs` | 需要 `typedef`/`using` 别名；见下方 AliasRegistry 指南 |
+| 模板类（无别名） | ⚠️ | — | 跳过并标记 `tool_conservative`；添加别名后可解锁 |
+| 运算符重载 | ⚠️ | `free/shim_ops.rs` | 生成 `operator_shims.hpp` starter；需用户补全实现后使用 |
+| 析构函数 | ❌ | — | hicc 不支持显式析构；跳过并标记 `hicc_limitation` |
+| 友元函数 | ❌ | — | AST 不可靠提取；跳过 |
+| 多重继承 | ❌ | — | 仅处理首个 public 基类；其余跳过 |
+| 函数指针参数 | ❌ | — | 含 `(*)` 的类型跳过，标记 `hicc_limitation` |
+| `std::` 容器参数 | ⚠️ | — | 无别名时跳过；为容器类型添加 `using` 别名可解锁 |
+| variadic 函数 (`...`) | ❌ | — | 跳过，标记 `hicc_limitation` |
+| `auto`/`decltype` 返回 | ❌ | — | 跳过，标记 `hicc_limitation` |
+
+## 解锁模板类提取（AliasRegistry 指南）
+
+cpp2rust-demo 通过 **AliasRegistry** 解锁模板特化的 FFI 提取。工作原理：
+
+### 第一步：在 entry.cpp 中添加 `using` 别名声明
+
+```cpp
+// entry.cpp — header-only library entry point
+#include "rapidjson/document.h"
+
+// RapidJSON 的头文件中已内置以下 typedef，clang 可见后自动注册：
+//   typedef GenericDocument<UTF8<char>> Document;
+//   typedef GenericValue<UTF8<char>>    Value;
+//   typedef GenericMember<UTF8<char>>   Member;
+
+// 如果需要额外别名（例如自定义 allocator 特化），在此添加：
+// using FastDocument = rapidjson::GenericDocument<rapidjson::UTF8<char>,
+//                          rapidjson::MemoryPoolAllocator<rapidjson::CrtAllocator>>;
+```
+
+### 第二步：工具自动建立两张映射表
+
+```
+template_to_alias:
+  "GenericDocument" → "Document"
+  "GenericValue"    → "Value"
+  "GenericMember"   → "Member"
+
+alias_to_type:
+  "Document" → "rapidjson::GenericDocument<rapidjson::UTF8<char>, ...>"
+  "Value"    → "rapidjson::GenericValue<rapidjson::UTF8<char>>"
+```
+
+**注意**：`bare_template_name()` 函数负责从完整限定类型名提取裸模板名（先剥离 `<>` 模板参数，再剥离命名空间），确保 `"rapidjson::GenericDocument<rapidjson::UTF8<char>, rapidjson::CrtAllocator>"` → `"GenericDocument"` 而不是错误的 `"CrtAllocator>"`。
+
+### 第三步：类型门自动放行已别名的参数类型
+
+在处理方法时，若参数类型为 `rapidjson::GenericValue<...>`，类型门检查：
+1. 类型含 `<` → 进入模板路径
+2. 调用 `bare_template_name()` 获得 `"GenericValue"`
+3. 查询 `AliasRegistry`：`"GenericValue"` 已注册别名 → **放行**
+4. 方法被提取，参数类型在生成代码中用别名名 `Value` 表示
+
+### 常见问题
+
+| 现象 | 原因 | 解决方案 |
+|------|------|---------|
+| 报告中出现大量 `tool_conservative` 跳过 | 模板类无别名 | 在 entry.cpp 添加 `typedef`/`using` 别名 |
+| 方法被跳过，但参数类型看起来是已知类 | 参数是命名空间限定的模板类型，别名未注册 | 检查 entry.cpp 是否包含定义别名的头文件 |
+| `class Derived: Base` 没有出现 | 基类是模板，别名未注册 | 为基类模板添加别名 |
+
 ## RapidJSON 类场景建议
 
-RapidJSON 等 header-only + 模板/重载密集库，当前仍属于"有限支持"场景：
+RapidJSON 等 header-only + 模板/重载密集库，经过 AliasRegistry 改进后，支持程度显著提升：
 
-- **根本瓶颈**：RapidJSON 的核心类型（如 `GenericDocument<Encoding, Allocator>`）均为 `ClassTemplateDecl`（模板类），尚未被 cpp2rust-demo 提取（暂 defer）。
-- **虚函数场景**已改善：非模板类的虚函数（包括纯虚接口）可正常生成 hicc 绑定。
-- **operator 重载**仍需手写 C++ shim：报告中的「Operator Overload Shim Hints」章节提供了具体写法指导。
-- **当前适用场景**：面向非模板 C++ 库生成完整可编译的 hicc FFI 脚手架；模板类建议通过显式实例化或 C++ shim 暴露稳定 ABI 后再绑定。
+- **模板别名已支持**：RapidJSON 的核心类型（`Document`、`Value`、`Writer` 等）通过 `typedef` 别名可自动提取。
+- **虚函数场景**：非模板类的虚函数（包括纯虚接口）可正常生成 hicc 绑定。
+- **operator 重载**仍需手写 C++ shim：报告中的「Operator Overload Shim Hints」章节提供了具体写法指导，`operator_shims.hpp` starter 文件会自动生成。
+- **多翻译单元场景**：使用 `init` 的多编译单元模式捕获全部头文件，再通过 `merge` 合并为统一 FFI，见 `examples/rapidjson-08-multi-tu/`。
