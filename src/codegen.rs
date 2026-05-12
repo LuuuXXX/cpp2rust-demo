@@ -72,6 +72,12 @@ pub fn render_class_module(decls: &ExtractedDecls) -> String {
     }
     writeln!(out, "// Class-level metadata for this middleware group.").unwrap();
     writeln!(out, "pub const CLASS_COUNT: usize = {};", decls.classes.len()).unwrap();
+    let method_counts: Vec<usize> = decls.classes.iter().map(|c| c.methods.len()).collect();
+    let static_method_counts: Vec<usize> = decls
+        .classes
+        .iter()
+        .map(|c| c.methods.iter().filter(|m| m.is_static).count())
+        .collect();
     out.push_str(&render_string_slice(
         "CLASS_NAMES",
         &decls
@@ -79,6 +85,11 @@ pub fn render_class_module(decls: &ExtractedDecls) -> String {
             .iter()
             .map(|c| c.qualified_name.as_str())
             .collect::<Vec<_>>(),
+    ));
+    out.push_str(&render_usize_slice("CLASS_METHOD_COUNTS", &method_counts));
+    out.push_str(&render_usize_slice(
+        "CLASS_STATIC_METHOD_COUNTS",
+        &static_method_counts,
     ));
     out
 }
@@ -116,6 +127,7 @@ pub fn render_types_module(decls: &ExtractedDecls) -> String {
     }
     let values: Vec<&str> = cpp_types.into_iter().collect();
     let mut out = String::from("// Per-group C++ type inventory extracted from AST.\n");
+    out.push_str(&format!("pub const CPP_TYPE_COUNT: usize = {};\n", values.len()));
     out.push_str(&render_string_slice("CPP_TYPES", &values));
     out
 }
@@ -221,6 +233,16 @@ fn render_string_slice(name: &str, values: &[&str]) -> String {
     writeln!(out, "pub const {}: &[&str] = &[", name).unwrap();
     for value in values {
         writeln!(out, "    {:?},", value).unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    out
+}
+
+fn render_usize_slice(name: &str, values: &[usize]) -> String {
+    let mut out = String::new();
+    writeln!(out, "pub const {}: &[usize] = &[", name).unwrap();
+    for value in values {
+        writeln!(out, "    {},", value).unwrap();
     }
     writeln!(out, "];").unwrap();
     out
@@ -521,6 +543,8 @@ mod tests {
         let class_src = render_class_module(&decls);
         assert!(class_src.contains("CLASS_COUNT"));
         assert!(class_src.contains("CLASS_NAMES"));
+        assert!(class_src.contains("CLASS_METHOD_COUNTS"));
+        assert!(class_src.contains("CLASS_STATIC_METHOD_COUNTS"));
 
         let free_src = render_free_module(&decls, "mywidget");
         assert!(free_src.contains("class Widget;"));

@@ -671,6 +671,9 @@ fn merge_produces_merged_ffi() {
     // Should contain items from both headers.
     assert!(content.contains("fn add("));
     assert!(content.contains("fn log("));
+    assert!(content.contains("MIDDLEWARE_FILES"));
+    assert!(content.contains("INCLUDE_DIRS"));
+    assert!(content.contains("CPP_TYPES"));
     // Should have exactly one import_lib! block.
     assert_eq!(
         content.matches("import_lib!").count(),
@@ -723,6 +726,10 @@ fn merge_deduplicates_class_forward_decls() {
         count, 1,
         "Widget forward decl should appear once, got {}",
         count
+    );
+    assert!(
+        content.contains("CLASS_NAMES"),
+        "merged output should carry class semantic metadata"
     );
 }
 

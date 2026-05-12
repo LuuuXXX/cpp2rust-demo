@@ -80,9 +80,10 @@
 - `global/` 当前尚无独立 AST 产物，默认不生成该目录。
 
 merge 语义边界（当前）：
-- 参与 merged 输出主绑定面的目录：`include/`、`types/`、`method/`、`free/`。
+- 参与 merged 输出的目录：`include/`、`types/`、`method/`、`free/`、`class/`。
 - 其中：`method/` 贡献 `import_class!`；`free/` 贡献 `import_lib!`。
-- `class/` 主要承载 init 视图的类级元信息，当前不作为 merged_ffi 的主绑定输入层。
+- `class/` 贡献类级语义元信息块（如 class 维度统计/清单）。
+- `common/*` 贡献共享 inventory/context 块到全局 merged_ffi 输出，作为跨 group 的共享语义层。
 
 ## hicc 约束
 

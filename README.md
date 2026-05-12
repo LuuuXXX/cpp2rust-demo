@@ -131,9 +131,9 @@ cpp2rust-demo merge --feature myfeature
   - `global/`：暂未做独立 AST 产物，当前默认不生成该目录
 
 - merge 语义（当前）：
-  - `include/`、`method/`、`free/`、`types/` 会参与 `src.2/*` 产物拼装
+  - `include/`、`method/`、`free/`、`types/`、`class/` 会参与 `src.2/*` 产物拼装
   - `method/` 负责输出 `import_class!` 绑定块，`free/` 负责输出 `import_lib!` 绑定块
-  - `class/` 与 `common/*` 主要用于 init 视图中的语义清单/元信息，不构成 merged_ffi 的主绑定面
+  - `class/` 参与 merged 输出中的类级语义元信息块；`common/*` 参与全局 merged 输出中的共享 inventory/context 块
 
 ## CI 与脚本
 

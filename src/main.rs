@@ -365,8 +365,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         .map_err(|e| anyhow!("write build.rs: {}", e))?;
         println!("Created {}", build_rs_path.display());
 
-        // `common/*` currently carries shared inventory/context derived from selected
-        // middleware (not a shared binding layer).
+        // `common/*` carries shared inventory/context derived from selected
+        // middleware and is propagated into global merged output for reuse.
         let common_includes = render_common_includes_module(&files_to_process, &include_dirs);
         let common_types = codegen::render_types_module(&all_decls);
         write_common_modules(&rust_src_dir, &common_includes, &common_types)?;
@@ -468,9 +468,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("  {}", merged.merged_path.display());
     println!("\nThe merged output now lives under rust/src.2 (with rust/src -> src.2).");
     println!("build.rs keeps using src/... paths so it always targets the active source view.");
-    println!(
-        "It combines grouped include/types inventories and method/free binding content (global optional)."
-    );
+    println!("It combines grouped include/method/free binding content plus types/class/common semantic inventories (global optional).");
     println!();
     println!("To use in your project:");
     println!("  1. Copy .cpp2rust/{}/rust/ to your workspace", feature);
