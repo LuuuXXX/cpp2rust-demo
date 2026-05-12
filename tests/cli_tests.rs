@@ -114,19 +114,30 @@ fn init_simple_free_functions() {
         .success()
         .stdout(predicate::str::contains("✓ cpp2rust-demo init completed"));
 
-    // Check that the generated FFI file exists.
-    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_mylib.rs");
-    assert!(ffi.exists(), "ffi_mylib.rs should exist");
+    // Check that grouped semantic files exist.
+    let ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_mylib/free/fn_mylib.rs");
+    assert!(ffi.exists(), "mod_mylib/free/fn_mylib.rs should exist");
+    let include = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_mylib/include/mod.rs");
+    assert!(include.exists(), "mod_mylib/include/mod.rs should exist");
+    assert!(tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_mylib/meta.json")
+        .exists());
 
     let content = std::fs::read_to_string(&ffi).unwrap();
     assert!(content.contains("import_lib!"));
     assert!(content.contains("link_name = \"mylib\""));
     assert!(content.contains("fn add(a: i32, b: i32) -> i32"));
     assert!(content.contains("fn scale(x: f64, factor: f64) -> f64"));
+    let include_content = std::fs::read_to_string(&include).unwrap();
     // The generated file must include the header via hicc::cpp! so that
     // namespace-qualified signatures compile with hicc-build.
-    assert!(content.contains("hicc::cpp!"));
-    assert!(content.contains("#include \"mylib.cpp.cpp2rust\""));
+    assert!(include_content.contains("hicc::cpp!"));
+    assert!(include_content.contains("#include \"mylib.cpp.cpp2rust\""));
 
     // LD_PRELOAD hook should capture middleware file.
     let captured = tmp.path().join(".cpp2rust/default/cpp/mylib.cpp.cpp2rust");
@@ -164,7 +175,9 @@ fn init_build_cmd_via_sh_c() {
         .assert()
         .success();
 
-    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_quoted.rs");
+    let ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_quoted/free/fn_quoted.rs");
     assert!(ffi.exists(), "ffi_quoted.rs should exist");
     let ffi_content = std::fs::read_to_string(&ffi).unwrap();
     assert!(
@@ -213,7 +226,9 @@ fn init_overloaded_functions_get_numeric_suffix() {
         .assert()
         .success();
 
-    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_over.rs");
+    let ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_over/free/fn_over.rs");
     let content = std::fs::read_to_string(&ffi).unwrap();
 
     // First overload keeps plain name.
@@ -261,7 +276,9 @@ fn init_namespace_qualified_signature() {
         .assert()
         .success();
 
-    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_ns.rs");
+    let ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_ns/free/fn_ns.rs");
     let content = std::fs::read_to_string(&ffi).unwrap();
     // The C++ signature in the attribute should be namespace-qualified.
     assert!(
@@ -303,36 +320,42 @@ fn init_class_generates_import_class_and_import_lib() {
         .assert()
         .success();
 
-    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ffi_widget.rs");
-    let content = std::fs::read_to_string(&ffi).unwrap();
+    let class_ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_widget/class/cls_widget.rs");
+    let free_ffi = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_widget/free/fn_widget.rs");
+    let class_content = std::fs::read_to_string(&class_ffi).unwrap();
+    let free_content = std::fs::read_to_string(&free_ffi).unwrap();
 
     // Instance methods go into import_class!
     assert!(
-        content.contains("import_class!"),
+        class_content.contains("import_class!"),
         "should have import_class!"
     );
     assert!(
-        content.contains("class Widget {"),
+        class_content.contains("class Widget {"),
         "should declare Widget class"
     );
     assert!(
-        content.contains("fn update(&mut self"),
+        class_content.contains("fn update(&mut self"),
         "update should take &mut self"
     );
     assert!(
-        content.contains("fn get_id(&self)"),
+        class_content.contains("fn get_id(&self)"),
         "const getId should take &self"
     );
 
     // Static methods go into import_lib!
-    assert!(content.contains("import_lib!"), "should have import_lib!");
+    assert!(free_content.contains("import_lib!"), "should have import_lib!");
     assert!(
-        content.contains("class Widget;"),
+        free_content.contains("class Widget;"),
         "should forward-declare Widget"
     );
     // Static method appears as a free function (not inside import_class!).
     assert!(
-        content.contains("fn widget_instance_count()"),
+        free_content.contains("fn widget_instance_count()"),
         "static method should be a free fn in import_lib!"
     );
 }
@@ -419,7 +442,7 @@ fn init_custom_feature() {
 
     assert!(tmp
         .path()
-        .join(".cpp2rust/myfeature/rust/src/ffi_simple.rs")
+        .join(".cpp2rust/myfeature/rust/src/mod_simple/free/fn_simple.rs")
         .exists());
 }
 
@@ -471,8 +494,23 @@ fn merge_produces_merged_ffi() {
         .success()
         .stdout(predicate::str::contains("✓ cpp2rust-demo merge completed"));
 
-    let merged = tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs");
+    let merged = tmp.path().join(".cpp2rust/default/rust/src.2/merged_ffi.rs");
     assert!(merged.exists(), "merged_ffi.rs should exist");
+    let src = tmp.path().join(".cpp2rust/default/rust/src");
+    assert!(
+        std::fs::symlink_metadata(&src)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false),
+        "rust/src should be a symlink after merge"
+    );
+    assert!(
+        tmp.path().join(".cpp2rust/default/rust/src.1").exists(),
+        "rust/src.1 should preserve init output"
+    );
+    assert!(
+        tmp.path().join(".cpp2rust/default/rust/src.2/mod_lib1.rs").exists(),
+        "merge should emit per-group module files into src.2"
+    );
 
     let content = std::fs::read_to_string(&merged).unwrap();
     // Should contain items from both headers.
@@ -566,6 +604,12 @@ fn merge_updates_build_rs_to_merged_ffi() {
     assert!(
         build_rs.contains("merged_ffi.rs"),
         "build.rs should reference merged_ffi.rs after merge"
+    );
+    let src2_lib = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src.2/lib.rs"))
+        .unwrap();
+    assert!(
+        src2_lib.contains("pub mod mod_simple"),
+        "src.2/lib.rs should expose merged group modules"
     );
 }
 

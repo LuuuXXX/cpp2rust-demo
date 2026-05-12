@@ -17,9 +17,9 @@ C++ 项目目录
    │    └─ 生成 hicc Rust 项目与 init-interface-report.md
    │
    └─ cpp2rust-demo merge [--feature <name>]
-        ├─ 合并 rust/src/ffi_*.rs
-        ├─ 汇总 hicc::cpp!/import_class!/import_lib!
-        └─ 产出 rust/src/merged_ffi.rs 与 merge-report.md
+        ├─ 按 mod_<group> 汇总 include/types/free/class/method/global
+        ├─ 产出 rust/src.2/mod_<group>.rs + rust/src.2/lib.rs + rust/src.2/merged_ffi.rs
+        └─ 切换 rust/src 为指向 src.2 的符号链接（rust/src.1 备份 init 原始输出）
 ```
 
 ## 环境要求
@@ -85,7 +85,19 @@ cpp2rust-demo merge --feature myfeature
     ├── build.rs
     └── src/
         ├── lib.rs
-        └── ffi_*.rs
+        ├── common/
+        │   ├── mod.rs
+        │   ├── includes.rs
+        │   └── types.rs
+        └── mod_<group>/
+            ├── mod.rs
+            ├── include/mod.rs
+            ├── types/mod.rs
+            ├── free/mod.rs + fn_*.rs
+            ├── class/mod.rs + cls_*.rs
+            ├── method/mod.rs
+            ├── global/mod.rs
+            └── meta.json
 ```
 
 `merge` 后新增：
@@ -93,7 +105,13 @@ cpp2rust-demo merge --feature myfeature
 ```text
 .cpp2rust/<feature>/
 ├── meta/merge-report.md
-└── rust/src/merged_ffi.rs
+└── rust/
+    ├── src.1/     # init 原始拆分输出备份
+    ├── src -> src.2
+    └── src.2/
+        ├── lib.rs
+        ├── mod_<group>.rs
+        └── merged_ffi.rs
 ```
 
 ## hicc 集成约定
@@ -101,6 +119,8 @@ cpp2rust-demo merge --feature myfeature
 - 生成代码统一使用 `hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!`
 - `build.rs` 使用 `hicc_build::Build` 作为唯一 Rust 侧框架搭建方式
 - include 路径来自选中的 `*.cpp2rust` 文件所在目录
+- 第一版语义分类以 middleware 路径分组：`src/foo/bar.cpp.cpp2rust -> mod_src_foo_bar`
+- 当前能力边界：`method/global/types` 目录先落地结构；函数与静态方法主要进入 `free/`，类实例方法进入 `class/`
 
 ## CI 与脚本
 

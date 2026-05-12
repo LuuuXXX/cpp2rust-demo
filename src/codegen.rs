@@ -25,6 +25,7 @@ use std::fmt::Write as _;
 /// The generated file includes a `hicc::cpp!` block that `#include`s only the
 /// basename, so its parent directory must be added to the compiler include path via
 /// `build.rs` (see [`render_build_rs`]).
+#[allow(dead_code)]
 pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &str) -> String {
     let mut out = String::new();
 
@@ -41,8 +42,19 @@ pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &st
     writeln!(out, "#![allow(non_snake_case, dead_code)]").unwrap();
     writeln!(out).unwrap();
 
-    // Emit hicc::cpp! include block so hicc-build can see the C++ declarations
-    // (namespaces, class definitions, etc.) when compiling the adapter code.
+    out.push_str(&render_include_module(source_file_path));
+    let class_part = render_class_module(decls);
+    if !class_part.is_empty() {
+        out.push_str(&class_part);
+        out.push('\n');
+    }
+    out.push_str(&render_free_module(decls, link_name));
+
+    out
+}
+
+pub fn render_include_module(source_file_path: &str) -> String {
+    let mut out = String::new();
     let include_basename = std::path::Path::new(source_file_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -50,17 +62,21 @@ pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &st
     writeln!(out, "hicc::cpp! {{").unwrap();
     writeln!(out, "    #include \"{}\"", include_basename).unwrap();
     writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    out
+}
 
-    // ----- import_class! blocks ----------------------------------------
+pub fn render_class_module(decls: &ExtractedDecls) -> String {
+    let mut out = String::new();
     for class in &decls.classes {
         render_import_class(&mut out, class);
         writeln!(out).unwrap();
     }
+    out
+}
 
-    // ----- import_lib! block -------------------------------------------
+pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
+    let mut out = String::new();
     render_import_lib(&mut out, decls, link_name);
-
     out
 }
 

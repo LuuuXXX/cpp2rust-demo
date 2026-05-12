@@ -9,6 +9,7 @@ mod selector;
 use crate::error::Result;
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
+use serde::Serialize;
 use selector::{FileSelector, InteractiveSelector};
 use std::path::{Path, PathBuf};
 
@@ -150,8 +151,9 @@ fn run_init(args: InitArgs) -> Result<()> {
     std::fs::create_dir_all(&rust_src_dir)
         .map_err(|e| anyhow!("create {}: {}", rust_src_dir.display(), e))?;
 
-    // Compute deterministic stem names for middleware files.
+    // Compute deterministic names for middleware files and grouped module directories.
     let stems: Vec<String> = middleware_stems(&files_to_process);
+    let group_modules: Vec<String> = middleware_group_modules(&lo.cpp_dir, &files_to_process);
 
     // Write Cargo.toml, build.rs, lib.rs for the generated crate.
     let crate_name = format!("cpp2rust-{}-ffi", feature.replace('_', "-"));
@@ -165,40 +167,20 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("Created {}", cargo_toml_path.display());
     }
 
-    // build.rs: list all per-file ffi files + include dirs for middleware files.
-    let build_rs_path = lo.rust_dir.join("build.rs");
-    {
-        let src_files: Vec<String> = stems.iter().map(|s| format!("src/ffi_{}.rs", s)).collect();
-        let src_refs: Vec<&str> = src_files.iter().map(|s| s.as_str()).collect();
-
-        // Collect unique parent directories so hicc-build can
-        // find the #included middleware files when compiling the adapter code.
-        let include_dirs = middleware_include_dirs(&files_to_process);
-        let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
-
-        std::fs::write(
-            &build_rs_path,
-            codegen::render_build_rs(link_name, &src_refs, &inc_refs),
-        )
-        .map_err(|e| anyhow!("write build.rs: {}", e))?;
-        println!("Created {}", build_rs_path.display());
-    }
-
-    // lib.rs: re-export per-file ffi modules.
-    let lib_rs_path = rust_src_dir.join("lib.rs");
-    {
-        let mod_names: Vec<String> = stems.iter().map(|s| format!("ffi_{}", s)).collect();
-        let mod_refs: Vec<&str> = mod_names.iter().map(|s| s.as_str()).collect();
-        std::fs::write(&lib_rs_path, codegen::render_lib_rs(&mod_refs))
-            .map_err(|e| anyhow!("write lib.rs: {}", e))?;
-        println!("Created {}", lib_rs_path.display());
-    }
+    // Prepare shared/common module scaffolding.
+    write_common_modules(&rust_src_dir)?;
 
     // Process each selected middleware file.
     let mut all_decls = ast::ExtractedDecls::default();
     let mut report_sections: Vec<String> = Vec::new();
+    let mut build_rs_sources: Vec<String> = Vec::new();
+    let mut lib_modules: Vec<String> = vec!["common".to_string()];
 
-    for (selected_file, stem) in files_to_process.iter().zip(stems.iter()) {
+    for ((selected_file, stem), group_module) in files_to_process
+        .iter()
+        .zip(stems.iter())
+        .zip(group_modules.iter())
+    {
         println!("Processing {}...", selected_file.display());
 
         // Step 1: dump AST via clang.
@@ -225,12 +207,80 @@ fn run_init(args: InitArgs) -> Result<()> {
             println!("  Warning: no declarations found from this file.");
         }
 
-        // Step 3: generate FFI source.
-        let ffi_src = codegen::render_ffi(&decls, link_name, &selected_file.display().to_string());
-        let ffi_rs_path = rust_src_dir.join(format!("ffi_{}.rs", stem));
-        std::fs::write(&ffi_rs_path, &ffi_src)
-            .map_err(|e| anyhow!("write {}: {}", ffi_rs_path.display(), e))?;
-        println!("  FFI source → {}", ffi_rs_path.display());
+        // Step 3: generate grouped semantic module source.
+        let group_dir = rust_src_dir.join(group_module);
+        write_group_scaffold(&group_dir, stem)?;
+
+        let include_mod_path = group_dir.join("include").join("mod.rs");
+        let include_src = codegen::render_include_module(&selected_file.display().to_string());
+        std::fs::write(&include_mod_path, include_src)
+            .map_err(|e| anyhow!("write {}: {}", include_mod_path.display(), e))?;
+
+        let class_mod_name = format!("cls_{}", stem);
+        let class_file_path = group_dir.join("class").join(format!("{class_mod_name}.rs"));
+        let class_src = codegen::render_class_module(&decls);
+        std::fs::write(&class_file_path, class_src)
+            .map_err(|e| anyhow!("write {}: {}", class_file_path.display(), e))?;
+        std::fs::write(
+            group_dir.join("class").join("mod.rs"),
+            codegen::render_lib_rs(&[&class_mod_name]),
+        )
+        .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
+
+        let free_mod_name = format!("fn_{}", stem);
+        let free_file_path = group_dir.join("free").join(format!("{free_mod_name}.rs"));
+        let free_src = codegen::render_free_module(&decls, link_name);
+        std::fs::write(&free_file_path, free_src)
+            .map_err(|e| anyhow!("write {}: {}", free_file_path.display(), e))?;
+        std::fs::write(
+            group_dir.join("free").join("mod.rs"),
+            codegen::render_lib_rs(&[&free_mod_name]),
+        )
+        .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
+
+        let group_mod_path = group_dir.join("mod.rs");
+        std::fs::write(
+            &group_mod_path,
+            render_group_mod_rs(true, true, false, false),
+        )
+        .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
+
+        let group_meta = GroupMeta {
+            group: group_module.to_string(),
+            middleware: selected_file.display().to_string(),
+            ast: ast_json_path.display().to_string(),
+            free_functions: decls
+                .functions
+                .iter()
+                .map(|f| f.qualified_name.clone())
+                .collect(),
+            classes: decls
+                .classes
+                .iter()
+                .map(|c| c.qualified_name.clone())
+                .collect(),
+            methods: decls
+                .classes
+                .iter()
+                .flat_map(|c| c.methods.iter().map(|m| m.qualified_name.clone()))
+                .collect(),
+            globals: vec![],
+        };
+        let meta_path = group_dir.join("meta.json");
+        std::fs::write(
+            &meta_path,
+            serde_json::to_string_pretty(&group_meta).map_err(|e| anyhow!("serialize meta: {}", e))?,
+        )
+        .map_err(|e| anyhow!("write {}: {}", meta_path.display(), e))?;
+
+        build_rs_sources.push(format!("src/{}/include/mod.rs", group_module));
+        build_rs_sources.push(format!("src/{}/free/{}.rs", group_module, free_mod_name));
+        if !decls.classes.is_empty() {
+            build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));
+        }
+        lib_modules.push(group_module.to_string());
+
+        println!("  Grouped module → {}", group_dir.display());
 
         // Accumulate for the consolidated report.
         let report_section = codegen::render_interface_report(
@@ -251,6 +301,29 @@ fn run_init(args: InitArgs) -> Result<()> {
     std::fs::write(&report_path, &report).map_err(|e| anyhow!("write report: {}", e))?;
     println!("\nInterface report → {}", report_path.display());
 
+    // build.rs: point hicc-build to grouped semantic files.
+    {
+        let build_rs_path = lo.rust_dir.join("build.rs");
+        let source_refs: Vec<&str> = build_rs_sources.iter().map(|s| s.as_str()).collect();
+        let include_dirs = middleware_include_dirs(&files_to_process);
+        let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
+        std::fs::write(
+            &build_rs_path,
+            codegen::render_build_rs(link_name, &source_refs, &inc_refs),
+        )
+        .map_err(|e| anyhow!("write build.rs: {}", e))?;
+        println!("Created {}", build_rs_path.display());
+    }
+
+    // lib.rs: expose common + grouped modules.
+    {
+        let lib_rs_path = rust_src_dir.join("lib.rs");
+        let module_refs: Vec<&str> = lib_modules.iter().map(|s| s.as_str()).collect();
+        std::fs::write(&lib_rs_path, codegen::render_lib_rs(&module_refs))
+            .map_err(|e| anyhow!("write lib.rs: {}", e))?;
+        println!("Created {}", lib_rs_path.display());
+    }
+
     println!("\n✓ cpp2rust-demo init completed successfully!");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
@@ -262,11 +335,12 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("        ├── build.rs");
     println!("        └── src/");
     println!("            ├── lib.rs");
-    println!("            └── ffi_<file>.rs  (one per selected middleware file)");
+    println!("            ├── common/...");
+    println!("            └── mod_<group>/include|types|free|class|method|global + meta.json");
     println!();
     println!("Next steps:");
-    println!("  1. Review .cpp2rust/{}/rust/src/ffi_*.rs", feature);
-    println!("  2. Run `cpp2rust-demo merge` to consolidate into a single file");
+    println!("  1. Review .cpp2rust/{}/rust/src/mod_<group>/", feature);
+    println!("  2. Run `cpp2rust-demo merge` to consolidate into src.2");
     println!("  3. Copy the Rust project to your workspace and add the C++ library");
 
     Ok(())
@@ -303,7 +377,8 @@ fn run_merge(args: MergeArgs) -> Result<()> {
         ));
     }
 
-    let merged_path = merge::merge_ffi_files(&rust_src_dir, &link_name)?;
+    let merged_src2 = lo.rust_dir.join("src.2");
+    let merged = merge::merge_grouped_modules(&rust_src_dir, &merged_src2, &link_name)?;
 
     // Recompute unique include dirs from stored selected files.
     let include_dirs = middleware_include_dirs(&stored_files);
@@ -318,25 +393,22 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     .map_err(|e| anyhow!("update build.rs: {}", e))?;
     println!("  Updated {}", build_rs_path.display());
 
-    // Update lib.rs to include merged_ffi module.
-    let lib_rs_path = lo.rust_dir.join("src").join("lib.rs");
-    std::fs::write(&lib_rs_path, codegen::render_lib_rs(&["merged_ffi"]))
-        .map_err(|e| anyhow!("update lib.rs: {}", e))?;
-    println!("  Updated {}", lib_rs_path.display());
+    link_src_to_src2(&lo.rust_dir)?;
 
     // Write a merge report.
     let report_path = lo.meta_dir.join("merge-report.md");
     let report = format!(
-        "# Merge Report\n\nFeature: `{feature}`\nLink name: `{link_name}`\n\nMerged output: `{}`\n",
-        merged_path.display()
+        "# Merge Report\n\nFeature: `{feature}`\nLink name: `{link_name}`\n\nMerged groups: {}\n\nMerged output: `{}`\n",
+        merged.group_modules.len(),
+        merged.merged_path.display()
     );
     std::fs::write(&report_path, &report).map_err(|e| anyhow!("write merge report: {}", e))?;
 
     println!("\n✓ cpp2rust-demo merge completed successfully!");
     println!("\nMerged output:");
-    println!("  {}", merged_path.display());
-    println!("\nThe merged file combines all import_class! and import_lib! blocks");
-    println!("from every ffi_*.rs file into a single consolidated ffi.");
+    println!("  {}", merged.merged_path.display());
+    println!("\nThe merged output now lives under rust/src.2 (with rust/src -> src.2).");
+    println!("It combines grouped include/types/class/method/free/global content.");
     println!();
     println!("To use in your project:");
     println!("  1. Copy .cpp2rust/{}/rust/ to your workspace", feature);
@@ -362,6 +434,172 @@ fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
         .collect();
     dirs.sort();
     dirs
+}
+
+#[derive(Serialize)]
+struct GroupMeta {
+    group: String,
+    middleware: String,
+    ast: String,
+    free_functions: Vec<String>,
+    classes: Vec<String>,
+    methods: Vec<String>,
+    globals: Vec<String>,
+}
+
+fn write_common_modules(rust_src_dir: &Path) -> Result<()> {
+    let common_dir = rust_src_dir.join("common");
+    std::fs::create_dir_all(&common_dir)
+        .map_err(|e| anyhow!("create {}: {}", common_dir.display(), e))?;
+    std::fs::write(common_dir.join("mod.rs"), "pub mod includes;\npub mod types;\n")
+        .map_err(|e| anyhow!("write common/mod.rs: {}", e))?;
+    std::fs::write(
+        common_dir.join("includes.rs"),
+        "// Shared include context placeholder.\n",
+    )
+    .map_err(|e| anyhow!("write common/includes.rs: {}", e))?;
+    std::fs::write(
+        common_dir.join("types.rs"),
+        "// Shared type helper placeholder.\n",
+    )
+    .map_err(|e| anyhow!("write common/types.rs: {}", e))?;
+    Ok(())
+}
+
+fn write_group_scaffold(group_dir: &Path, stem: &str) -> Result<()> {
+    for sub in ["include", "types", "free", "class", "method", "global"] {
+        std::fs::create_dir_all(group_dir.join(sub))
+            .map_err(|e| anyhow!("create {}: {}", group_dir.join(sub).display(), e))?;
+    }
+    std::fs::write(
+        group_dir.join("types").join("mod.rs"),
+        format!(
+            "// Type helpers for this middleware group.\n// Source stem: {}\n",
+            stem
+        ),
+    )
+    .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
+    std::fs::write(group_dir.join("method").join("mod.rs"), "")
+        .map_err(|e| anyhow!("write method/mod.rs: {}", e))?;
+    std::fs::write(group_dir.join("global").join("mod.rs"), "")
+        .map_err(|e| anyhow!("write global/mod.rs: {}", e))?;
+    Ok(())
+}
+
+fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool, has_global: bool) -> String {
+    let mut out = String::from("pub mod include;\npub mod types;\npub mod free;\npub mod class;\npub mod method;\npub mod global;\n");
+    if has_free {
+        out.push_str("pub use free::*;\n");
+    }
+    if has_class {
+        out.push_str("pub use class::*;\n");
+    }
+    if has_method {
+        out.push_str("pub use method::*;\n");
+    }
+    if has_global {
+        out.push_str("pub use global::*;\n");
+    }
+    out
+}
+
+fn middleware_group_modules(cpp_dir: &Path, paths: &[PathBuf]) -> Vec<String> {
+    use std::collections::HashMap;
+
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for path in paths {
+        let group = middleware_group_module(cpp_dir, path);
+        *counts.entry(group).or_insert(0) += 1;
+    }
+
+    paths
+        .iter()
+        .map(|path| {
+            let group = middleware_group_module(cpp_dir, path);
+            if counts.get(&group).copied().unwrap_or(0) <= 1 {
+                group
+            } else {
+                format!("{}_{}", group, stable_short_path_hash(path))
+            }
+        })
+        .collect()
+}
+
+fn middleware_group_module(cpp_dir: &Path, middleware_path: &Path) -> String {
+    let rel = middleware_path
+        .strip_prefix(cpp_dir)
+        .unwrap_or(middleware_path);
+    let mut tokens: Vec<String> = Vec::new();
+    for component in rel.components() {
+        let raw = component.as_os_str().to_string_lossy().to_string();
+        if raw == "." || raw == ".." {
+            continue;
+        }
+        tokens.push(raw);
+    }
+    if let Some(last) = tokens.last_mut() {
+        let no_suffix = last.strip_suffix(".cpp2rust").unwrap_or(last).to_string();
+        let stem = Path::new(&no_suffix)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&no_suffix)
+            .to_string();
+        *last = stem;
+    }
+
+    let normalized = tokens
+        .into_iter()
+        .map(|part| sanitize_module_part(&part))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("_");
+    if normalized.is_empty() {
+        "mod_group".to_string()
+    } else {
+        format!("mod_{}", normalized)
+    }
+}
+
+fn sanitize_module_part(part: &str) -> String {
+    let mut out = String::with_capacity(part.len());
+    let mut last_underscore = false;
+    for ch in part.chars() {
+        let mapped = if ch.is_ascii_alphanumeric() { ch } else { '_' };
+        if mapped == '_' {
+            if !last_underscore {
+                out.push('_');
+            }
+            last_underscore = true;
+        } else {
+            out.push(mapped.to_ascii_lowercase());
+            last_underscore = false;
+        }
+    }
+    out.trim_matches('_').to_string()
+}
+
+fn link_src_to_src2(rust_dir: &Path) -> Result<()> {
+    let src = rust_dir.join("src");
+    let src1 = rust_dir.join("src.1");
+    let src2 = rust_dir.join("src.2");
+
+    if src.is_symlink() {
+        std::fs::remove_file(&src).map_err(|e| anyhow!("remove {}: {}", src.display(), e))?;
+    } else {
+        let _ = std::fs::remove_dir_all(&src1);
+        std::fs::rename(&src, &src1).map_err(|e| anyhow!("rename {} -> {}: {}", src.display(), src1.display(), e))?;
+    }
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&src2, &src)
+            .map_err(|e| anyhow!("symlink {} -> {}: {}", src.display(), src2.display(), e))?;
+    }
+    #[cfg(not(unix))]
+    {
+        return Err(anyhow!("src -> src.2 symlink is only supported on unix"));
+    }
+    Ok(())
 }
 
 fn middleware_stems(paths: &[PathBuf]) -> Vec<String> {
@@ -539,6 +777,14 @@ mod tests {
         assert!(stems[0].starts_with("lib_"));
         assert!(stems[1].starts_with("lib_"));
         assert_ne!(stems[0], stems[1]);
+    }
+
+    #[test]
+    fn middleware_group_module_uses_relative_path_and_stem() {
+        let cpp_dir = PathBuf::from("/tmp/.cpp2rust/default/cpp");
+        let path = cpp_dir.join("src/foo/bar.cpp.cpp2rust");
+        let group = middleware_group_module(&cpp_dir, &path);
+        assert_eq!(group, "mod_src_foo_bar");
     }
 
     #[test]

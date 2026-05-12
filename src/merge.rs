@@ -1,121 +1,186 @@
 //! `merge` command implementation.
 //!
-//! The `merge` command reads all per-file `ffi_*.rs` files produced by
-//! `init` and combines them into a single `merged_ffi.rs`.  It:
+//! The `merge` command reads grouped semantic modules produced by `init`
+//! (`mod_<group>/include|types|free|class|method|global`) and emits:
 //!
-//! 1. Concatenates the `import_class!` blocks from all files.
-//! 2. Merges all `import_lib!` blocks into one, de-duplicating `class` forward
-//!    declarations and consolidating all `#[cpp(func = ...)]` items under a
-//!    single `#![link_name = "..."]` attribute.
-//! 3. Writes `merged_ffi.rs` to `.cpp2rust/<feature>/rust/src/`.
-//! 4. Writes a Markdown interface-checklist to `.cpp2rust/<feature>/meta/`.
+//! 1. `rust/src.2/mod_<group>.rs` (merged per-group view)
+//! 2. `rust/src.2/lib.rs`
+//! 3. `rust/src.2/merged_ffi.rs` (global consolidated view)
 
 use crate::error::Result;
 use anyhow::anyhow;
 use std::fs;
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
-/// Merge all `ffi_*.rs` files inside `rust_src_dir` into a single
-/// `merged_ffi.rs` written to the same directory.
-///
-/// Returns the path to the merged file.
-pub fn merge_ffi_files(rust_src_dir: &Path, link_name: &str) -> Result<PathBuf> {
-    // Collect all ffi_*.rs files, sorted for determinism.
-    let mut ffi_files: Vec<PathBuf> = fs::read_dir(rust_src_dir)
-        .map_err(|e| anyhow!("read dir {}: {}", rust_src_dir.display(), e))?
+#[derive(Debug)]
+pub struct MergeOutput {
+    pub merged_path: PathBuf,
+    pub group_modules: Vec<String>,
+}
+
+#[derive(Default)]
+struct ModuleFragments {
+    includes: indexmap::IndexSet<String>,
+    import_class_blocks: Vec<String>,
+    forward_decls: indexmap::IndexSet<String>,
+    fn_items: Vec<String>,
+    type_blocks: indexmap::IndexSet<String>,
+}
+
+pub fn merge_grouped_modules(init_src_dir: &Path, out_src2_dir: &Path, link_name: &str) -> Result<MergeOutput> {
+    let mut group_dirs: Vec<PathBuf> = fs::read_dir(init_src_dir)
+        .map_err(|e| anyhow!("read dir {}: {}", init_src_dir.display(), e))?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("ffi_") && n.ends_with(".rs"))
-                .unwrap_or(false)
+            p.is_dir()
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("mod_"))
+                    .unwrap_or(false)
         })
         .collect();
-    ffi_files.sort();
+    group_dirs.sort();
 
-    if ffi_files.is_empty() {
+    if group_dirs.is_empty() {
         return Err(anyhow!(
-            "no ffi_*.rs files found in {}; run 'init' first",
-            rust_src_dir.display()
+            "no mod_<group> directories found in {}; run 'init' first",
+            init_src_dir.display()
         ));
     }
 
-    println!(
-        "Merging {} ffi file(s) in {}",
-        ffi_files.len(),
-        rust_src_dir.display()
-    );
+    if out_src2_dir.exists() {
+        fs::remove_dir_all(out_src2_dir)
+            .map_err(|e| anyhow!("remove {}: {}", out_src2_dir.display(), e))?;
+    }
+    fs::create_dir_all(out_src2_dir)
+        .map_err(|e| anyhow!("create {}: {}", out_src2_dir.display(), e))?;
 
-    let mut cpp_includes: indexmap::IndexSet<String> = Default::default();
-    let mut import_class_blocks: Vec<String> = Vec::new();
-    let mut forward_decls: indexmap::IndexSet<String> = Default::default();
-    let mut fn_items: Vec<String> = Vec::new();
-    let mut sources_seen: Vec<String> = Vec::new();
+    let mut merged_all = ModuleFragments::default();
+    let mut group_modules = Vec::new();
 
-    for path in &ffi_files {
-        let src =
-            fs::read_to_string(path).map_err(|e| anyhow!("read {}: {}", path.display(), e))?;
+    for group_dir in &group_dirs {
+        let group_name = group_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow!("invalid group directory name: {}", group_dir.display()))?
+            .to_string();
+        let out_file = out_src2_dir.join(format!("{group_name}.rs"));
+        let fragments = merge_group_module(group_dir, &out_file, link_name)?;
 
-        // Extract source provenance comment (accept legacy "Source header" key too).
-        if let Some(source_file) = extract_comment_field(&src, "Source file")
-            .or_else(|| extract_comment_field(&src, "Source header"))
+        for inc in fragments.includes.iter() {
+            merged_all.includes.insert(inc.clone());
+        }
+        for block in &fragments.import_class_blocks {
+            merged_all.import_class_blocks.push(block.clone());
+        }
+        for decl in fragments.forward_decls.iter() {
+            merged_all.forward_decls.insert(decl.clone());
+        }
+        merged_all.fn_items.extend(fragments.fn_items.iter().cloned());
+
+        group_modules.push(group_name);
+    }
+
+    let mod_refs: Vec<&str> = group_modules.iter().map(|s| s.as_str()).collect();
+    fs::write(out_src2_dir.join("lib.rs"), crate::codegen::render_lib_rs(&mod_refs))
+        .map_err(|e| anyhow!("write {}/lib.rs: {}", out_src2_dir.display(), e))?;
+
+    let merged_src = render_merged_module(&merged_all, link_name, true);
+    let merged_path = out_src2_dir.join("merged_ffi.rs");
+    fs::write(&merged_path, merged_src)
+        .map_err(|e| anyhow!("write {}: {}", merged_path.display(), e))?;
+
+    Ok(MergeOutput {
+        merged_path,
+        group_modules,
+    })
+}
+
+fn merge_group_module(group_dir: &Path, output_file: &Path, link_name: &str) -> Result<ModuleFragments> {
+    let mut rs_files: Vec<PathBuf> = WalkDir::new(group_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.into_path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
+        .collect();
+    rs_files.sort();
+
+    let mut fragments = ModuleFragments::default();
+
+    for file in &rs_files {
+        let src = fs::read_to_string(file).map_err(|e| anyhow!("read {}: {}", file.display(), e))?;
+
+        if file
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy() == "types")
+            && file.file_name().and_then(|n| n.to_str()) == Some("mod.rs")
         {
-            sources_seen.push(source_file);
+            let trimmed = src.trim();
+            if !trimmed.is_empty() && !trimmed.starts_with("// Type helpers") {
+                fragments.type_blocks.insert(trimmed.to_string());
+            }
         }
 
-        // Extract hicc::cpp! include blocks (deduplicated).
         for include in extract_cpp_includes(&src) {
-            cpp_includes.insert(include);
+            fragments.includes.insert(include);
         }
-
-        // Extract import_class! blocks.
         for block in extract_import_class_blocks(&src) {
-            import_class_blocks.push(block);
+            fragments.import_class_blocks.push(block);
         }
-
-        // Extract forward declarations and fn items from import_lib! blocks.
         for block in extract_import_lib_blocks(&src) {
             let (fwd, fns) = parse_lib_block_contents(&block);
             for f in fwd {
-                forward_decls.insert(f);
+                fragments.forward_decls.insert(f);
             }
-            fn_items.extend(fns);
+            fragments.fn_items.extend(fns);
         }
     }
 
-    // Compose the merged file.
+    let rendered = render_merged_module(&fragments, link_name, false);
+    fs::write(output_file, rendered)
+        .map_err(|e| anyhow!("write {}: {}", output_file.display(), e))?;
+
+    Ok(fragments)
+}
+
+fn render_merged_module(fragments: &ModuleFragments, link_name: &str, is_global: bool) -> String {
     let mut out = String::new();
-    out.push_str("// Merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
-    out.push_str("// Source files:\n");
-    for source in &sources_seen {
-        out.push_str(&format!("//   {}\n", source));
+    if is_global {
+        out.push_str("// Merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
+    } else {
+        out.push_str("// Group-merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
     }
-    out.push('\n');
     out.push_str("#![allow(non_snake_case, dead_code)]\n\n");
 
-    // Consolidated hicc::cpp! block with all unique includes.
-    if !cpp_includes.is_empty() {
+    if !fragments.includes.is_empty() {
         out.push_str("hicc::cpp! {\n");
-        for include in cpp_includes.iter() {
+        for include in fragments.includes.iter() {
             out.push_str(&format!("    {}\n", include));
         }
         out.push_str("}\n\n");
     }
 
-    for block in &import_class_blocks {
+    for block in fragments.type_blocks.iter() {
+        out.push_str(block.trim());
+        out.push_str("\n\n");
+    }
+
+    for block in &fragments.import_class_blocks {
         out.push_str(block.trim());
         out.push_str("\n\n");
     }
 
     out.push_str("hicc::import_lib! {\n");
     out.push_str(&format!("    #![link_name = \"{}\"]\n\n", link_name));
-    for fwd in forward_decls.iter() {
+    for fwd in fragments.forward_decls.iter() {
         out.push_str(&format!("    {}\n", fwd));
     }
-    if !forward_decls.is_empty() && !fn_items.is_empty() {
+    if !fragments.forward_decls.is_empty() && !fragments.fn_items.is_empty() {
         out.push('\n');
     }
-    for item in &fn_items {
+    for item in &fragments.fn_items {
         for line in item.lines() {
             out.push_str("    ");
             out.push_str(line);
@@ -124,31 +189,12 @@ pub fn merge_ffi_files(rust_src_dir: &Path, link_name: &str) -> Result<PathBuf> 
         out.push('\n');
     }
     out.push_str("}\n");
-
-    let merged_path = rust_src_dir.join("merged_ffi.rs");
-    fs::write(&merged_path, &out).map_err(|e| anyhow!("write {}: {}", merged_path.display(), e))?;
-
-    println!("  → {}", merged_path.display());
-    Ok(merged_path)
+    out
 }
 
 // ---------------------------------------------------------------------------
 // Simple text extraction helpers
 // ---------------------------------------------------------------------------
-
-/// Extract the value of a `// Key : value` comment header.
-fn extract_comment_field(src: &str, field: &str) -> Option<String> {
-    for line in src.lines() {
-        if let Some(rest) = line.strip_prefix("// ") {
-            if let Some(val) = rest.strip_prefix(field) {
-                if let Some(val) = val.strip_prefix(" : ") {
-                    return Some(val.trim().to_string());
-                }
-            }
-        }
-    }
-    None
-}
 
 /// Extract `hicc::import_class! { ... }` blocks from `src`.
 fn extract_import_class_blocks(src: &str) -> Vec<String> {
@@ -161,18 +207,12 @@ fn extract_import_lib_blocks(src: &str) -> Vec<String> {
 }
 
 /// Extract individual `#include "..."` lines from all `hicc::cpp! { ... }` blocks.
-///
-/// Returns a list of well-formed include directives (e.g. `#include "mylib.hpp"`
-/// or `#include <header>`) in the order they appear.  Lines that start with
-/// `#include` but do not match either quoting style are silently skipped.
-/// The caller is responsible for de-duplication.
 fn extract_cpp_includes(src: &str) -> Vec<String> {
     let mut includes = Vec::new();
     for block in extract_macro_blocks(src, "hicc::cpp!") {
         let inner = strip_block_wrapper(&block);
         for line in inner.lines() {
             let trimmed = line.trim();
-            // Accept only well-formed: #include "..." or #include <...>
             if is_valid_include(trimmed) {
                 includes.push(trimmed.to_string());
             }
@@ -181,11 +221,6 @@ fn extract_cpp_includes(src: &str) -> Vec<String> {
     includes
 }
 
-/// Return true if `line` is a well-formed `#include` directive.
-///
-/// Accepts:
-/// - `#include "something.hpp"` (user headers)
-/// - `#include <something>` (system headers)
 fn is_valid_include(line: &str) -> bool {
     if !line.starts_with("#include") {
         return false;
@@ -195,8 +230,6 @@ fn is_valid_include(line: &str) -> bool {
         || (rest.starts_with('<') && rest.ends_with('>') && rest.len() >= 2)
 }
 
-/// Generic block extractor: finds all occurrences of `macro_prefix { ... }`
-/// using brace-depth counting.
 fn extract_macro_blocks(src: &str, macro_prefix: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut search_from = 0;
@@ -234,7 +267,6 @@ fn extract_macro_blocks(src: &str, macro_prefix: &str) -> Vec<String> {
 /// Parse the inner contents of an `import_lib! { ... }` block into
 /// (forward_declarations, fn_items).
 fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
-    // Strip the outer `hicc::import_lib! {` ... `}` wrapper.
     let inner = strip_block_wrapper(block);
 
     let mut forward_decls = Vec::new();
@@ -245,23 +277,19 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
     for line in inner.lines() {
         let trimmed = line.trim();
 
-        // Skip link_name attribute.
         if trimmed.starts_with("#![link_name") {
             continue;
         }
 
-        // Forward declaration: `class Foo;`
         if trimmed.starts_with("class ") && trimmed.ends_with(';') && !trimmed.contains("//") {
             forward_decls.push(trimmed.to_string());
             continue;
         }
 
-        // Skip blank lines between items when not inside an item.
         if trimmed.is_empty() && !in_item {
             continue;
         }
 
-        // Accumulate fn items (they may span multiple lines: attribute + fn).
         if trimmed.starts_with("#[cpp(func") || (in_item && !trimmed.is_empty()) {
             in_item = true;
             if !current_item.is_empty() {
@@ -269,7 +297,6 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
             }
             current_item.push_str(trimmed);
 
-            // A fn item ends with `;`.
             if trimmed.ends_with(';') {
                 fn_items.push(current_item.trim().to_string());
                 current_item.clear();
@@ -281,19 +308,12 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
     (forward_decls, fn_items)
 }
 
-/// Strip the outer macro wrapper from a block string, returning just the inner
-/// content (the part between the outermost `{` and `}`).
 fn strip_block_wrapper(block: &str) -> &str {
     let open = block.find('{').unwrap_or(0);
     let close = block.rfind('}').unwrap_or(block.len());
     &block[open + 1..close]
 }
 
-// ---------------------------------------------------------------------------
-// indexmap shim (we avoid adding indexmap as a real dep; use Vec for ordering)
-// ---------------------------------------------------------------------------
-
-// Actually, use a simple ordered-set based on Vec to avoid the extra dep.
 mod indexmap {
     #[derive(Default)]
     pub struct IndexSet<T> {
@@ -319,10 +339,6 @@ mod indexmap {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -366,15 +382,6 @@ hicc::import_lib! {
     }
 
     #[test]
-    fn extract_comment_field_works() {
-        let src = "// Source file : mylib.cpp2rust\n// Link library   : mylib\n";
-        assert_eq!(
-            extract_comment_field(src, "Source file"),
-            Some("mylib.cpp2rust".to_string())
-        );
-    }
-
-    #[test]
     fn merge_deduplicates_forward_decls() {
         let src1 = r#"
 hicc::import_lib! {
@@ -396,7 +403,6 @@ hicc::import_lib! {
     fn bar() -> i32;
 }
 "#;
-        // Simulate merging two blocks.
         let mut fwd: indexmap::IndexSet<String> = Default::default();
         let mut fns: Vec<String> = Vec::new();
         for block in extract_import_lib_blocks(src1)

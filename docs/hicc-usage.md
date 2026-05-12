@@ -9,9 +9,9 @@
 
 ## 关键约定
 
-1. 每个 `ffi_*.rs` 都会包含一个 `hicc::cpp! { #include "*.cpp2rust" }`
-2. `build.rs` 会为 `hicc_build::Build` 注入中间件所在目录的 include path
-3. `merge` 后会生成单个 `merged_ffi.rs`，仍保持上述约定
+1. 每个 `mod_<group>/include/mod.rs` 都会包含 `hicc::cpp! { #include "*.cpp2rust" }`
+2. `build.rs` 会为 `hicc_build::Build` 注入中间件所在目录的 include path，并在 init 阶段指向分组语义文件
+3. `merge` 后会生成 `rust/src.2/mod_<group>.rs` 与 `rust/src.2/merged_ffi.rs`，并将 `rust/src` 切换到 `src.2`
 
 ## Cargo 依赖
 
