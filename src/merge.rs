@@ -45,7 +45,11 @@ struct CommonFragments {
     types_block: Option<String>,
 }
 
-pub fn merge_grouped_modules(init_src_dir: &Path, out_src2_dir: &Path, link_name: &str) -> Result<MergeOutput> {
+pub fn merge_grouped_modules(
+    init_src_dir: &Path,
+    out_src2_dir: &Path,
+    link_name: &str,
+) -> Result<MergeOutput> {
     let mut group_dirs: Vec<PathBuf> = fs::read_dir(init_src_dir)
         .map_err(|e| anyhow!("read dir {}: {}", init_src_dir.display(), e))?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -95,7 +99,9 @@ pub fn merge_grouped_modules(init_src_dir: &Path, out_src2_dir: &Path, link_name
         for decl in fragments.forward_decls.iter() {
             merged_all.forward_decls.insert(decl.clone());
         }
-        merged_all.fn_items.extend(fragments.fn_items.iter().cloned());
+        merged_all
+            .fn_items
+            .extend(fragments.fn_items.iter().cloned());
         for class_block in fragments.class_blocks.iter() {
             merged_all.class_blocks.insert(class_block.clone());
         }
@@ -104,8 +110,11 @@ pub fn merge_grouped_modules(init_src_dir: &Path, out_src2_dir: &Path, link_name
     }
 
     let mod_refs: Vec<&str> = group_modules.iter().map(|s| s.as_str()).collect();
-    fs::write(out_src2_dir.join("lib.rs"), crate::codegen::render_lib_rs(&mod_refs))
-        .map_err(|e| anyhow!("write {}/lib.rs: {}", out_src2_dir.display(), e))?;
+    fs::write(
+        out_src2_dir.join("lib.rs"),
+        crate::codegen::render_lib_rs(&mod_refs),
+    )
+    .map_err(|e| anyhow!("write {}/lib.rs: {}", out_src2_dir.display(), e))?;
 
     let merged_src = render_merged_module(&merged_all, &common, link_name, true);
     let merged_path = out_src2_dir.join("merged_ffi.rs");
@@ -118,7 +127,11 @@ pub fn merge_grouped_modules(init_src_dir: &Path, out_src2_dir: &Path, link_name
     })
 }
 
-fn merge_group_module(group_dir: &Path, output_file: &Path, link_name: &str) -> Result<ModuleFragments> {
+fn merge_group_module(
+    group_dir: &Path,
+    output_file: &Path,
+    link_name: &str,
+) -> Result<ModuleFragments> {
     let mut fragments = ModuleFragments::default();
     for semantic_dir in crate::SEMANTIC_DIRS {
         let dir = group_dir.join(semantic_dir);
@@ -133,7 +146,8 @@ fn merge_group_module(group_dir: &Path, output_file: &Path, link_name: &str) -> 
         rs_files.sort();
 
         for file in &rs_files {
-            let src = fs::read_to_string(file).map_err(|e| anyhow!("read {}: {}", file.display(), e))?;
+            let src =
+                fs::read_to_string(file).map_err(|e| anyhow!("read {}: {}", file.display(), e))?;
 
             if semantic_dir == crate::SEMANTIC_TYPES_DIR
                 && file.file_name().and_then(|n| n.to_str()) == Some("mod.rs")

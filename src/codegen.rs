@@ -71,7 +71,12 @@ pub fn render_class_module(decls: &ExtractedDecls) -> String {
         return out;
     }
     writeln!(out, "// Class-level metadata for this middleware group.").unwrap();
-    writeln!(out, "pub const CLASS_COUNT: usize = {};", decls.classes.len()).unwrap();
+    writeln!(
+        out,
+        "pub const CLASS_COUNT: usize = {};",
+        decls.classes.len()
+    )
+    .unwrap();
     let method_counts: Vec<usize> = decls.classes.iter().map(|c| c.methods.len()).collect();
     let static_method_counts: Vec<usize> = decls
         .classes
@@ -82,10 +87,15 @@ pub fn render_class_module(decls: &ExtractedDecls) -> String {
     let mut class_instance_methods: Vec<(&str, &str)> = Vec::new();
     for class in &decls.classes {
         for method in &class.methods {
-            class_methods.push((class.qualified_name.as_str(), method.qualified_name.as_str()));
+            class_methods.push((
+                class.qualified_name.as_str(),
+                method.qualified_name.as_str(),
+            ));
             if !method.is_static {
-                class_instance_methods
-                    .push((class.qualified_name.as_str(), method.qualified_name.as_str()));
+                class_instance_methods.push((
+                    class.qualified_name.as_str(),
+                    method.qualified_name.as_str(),
+                ));
             }
         }
     }
@@ -189,7 +199,10 @@ pub fn render_types_module(decls: &ExtractedDecls) -> String {
         .into_iter()
         .collect::<Vec<(&str, &str)>>();
     let mut out = String::from("// Per-group C++ type inventory extracted from AST.\n");
-    out.push_str(&format!("pub const CPP_TYPE_COUNT: usize = {};\n", values.len()));
+    out.push_str(&format!(
+        "pub const CPP_TYPE_COUNT: usize = {};\n",
+        values.len()
+    ));
     out.push_str(&render_string_slice("CPP_TYPES", &values));
     out.push_str(&render_pair_slice("CPP_RUST_TYPE_MAPPINGS", &mappings));
     out.push_str(
@@ -234,7 +247,12 @@ link_name = "{link_name}"
 /// * `rust_files` – paths to the `.rs` files that contain hicc macros.
 /// * `include_dirs` – directories to add as C++ compiler include paths so
 ///   that `hicc::cpp!` can find the included middleware file.
-pub fn render_build_rs(link_name: &str, rust_files: &[&str], include_dirs: &[&str]) -> String {
+pub fn render_build_rs(
+    link_name: &str,
+    no_link: bool,
+    rust_files: &[&str],
+    include_dirs: &[&str],
+) -> String {
     let file_calls: String = rust_files
         .iter()
         .map(|f| format!("    build.rust_file(\"{}\");\n", f))
@@ -253,14 +271,20 @@ pub fn render_build_rs(link_name: &str, rust_files: &[&str], include_dirs: &[&st
              //       to the captured middleware files on the new machine (or use relative paths).\n",
         )
     };
+    let external_link_call = if no_link {
+        "    // Header-only / no-link mode: skip linking external C++ target library.\n".to_string()
+    } else {
+        format!(
+            "    // Link the actual C++ library (adjust the search path as needed).\n    println!(\"cargo::rustc-link-lib={link_name}\");\n"
+        )
+    };
     format!(
         r#"fn main() {{
     let mut build = hicc_build::Build::new();
 {file_calls}{include_calls}{portability_note}    build.compile("cpp2rust_adapter");
     println!("cargo::rustc-link-lib=cpp2rust_adapter");
     println!("cargo::rustc-link-lib=stdc++");
-    // Link the actual C++ library (adjust the search path as needed).
-    println!("cargo::rustc-link-lib={link_name}");
+{external_link_call}
 }}
 "#
     )
@@ -474,6 +498,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     writeln!(out, "| Link name | `{}` |", link_name).unwrap();
     writeln!(out, "| Free functions | {} |", decls.functions.len()).unwrap();
     writeln!(out, "| Classes | {} |", decls.classes.len()).unwrap();
+    writeln!(out, "| Skipped | {} |", decls.skipped.len()).unwrap();
     writeln!(out).unwrap();
 
     if !decls.functions.is_empty() {
@@ -506,6 +531,21 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
         writeln!(out).unwrap();
     }
 
+    if !decls.skipped.is_empty() {
+        writeln!(out, "## Skipped declarations\n").unwrap();
+        writeln!(out, "| AST kind | Name | Reason |").unwrap();
+        writeln!(out, "|----------|------|--------|").unwrap();
+        for item in &decls.skipped {
+            writeln!(
+                out,
+                "| `{}` | `{}` | `{}` |",
+                item.kind, item.name, item.reason
+            )
+            .unwrap();
+        }
+        writeln!(out).unwrap();
+    }
+
     out
 }
 
@@ -516,7 +556,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{ClassIR, ExtractedDecls, FunctionIR, ParamIR};
+    use crate::ast::{ClassIR, ExtractedDecls, FunctionIR, ParamIR, SkippedDecl};
 
     fn make_fn(name: &str, rust_name: &str, ret: &str, params: Vec<ParamIR>) -> FunctionIR {
         let param_types: Vec<String> = params.iter().map(|p| p.cpp_type.clone()).collect();
@@ -555,6 +595,7 @@ mod tests {
                 vec![int_param("a"), int_param("b")],
             )],
             classes: vec![],
+            skipped: vec![],
         };
         let src = render_ffi(&decls, "mylib", "mylib.hpp");
         assert!(src.contains("import_lib!"));
@@ -569,6 +610,7 @@ mod tests {
         let decls = ExtractedDecls {
             functions: vec![make_fn("process", "process", "void", vec![int_param("v")])],
             classes: vec![],
+            skipped: vec![],
         };
         let src = render_ffi(&decls, "mylib", "mylib.hpp");
         // void return should not produce `-> ()`.
@@ -619,6 +661,7 @@ mod tests {
         let decls = ExtractedDecls {
             functions: vec![],
             classes: vec![class],
+            skipped: vec![],
         };
         let method_src = render_method_module(&decls);
         assert!(method_src.contains("import_class!"));
@@ -645,5 +688,28 @@ mod tests {
         assert!(types_src.contains("(\"void\", \"()\")"));
         assert!(types_src.contains("pub fn rust_type_for"));
         assert!(types_src.contains("pub fn has_cpp_type"));
+    }
+
+    #[test]
+    fn render_build_rs_no_link_skips_target_lib() {
+        let src = render_build_rs("rapidjson", true, &["src/mod_a/include/mod.rs"], &[]);
+        assert!(!src.contains("cargo::rustc-link-lib=rapidjson"));
+        assert!(src.contains("cargo::rustc-link-lib=cpp2rust_adapter"));
+    }
+
+    #[test]
+    fn render_interface_report_includes_skipped_reasons() {
+        let decls = ExtractedDecls {
+            functions: vec![],
+            classes: vec![],
+            skipped: vec![SkippedDecl {
+                kind: "CXXMethodDecl".to_string(),
+                name: "rapidjson::Value::operator[]".to_string(),
+                reason: "operator_overload".to_string(),
+            }],
+        };
+        let report = render_interface_report(&decls, "rapidjson", "rapid.cpp.cpp2rust");
+        assert!(report.contains("## Skipped declarations"));
+        assert!(report.contains("operator_overload"));
     }
 }

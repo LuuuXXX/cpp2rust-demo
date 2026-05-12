@@ -178,10 +178,7 @@ fn init_build_cmd_via_sh_c() {
     let ffi = tmp
         .path()
         .join(".cpp2rust/default/rust/src/mod_quoted/free/fn_quoted.rs");
-    assert!(
-        ffi.exists(),
-        "mod_quoted/free/fn_quoted.rs should exist"
-    );
+    assert!(ffi.exists(), "mod_quoted/free/fn_quoted.rs should exist");
     let ffi_content = std::fs::read_to_string(&ffi).unwrap();
     assert!(
         ffi_content.contains("fn quoted_add(a: i32, b: i32) -> i32"),
@@ -371,7 +368,10 @@ fn init_class_generates_import_class_and_import_lib() {
     );
 
     // Static methods go into import_lib!
-    assert!(free_content.contains("import_lib!"), "should have import_lib!");
+    assert!(
+        free_content.contains("import_lib!"),
+        "should have import_lib!"
+    );
     assert!(
         free_content.contains("class Widget;"),
         "should forward-declare Widget"
@@ -405,24 +405,30 @@ fn init_free_only_group_conditional_exports() {
         .assert()
         .success();
 
-    let group_mod =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/mod_free_only/mod.rs"))
-            .unwrap();
+    let group_mod = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_free_only/mod.rs"),
+    )
+    .unwrap();
     assert!(group_mod.contains("pub mod free;"));
     assert!(group_mod.contains("pub use free::*;"));
     assert!(!group_mod.contains("pub mod class;"));
     assert!(!group_mod.contains("pub mod method;"));
 
-    let types_mod =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/mod_free_only/types/mod.rs"))
-            .unwrap();
+    let types_mod = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_free_only/types/mod.rs"),
+    )
+    .unwrap();
     assert!(types_mod.contains("CPP_TYPES"));
     assert!(types_mod.contains("CPP_RUST_TYPE_MAPPINGS"));
     assert!(types_mod.contains("pub fn rust_type_for"));
 
-    let common_includes =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/common/includes.rs"))
-            .unwrap();
+    let common_includes = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/common/includes.rs"),
+    )
+    .unwrap();
     assert!(common_includes.contains("MIDDLEWARE_FILES"));
     assert!(common_includes.contains("MIDDLEWARE_BASENAMES"));
     assert!(common_includes.contains("MIDDLEWARE_FILE_BASENAME_PAIRS"));
@@ -430,8 +436,8 @@ fn init_free_only_group_conditional_exports() {
     assert!(common_includes.contains("CPP_INCLUDE_LINES"));
     assert!(common_includes.contains("pub fn include_line_for"));
 
-    let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
-        .unwrap();
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
     assert!(build_rs.contains("src/mod_free_only/free/fn_free_only.rs"));
     assert!(!build_rs.contains("src/mod_free_only/class/cls_free_only.rs"));
 }
@@ -480,8 +486,8 @@ fn init_class_only_group_conditional_exports() {
     // class-only groups still keep free/import_lib for class forward declarations/static methods.
     assert!(group_mod.contains("pub mod free;"));
 
-    let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
-        .unwrap();
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
     assert!(build_rs.contains("src/mod_class_only/class/cls_class_only.rs"));
     assert!(build_rs.contains("src/mod_class_only/method/mtd_class_only.rs"));
     assert!(build_rs.contains("src/mod_class_only/free/fn_class_only.rs"));
@@ -509,9 +515,11 @@ fn init_no_declarations_group_generates_include_only_active_files() {
         .assert()
         .success();
 
-    let group_mod =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/mod_empty/mod.rs"))
-            .unwrap();
+    let group_mod = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_empty/mod.rs"),
+    )
+    .unwrap();
     assert!(group_mod.contains("pub mod include;"));
     assert!(group_mod.contains("pub mod types;"));
     assert!(!group_mod.contains("pub mod free;"));
@@ -522,11 +530,133 @@ fn init_no_declarations_group_generates_include_only_active_files() {
         .join(".cpp2rust/default/rust/src/mod_empty/global")
         .exists());
 
-    let build_rs = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs"))
-        .unwrap();
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
     assert!(build_rs.contains("src/mod_empty/include/mod.rs"));
     assert!(!build_rs.contains("src/mod_empty/free/fn_empty.rs"));
     assert!(!build_rs.contains("src/mod_empty/class/cls_empty.rs"));
+}
+
+#[test]
+fn init_no_link_skips_unsupported_members_and_reports_reasons() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "unsupported.hpp",
+        r#"
+        template <typename T>
+        struct Box { T value; };
+
+        class Api {
+        public:
+            Api();
+            virtual ~Api();
+            virtual int read() = 0;
+            int operator[](int idx) const;
+            static int stable();
+        };
+
+        Api operator+(const Api& lhs, const Api& rhs);
+        int fill(int **out, const char **name);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "unsupported.cpp", "unsupported.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "rapidjson",
+            "--no-link",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
+    assert!(!build_rs.contains("cargo::rustc-link-lib=rapidjson"));
+
+    let free = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_unsupported/free/fn_unsupported.rs"),
+    )
+    .unwrap();
+    assert!(free.contains("fn fill(out: *mut *mut i32, name: *mut *const i8) -> i32"));
+    assert!(!free.contains("operator"));
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(report.contains("## Skipped declarations"));
+    assert!(report.contains("template_decl"));
+    assert!(report.contains("constructor"));
+    assert!(report.contains("destructor"));
+    assert!(
+        report.contains("pure_virtual")
+            || report.contains("virtual")
+            || report.contains("unsupported_type")
+    );
+    assert!(report.contains("operator_overload"));
+}
+
+#[test]
+fn init_skips_free_function_with_template_instance_type() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "templated.hpp",
+        r#"
+        template <typename T>
+        struct Holder {
+            T value;
+        };
+
+        int regular(int v);
+        int use_holder(Holder<int>* h);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "templated.cpp", "templated.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_templated/free/fn_templated.rs"),
+    )
+    .unwrap();
+    assert!(free.contains("fn regular(v: i32) -> i32"));
+    assert!(!free.contains("use_holder"));
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(report.contains("unsupported_type"));
+    assert!(report.contains("use_holder"));
 }
 
 #[test]
@@ -663,7 +793,9 @@ fn merge_produces_merged_ffi() {
         .success()
         .stdout(predicate::str::contains("✓ cpp2rust-demo merge completed"));
 
-    let merged = tmp.path().join(".cpp2rust/default/rust/src.2/merged_ffi.rs");
+    let merged = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src.2/merged_ffi.rs");
     assert!(merged.exists(), "merged_ffi.rs should exist");
     let src = tmp.path().join(".cpp2rust/default/rust/src");
     assert!(
@@ -677,7 +809,9 @@ fn merge_produces_merged_ffi() {
         "rust/src.1 should preserve init output"
     );
     assert!(
-        tmp.path().join(".cpp2rust/default/rust/src.2/mod_lib1.rs").exists(),
+        tmp.path()
+            .join(".cpp2rust/default/rust/src.2/mod_lib1.rs")
+            .exists(),
         "merge should emit per-group module files into src.2"
     );
 
@@ -793,12 +927,48 @@ fn merge_updates_build_rs_to_merged_ffi() {
         build_rs.contains("merged_ffi.rs"),
         "build.rs should reference merged_ffi.rs after merge"
     );
-    let src2_lib = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src.2/lib.rs"))
-        .unwrap();
+    let src2_lib =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src.2/lib.rs")).unwrap();
     assert!(
         src2_lib.contains("pub mod mod_simple"),
         "src.2/lib.rs should expose merged group modules"
     );
+}
+
+#[test]
+fn merge_preserves_no_link_build_rs() {
+    let tmp = TempDir::new().unwrap();
+    write_header(&tmp, "simple.hpp", "void foo();");
+    let tu = write_translation_unit(&tmp, "simple.cpp", "simple.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--no-link",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
+    assert!(!build_rs.contains("cargo::rustc-link-lib=mylib"));
+    assert!(build_rs.contains("cargo::rustc-link-lib=cpp2rust_adapter"));
+    assert!(build_rs.contains("merged_ffi.rs"));
 }
 
 #[test]
