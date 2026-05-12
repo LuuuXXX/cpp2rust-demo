@@ -291,7 +291,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
             .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
 
-        // 主线四: operator shims – write C++ shim header to meta/ and Rust stubs to free/.
+        // Operator shims: write C++ shim header to meta/ and Rust stubs to free/.
         if has_shims {
             let middleware_basename = selected_file
                 .file_name()

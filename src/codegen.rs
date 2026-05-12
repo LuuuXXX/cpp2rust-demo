@@ -153,7 +153,7 @@ pub fn class_instance_methods(class_name: &str) -> Vec<&'static str> {\n\
 pub fn render_method_module(decls: &ExtractedDecls) -> String {
     let mut out = String::new();
     for class in &decls.classes {
-        // 主线三: For mixed classes, emit the companion #[interface] trait first.
+        // For mixed classes, emit the companion #[interface] trait first.
         if class.has_pure_virtual && !class.pure_virtual_methods.is_empty() {
             render_companion_interface(&mut out, class);
             writeln!(out).unwrap();
@@ -418,18 +418,10 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
     writeln!(out, "}}").unwrap();
 }
 
-/// Render the companion `#[interface]` trait for a mixed class (主线三).
+/// Render the companion `#[interface]` trait for a mixed class.
 ///
-/// This emits:
-/// ```text
-/// hicc::import_class! {
-///     #[interface]
-///     class FooInterface {
-///         fn pure_method(&mut self) -> i32;
-///         ...
-///     }
-/// }
-/// ```
+/// Emits a `hicc::import_class!` block with `#[interface]` containing
+/// the pure-virtual methods, named `{ClassName}Interface`.
 fn render_companion_interface(out: &mut String, class: &ClassIR) {
     let interface_name = format!("{}Interface", class.name);
     writeln!(out, "hicc::import_class! {{").unwrap();
@@ -624,7 +616,7 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         writeln!(out).unwrap();
     }
 
-    // @make_proxy bindings for companion interfaces of mixed classes (主线三).
+    // @make_proxy bindings for companion interfaces of mixed classes.
     for class in &decls.classes {
         if !class.has_pure_virtual || class.pure_virtual_methods.is_empty() {
             continue;
