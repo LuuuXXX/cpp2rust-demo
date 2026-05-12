@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     name: Validate ${{ matrix.project }} via ${{ matrix.build_system }}
@@ -73,7 +76,7 @@ jobs:
             cat > CMakeLists.txt <<'CMAKE'
             cmake_minimum_required(VERSION 3.10)
             project(cpp2rust_validate LANGUAGES CXX)
-            add_executable(cpp2rust_entry document.cpp)
+            add_executable(cpp2rust_entry ${{ matrix.source_file }})
             target_include_directories(cpp2rust_entry PRIVATE include)
             target_compile_features(cpp2rust_entry PRIVATE cxx_std_11)
             CMAKE
@@ -83,8 +86,8 @@ jobs:
             CXXFLAGS ?= -std=c++17 -Iinclude
             all: cpp2rust_entry
 
-            cpp2rust_entry: main.cpp
-            	$(CXX) $(CXXFLAGS) -fsyntax-only main.cpp
+            cpp2rust_entry: ${{ matrix.source_file }}
+            	$(CXX) $(CXXFLAGS) -fsyntax-only ${{ matrix.source_file }}
             MAKE
           fi
 
