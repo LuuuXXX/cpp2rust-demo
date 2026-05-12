@@ -616,12 +616,7 @@ fn extract_function(
     skipped: &mut Vec<SkippedDecl>,
 ) -> Option<FunctionIR> {
     let name = node.name.as_deref()?;
-    let qualified_name = if let Some(cls) = class_name {
-        let ns_part = make_qualified(namespace, cls);
-        format!("{}::{}", ns_part, name)
-    } else {
-        make_qualified(namespace, name)
-    };
+    let qualified_name = make_function_qualified_name(namespace, class_name, name);
 
     // Destructors start with '~' – skip.
     if name.starts_with('~') {
@@ -682,12 +677,7 @@ fn extract_function(
             .filter(|n| !n.is_empty())
             .unwrap_or(&format!("arg{}", i))
             .to_string();
-        let Some(cpp_type) = p
-            .type_info
-            .as_ref()
-            .map(|t| t.qual_type.as_str())
-            .map(|s| s.to_string())
-        else {
+        let Some(cpp_type) = p.type_info.as_ref().map(|t| t.qual_type.clone()) else {
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
@@ -782,6 +772,18 @@ fn make_qualified(namespace: &[String], name: &str) -> String {
         name.to_string()
     } else {
         format!("{}::{}", namespace.join("::"), name)
+    }
+}
+
+fn make_function_qualified_name(
+    namespace: &[String],
+    class_name: Option<&str>,
+    name: &str,
+) -> String {
+    if let Some(cls) = class_name {
+        format!("{}::{}", make_qualified(namespace, cls), name)
+    } else {
+        make_qualified(namespace, name)
     }
 }
 
@@ -956,7 +958,11 @@ fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>) ->
         if t.contains("(*)") || t.contains("(&)") {
             return false;
         }
-        let base = t.split('*').next().unwrap_or("").trim();
+        let base = t
+            .split('*')
+            .next()
+            .expect("split always has at least one element")
+            .trim();
         let base = strip_top_level_const(base);
         return is_supported_cpp_type(base, class_map);
     }
