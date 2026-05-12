@@ -136,14 +136,15 @@ jobs:
           check_file  "${OUT}/rust/Cargo.toml"
           check_file  "${OUT}/rust/build.rs"
           check_file  "${OUT}/rust/src/lib.rs"
-          check_file  "${OUT}/rust/src/ffi_document.rs"
+          check_file  "${OUT}/rust/src/mod_document/include/mod.rs"
+          check_file  "${OUT}/rust/src/mod_document/free/fn_document.rs"
           check_file  "${OUT}/rust/src/merged_ffi.rs"
 
           echo "--- Checking file contents ---"
           check_contains "${OUT}/meta/selected_files.json" "document.cpp.cpp2rust"
-          check_contains "${OUT}/rust/src/ffi_document.rs"   "import_lib!"
-          check_contains "${OUT}/rust/src/ffi_document.rs"   'link_name = "rapidjson"'
-          check_contains "${OUT}/rust/src/ffi_document.rs"   '#include "document.cpp.cpp2rust"'
+          check_contains "${OUT}/rust/src/mod_document/free/fn_document.rs"   "import_lib!"
+          check_contains "${OUT}/rust/src/mod_document/free/fn_document.rs"   'link_name = "rapidjson"'
+          check_contains "${OUT}/rust/src/mod_document/include/mod.rs"        '#include "document.cpp.cpp2rust"'
           check_contains "${OUT}/rust/src/merged_ffi.rs"     "import_lib!"
 
           if [ "${FAIL}" -ne 0 ]; then
@@ -169,8 +170,8 @@ jobs:
           echo ""
           cat .cpp2rust/default/meta/selected_files.json 2>/dev/null || true
           echo ""
-          echo "=== Head of generated ffi_document.rs ==="
-          head -60 .cpp2rust/default/rust/src/ffi_document.rs 2>/dev/null || true
+          echo "=== Head of generated mod_document/free/fn_document.rs ==="
+          head -60 .cpp2rust/default/rust/src/mod_document/free/fn_document.rs 2>/dev/null || true
           echo ""
           echo "=== Head of merged_ffi.rs ==="
           head -40 .cpp2rust/default/rust/src/merged_ffi.rs  2>/dev/null || true
