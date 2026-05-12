@@ -33,7 +33,7 @@ enum Commands {
     ///   cpp2rust-demo init --link mylib -- make -j4
     Init(InitArgs),
 
-    /// Merge per-header FFI files into a single consolidated file.
+    /// Merge per-file FFI files into a single consolidated file.
     ///
     /// Example:
     ///   cpp2rust-demo merge --feature default
@@ -173,7 +173,7 @@ fn run_init(args: InitArgs) -> Result<()> {
 
         // Collect unique parent directories so hicc-build can
         // find the #included middleware files when compiling the adapter code.
-        let include_dirs = header_include_dirs(&files_to_process);
+        let include_dirs = middleware_include_dirs(&files_to_process);
         let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
         std::fs::write(
@@ -306,7 +306,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let merged_path = merge::merge_ffi_files(&rust_src_dir, &link_name)?;
 
     // Recompute unique include dirs from stored selected files.
-    let include_dirs = header_include_dirs(&stored_files);
+    let include_dirs = middleware_include_dirs(&stored_files);
     let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
     // Update build.rs to reference merged_ffi.rs.
@@ -353,10 +353,10 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 /// Collect unique parent directories from a list of middleware file paths, sorted for
 /// deterministic output.  Used to populate `build.include(...)` calls in the
 /// generated `build.rs` so hicc-build can find the `#include`d middleware files.
-fn header_include_dirs(headers: &[PathBuf]) -> Vec<String> {
-    let mut dirs: Vec<String> = headers
+fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
+    let mut dirs: Vec<String> = middleware_files
         .iter()
-        .filter_map(|h| h.parent().map(|p| p.display().to_string()))
+        .filter_map(|file| file.parent().map(|p| p.display().to_string()))
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();

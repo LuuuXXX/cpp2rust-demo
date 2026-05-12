@@ -1,6 +1,6 @@
 //! `merge` command implementation.
 //!
-//! The `merge` command reads all per-header `ffi_*.rs` files produced by
+//! The `merge` command reads all per-file `ffi_*.rs` files produced by
 //! `init` and combines them into a single `merged_ffi.rs`.  It:
 //!
 //! 1. Concatenates the `import_class!` blocks from all files.

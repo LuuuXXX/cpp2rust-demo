@@ -59,7 +59,7 @@ impl FeatureLayout {
     }
 
     /// Write `meta/headers.json` – the list of selected middleware files and link name.
-    pub fn save_meta(&self, headers: &[PathBuf], link_name: &str) -> Result<()> {
+    pub fn save_meta(&self, selected_files: &[PathBuf], link_name: &str) -> Result<()> {
         #[derive(serde::Serialize)]
         struct Meta<'a> {
             link_name: &'a str,
@@ -67,7 +67,10 @@ impl FeatureLayout {
         }
         let meta = Meta {
             link_name,
-            selected_files: headers.iter().map(|p| p.display().to_string()).collect(),
+            selected_files: selected_files
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect(),
         };
         let json =
             serde_json::to_string_pretty(&meta).map_err(|e| anyhow!("serialize meta: {}", e))?;
@@ -76,8 +79,11 @@ impl FeatureLayout {
     }
 
     /// Write `meta/selected_files.json` – middleware files selected by the user.
-    pub fn save_selected_files(&self, headers: &[PathBuf]) -> Result<()> {
-        let list: Vec<String> = headers.iter().map(|p| p.display().to_string()).collect();
+    pub fn save_selected_files(&self, middleware_files: &[PathBuf]) -> Result<()> {
+        let list: Vec<String> = middleware_files
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
         let json = serde_json::to_string_pretty(&list)
             .map_err(|e| anyhow!("serialize selected_files: {}", e))?;
         let path = self.meta_dir.join("selected_files.json");
