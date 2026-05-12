@@ -103,7 +103,6 @@ pub struct TypeInfo {
 /// changing the rest of the extraction pipeline.
 #[derive(Debug, Clone, Default)]
 pub enum OverloadStrategy {
-
     /// Append `_2`, `_3`, … to the second and subsequent overloads.
     ///
     /// The first occurrence keeps the plain snake_case name.
@@ -919,7 +918,7 @@ fn try_extract_template_spec(
 ) -> Option<ClassIR> {
     let template_name = node.name.as_deref()?;
 
-    // Only extract specialisations that have a typedef alias (주선一+二).
+    // Only extract specialisations that have a typedef alias (主线一+二).
     let alias = alias_registry.alias_for_template(template_name)?;
 
     // Determine the full C++ type to use in `#[cpp(class = "…")]`.
