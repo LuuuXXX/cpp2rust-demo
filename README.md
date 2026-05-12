@@ -163,9 +163,14 @@ cpp2rust-demo merge --feature myfeature
 当前会显式跳过并在 `init-interface-report.md` 记录：
 
 - constructor / destructor
-- virtual / pure virtual
 - operator overload
 - template 声明（如 `ClassTemplateDecl` / `FunctionTemplateDecl` / `ClassTemplateSpecializationDecl`）
+
+虚函数与抽象类的处理规则：
+
+- **非纯 virtual 方法**：直接提取为 `#[cpp(method = "...")]`，hicc 通过 vtable 透明调用
+- **全纯虚类**（所有公有方法均为 `= 0`）：提取为 `import_class!` 中的 `#[interface]` trait
+- **混合类**（含普通方法 + 纯虚方法）：普通方法正常提取；纯虚方法记录为 skipped（保守处理）
 
 对 RapidJSON 这类模板、重载、operator、allocator/lifetime 密集的库，建议通过 C++ shim 暴露稳定 C ABI 或简化后的 C++ ABI，再由本工具生成 Rust 侧脚手架。
 

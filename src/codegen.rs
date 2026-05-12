@@ -12,7 +12,7 @@
 //!    compile the C++ adapter code.
 //! 4. A minimal **`Cargo.toml`** for the generated crate.
 
-use crate::ast::{ClassIR, ExtractedDecls, FunctionIR};
+use crate::ast::{ClassIR, ExtractedDecls, FunctionIR, SkippedDecl};
 use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------
@@ -311,13 +311,21 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
 
     if instance_methods.is_empty() {
         // Don't emit an empty import_class! block; the class will still be
-        // forward-declared in import_lib!.
+        // forward-declared in import_lib! (if it is not abstract).
         return;
     }
 
     writeln!(out, "hicc::import_class! {{").unwrap();
-    writeln!(out, "    #[cpp(class = \"{}\")]", class.qualified_name).unwrap();
-    writeln!(out, "    class {} {{", class.name).unwrap();
+    if class.is_abstract {
+        // Fully-abstract C++ class: map to a hicc `#[interface]` trait.
+        // hicc uses #[interface] instead of #[cpp(class = "...")] for pure-virtual
+        // interfaces; the generated Rust trait can then be used as a bound.
+        writeln!(out, "    #[interface]").unwrap();
+        writeln!(out, "    class {} {{", class.name).unwrap();
+    } else {
+        writeln!(out, "    #[cpp(class = \"{}\")]", class.qualified_name).unwrap();
+        writeln!(out, "    class {} {{", class.name).unwrap();
+    }
 
     for method in &instance_methods {
         render_method(out, method);
@@ -394,9 +402,13 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
     writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
     writeln!(out).unwrap();
 
-    // Forward-declare every class used so hicc knows they are C++ types.
+    // Forward-declare every concrete class used so hicc knows they are C++ types.
+    // Abstract classes (mapped to #[interface] traits) are not forward-declared
+    // here: they are not concrete value types in hicc.
     for class in &decls.classes {
-        writeln!(out, "    class {};", class.name).unwrap();
+        if !class.is_abstract {
+            writeln!(out, "    class {};", class.name).unwrap();
+        }
     }
 
     // Collect all static methods as free functions.
@@ -408,7 +420,10 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         .collect();
 
     let has_content = !decls.functions.is_empty() || !static_methods.is_empty();
-    if has_content && !decls.classes.is_empty() {
+    // Only add a blank separator if at least one concrete (non-abstract) class
+    // forward-declaration was actually written above.
+    let has_concrete_classes = decls.classes.iter().any(|c| !c.is_abstract);
+    if has_content && has_concrete_classes {
         writeln!(out).unwrap();
     }
 
@@ -517,7 +532,11 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     }
 
     for class in &decls.classes {
-        writeln!(out, "## Class `{}`\n", class.qualified_name).unwrap();
+        if class.is_abstract {
+            writeln!(out, "## Class `{}` `[interface]`\n", class.qualified_name).unwrap();
+        } else {
+            writeln!(out, "## Class `{}`\n", class.qualified_name).unwrap();
+        }
         writeln!(out, "| Method | Rust name | Const | Static |").unwrap();
         writeln!(out, "|--------|-----------|-------|--------|").unwrap();
         for m in &class.methods {
@@ -544,14 +563,97 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .unwrap();
         }
         writeln!(out).unwrap();
+
+        // Dedicated section for operator overloads: guide users on how to
+        // expose them manually via a hicc::cpp! wrapper.
+        let operators: Vec<&SkippedDecl> = decls
+            .skipped
+            .iter()
+            .filter(|s| s.reason == "operator_overload")
+            .collect();
+        if !operators.is_empty() {
+            writeln!(out, "## Operator Overload Shim Hints\n").unwrap();
+            out.push_str(
+                "The following C++ operators were skipped. \
+                 hicc does not support operator overloads directly. \
+                 Expose them by writing a named C++ wrapper function inside a `hicc::cpp!` block \
+                 and then binding that wrapper via `#[cpp(func = \"...\")]` in `import_lib!`.\n\n",
+            );
+            writeln!(out, "| Skipped operator | Suggested approach |").unwrap();
+            writeln!(out, "|-----------------|-------------------|").unwrap();
+            for op in &operators {
+                let suggestion = operator_shim_suggestion(&op.name);
+                writeln!(out, "| `{}` | {} |", op.name, suggestion).unwrap();
+            }
+            writeln!(out).unwrap();
+            out.push_str(
+                "**Example** – wrapping `operator[]` as a named function:\n\
+                 \n\
+                 ```rust\n\
+                 hicc::cpp! {\n\
+                 //   static ReturnType get_at(MyClass& obj, IndexType idx) { return obj[idx]; }\n\
+                 }\n\
+                 hicc::import_lib! {\n\
+                 //   #![link_name = \"mylib\"]\n\
+                 //   class MyClass;\n\
+                 //   #[cpp(func = \"ReturnType get_at(MyClass&, IndexType)\")]\n\
+                 //   fn get_at(obj: &mut MyClass, idx: IndexType) -> ReturnType;\n\
+                 }\n\
+                 ```\n\n",
+            );
+        }
     }
 
     out
 }
 
 // ---------------------------------------------------------------------------
-// Unit tests
+// Helpers
 // ---------------------------------------------------------------------------
+
+/// Return a human-readable suggestion for how to shim a skipped operator overload.
+fn operator_shim_suggestion(operator_name: &str) -> String {
+    // Extract the operator token from the qualified name, e.g.
+    // "rapidjson::Value::operator[]" → "operator[]"
+    let op_token = operator_name
+        .rsplit("::")
+        .next()
+        .unwrap_or(operator_name);
+    match op_token {
+        "operator[]" => "Wrap as `get_at(obj, idx)` / `set_at(obj, idx, val)`".to_string(),
+        "operator=" => "Wrap as `assign(obj, other)`".to_string(),
+        "operator==" | "operator!=" | "operator<" | "operator<=" | "operator>" | "operator>=" => {
+            format!("Wrap as a named comparison fn, e.g. `{}(a, b)`", operator_abbreviation(op_token))
+        }
+        "operator+" | "operator-" | "operator*" | "operator/" => {
+            format!("Wrap as a named arithmetic fn, e.g. `{}(a, b)`", operator_abbreviation(op_token))
+        }
+        "operator++" | "operator--" => {
+            "Wrap as `increment(obj)` / `decrement(obj)`".to_string()
+        }
+        "operator()" => "Wrap as `call(obj, ...)` – expose as a named function".to_string(),
+        "operator bool" | "operator int" | "operator double" => {
+            "Wrap as a named conversion fn, e.g. `to_bool(obj)`".to_string()
+        }
+        _ => format!("Wrap `{}` as a named static function via `hicc::cpp!`", op_token),
+    }
+}
+
+fn operator_abbreviation(op: &str) -> &str {
+    match op {
+        "operator==" => "eq",
+        "operator!=" => "ne",
+        "operator<" => "lt",
+        "operator<=" => "le",
+        "operator>" => "gt",
+        "operator>=" => "ge",
+        "operator+" => "add",
+        "operator-" => "sub",
+        "operator*" => "mul",
+        "operator/" => "div",
+        _ => "op",
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -657,6 +759,7 @@ mod tests {
             name: "Widget".to_string(),
             qualified_name: "Widget".to_string(),
             methods: vec![method],
+            is_abstract: false,
         };
         let decls = ExtractedDecls {
             functions: vec![],
@@ -711,5 +814,168 @@ mod tests {
         let report = render_interface_report(&decls, "rapidjson", "rapid.cpp.cpp2rust");
         assert!(report.contains("## Skipped declarations"));
         assert!(report.contains("operator_overload"));
+        // Operator shim hints section should appear.
+        assert!(report.contains("## Operator Overload Shim Hints"));
+        assert!(report.contains("get_at"));
+        assert!(report.contains("hicc::cpp!"));
+    }
+
+    #[test]
+    fn render_import_class_abstract_uses_interface_annotation() {
+        let process = FunctionIR {
+            name: "process".to_string(),
+            rust_name: "process".to_string(),
+            return_type: "int".to_string(),
+            rust_return_type: "i32".to_string(),
+            params: vec![int_param("x")],
+            qualified_name: "IFoo::process".to_string(),
+            cpp_signature: "int IFoo::process(int) const".to_string(),
+            is_const: true,
+            is_static: false,
+            is_virtual: true,
+            is_pure: true,
+            class_name: Some("IFoo".to_string()),
+        };
+        let class = ClassIR {
+            name: "IFoo".to_string(),
+            qualified_name: "IFoo".to_string(),
+            methods: vec![process],
+            is_abstract: true,
+        };
+        let decls = ExtractedDecls {
+            functions: vec![],
+            classes: vec![class],
+            skipped: vec![],
+        };
+
+        let method_src = render_method_module(&decls);
+        // Abstract class → #[interface] annotation, NOT #[cpp(class = ...)]
+        assert!(method_src.contains("#[interface]"));
+        assert!(!method_src.contains(r#"cpp(class = "IFoo")"#));
+        assert!(method_src.contains("fn process(&self, x: i32) -> i32"));
+
+        // Abstract class should NOT appear as a forward declaration in import_lib!
+        let free_src = render_free_module(&decls, "mylib");
+        assert!(!free_src.contains("class IFoo;"));
+    }
+
+    #[test]
+    fn render_import_class_concrete_with_virtual_uses_cpp_annotation() {
+        // Non-abstract class with a (non-pure) virtual method: should still use
+        // #[cpp(class = "...")] and include the method normally.
+        let method = FunctionIR {
+            name: "compute".to_string(),
+            rust_name: "compute".to_string(),
+            return_type: "int".to_string(),
+            rust_return_type: "i32".to_string(),
+            params: vec![int_param("x")],
+            qualified_name: "Base::compute".to_string(),
+            cpp_signature: "int Base::compute(int) const".to_string(),
+            is_const: true,
+            is_static: false,
+            is_virtual: true,
+            is_pure: false,
+            class_name: Some("Base".to_string()),
+        };
+        let class = ClassIR {
+            name: "Base".to_string(),
+            qualified_name: "Base".to_string(),
+            methods: vec![method],
+            is_abstract: false,
+        };
+        let decls = ExtractedDecls {
+            functions: vec![],
+            classes: vec![class],
+            skipped: vec![],
+        };
+
+        let method_src = render_method_module(&decls);
+        assert!(!method_src.contains("#[interface]"));
+        assert!(method_src.contains(r#"cpp(class = "Base")"#));
+        assert!(method_src.contains("fn compute(&self, x: i32) -> i32"));
+
+        // Concrete class IS forward-declared in import_lib!
+        let free_src = render_free_module(&decls, "mylib");
+        assert!(free_src.contains("class Base;"));
+    }
+
+    #[test]
+    fn operator_shim_suggestion_format_strings_are_sensible() {
+        // Verify that comparison operators produce clean names like `eq(a, b)`, not `eq_eq(a, b)`.
+        let eq_hint = operator_shim_suggestion("MyClass::operator==");
+        assert!(eq_hint.contains("eq(a, b)"), "got: {eq_hint}");
+        assert!(!eq_hint.contains("eq_eq"), "got: {eq_hint}");
+
+        let lt_hint = operator_shim_suggestion("MyClass::operator<");
+        assert!(lt_hint.contains("lt(a, b)"), "got: {lt_hint}");
+
+        // Arithmetic operators: `add(a, b)`, not `add_add(a, b)`.
+        let add_hint = operator_shim_suggestion("MyClass::operator+");
+        assert!(add_hint.contains("add(a, b)"), "got: {add_hint}");
+        assert!(!add_hint.contains("add_add"), "got: {add_hint}");
+
+        // operator= should not reference a hypothetical API.
+        let assign_hint = operator_shim_suggestion("MyClass::operator=");
+        assert!(assign_hint.contains("assign"), "got: {assign_hint}");
+        assert!(!assign_hint.contains("AbiClass"), "got: {assign_hint}");
+    }
+
+    #[test]
+    fn render_interface_report_labels_abstract_class() {
+        let method = FunctionIR {
+            name: "run".to_string(),
+            rust_name: "run".to_string(),
+            return_type: "void".to_string(),
+            rust_return_type: "()".to_string(),
+            params: vec![],
+            qualified_name: "ITask::run".to_string(),
+            cpp_signature: "void ITask::run()".to_string(),
+            is_const: false,
+            is_static: false,
+            is_virtual: true,
+            is_pure: true,
+            class_name: Some("ITask".to_string()),
+        };
+        let decls = ExtractedDecls {
+            functions: vec![],
+            classes: vec![ClassIR {
+                name: "ITask".to_string(),
+                qualified_name: "ITask".to_string(),
+                methods: vec![method],
+                is_abstract: true,
+            }],
+            skipped: vec![],
+        };
+        let report = render_interface_report(&decls, "mylib", "itask.cpp.cpp2rust");
+        // Abstract class heading should carry [interface] label.
+        assert!(
+            report.contains("[interface]"),
+            "abstract class should be labelled as interface in report"
+        );
+    }
+
+    #[test]
+    fn render_import_lib_no_extra_blank_line_when_all_classes_abstract() {
+        // If all classes are abstract, no `class Foo;` lines are written.
+        // There should be no extra blank separator line before the function.
+        let func = make_fn("foo", "foo", "void", vec![]);
+        let class = ClassIR {
+            name: "IFoo".to_string(),
+            qualified_name: "IFoo".to_string(),
+            methods: vec![],
+            is_abstract: true,
+        };
+        let decls = ExtractedDecls {
+            functions: vec![func],
+            classes: vec![class],
+            skipped: vec![],
+        };
+        let free_src = render_free_module(&decls, "mylib");
+        // Should not have a double blank line (which would come from an extra writeln!).
+        assert!(
+            !free_src.contains("\n\n\n"),
+            "unexpected double blank line in import_lib when all classes are abstract"
+        );
+        assert!(!free_src.contains("class IFoo;"));
     }
 }
