@@ -1866,10 +1866,19 @@ pub(crate) fn cpp_to_rust_type_with_aliases(cpp_type: &str, alias_registry: &Ali
         | "uint8_t" | "uint16_t" | "uint32_t" | "uint64_t"
         | "intptr_t" | "uintptr_t" => cpp_to_rust_type(t),
         _ => {
-            // For user-defined / template types: first check for an alias.
+            // For user-defined / template types: first check for a template alias.
             let bare = bare_class_name(t);
             if let Some(alias) = alias_registry.alias_for_template(&bare) {
                 return alias.to_string();
+            }
+            // Then check for a simple (non-template) typedef alias and resolve it
+            // to its Rust type.  This lets `typedef unsigned int MyUint` be
+            // represented as `u32` in generated free-function bindings.
+            if let Some(underlying) = alias_registry.full_type_for_alias(&bare) {
+                if !underlying.contains('<') {
+                    let owned = underlying.to_string();
+                    return cpp_to_rust_type_with_aliases(&owned, alias_registry);
+                }
             }
             bare
         }
@@ -2050,6 +2059,16 @@ fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, al
 
     if contains_unsupported_type_construct(base) {
         return false;
+    }
+
+    // Check for a simple (non-template) typedef alias: look up the underlying
+    // type and recursively validate it.  This allows `typedef unsigned int MyUint`
+    // to be treated as a supported type in function parameter/return positions.
+    if let Some(underlying) = alias_registry.full_type_for_alias(base) {
+        if !underlying.contains('<') {
+            let owned = underlying.to_string();
+            return is_supported_cpp_type(&owned, class_map, alias_registry);
+        }
     }
 
     is_primitive_cpp_type(base) || is_known_class_type(base, class_map)

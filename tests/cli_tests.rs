@@ -2497,6 +2497,18 @@ fn init_simple_typedef_generates_type_alias() {
         "type aliases should map to Rust primitives: {types_src}"
     );
 
+    // The function using typedef types as parameters should be extracted into
+    // the free module (typedef aliases must be resolved through is_supported_cpp_type).
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_aliases/free/fn_aliases.rs"),
+    )
+    .unwrap();
+    assert!(
+        free_src.contains("fn compute("),
+        "function with typedef parameter types should be extracted: {free_src}"
+    );
+
     // Report should list the aliases.
     let report = std::fs::read_to_string(
         tmp.path()
