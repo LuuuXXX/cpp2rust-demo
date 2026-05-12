@@ -1,7 +1,7 @@
 # Class Example – C++ Class with Methods
 
-This example demonstrates generating Rust FFI for a C++ header that contains a
-class with public methods (including `const` and `static` methods).
+This example demonstrates generating Rust FFI for a C++ class by compiling a
+translation unit and extracting APIs from the captured preprocessed middleware.
 
 ## Source
 
@@ -14,7 +14,7 @@ From the repository root:
 
 ```bash
 # Step 1: generate FFI (use a separate feature to avoid mixing with other examples)
-cpp2rust-demo init --feature widget --link widget -- clang -x c++ -fsyntax-only examples/class/widget.hpp
+cpp2rust-demo init --feature widget --link widget -- clang -x c++ -fsyntax-only examples/class/widget.cpp
 
 # Step 2: consolidate
 cpp2rust-demo merge --feature widget
@@ -24,8 +24,8 @@ cat .cpp2rust/widget/rust/src/merged_ffi.rs
 ```
 
 > **Note**: In an interactive terminal, step 1 will prompt you to select which
-> captured headers to include. Press `Space` to toggle, `Enter` to confirm.
-> In non-interactive environments (CI, pipes) all headers are selected automatically.
+> captured middleware files to include. Press `Space` to toggle, `Enter` to confirm.
+> In non-interactive environments (CI, pipes) all files are selected automatically.
 
 ## Expected Generated FFI
 

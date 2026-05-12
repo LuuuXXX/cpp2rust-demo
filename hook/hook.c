@@ -145,9 +145,7 @@ static int is_cpp_file(const char *path) {
     return 0;
   return strcmp(dot, ".cc") == 0 || strcmp(dot, ".cpp") == 0 ||
          strcmp(dot, ".cxx") == 0 || strcmp(dot, ".c++") == 0 ||
-         strcmp(dot, ".C") == 0 || strcmp(dot, ".h") == 0 ||
-         strcmp(dot, ".hpp") == 0 || strcmp(dot, ".hh") == 0 ||
-         strcmp(dot, ".hxx") == 0;
+         strcmp(dot, ".C") == 0;
 }
 
 static int mkdir_p(const char *path) {

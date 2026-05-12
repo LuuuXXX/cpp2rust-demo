@@ -31,7 +31,7 @@ pub struct FeatureLayout {
     pub ast_dir: PathBuf,
     /// `.cpp2rust/<feature>/rust/`  – generated Rust project
     pub rust_dir: PathBuf,
-    /// `.cpp2rust/<feature>/meta/`  – metadata (headers list, link name, etc.)
+    /// `.cpp2rust/<feature>/meta/`  – metadata (selected files list, link name, etc.)
     pub meta_dir: PathBuf,
 }
 
@@ -58,8 +58,8 @@ impl FeatureLayout {
         Ok(())
     }
 
-    /// Write `meta/headers.json` – the list of input C++ header files and link name.
-    pub fn save_meta(&self, headers: &[PathBuf], link_name: &str) -> Result<()> {
+    /// Write `meta/headers.json` – the list of selected middleware files and link name.
+    pub fn save_meta(&self, selected_files: &[PathBuf], link_name: &str) -> Result<()> {
         #[derive(serde::Serialize)]
         struct Meta<'a> {
             link_name: &'a str,
@@ -67,7 +67,10 @@ impl FeatureLayout {
         }
         let meta = Meta {
             link_name,
-            selected_files: headers.iter().map(|p| p.display().to_string()).collect(),
+            selected_files: selected_files
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect(),
         };
         let json =
             serde_json::to_string_pretty(&meta).map_err(|e| anyhow!("serialize meta: {}", e))?;
@@ -76,8 +79,11 @@ impl FeatureLayout {
     }
 
     /// Write `meta/selected_files.json` – middleware files selected by the user.
-    pub fn save_selected_files(&self, headers: &[PathBuf]) -> Result<()> {
-        let list: Vec<String> = headers.iter().map(|p| p.display().to_string()).collect();
+    pub fn save_selected_files(&self, middleware_files: &[PathBuf]) -> Result<()> {
+        let list: Vec<String> = middleware_files
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
         let json = serde_json::to_string_pretty(&list)
             .map_err(|e| anyhow!("serialize selected_files: {}", e))?;
         let path = self.meta_dir.join("selected_files.json");
@@ -195,12 +201,12 @@ mod tests {
         let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
         layout.create_dirs().unwrap();
         let headers = vec![
-            PathBuf::from("/capture/foo.hpp.cpp2rust"),
+            PathBuf::from("/capture/foo.cpp.cpp2rust"),
             PathBuf::from("/capture/bar.cc.cpp2rust"),
         ];
         layout.save_selected_files(&headers).unwrap();
         let content = std::fs::read_to_string(layout.meta_dir.join("selected_files.json")).unwrap();
-        assert!(content.contains("foo.hpp.cpp2rust"));
+        assert!(content.contains("foo.cpp.cpp2rust"));
         assert!(content.contains("bar.cc.cpp2rust"));
     }
 
@@ -220,10 +226,10 @@ mod tests {
     fn scan_cpp2rust_files_finds_files() {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join("x")).unwrap();
-        std::fs::write(tmp.path().join("a.hpp.cpp2rust"), "").unwrap();
+        std::fs::write(tmp.path().join("a.cpp.cpp2rust"), "").unwrap();
         std::fs::write(tmp.path().join("x/b.cc.cpp2rust"), "").unwrap();
         std::fs::write(tmp.path().join("x/c.cpp"), "").unwrap();
-        std::fs::write(tmp.path().join("x/d.hpp.cpp2rust.opts"), "").unwrap();
+        std::fs::write(tmp.path().join("x/d.cpp.cpp2rust.opts"), "").unwrap();
         let files = scan_cpp2rust_files(tmp.path()).unwrap();
         assert_eq!(files.len(), 2);
     }

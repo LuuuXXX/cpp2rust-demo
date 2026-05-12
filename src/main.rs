@@ -33,7 +33,7 @@ enum Commands {
     ///   cpp2rust-demo init --link mylib -- make -j4
     Init(InitArgs),
 
-    /// Merge per-header FFI files into a single consolidated file.
+    /// Merge per-file FFI files into a single consolidated file.
     ///
     /// Example:
     ///   cpp2rust-demo merge --feature default
@@ -117,7 +117,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             "{}",
             concat!(
                 "preload hook did not capture any *.cpp2rust middleware files from build command; ",
-                "ensure the build command really compiles C/C++ sources under the project root"
+                "ensure the build command really compiles C++ translation units under the project root"
             )
         ));
     }
@@ -127,7 +127,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     );
 
     // ----------------------------------------------------------------
-    // Interactive header selection
+    // Interactive middleware file selection
     // (auto-selects all when stdin is not a terminal, e.g. in CI/scripts)
     // ----------------------------------------------------------------
     let sel = InteractiveSelector;
@@ -173,7 +173,7 @@ fn run_init(args: InitArgs) -> Result<()> {
 
         // Collect unique parent directories so hicc-build can
         // find the #included middleware files when compiling the adapter code.
-        let include_dirs = header_include_dirs(&files_to_process);
+        let include_dirs = middleware_include_dirs(&files_to_process);
         let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
         std::fs::write(
@@ -184,7 +184,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("Created {}", build_rs_path.display());
     }
 
-    // lib.rs: re-export per-header ffi modules.
+    // lib.rs: re-export per-file ffi modules.
     let lib_rs_path = rust_src_dir.join("lib.rs");
     {
         let mod_names: Vec<String> = stems.iter().map(|s| format!("ffi_{}", s)).collect();
@@ -222,7 +222,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         );
 
         if decls.functions.is_empty() && decls.classes.is_empty() {
-            println!("  Warning: no declarations found from this header.");
+            println!("  Warning: no declarations found from this file.");
         }
 
         // Step 3: generate FFI source.
@@ -262,7 +262,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("        ├── build.rs");
     println!("        └── src/");
     println!("            ├── lib.rs");
-    println!("            └── ffi_<header>.rs  (one per input header)");
+    println!("            └── ffi_<file>.rs  (one per selected middleware file)");
     println!();
     println!("Next steps:");
     println!("  1. Review .cpp2rust/{}/rust/src/ffi_*.rs", feature);
@@ -306,7 +306,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let merged_path = merge::merge_ffi_files(&rust_src_dir, &link_name)?;
 
     // Recompute unique include dirs from stored selected files.
-    let include_dirs = header_include_dirs(&stored_files);
+    let include_dirs = middleware_include_dirs(&stored_files);
     let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
     // Update build.rs to reference merged_ffi.rs.
@@ -350,13 +350,13 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Collect unique parent directories from a list of header paths, sorted for
+/// Collect unique parent directories from a list of middleware file paths, sorted for
 /// deterministic output.  Used to populate `build.include(...)` calls in the
-/// generated `build.rs` so hicc-build can find the `#include`d headers.
-fn header_include_dirs(headers: &[PathBuf]) -> Vec<String> {
-    let mut dirs: Vec<String> = headers
+/// generated `build.rs` so hicc-build can find the `#include`d middleware files.
+fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
+    let mut dirs: Vec<String> = middleware_files
         .iter()
-        .filter_map(|h| h.parent().map(|p| p.display().to_string()))
+        .filter_map(|file| file.parent().map(|p| p.display().to_string()))
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
@@ -524,15 +524,15 @@ mod tests {
 
     #[test]
     fn middleware_stem_strips_cpp2rust_and_original_extension() {
-        let p = PathBuf::from("/tmp/mylib.hpp.cpp2rust");
+        let p = PathBuf::from("/tmp/mylib.cpp.cpp2rust");
         assert_eq!(middleware_stem(&p), "mylib");
     }
 
     #[test]
     fn middleware_stems_hashes_on_collisions() {
         let paths = vec![
-            PathBuf::from("/a/lib.hpp.cpp2rust"),
-            PathBuf::from("/b/lib.h.cpp2rust"),
+            PathBuf::from("/a/lib.cpp.cpp2rust"),
+            PathBuf::from("/b/lib.cc.cpp2rust"),
         ];
         let stems = middleware_stems(&paths);
         assert_eq!(stems.len(), 2);
