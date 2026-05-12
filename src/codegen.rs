@@ -1091,6 +1091,7 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
 // ---------------------------------------------------------------------------
 
 /// Return a human-readable suggestion for how to shim a skipped operator overload.
+#[allow(dead_code)]
 fn operator_shim_suggestion(operator_name: &str) -> String {
     // Extract the operator token from the qualified name, e.g.
     // "rapidjson::Value::operator[]" → "operator[]"
@@ -1118,6 +1119,7 @@ fn operator_shim_suggestion(operator_name: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn operator_abbreviation(op: &str) -> &str {
     match op {
         "operator==" => "eq",

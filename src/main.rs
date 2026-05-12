@@ -279,15 +279,11 @@ fn run_init(args: InitArgs) -> Result<()> {
         let free_mod_name = format!("fn_{}", stem);
         let free_file_path = group_dir.join("free").join(format!("{free_mod_name}.rs"));
         let has_free = has_free_bindings(&decls);
+        let has_shims = !decls.operator_shims.is_empty();
         if has_free {
             let free_src = codegen::render_free_module(&decls, link_name);
             std::fs::write(&free_file_path, free_src)
                 .map_err(|e| anyhow!("write {}: {}", free_file_path.display(), e))?;
-            std::fs::write(
-                group_dir.join("free").join("mod.rs"),
-                codegen::render_lib_rs(&[&free_mod_name]),
-            )
-            .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
         }
 
         // `types/` is generated as per-group type semantics (inventory + mappings).
@@ -296,7 +292,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
 
         // 主线四: operator shims – write C++ shim header to meta/ and Rust stubs to free/.
-        if !decls.operator_shims.is_empty() {
+        if has_shims {
             let middleware_basename = selected_file
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -312,10 +308,28 @@ fn run_init(args: InitArgs) -> Result<()> {
             println!("  Operator shims → {}", shims_hpp_path.display());
         }
 
+        // Write free/mod.rs registering all submodules in the free/ directory.
+        // This must happen after both fn_<stem>.rs and shim_ops.rs are written so
+        // that all produced files are exported from the module tree.
+        if has_free || has_shims {
+            let mut free_submodules: Vec<&str> = Vec::new();
+            if has_free {
+                free_submodules.push(&free_mod_name);
+            }
+            if has_shims {
+                free_submodules.push("shim_ops");
+            }
+            std::fs::write(
+                group_dir.join("free").join("mod.rs"),
+                codegen::render_lib_rs(&free_submodules),
+            )
+            .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
+        }
+
         let group_mod_path = group_dir.join("mod.rs");
         std::fs::write(
             &group_mod_path,
-            render_group_mod_rs(has_free, has_class, has_method),
+            render_group_mod_rs(has_free || has_shims, has_class, has_method),
         )
         .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
 
@@ -355,6 +369,9 @@ fn run_init(args: InitArgs) -> Result<()> {
         build_rs_sources.push(format!("src/{}/include/mod.rs", group_module));
         if has_free {
             build_rs_sources.push(format!("src/{}/free/{}.rs", group_module, free_mod_name));
+        }
+        if has_shims {
+            build_rs_sources.push(format!("src/{}/free/shim_ops.rs", group_module));
         }
         if has_class {
             build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));

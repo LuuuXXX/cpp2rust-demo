@@ -2265,6 +2265,28 @@ fn init_operator_overload_generates_shim_files() {
         shims_rs.contains("import_lib!") && shims_rs.contains("#[cpp(func"),
         "shim_ops.rs should contain import_lib! with #[cpp(func)] bindings: {shims_rs}"
     );
+
+    // shim_ops must be registered in free/mod.rs so it is reachable from the module tree.
+    let free_mod = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_ops2/free/mod.rs"),
+    )
+    .unwrap();
+    assert!(
+        free_mod.contains("shim_ops"),
+        "free/mod.rs should export shim_ops: {free_mod}"
+    );
+
+    // The group's mod.rs must also export the free/ module.
+    let group_mod = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_ops2/mod.rs"),
+    )
+    .unwrap();
+    assert!(
+        group_mod.contains("pub mod free"),
+        "group mod.rs should export free when shims are present: {group_mod}"
+    );
 }
 
 // ---------------------------------------------------------------------------
