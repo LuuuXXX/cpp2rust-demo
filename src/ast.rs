@@ -687,6 +687,12 @@ fn walk_node(
             }
             class_ir.is_abstract = is_abstract;
 
+            // Sort ctors by ascending parameter count so that ctors[0] is
+            // always the "simplest" (fewest parameters) constructor.  This
+            // guarantees that render_import_class's `skip(1)` factory loop
+            // stays in sync with the primary ctor selection.
+            class_ir.ctors.sort_by_key(|c| c.params.len());
+
             result.classes.push(class_ir);
         }
 

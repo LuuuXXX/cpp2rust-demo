@@ -161,6 +161,18 @@ pub fn render_method_module(decls: &ExtractedDecls) -> String {
 
 pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
     let mut out = String::new();
+    // When abstract classes are present we need @make_proxy support, which
+    // requires the hicc memory header.  Emit a real hicc::cpp! include block
+    // so that both the standalone module file and the merged_ffi.rs work
+    // without manual edits.
+    let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
+    if has_abstract {
+        writeln!(out, "// @make_proxy support: required for wrapping Rust structs as C++ interfaces.").unwrap();
+        writeln!(out, "hicc::cpp! {{").unwrap();
+        writeln!(out, "    #include <hicc/std/memory.hpp>").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+    }
     render_import_lib(&mut out, decls, link_name);
     out
 }
@@ -437,14 +449,6 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
 
     writeln!(out, "hicc::import_lib! {{").unwrap();
     writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
-
-    // Include hicc/std/memory.hpp when @make_proxy is needed.
-    if has_abstract {
-        writeln!(out).unwrap();
-        writeln!(out, "    // @make_proxy support (for Rust implementations of abstract interfaces).").unwrap();
-        writeln!(out, "    // Ensure your build.rs include path contains hicc's headers.").unwrap();
-        writeln!(out, "    // hicc::cpp! {{ #include <hicc/std/memory.hpp> }}").unwrap();
-    }
     writeln!(out).unwrap();
 
     // Forward-declare every concrete class used so hicc knows they are C++ types.

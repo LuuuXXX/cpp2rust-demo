@@ -1601,9 +1601,74 @@ fn init_class_multiple_ctors_generates_factory_functions() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// hicc capability expansion: base class / inheritance extraction
-// ---------------------------------------------------------------------------
+/// When constructors are declared in reverse param-count order (most params
+/// first), the 0-param constructor should still be selected as the primary
+/// `ctor = "..."` and the higher-param constructors should become factories.
+#[test]
+fn init_class_ctors_sorted_by_param_count() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "rev_ctor.hpp",
+        r#"
+        class Stack {
+        public:
+            Stack(int capacity, int flags);
+            Stack(int capacity);
+            Stack();
+            void push(int val);
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "rev_ctor.cpp", "rev_ctor.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_rev_ctor/method/mtd_rev_ctor.rs"),
+    )
+    .unwrap();
+    // Even though Stack() is declared last, it should be the primary ctor.
+    assert!(
+        method_src.contains("ctor = \"Stack()\""),
+        "0-param ctor should be primary even when declared last: {}",
+        method_src
+    );
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_rev_ctor/free/fn_rev_ctor.rs"),
+    )
+    .unwrap();
+    // The 1-param and 2-param ctors should become factory fns, NOT the 0-param.
+    assert!(
+        free_src.contains("new_2"),
+        "non-primary ctors should be factory fns: {}",
+        free_src
+    );
+    // The 0-param ctor (primary) should NOT appear as a factory fn.
+    assert!(
+        !free_src.contains("Stack()"),
+        "primary ctor Stack() should not be repeated as a factory fn: {}",
+        free_src
+    );
+}
+
 
 /// When a class publicly inherits from another, the generated `import_class!`
 /// block should use `class Foo: Base { ... }` syntax.
@@ -1731,6 +1796,18 @@ fn init_abstract_class_generates_make_proxy() {
     assert!(
         free_src.contains("hicc::Interface<Listener>"),
         "make_proxy fn should take hicc::Interface<T>: {}",
+        free_src
+    );
+    // The free module should emit an actual hicc::cpp! block with the memory
+    // header so @make_proxy compiles without manual edits.
+    assert!(
+        free_src.contains("hicc/std/memory.hpp"),
+        "free module should include hicc/std/memory.hpp for @make_proxy: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("hicc::cpp!"),
+        "free module should have a hicc::cpp! block (not just a comment) when abstract classes present: {}",
         free_src
     );
 
