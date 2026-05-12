@@ -451,7 +451,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     }
 
     let merged_src2 = lo.rust_dir.join("src.2");
-    let merged = merge::merge_grouped_modules(&rust_src_dir, &merged_src2, &link_name, no_link)?;
+    let merged = merge::merge_grouped_modules(&rust_src_dir, &merged_src2, &link_name)?;
 
     // Recompute unique include dirs from stored selected files.
     let include_dirs = middleware_include_dirs(&stored_files);

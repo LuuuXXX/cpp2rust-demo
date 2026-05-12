@@ -30,6 +30,8 @@ pub struct AstNode {
     pub type_info: Option<TypeInfo>,
     #[serde(rename = "isImplicit")]
     pub is_implicit: Option<bool>,
+    // Clang JSON uses either `isVirtual`/`isPure` or `virtual`/`pure`
+    // depending on version/output mode, so accept both spellings.
     #[serde(rename = "isVirtual", alias = "virtual")]
     pub is_virtual: Option<bool>,
     #[serde(rename = "isPure", alias = "pure")]

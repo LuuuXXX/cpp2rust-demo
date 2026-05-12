@@ -49,7 +49,6 @@ pub fn merge_grouped_modules(
     init_src_dir: &Path,
     out_src2_dir: &Path,
     link_name: &str,
-    _no_link: bool,
 ) -> Result<MergeOutput> {
     let mut group_dirs: Vec<PathBuf> = fs::read_dir(init_src_dir)
         .map_err(|e| anyhow!("read dir {}: {}", init_src_dir.display(), e))?

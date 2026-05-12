@@ -284,7 +284,7 @@ pub fn render_build_rs(
 {file_calls}{include_calls}{portability_note}    build.compile("cpp2rust_adapter");
     println!("cargo::rustc-link-lib=cpp2rust_adapter");
     println!("cargo::rustc-link-lib=stdc++");
-{external_link_call}    
+{external_link_call}
 }}
 "#
     )
