@@ -13,7 +13,7 @@
 5. 扫描 `.cpp2rust/<feature>/cpp/**/*.cpp2rust`
 6. 交互式选择参与转换的中间件文件（非交互自动全选）
 7. 对选中文件执行 `clang -ast-dump=json`
-8. 抽取函数/类/方法与类型信息，生成 `hicc` FFI 文件
+8. 抽取函数/类/方法与类型信息，生成按 `mod_<group>` 组织的语义模块（include/types/free/class/method/global）
 9. 生成 `Cargo.toml` / `build.rs` / `src/lib.rs` 与接口报告
 
 说明：
@@ -37,17 +37,52 @@
     ├── build.rs
     └── src/
         ├── lib.rs
-        ├── ffi_*.rs
-        └── merged_ffi.rs
+        ├── common/
+        │   ├── mod.rs
+        │   ├── includes.rs
+        │   └── types.rs
+        ├── mod_<group>/
+        │   ├── mod.rs
+        │   ├── include/mod.rs
+        │   ├── types/mod.rs
+        │   ├── free/mod.rs + fn_*.rs
+        │   ├── class/mod.rs + cls_*.rs（类级语义结构/元信息）
+        │   ├── method/mod.rs + mtd_*.rs（实例方法）
+        │   └── meta.json
+        ├── (merge 后) -> src.2
+        ├── src.1/
+        └── src.2/
+            ├── lib.rs
+            ├── mod_<group>.rs
+            └── merged_ffi.rs
 ```
 
 ## merge 流程
 
-`merge` 会读取 `ffi_*.rs` 并合并：
+`merge` 会读取 `rust/src/mod_<group>/` 并合并：
 
-- 合并并去重 `hicc::cpp!` 中的 `#include`
-- 合并 `import_class!`
-- 合并 `import_lib!`，统一 `link_name` 并去重 class 前置声明
+- 按 group 生成 `rust/src.2/mod_<group>.rs`
+- 额外生成全局 `rust/src.2/merged_ffi.rs`
+- 同时生成 `rust/src.2/lib.rs`
+- 完成后将 init 原始 `rust/src` 备份为 `rust/src.1`，并将 `rust/src` 切换为指向 `src.2` 的符号链接
+- `build.rs` 持续引用 `src/...` 路径，依赖该活跃视图机制在 merge 后自动指向 `src.2` 产物
+
+## v1 能力边界（当前实现）
+
+- 当前语义拆分的实际绑定内容主要是：
+  - `include/`：`hicc::cpp!` include 上下文
+  - `free/`：自由函数与静态方法
+  - `method/`：类实例方法（当前唯一承接 `import_class!`）
+- `class/`：类级语义结构层（类名、方法计数、类-方法关系 + 访问函数），不是方法绑定层。
+- `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），参与 merge 语义组织。
+- `common/*`：共享语义层（共享 include/type 索引 + 查询函数），参与全局 merge 语义组织。
+- `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围。
+
+merge 语义边界（当前）：
+- 参与 merged 输出的目录：`include/`、`types/`、`method/`、`free/`、`class/`。
+- 其中：`method/` 贡献 `import_class!`；`free/` 贡献 `import_lib!`。
+- `class/` 贡献类级语义结构块（如 class 维度统计、类-方法关系）。
+- `common/*` 贡献共享语义块到全局 merged_ffi 输出，作为跨 group 的共享语义层。
 
 ## hicc 约束
 

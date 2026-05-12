@@ -23,7 +23,8 @@ jobs:
             include_stmt: '#include "rapidjson/document.h"'
             build_command: cmake -S . -B build && cmake --build build -j2
             expected_link_name: rapidjson
-            expected_ffi: ffi_document.rs
+            expected_group: mod_document
+            expected_free: fn_document.rs
           - project: spdlog
             build_system: make
             repo_url: https://github.com/gabime/spdlog.git
@@ -32,7 +33,8 @@ jobs:
             include_stmt: '#include "spdlog/spdlog.h"'
             build_command: make -j2
             expected_link_name: spdlog
-            expected_ffi: ffi_main.rs
+            expected_group: mod_main
+            expected_free: fn_main.rs
 
     steps:
       - name: Checkout cpp2rust-demo
@@ -120,12 +122,12 @@ jobs:
           test -f "${OUT}/meta/init-interface-report.md"
           test -f "${OUT}/meta/merge-report.md"
           test -f "${OUT}/cpp/${{ matrix.source_file }}.cpp2rust"
-          test -f "${OUT}/rust/src/${{ matrix.expected_ffi }}"
+          test -f "${OUT}/rust/src.1/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
           test -f "${OUT}/rust/src/merged_ffi.rs"
 
           grep -q "${{ matrix.source_file }}.cpp2rust" "${OUT}/meta/selected_files.json"
-          grep -q 'import_lib!' "${OUT}/rust/src/${{ matrix.expected_ffi }}"
-          grep -q "link_name = \"${{ matrix.expected_link_name }}\"" "${OUT}/rust/src/${{ matrix.expected_ffi }}"
+          grep -q 'import_lib!' "${OUT}/rust/src.1/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
+          grep -q "link_name = \"${{ matrix.expected_link_name }}\"" "${OUT}/rust/src.1/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
 
       - name: Upload .cpp2rust artifact
         if: always()

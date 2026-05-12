@@ -25,6 +25,7 @@ use std::fmt::Write as _;
 /// The generated file includes a `hicc::cpp!` block that `#include`s only the
 /// basename, so its parent directory must be added to the compiler include path via
 /// `build.rs` (see [`render_build_rs`]).
+#[allow(dead_code)]
 pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &str) -> String {
     let mut out = String::new();
 
@@ -41,8 +42,19 @@ pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &st
     writeln!(out, "#![allow(non_snake_case, dead_code)]").unwrap();
     writeln!(out).unwrap();
 
-    // Emit hicc::cpp! include block so hicc-build can see the C++ declarations
-    // (namespaces, class definitions, etc.) when compiling the adapter code.
+    out.push_str(&render_include_module(source_file_path));
+    let class_part = render_class_module(decls);
+    if !class_part.is_empty() {
+        out.push_str(&class_part);
+        out.push('\n');
+    }
+    out.push_str(&render_free_module(decls, link_name));
+
+    out
+}
+
+pub fn render_include_module(source_file_path: &str) -> String {
+    let mut out = String::new();
     let include_basename = std::path::Path::new(source_file_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -50,17 +62,148 @@ pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &st
     writeln!(out, "hicc::cpp! {{").unwrap();
     writeln!(out, "    #include \"{}\"", include_basename).unwrap();
     writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    out
+}
 
-    // ----- import_class! blocks ----------------------------------------
+pub fn render_class_module(decls: &ExtractedDecls) -> String {
+    let mut out = String::new();
+    if decls.classes.is_empty() {
+        return out;
+    }
+    writeln!(out, "// Class-level metadata for this middleware group.").unwrap();
+    writeln!(out, "pub const CLASS_COUNT: usize = {};", decls.classes.len()).unwrap();
+    let method_counts: Vec<usize> = decls.classes.iter().map(|c| c.methods.len()).collect();
+    let static_method_counts: Vec<usize> = decls
+        .classes
+        .iter()
+        .map(|c| c.methods.iter().filter(|m| m.is_static).count())
+        .collect();
+    let mut class_methods: Vec<(&str, &str)> = Vec::new();
+    let mut class_instance_methods: Vec<(&str, &str)> = Vec::new();
+    for class in &decls.classes {
+        for method in &class.methods {
+            class_methods.push((class.qualified_name.as_str(), method.qualified_name.as_str()));
+            if !method.is_static {
+                class_instance_methods
+                    .push((class.qualified_name.as_str(), method.qualified_name.as_str()));
+            }
+        }
+    }
+    out.push_str(&render_string_slice(
+        "CLASS_NAMES",
+        &decls
+            .classes
+            .iter()
+            .map(|c| c.qualified_name.as_str())
+            .collect::<Vec<_>>(),
+    ));
+    out.push_str(&render_usize_slice("CLASS_METHOD_COUNTS", &method_counts));
+    out.push_str(&render_usize_slice(
+        "CLASS_STATIC_METHOD_COUNTS",
+        &static_method_counts,
+    ));
+    out.push_str(&render_pair_slice("CLASS_METHODS", &class_methods));
+    out.push_str(&render_pair_slice(
+        "CLASS_INSTANCE_METHODS",
+        &class_instance_methods,
+    ));
+    out.push_str(
+        "\
+pub fn class_method_count(class_name: &str) -> Option<usize> {\n\
+    CLASS_NAMES\n\
+        .iter()\n\
+        .position(|name| *name == class_name)\n\
+        .map(|idx| CLASS_METHOD_COUNTS[idx])\n\
+}\n\
+\n\
+pub fn class_static_method_count(class_name: &str) -> Option<usize> {\n\
+    CLASS_NAMES\n\
+        .iter()\n\
+        .position(|name| *name == class_name)\n\
+        .map(|idx| CLASS_STATIC_METHOD_COUNTS[idx])\n\
+}\n\
+\n\
+pub fn class_methods(class_name: &str) -> Vec<&'static str> {\n\
+    CLASS_METHODS\n\
+        .iter()\n\
+        .filter_map(|(cls, method)| (*cls == class_name).then_some(*method))\n\
+        .collect()\n\
+}\n\
+\n\
+pub fn class_instance_methods(class_name: &str) -> Vec<&'static str> {\n\
+    CLASS_INSTANCE_METHODS\n\
+        .iter()\n\
+        .filter_map(|(cls, method)| (*cls == class_name).then_some(*method))\n\
+        .collect()\n\
+}\n",
+    );
+    out
+}
+
+pub fn render_method_module(decls: &ExtractedDecls) -> String {
+    let mut out = String::new();
     for class in &decls.classes {
         render_import_class(&mut out, class);
         writeln!(out).unwrap();
     }
+    out
+}
 
-    // ----- import_lib! block -------------------------------------------
+pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
+    let mut out = String::new();
     render_import_lib(&mut out, decls, link_name);
+    out
+}
 
+pub fn render_types_module(decls: &ExtractedDecls) -> String {
+    let mut cpp_types = std::collections::BTreeSet::new();
+    let mut cpp_rust_type_mappings = std::collections::BTreeMap::new();
+    for f in &decls.functions {
+        cpp_types.insert(f.return_type.as_str());
+        cpp_rust_type_mappings
+            .entry(f.return_type.as_str())
+            .or_insert(f.rust_return_type.as_str());
+        for p in &f.params {
+            cpp_types.insert(p.cpp_type.as_str());
+            cpp_rust_type_mappings
+                .entry(p.cpp_type.as_str())
+                .or_insert(p.rust_type.as_str());
+        }
+    }
+    for c in &decls.classes {
+        for m in &c.methods {
+            cpp_types.insert(m.return_type.as_str());
+            cpp_rust_type_mappings
+                .entry(m.return_type.as_str())
+                .or_insert(m.rust_return_type.as_str());
+            for p in &m.params {
+                cpp_types.insert(p.cpp_type.as_str());
+                cpp_rust_type_mappings
+                    .entry(p.cpp_type.as_str())
+                    .or_insert(p.rust_type.as_str());
+            }
+        }
+    }
+    let values: Vec<&str> = cpp_types.into_iter().collect();
+    let mappings: Vec<(&str, &str)> = cpp_rust_type_mappings
+        .into_iter()
+        .collect::<Vec<(&str, &str)>>();
+    let mut out = String::from("// Per-group C++ type inventory extracted from AST.\n");
+    out.push_str(&format!("pub const CPP_TYPE_COUNT: usize = {};\n", values.len()));
+    out.push_str(&render_string_slice("CPP_TYPES", &values));
+    out.push_str(&render_pair_slice("CPP_RUST_TYPE_MAPPINGS", &mappings));
+    out.push_str(
+        "\
+pub fn rust_type_for(cpp_type: &str) -> Option<&'static str> {\n\
+    CPP_RUST_TYPE_MAPPINGS\n\
+        .iter()\n\
+        .find_map(|(cpp, rust)| (*cpp == cpp_type).then_some(*rust))\n\
+}\n\
+\n\
+pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
+    CPP_TYPES.iter().any(|ty| *ty == cpp_type)\n\
+}\n",
+    );
     out
 }
 
@@ -158,6 +301,36 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
 
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
+}
+
+fn render_string_slice(name: &str, values: &[&str]) -> String {
+    let mut out = String::new();
+    writeln!(out, "pub const {}: &[&str] = &[", name).unwrap();
+    for value in values {
+        writeln!(out, "    {:?},", value).unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    out
+}
+
+fn render_usize_slice(name: &str, values: &[usize]) -> String {
+    let mut out = String::new();
+    writeln!(out, "pub const {}: &[usize] = &[", name).unwrap();
+    for value in values {
+        writeln!(out, "    {},", value).unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    out
+}
+
+fn render_pair_slice(name: &str, values: &[(&str, &str)]) -> String {
+    let mut out = String::new();
+    writeln!(out, "pub const {}: &[(&str, &str)] = &[", name).unwrap();
+    for (left, right) in values {
+        writeln!(out, "    ({:?}, {:?}),", left, right).unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    out
 }
 
 fn render_method(out: &mut String, func: &FunctionIR) {
@@ -447,10 +620,30 @@ mod tests {
             functions: vec![],
             classes: vec![class],
         };
-        let src = render_ffi(&decls, "mywidget", "widget.hpp");
-        assert!(src.contains("import_class!"));
-        assert!(src.contains(r#"cpp(class = "Widget")"#));
-        assert!(src.contains("fn update(&mut self, x: f64, y: f64)"));
-        assert!(src.contains("class Widget;"));
+        let method_src = render_method_module(&decls);
+        assert!(method_src.contains("import_class!"));
+        assert!(method_src.contains(r#"cpp(class = "Widget")"#));
+        assert!(method_src.contains("fn update(&mut self, x: f64, y: f64)"));
+
+        let class_src = render_class_module(&decls);
+        assert!(class_src.contains("CLASS_COUNT"));
+        assert!(class_src.contains("CLASS_NAMES"));
+        assert!(class_src.contains("CLASS_METHOD_COUNTS"));
+        assert!(class_src.contains("CLASS_STATIC_METHOD_COUNTS"));
+        assert!(class_src.contains("CLASS_METHODS"));
+        assert!(class_src.contains("CLASS_INSTANCE_METHODS"));
+        assert!(class_src.contains("Widget::update"));
+        assert!(class_src.contains("pub fn class_method_count"));
+        assert!(class_src.contains("pub fn class_methods"));
+
+        let free_src = render_free_module(&decls, "mywidget");
+        assert!(free_src.contains("class Widget;"));
+
+        let types_src = render_types_module(&decls);
+        assert!(types_src.contains("CPP_RUST_TYPE_MAPPINGS"));
+        assert!(types_src.contains("(\"double\", \"f64\")"));
+        assert!(types_src.contains("(\"void\", \"()\")"));
+        assert!(types_src.contains("pub fn rust_type_for"));
+        assert!(types_src.contains("pub fn has_cpp_type"));
     }
 }

@@ -17,9 +17,9 @@ C++ 项目目录
    │    └─ 生成 hicc Rust 项目与 init-interface-report.md
    │
    └─ cpp2rust-demo merge [--feature <name>]
-        ├─ 合并 rust/src/ffi_*.rs
-        ├─ 汇总 hicc::cpp!/import_class!/import_lib!
-        └─ 产出 rust/src/merged_ffi.rs 与 merge-report.md
+         ├─ 按 mod_<group> 汇总 include/types/free/class/method/global（global 当前为可选目录）
+        ├─ 产出 rust/src.2/mod_<group>.rs + rust/src.2/lib.rs + rust/src.2/merged_ffi.rs
+        └─ 切换 rust/src 为指向 src.2 的符号链接（rust/src.1 备份 init 原始输出）
 ```
 
 ## 环境要求
@@ -85,7 +85,18 @@ cpp2rust-demo merge --feature myfeature
     ├── build.rs
     └── src/
         ├── lib.rs
-        └── ffi_*.rs
+        ├── common/
+        │   ├── mod.rs
+        │   ├── includes.rs
+        │   └── types.rs
+        └── mod_<group>/
+            ├── mod.rs
+            ├── include/mod.rs
+            ├── types/mod.rs
+            ├── free/mod.rs + fn_*.rs
+            ├── class/mod.rs + cls_*.rs（类级语义结构/元信息）
+            ├── method/mod.rs + mtd_*.rs (有实例方法时)
+            └── meta.json
 ```
 
 `merge` 后新增：
@@ -93,14 +104,35 @@ cpp2rust-demo merge --feature myfeature
 ```text
 .cpp2rust/<feature>/
 ├── meta/merge-report.md
-└── rust/src/merged_ffi.rs
+└── rust/
+    ├── src.1/     # init 原始拆分输出备份
+    ├── src -> src.2
+    └── src.2/
+        ├── lib.rs
+        ├── mod_<group>.rs
+        └── merged_ffi.rs
 ```
 
 ## hicc 集成约定
 
 - 生成代码统一使用 `hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!`
 - `build.rs` 使用 `hicc_build::Build` 作为唯一 Rust 侧框架搭建方式
+- `build.rs` 始终引用 `src/...`（活跃视图）；merge 后通过 `src -> src.2` symlink 指向最新产物
 - include 路径来自选中的 `*.cpp2rust` 文件所在目录
+- 第一版语义分类以 middleware 路径分组：`src/foo/bar.cpp.cpp2rust -> mod_src_foo_bar`
+- 当前能力边界（v1）：
+  - `include/`：`hicc::cpp!` include 上下文
+  - `free/`：自由函数 + 静态方法（`hicc::import_lib!`）
+  - `method/`：实例方法绑定（当前唯一承接 `hicc::import_class!` 的目录）
+  - `class/`：类级语义结构层（类名、方法计数、类-方法归属关系 + 访问函数），不是方法绑定层
+  - `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），参与 merge 产物组织
+  - `common/*`：共享语义层（共享 include/type 语义索引 + 查询函数），会进入全局 merged 输出
+  - `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围
+
+- merge 语义（当前）：
+  - `include/`、`method/`、`free/`、`types/`、`class/` 会参与 `src.2/*` 产物拼装
+  - `method/` 负责输出 `import_class!` 绑定块，`free/` 负责输出 `import_lib!` 绑定块
+  - `class/` 参与 merged 输出中的类级语义块；`common/*` 参与全局 merged 输出中的共享语义块
 
 ## CI 与脚本
 
