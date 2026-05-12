@@ -94,9 +94,8 @@ cpp2rust-demo merge --feature myfeature
             ├── include/mod.rs
             ├── types/mod.rs
             ├── free/mod.rs + fn_*.rs
-            ├── class/mod.rs + cls_*.rs（类级 inventory/元信息）
+            ├── class/mod.rs + cls_*.rs（类级语义结构/元信息）
             ├── method/mod.rs + mtd_*.rs (有实例方法时)
-            ├── global/ (可选，当前默认不生成)
             └── meta.json
 ```
 
@@ -125,15 +124,15 @@ cpp2rust-demo merge --feature myfeature
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数 + 静态方法（`hicc::import_lib!`）
   - `method/`：实例方法绑定（当前唯一承接 `hicc::import_class!` 的目录）
-  - `class/`：类级 inventory/元信息（例如 class 名称清单），不是方法绑定层
-  - `types/`：当前定位为 type inventory（类型清单），后续可演进为更完整类型绑定层
-  - `common/*`：当前定位为 shared inventory/shared context（共享清单/上下文），不是共享绑定层
-  - `global/`：暂未做独立 AST 产物，当前默认不生成该目录
+  - `class/`：类级语义结构层（类名、方法计数、类-方法归属关系等），不是方法绑定层
+  - `types/`：类型语义层（类型清单 + C++→Rust 映射），参与 merge 产物组织
+  - `common/*`：共享语义层（共享 include/type 语义索引），会进入全局 merged 输出
+  - `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围
 
 - merge 语义（当前）：
   - `include/`、`method/`、`free/`、`types/`、`class/` 会参与 `src.2/*` 产物拼装
   - `method/` 负责输出 `import_class!` 绑定块，`free/` 负责输出 `import_lib!` 绑定块
-  - `class/` 参与 merged 输出中的类级语义元信息块；`common/*` 参与全局 merged 输出中的共享 inventory/context 块
+  - `class/` 参与 merged 输出中的类级语义块；`common/*` 参与全局 merged 输出中的共享语义块
 
 ## CI 与脚本
 

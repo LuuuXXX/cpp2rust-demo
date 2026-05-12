@@ -1,7 +1,7 @@
 //! `merge` command implementation.
 //!
 //! The `merge` command reads grouped semantic modules produced by `init`
-//! (`mod_<group>/include|types|free|class|method|global`) and emits:
+//! (`mod_<group>/include|types|free|class|method`) and emits:
 //!
 //! 1. `rust/src.2/mod_<group>.rs` (merged per-group view)
 //! 2. `rust/src.2/lib.rs`
@@ -9,12 +9,12 @@
 //!
 //! Current v1 merge semantics:
 //! - `include/` contributes `hicc::cpp!` include lines
-//! - `types/` contributes type inventory blocks
+//! - `types/` contributes type semantic blocks (inventory + C++/Rust mappings)
 //! - `method/` contributes `hicc::import_class!` method-binding blocks
 //! - `free/` contributes `hicc::import_lib!` fn items and class forward declarations
-//! - `class/` contributes class-level semantic metadata blocks to merged outputs
-//! - `common/*` contributes shared inventory/context blocks to global merged output
-//! - `global/` is optional/reserved and may be absent in v1 output
+//! - `class/` contributes class-level semantic structure blocks to merged outputs
+//! - `common/*` contributes shared semantic blocks to global merged output
+//! - `global/` is explicitly deferred outside the current v1 closure scope
 
 use crate::error::Result;
 use anyhow::anyhow;
@@ -191,12 +191,12 @@ fn render_merged_module(
 
     if is_global {
         if let Some(includes_block) = &common.includes_block {
-            out.push_str("// Shared include inventory/context from init common/includes.rs\n");
+            out.push_str("// Shared include semantics from init common/includes.rs\n");
             out.push_str(includes_block.trim());
             out.push_str("\n\n");
         }
         if let Some(types_block) = &common.types_block {
-            out.push_str("// Shared type inventory/context from init common/types.rs\n");
+            out.push_str("// Shared type semantics from init common/types.rs\n");
             out.push_str(types_block.trim());
             out.push_str("\n\n");
         }

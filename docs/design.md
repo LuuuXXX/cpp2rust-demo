@@ -46,9 +46,8 @@
         │   ├── include/mod.rs
         │   ├── types/mod.rs
         │   ├── free/mod.rs + fn_*.rs
-        │   ├── class/mod.rs + cls_*.rs（类级 inventory/元信息）
+        │   ├── class/mod.rs + cls_*.rs（类级语义结构/元信息）
         │   ├── method/mod.rs + mtd_*.rs（实例方法）
-        │   ├── global/（可选，当前默认不生成）
         │   └── meta.json
         ├── (merge 后) -> src.2
         ├── src.1/
@@ -74,16 +73,16 @@
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数与静态方法
   - `method/`：类实例方法（当前唯一承接 `import_class!`）
-  - `class/`：类级 inventory/元信息（如 class 名称清单），不是方法绑定层
-- `types/` 当前定位是 type inventory（类型清单），后续可演进为类型绑定层。
-- `common/*` 当前定位是 shared inventory/shared context（共享清单/上下文），不是共享绑定层。
-- `global/` 当前尚无独立 AST 产物，默认不生成该目录。
+- `class/`：类级语义结构层（类名、方法计数、类-方法关系），不是方法绑定层。
+- `types/`：类型语义层（类型清单 + C++→Rust 映射），参与 merge 语义组织。
+- `common/*`：共享语义层（共享 include/type 索引），参与全局 merge 语义组织。
+- `global/`：本 PR 明确 defer，不属于当前完整语义结构承诺范围。
 
 merge 语义边界（当前）：
 - 参与 merged 输出的目录：`include/`、`types/`、`method/`、`free/`、`class/`。
 - 其中：`method/` 贡献 `import_class!`；`free/` 贡献 `import_lib!`。
-- `class/` 贡献类级语义元信息块（如 class 维度统计/清单）。
-- `common/*` 贡献共享 inventory/context 块到全局 merged_ffi 输出，作为跨 group 的共享语义层。
+- `class/` 贡献类级语义结构块（如 class 维度统计、类-方法关系）。
+- `common/*` 贡献共享语义块到全局 merged_ffi 输出，作为跨 group 的共享语义层。
 
 ## hicc 约束
 

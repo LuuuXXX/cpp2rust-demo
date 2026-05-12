@@ -78,6 +78,17 @@ pub fn render_class_module(decls: &ExtractedDecls) -> String {
         .iter()
         .map(|c| c.methods.iter().filter(|m| m.is_static).count())
         .collect();
+    let mut class_methods: Vec<(&str, &str)> = Vec::new();
+    let mut class_instance_methods: Vec<(&str, &str)> = Vec::new();
+    for class in &decls.classes {
+        for method in &class.methods {
+            class_methods.push((class.qualified_name.as_str(), method.qualified_name.as_str()));
+            if !method.is_static {
+                class_instance_methods
+                    .push((class.qualified_name.as_str(), method.qualified_name.as_str()));
+            }
+        }
+    }
     out.push_str(&render_string_slice(
         "CLASS_NAMES",
         &decls
@@ -90,6 +101,11 @@ pub fn render_class_module(decls: &ExtractedDecls) -> String {
     out.push_str(&render_usize_slice(
         "CLASS_STATIC_METHOD_COUNTS",
         &static_method_counts,
+    ));
+    out.push_str(&render_pair_slice("CLASS_METHODS", &class_methods));
+    out.push_str(&render_pair_slice(
+        "CLASS_INSTANCE_METHODS",
+        &class_instance_methods,
     ));
     out
 }
@@ -111,24 +127,41 @@ pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
 
 pub fn render_types_module(decls: &ExtractedDecls) -> String {
     let mut cpp_types = std::collections::BTreeSet::new();
+    let mut cpp_rust_type_mappings = std::collections::BTreeMap::new();
     for f in &decls.functions {
         cpp_types.insert(f.return_type.as_str());
+        cpp_rust_type_mappings
+            .entry(f.return_type.as_str())
+            .or_insert(f.rust_return_type.as_str());
         for p in &f.params {
             cpp_types.insert(p.cpp_type.as_str());
+            cpp_rust_type_mappings
+                .entry(p.cpp_type.as_str())
+                .or_insert(p.rust_type.as_str());
         }
     }
     for c in &decls.classes {
         for m in &c.methods {
             cpp_types.insert(m.return_type.as_str());
+            cpp_rust_type_mappings
+                .entry(m.return_type.as_str())
+                .or_insert(m.rust_return_type.as_str());
             for p in &m.params {
                 cpp_types.insert(p.cpp_type.as_str());
+                cpp_rust_type_mappings
+                    .entry(p.cpp_type.as_str())
+                    .or_insert(p.rust_type.as_str());
             }
         }
     }
     let values: Vec<&str> = cpp_types.into_iter().collect();
+    let mappings: Vec<(&str, &str)> = cpp_rust_type_mappings
+        .into_iter()
+        .collect::<Vec<(&str, &str)>>();
     let mut out = String::from("// Per-group C++ type inventory extracted from AST.\n");
     out.push_str(&format!("pub const CPP_TYPE_COUNT: usize = {};\n", values.len()));
     out.push_str(&render_string_slice("CPP_TYPES", &values));
+    out.push_str(&render_pair_slice("CPP_RUST_TYPE_MAPPINGS", &mappings));
     out
 }
 
@@ -243,6 +276,16 @@ fn render_usize_slice(name: &str, values: &[usize]) -> String {
     writeln!(out, "pub const {}: &[usize] = &[", name).unwrap();
     for value in values {
         writeln!(out, "    {},", value).unwrap();
+    }
+    writeln!(out, "];").unwrap();
+    out
+}
+
+fn render_pair_slice(name: &str, values: &[(&str, &str)]) -> String {
+    let mut out = String::new();
+    writeln!(out, "pub const {}: &[(&str, &str)] = &[", name).unwrap();
+    for (left, right) in values {
+        writeln!(out, "    ({:?}, {:?}),", left, right).unwrap();
     }
     writeln!(out, "];").unwrap();
     out
@@ -545,8 +588,15 @@ mod tests {
         assert!(class_src.contains("CLASS_NAMES"));
         assert!(class_src.contains("CLASS_METHOD_COUNTS"));
         assert!(class_src.contains("CLASS_STATIC_METHOD_COUNTS"));
+        assert!(class_src.contains("CLASS_METHODS"));
+        assert!(class_src.contains("CLASS_INSTANCE_METHODS"));
+        assert!(class_src.contains("Widget::update"));
 
         let free_src = render_free_module(&decls, "mywidget");
         assert!(free_src.contains("class Widget;"));
+
+        let types_src = render_types_module(&decls);
+        assert!(types_src.contains("CPP_RUST_TYPE_MAPPINGS"));
+        assert!(types_src.contains("(\"double\", \"f64\")"));
     }
 }

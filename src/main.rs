@@ -18,14 +18,12 @@ pub(crate) const SEMANTIC_INCLUDE_DIR: &str = "include";
 pub(crate) const SEMANTIC_FREE_DIR: &str = "free";
 pub(crate) const SEMANTIC_CLASS_DIR: &str = "class";
 pub(crate) const SEMANTIC_METHOD_DIR: &str = "method";
-pub(crate) const SEMANTIC_GLOBAL_DIR: &str = "global";
-pub(crate) const SEMANTIC_DIRS: [&str; 6] = [
+pub(crate) const SEMANTIC_DIRS: [&str; 5] = [
     SEMANTIC_TYPES_DIR,
     SEMANTIC_INCLUDE_DIR,
     SEMANTIC_FREE_DIR,
     SEMANTIC_CLASS_DIR,
     SEMANTIC_METHOD_DIR,
-    SEMANTIC_GLOBAL_DIR,
 ];
 
 // ---------------------------------------------------------------------------
@@ -223,16 +221,15 @@ fn run_init(args: InitArgs) -> Result<()> {
         }
 
         // Step 3: generate grouped semantic module source.
-        let has_global = has_global_bindings(&decls);
         let group_dir = rust_src_dir.join(group_module);
-        write_group_scaffold(&group_dir, stem, has_global)?;
+        write_group_scaffold(&group_dir, stem)?;
 
         let include_mod_path = group_dir.join("include").join("mod.rs");
         let include_src = codegen::render_include_module(&selected_file.display().to_string());
         std::fs::write(&include_mod_path, include_src)
             .map_err(|e| anyhow!("write {}: {}", include_mod_path.display(), e))?;
 
-        // `class/` is reserved for class-level inventory/metadata in v1.
+        // `class/` is the class-level semantic structure layer in v1.
         // Binding macros for instance methods are emitted under `method/`.
         let class_mod_name = format!("cls_{}", stem);
         let class_file_path = group_dir.join("class").join(format!("{class_mod_name}.rs"));
@@ -277,7 +274,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
         }
 
-        // `types/` is currently generated as per-group type inventory.
+        // `types/` is generated as per-group type semantics (inventory + mappings).
         let types_src = codegen::render_types_module(&decls);
         std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
             .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
@@ -285,7 +282,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         let group_mod_path = group_dir.join("mod.rs");
         std::fs::write(
             &group_mod_path,
-            render_group_mod_rs(has_free, has_class, has_method, has_global),
+            render_group_mod_rs(has_free, has_class, has_method),
         )
         .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
 
@@ -365,7 +362,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         .map_err(|e| anyhow!("write build.rs: {}", e))?;
         println!("Created {}", build_rs_path.display());
 
-        // `common/*` carries shared inventory/context derived from selected
+        // `common/*` carries shared include/type semantics derived from selected
         // middleware and is propagated into global merged output for reuse.
         let common_includes = render_common_includes_module(&files_to_process, &include_dirs);
         let common_types = codegen::render_types_module(&all_decls);
@@ -393,7 +390,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("        └── src/");
     println!("            ├── lib.rs");
     println!("            ├── common/...");
-    println!("            └── mod_<group>/include|types|free|class|method (+ optional global) + meta.json");
+    println!("            └── mod_<group>/include|types|free|class|method + meta.json");
     println!();
     println!("Next steps:");
     println!("  1. Review .cpp2rust/{}/rust/src/mod_<group>/", feature);
@@ -468,7 +465,9 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("  {}", merged.merged_path.display());
     println!("\nThe merged output now lives under rust/src.2 (with rust/src -> src.2).");
     println!("build.rs keeps using src/... paths so it always targets the active source view.");
-    println!("It combines grouped include/method/free binding content plus types/class/common semantic inventories (global optional).");
+    println!(
+        "It combines grouped include/method/free binding content plus types/class/common semantic inventories."
+    );
     println!();
     println!("To use in your project:");
     println!("  1. Copy .cpp2rust/{}/rust/ to your workspace", feature);
@@ -520,11 +519,8 @@ fn write_common_modules(rust_src_dir: &Path, includes_src: &str, types_src: &str
     Ok(())
 }
 
-fn write_group_scaffold(group_dir: &Path, stem: &str, with_global: bool) -> Result<()> {
+fn write_group_scaffold(group_dir: &Path, stem: &str) -> Result<()> {
     for sub in SEMANTIC_DIRS {
-        if sub == SEMANTIC_GLOBAL_DIR && !with_global {
-            continue;
-        }
         std::fs::create_dir_all(group_dir.join(sub))
             .map_err(|e| anyhow!("create {}: {}", group_dir.join(sub).display(), e))?;
     }
@@ -535,7 +531,7 @@ fn write_group_scaffold(group_dir: &Path, stem: &str, with_global: bool) -> Resu
     Ok(())
 }
 
-fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool, has_global: bool) -> String {
+fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool) -> String {
     let mut out = String::from("pub mod include;\npub mod types;\n");
     if has_free {
         out.push_str("pub mod free;\n");
@@ -546,9 +542,6 @@ fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool, has_gl
     if has_method {
         out.push_str("pub mod method;\n");
     }
-    if has_global {
-        out.push_str("pub mod global;\n");
-    }
     if has_free {
         out.push_str("pub use free::*;\n");
     }
@@ -557,9 +550,6 @@ fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool, has_gl
     }
     if has_method {
         out.push_str("pub use method::*;\n");
-    }
-    if has_global {
-        out.push_str("pub use global::*;\n");
     }
     out
 }
@@ -574,14 +564,19 @@ fn has_free_bindings(decls: &ast::ExtractedDecls) -> bool {
             .any(|m| m.is_static)
 }
 
-fn has_global_bindings(_decls: &ast::ExtractedDecls) -> bool {
-    false
-}
-
 fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[String]) -> String {
     let files: Vec<String> = middleware_files
         .iter()
         .map(|p| p.display().to_string())
+        .collect();
+    let basenames: Vec<String> = middleware_files
+        .iter()
+        .map(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string()
+        })
         .collect();
     let mut out = String::from("// Shared include context derived from selected middleware files.\n");
     out.push_str("pub const MIDDLEWARE_FILES: &[&str] = &[\n");
@@ -589,9 +584,19 @@ fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[S
         out.push_str(&format!("    {:?},\n", file));
     }
     out.push_str("];\n\n");
+    out.push_str("pub const MIDDLEWARE_BASENAMES: &[&str] = &[\n");
+    for name in &basenames {
+        out.push_str(&format!("    {:?},\n", name));
+    }
+    out.push_str("];\n\n");
     out.push_str("pub const INCLUDE_DIRS: &[&str] = &[\n");
     for dir in include_dirs {
         out.push_str(&format!("    {:?},\n", dir));
+    }
+    out.push_str("];\n");
+    out.push_str("pub const CPP_INCLUDE_LINES: &[&str] = &[\n");
+    for name in &basenames {
+        out.push_str(&format!("    {:?},\n", format!("#include \"{}\"", name)));
     }
     out.push_str("];\n");
     out
@@ -887,7 +892,7 @@ mod tests {
 
     #[test]
     fn render_group_mod_rs_tracks_real_content_flags() {
-        let src = render_group_mod_rs(true, false, false, false);
+        let src = render_group_mod_rs(true, false, false);
         assert!(src.contains("pub mod include;"));
         assert!(src.contains("pub mod types;"));
         assert!(src.contains("pub mod free;"));
