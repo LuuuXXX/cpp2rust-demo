@@ -598,5 +598,6 @@ mod tests {
         let types_src = render_types_module(&decls);
         assert!(types_src.contains("CPP_RUST_TYPE_MAPPINGS"));
         assert!(types_src.contains("(\"double\", \"f64\")"));
+        assert!(types_src.contains("(\"void\", \"()\")"));
     }
 }

@@ -596,7 +596,8 @@ fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[S
     out.push_str("];\n");
     out.push_str("pub const CPP_INCLUDE_LINES: &[&str] = &[\n");
     for name in &basenames {
-        out.push_str(&format!("    {:?},\n", format!("#include \"{}\"", name)));
+        let include_line = format!("#include \"{}\"", name);
+        out.push_str(&format!("    {:?},\n", include_line));
     }
     out.push_str("];\n");
     out
