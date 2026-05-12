@@ -312,13 +312,13 @@ fn run_init(args: InitArgs) -> Result<()> {
         // This must happen after both fn_<stem>.rs and shim_ops.rs are written so
         // that all produced files are exported from the module tree.
         if has_free || has_shims {
-            let mut free_submodules: Vec<&str> = Vec::new();
-            if has_free {
-                free_submodules.push(&free_mod_name);
-            }
-            if has_shims {
-                free_submodules.push("shim_ops");
-            }
+            let free_submodules: Vec<&str> = [
+                has_free.then(|| free_mod_name.as_str()),
+                has_shims.then_some("shim_ops"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
             std::fs::write(
                 group_dir.join("free").join("mod.rs"),
                 codegen::render_lib_rs(&free_submodules),

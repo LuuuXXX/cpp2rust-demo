@@ -952,11 +952,7 @@ pub fn render_operator_shims_hpp(
 
         let call_self = if shim.class_name.is_some() { "self" } else { "" };
         let call_extra: Vec<&str> = shim.params.iter().map(|p| p.name.as_str()).collect();
-        let call_args = if call_extra.is_empty() {
-            call_extra.join(", ")
-        } else {
-            call_extra.join(", ")
-        };
+        let call_args = call_extra.join(", ");
 
         let call_expr = if let Some(ref _cls) = shim.class_name {
             match shim.operator_name.as_str() {
