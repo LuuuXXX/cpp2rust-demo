@@ -377,7 +377,13 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
     for line in inner.lines() {
         let trimmed = line.trim();
 
+        // Skip the link_name inner attribute.
         if trimmed.starts_with("#![link_name") {
+            continue;
+        }
+
+        // Skip comment lines (including the @make_proxy notice and global var header).
+        if trimmed.starts_with("//") {
             continue;
         }
 
@@ -390,7 +396,13 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
             continue;
         }
 
-        if trimmed.starts_with("#[cpp(func") || (in_item && !trimmed.is_empty()) {
+        // Any attribute line starts a new fn item.
+        let starts_item = trimmed.starts_with("#[cpp(func")
+            || trimmed.starts_with("#[cpp(data")
+            || trimmed.starts_with("#[interface(")
+            || trimmed.starts_with("#[member(");
+
+        if starts_item || (in_item && !trimmed.is_empty()) {
             in_item = true;
             if !current_item.is_empty() {
                 current_item.push('\n');
