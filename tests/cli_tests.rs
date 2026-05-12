@@ -1903,6 +1903,12 @@ fn init_global_variable_generates_data_binding() {
     );
     assert!(report.contains("g_count"));
     assert!(report.contains("g_pi"));
+    // Report should include the "Rust fn name" column header.
+    assert!(
+        report.contains("Rust fn name"),
+        "report Global Variables table should have Rust fn name column: {}",
+        report
+    );
 }
 
 /// Global variables inside namespaces should have their qualified name used in

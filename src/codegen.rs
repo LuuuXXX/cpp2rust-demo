@@ -723,13 +723,13 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     // Global variables section
     if !decls.globals.is_empty() {
         writeln!(out, "## Global Variables\n").unwrap();
-        writeln!(out, "| C++ name | Qualified name | C++ type | Rust type | Const |").unwrap();
-        writeln!(out, "|----------|----------------|----------|-----------|-------|").unwrap();
+        writeln!(out, "| C++ name | Rust fn name | Qualified name | C++ type | Rust type | Const |").unwrap();
+        writeln!(out, "|----------|--------------|----------------|----------|-----------|-------|").unwrap();
         for gv in &decls.globals {
             writeln!(
                 out,
-                "| `{}` | `{}` | `{}` | `{}` | {} |",
-                gv.name, gv.qualified_name, gv.cpp_type, gv.rust_type, gv.is_const
+                "| `{}` | `{}` | `{}` | `{}` | `{}` | {} |",
+                gv.name, gv.rust_name, gv.qualified_name, gv.cpp_type, gv.rust_type, gv.is_const
             )
             .unwrap();
         }
