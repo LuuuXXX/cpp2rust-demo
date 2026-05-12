@@ -14,7 +14,7 @@ use std::path::Path;
 // Raw AST node types (deserialised from clang -ast-dump=json)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AstNode {
     /// The AST node kind as emitted by clang (e.g. `"FunctionDecl"`,
     /// `"CXXRecordDecl"`, …).  Some internal clang nodes lack this field
@@ -52,6 +52,14 @@ pub struct AstNode {
     /// base class name.
     #[serde(default)]
     pub bases: Vec<BaseSpecifier>,
+    /// Numeric or string value for constant-folded expressions.
+    ///
+    /// Clang emits a `"value"` field on `ConstantExpr` and `IntegerLiteral`
+    /// nodes.  Used here to extract enum constant discriminant values.
+    pub value: Option<String>,
+    /// `"class"` when this `EnumDecl` is a scoped (`enum class`) enumeration.
+    #[serde(rename = "scopedEnumTag")]
+    pub scoped_enum_tag: Option<String>,
 }
 
 /// A direct base class entry as emitted in clang's `"bases"` array.
@@ -364,6 +372,62 @@ pub struct GlobalVarIR {
     pub rust_type: String,
     /// Whether the variable is `const`-qualified.
     pub is_const: bool,
+    /// Set when this is a `static` data member of a class rather than a
+    /// namespace-scope global.  Contains the bare class name.
+    pub class_name: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Enum IR (新增特性一: C++ enum / enum class extraction)
+// ---------------------------------------------------------------------------
+
+/// A single enumerator constant from a C++ `enum` or `enum class`.
+#[derive(Debug, Clone)]
+pub struct EnumVariantIR {
+    /// The C++ enumerator name, e.g. `"RED"`.
+    pub name: String,
+    /// Explicit discriminant value, if the constant-folded value was available
+    /// in the clang AST.  When absent, Rust uses the implicit sequential value.
+    pub value: Option<i64>,
+}
+
+/// A C++ `enum` or `enum class` declaration.
+///
+/// Extracted into a Rust `#[repr(C)] pub enum` definition emitted in the
+/// `types/` semantic module so that Rust callers can use the named variants
+/// without raw integer casts.
+#[derive(Debug, Clone)]
+pub struct EnumIR {
+    /// Bare C++ enum name, e.g. `"Color"`.
+    pub name: String,
+    /// Fully namespace-qualified name, e.g. `"myns::Color"`.
+    pub qualified_name: String,
+    /// `true` when the C++ declaration is `enum class` (scoped).
+    pub is_class: bool,
+    /// Ordered list of public enumerator constants.
+    pub variants: Vec<EnumVariantIR>,
+}
+
+// ---------------------------------------------------------------------------
+// Alias IR (新增特性二: simple typedef / using alias extraction)
+// ---------------------------------------------------------------------------
+
+/// A simple C++ `typedef` or `using` alias whose underlying type is a
+/// supported primitive or known class type.
+///
+/// Template aliases (those whose underlying type contains `<`) are handled
+/// separately by `AliasRegistry` and result in `ClassIR` template-
+/// specialisation records, not `AliasIR` records.
+#[derive(Debug, Clone)]
+pub struct AliasIR {
+    /// The alias name as declared in C++ (e.g. `"MyInt"`).
+    pub name: String,
+    /// Fully namespace-qualified alias name (e.g. `"myns::MyInt"`).
+    pub qualified_name: String,
+    /// The C++ type being aliased (e.g. `"unsigned int"`).
+    pub aliased_cpp_type: String,
+    /// The corresponding Rust type (e.g. `"u32"`).
+    pub aliased_rust_type: String,
 }
 
 /// A C++ class or struct declaration.
@@ -433,6 +497,10 @@ pub struct ExtractedDecls {
     pub functions: Vec<FunctionIR>,
     pub classes: Vec<ClassIR>,
     pub globals: Vec<GlobalVarIR>,
+    /// C++ `enum` / `enum class` declarations (新增特性一).
+    pub enums: Vec<EnumIR>,
+    /// Simple `typedef` / `using` aliases for supported types (新增特性二).
+    pub aliases: Vec<AliasIR>,
     pub skipped: Vec<SkippedDecl>,
     /// Operator overloads that were skipped.
     ///
@@ -579,6 +647,14 @@ fn collect_class_names(node: &AstNode, namespace: &[String], map: &mut HashMap<S
                     let qualified = make_qualified(namespace, tmpl_name);
                     map.entry(tmpl_name.to_string()).or_insert(qualified);
                 }
+            }
+        }
+        // Register enum names so that functions taking enum parameters pass the
+        // type gate and are extracted rather than skipped.
+        "EnumDecl" => {
+            if let Some(enum_name) = node.name.as_deref().filter(|n| !n.is_empty()) {
+                let qualified = make_qualified(namespace, enum_name);
+                map.entry(enum_name.to_string()).or_insert(qualified);
             }
         }
         _ => {
@@ -821,7 +897,8 @@ fn walk_node(
                     namespace,
                     None,
                     "template_decl",
-                    SkipCategory::HiccLimitation,
+                    // ToolConservative: adding a typedef alias unlocks extraction.
+                    SkipCategory::ToolConservative,
                 );
             }
         }
@@ -851,22 +928,114 @@ fn walk_node(
                     namespace,
                     None,
                     "template_decl",
-                    SkipCategory::HiccLimitation,
+                    // ToolConservative: adding a typedef alias unlocks extraction.
+                    SkipCategory::ToolConservative,
                 );
             }
         }
 
+        // 新增特性四: FunctionTemplateDecl — try to extract any concrete
+        // (`FunctionDecl`) specialisations nested inside the template wrapper.
+        // A concrete child has a `qualType` that does not mention
+        // `"type-parameter-"` or `"dependent"`, meaning all template
+        // parameters have been substituted with real types.
         "FunctionTemplateDecl" => {
-            if is_target(current_file, targets) {
+            if !is_target(current_file, targets) {
+                return;
+            }
+            let mut extracted_any = false;
+            for child in node.inner.iter().flatten() {
+                if child.kind != "FunctionDecl" {
+                    continue;
+                }
+                // Skip the generic (un-instantiated) pattern: it still has
+                // type-parameter tokens in its qualType.
+                if let Some(ref ti) = child.type_info {
+                    if ti.qual_type.contains("type-parameter-")
+                        || ti.qual_type.contains("dependent")
+                    {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+                if is_operator_name(child.name.as_deref()) {
+                    collect_operator_shim(child, namespace, None, None, result);
+                    record_skipped(
+                        result,
+                        child,
+                        namespace,
+                        None,
+                        "operator_overload",
+                        SkipCategory::HiccLimitation,
+                    );
+                    continue;
+                }
+                if let Some(ir) = extract_function(
+                    child,
+                    namespace,
+                    overload_counts,
+                    None,
+                    strategy,
+                    class_map,
+                    alias_registry,
+                    &mut result.skipped,
+                ) {
+                    result.functions.push(ir);
+                    extracted_any = true;
+                }
+            }
+            if !extracted_any {
                 record_skipped(
                     result,
                     node,
                     namespace,
                     None,
                     "template_decl",
-                    SkipCategory::HiccLimitation,
+                    // ToolConservative: add an explicit specialisation to unlock.
+                    SkipCategory::ToolConservative,
                 );
             }
+        }
+
+        // 新增特性一: C++ enum / enum class extraction.
+        "EnumDecl" => {
+            if !is_target(current_file, targets) {
+                return;
+            }
+            if let Some(enum_ir) = extract_enum(node, namespace) {
+                result.enums.push(enum_ir);
+            }
+        }
+
+        // 新增特性二: simple typedef / using aliases for supported types.
+        "TypedefDecl" | "TypeAliasDecl" => {
+            if !is_target(current_file, targets) {
+                return;
+            }
+            let Some(alias_name) = node.name.as_deref() else {
+                return;
+            };
+            let Some(ref type_info) = node.type_info else {
+                return;
+            };
+            let cpp_type = type_info.qual_type.clone();
+            // Template aliases are handled via AliasRegistry → ClassIR.
+            if cpp_type.contains('<') {
+                return;
+            }
+            // Only emit aliases whose underlying type we can map to Rust.
+            if !is_supported_cpp_type(&cpp_type, class_map, alias_registry) {
+                return;
+            }
+            let rust_type = cpp_to_rust_type_with_aliases(&cpp_type, alias_registry);
+            let qualified_name = make_qualified(namespace, alias_name);
+            result.aliases.push(AliasIR {
+                name: alias_name.to_string(),
+                qualified_name,
+                aliased_cpp_type: cpp_type,
+                aliased_rust_type: rust_type,
+            });
         }
 
         "VarDecl" => {
@@ -1100,6 +1269,50 @@ fn extract_class_body(
                     &mut result.skipped,
                 ) {
                     class_ir.methods.push(ir);
+                }
+            }
+            // 新增特性三: static data members.
+            "VarDecl" => {
+                if child.storage_class.as_deref() == Some("static") {
+                    if let Some(gv) = extract_static_member(
+                        child,
+                        class_name,
+                        qualified_name,
+                        class_map,
+                        alias_registry,
+                    ) {
+                        result.globals.push(gv);
+                    }
+                }
+            }
+            // 新增特性五: nested class / struct definitions.
+            "CXXRecordDecl" => {
+                if child.complete_definition.unwrap_or(false) {
+                    if let Some(nested_name) = child.name.as_deref().filter(|n| !n.is_empty()) {
+                        // Nested class lives in a "namespace" that includes the
+                        // outer class name so qualified_name is correct.
+                        let nested_ns: Vec<String> = namespace
+                            .iter()
+                            .cloned()
+                            .chain(std::iter::once(class_name.to_string()))
+                            .collect();
+                        let nested_qualified = make_qualified(&nested_ns, nested_name);
+                        if let Some(nested_class) = extract_class_body(
+                            child,
+                            nested_name,
+                            &nested_qualified,
+                            false,
+                            None,
+                            &nested_ns,
+                            current_file,
+                            result,
+                            strategy,
+                            class_map,
+                            alias_registry,
+                        ) {
+                            result.classes.push(nested_class);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -2006,7 +2219,120 @@ fn extract_global_var(
         cpp_type,
         rust_type,
         is_const,
+        class_name: None,
     })
+}
+
+/// Extract a static data member `VarDecl` from a class body.
+///
+/// Returns a `GlobalVarIR` whose `qualified_name` is `"ClassName::member"`
+/// so that the codegen emits `#[cpp(data = "ClassName::member")]`.
+fn extract_static_member(
+    node: &AstNode,
+    class_name: &str,
+    class_qualified: &str,
+    class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
+) -> Option<GlobalVarIR> {
+    let name = node.name.as_deref()?.to_string();
+    if name.is_empty() || name == "<anonymous>" {
+        return None;
+    }
+
+    let cpp_type = node.type_info.as_ref().map(|t| t.qual_type.clone())?;
+    if !is_supported_cpp_type(&cpp_type, class_map, alias_registry) {
+        return None;
+    }
+
+    let is_const = has_top_level_const(&cpp_type);
+    let rust_type = if is_const {
+        format!(
+            "&'static {}",
+            cpp_to_rust_type_with_aliases(strip_top_level_const(&cpp_type), alias_registry)
+        )
+    } else {
+        format!(
+            "&'static mut {}",
+            cpp_to_rust_type_with_aliases(&cpp_type, alias_registry)
+        )
+    };
+
+    // Prefix the rust_name with the snake_case class name to avoid collisions.
+    let rust_name = format!("{}_{}", to_snake_case(class_name), to_snake_case(&name));
+    // The data accessor must use the fully-qualified C++ name.
+    let qualified_name = format!("{}::{}", class_qualified, name);
+
+    Some(GlobalVarIR {
+        name,
+        rust_name,
+        qualified_name,
+        cpp_type,
+        rust_type,
+        is_const,
+        class_name: Some(class_name.to_string()),
+    })
+}
+
+/// Extract an `EnumIR` from an `EnumDecl` AST node.
+///
+/// Returns `None` for anonymous enums (no name).  Enumerator constant values
+/// are obtained from `ConstantExpr` or `IntegerLiteral` children when present
+/// in the clang JSON output.
+fn extract_enum(node: &AstNode, namespace: &[String]) -> Option<EnumIR> {
+    let name = node.name.as_deref().filter(|n| !n.is_empty())?.to_string();
+    let qualified_name = make_qualified(namespace, &name);
+    let is_class = node
+        .scoped_enum_tag
+        .as_deref()
+        .map(|t| t == "class")
+        .unwrap_or(false);
+
+    let mut variants: Vec<EnumVariantIR> = Vec::new();
+    for child in node.inner.iter().flatten() {
+        if child.kind != "EnumConstantDecl" {
+            continue;
+        }
+        let Some(variant_name) = child.name.as_deref() else {
+            continue;
+        };
+        let value = find_enum_constant_value(child);
+        variants.push(EnumVariantIR {
+            name: variant_name.to_string(),
+            value,
+        });
+    }
+
+    Some(EnumIR {
+        name,
+        qualified_name,
+        is_class,
+        variants,
+    })
+}
+
+/// Find the integer discriminant value of an `EnumConstantDecl` node.
+///
+/// Clang emits the folded value on a `ConstantExpr` child (or directly on an
+/// `IntegerLiteral` child).  When no value node is found, returns `None` and
+/// Rust will use the implicit sequential discriminant.
+fn find_enum_constant_value(node: &AstNode) -> Option<i64> {
+    // Direct `value` field on the node itself (some clang versions / modes).
+    if let Some(ref v) = node.value {
+        if let Ok(n) = v.parse::<i64>() {
+            return Some(n);
+        }
+    }
+    // Otherwise search first-level children for a ConstantExpr or IntegerLiteral.
+    for child in node.inner.iter().flatten() {
+        if child.kind == "ConstantExpr" || child.kind == "IntegerLiteral" {
+            if let Some(ref v) = child.value {
+                if let Ok(n) = v.parse::<i64>() {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -2183,141 +2509,76 @@ mod tests {
         };
         let ast = AstNode {
             kind: "TranslationUnitDecl".to_string(),
-            id: None,
             loc: Some(loc.clone()),
-            name: None,
-            type_info: None,
-            is_implicit: None,
-            is_virtual: None,
-            is_pure: None,
-            storage_class: None,
-            complete_definition: None,
-            tag_used: None,
-            access: None,
-            bases: vec![],
             inner: Some(vec![
                 AstNode {
                     kind: "ClassTemplateDecl".to_string(),
-                    id: None,
                     loc: Some(loc.clone()),
                     name: Some("Box".to_string()),
-                    type_info: None,
-                    is_implicit: None,
-                    is_virtual: None,
-                    is_pure: None,
-                    storage_class: None,
-                    complete_definition: None,
-                    tag_used: None,
-                    access: None,
-                    bases: vec![],
-                    inner: None,
+                    ..AstNode::default()
                 },
                 AstNode {
                     kind: "FunctionDecl".to_string(),
-                    id: None,
                     loc: Some(loc.clone()),
                     name: Some("operator+".to_string()),
                     type_info: Some(TypeInfo {
                         qual_type: "int (int, int)".to_string(),
                     }),
-                    is_implicit: None,
-                    is_virtual: None,
-                    is_pure: None,
-                    storage_class: None,
-                    complete_definition: None,
-                    tag_used: None,
-                    access: None,
-                    bases: vec![],
                     inner: Some(vec![]),
+                    ..AstNode::default()
                 },
                 AstNode {
                     kind: "CXXRecordDecl".to_string(),
-                    id: None,
                     loc: Some(loc.clone()),
                     name: Some("Widget".to_string()),
-                    type_info: None,
-                    is_implicit: None,
-                    is_virtual: None,
-                    is_pure: None,
-                    storage_class: None,
                     complete_definition: Some(true),
                     tag_used: Some("class".to_string()),
-                    access: None,
-                    bases: vec![],
                     inner: Some(vec![
                         AstNode {
                             kind: "AccessSpecDecl".to_string(),
-                            id: None,
                             loc: Some(loc.clone()),
-                            name: None,
-                            type_info: None,
-                            is_implicit: None,
-                            is_virtual: None,
-                            is_pure: None,
-                            storage_class: None,
-                            complete_definition: None,
-                            tag_used: None,
                             access: Some("public".to_string()),
-                            bases: vec![],
-                            inner: None,
+                            ..AstNode::default()
                         },
                         AstNode {
                             kind: "CXXConstructorDecl".to_string(),
-                            id: None,
                             loc: Some(loc.clone()),
                             name: Some("Widget".to_string()),
                             type_info: Some(TypeInfo {
                                 qual_type: "void ()".to_string(),
                             }),
-                            is_implicit: None,
-                            is_virtual: None,
-                            is_pure: None,
-                            storage_class: None,
-                            complete_definition: None,
-                            tag_used: None,
-                            access: None,
-                            bases: vec![],
                             inner: Some(vec![]),
+                            ..AstNode::default()
                         },
                         AstNode {
                             kind: "CXXMethodDecl".to_string(),
-                            id: None,
                             loc: Some(loc.clone()),
                             name: Some("virt".to_string()),
                             type_info: Some(TypeInfo {
                                 qual_type: "int ()".to_string(),
                             }),
-                            is_implicit: None,
                             is_virtual: Some(true),
                             is_pure: Some(true),
-                            storage_class: None,
-                            complete_definition: None,
-                            tag_used: None,
-                            access: None,
-                            bases: vec![],
                             inner: Some(vec![]),
+                            ..AstNode::default()
                         },
                         AstNode {
                             kind: "CXXMethodDecl".to_string(),
-                            id: None,
                             loc: Some(loc),
                             name: Some("operator[]".to_string()),
                             type_info: Some(TypeInfo {
                                 qual_type: "int (int) const".to_string(),
                             }),
-                            is_implicit: None,
                             is_virtual: Some(false),
                             is_pure: Some(false),
-                            storage_class: None,
-                            complete_definition: None,
-                            tag_used: None,
-                            access: None,
-                            bases: vec![],
                             inner: Some(vec![]),
+                            ..AstNode::default()
                         },
                     ]),
+                    ..AstNode::default()
                 },
             ]),
+            ..AstNode::default()
         };
 
         let decls = extract_declarations(&ast, &[target]);
@@ -2363,70 +2624,37 @@ mod tests {
         //     int regular();                ← regular → extract
         let make_method = |name: &str, is_virtual: bool, is_pure: bool| AstNode {
             kind: "CXXMethodDecl".to_string(),
-            id: None,
             loc: Some(loc.clone()),
             name: Some(name.to_string()),
             type_info: Some(TypeInfo { qual_type: "int ()".to_string() }),
-            is_implicit: None,
             is_virtual: Some(is_virtual),
             is_pure: Some(is_pure),
-            storage_class: None,
-            complete_definition: None,
-            tag_used: None,
-            access: None,
-            bases: vec![],
             inner: Some(vec![]),
+            ..AstNode::default()
         };
         let ast = AstNode {
             kind: "TranslationUnitDecl".to_string(),
-            id: None,
             loc: Some(loc.clone()),
-            name: None,
-            type_info: None,
-            is_implicit: None,
-            is_virtual: None,
-            is_pure: None,
-            storage_class: None,
-            complete_definition: None,
-            tag_used: None,
-            access: None,
-            bases: vec![],
             inner: Some(vec![AstNode {
                 kind: "CXXRecordDecl".to_string(),
-                id: None,
                 loc: Some(loc.clone()),
                 name: Some("Mixed".to_string()),
-                type_info: None,
-                is_implicit: None,
-                is_virtual: None,
-                is_pure: None,
-                storage_class: None,
                 complete_definition: Some(true),
                 tag_used: Some("class".to_string()),
-                access: None,
-                bases: vec![],
                 inner: Some(vec![
                     AstNode {
                         kind: "AccessSpecDecl".to_string(),
-                        id: None,
                         loc: Some(loc.clone()),
-                        name: None,
-                        type_info: None,
-                        is_implicit: None,
-                        is_virtual: None,
-                        is_pure: None,
-                        storage_class: None,
-                        complete_definition: None,
-                        tag_used: None,
                         access: Some("public".to_string()),
-                        bases: vec![],
-                        inner: None,
+                        ..AstNode::default()
                     },
                     make_method("virt_concrete", true, false),
                     make_method("pure_one", true, true),
                     make_method("regular", false, false),
                 ]),
+                ..AstNode::default()
             }]),
+            ..AstNode::default()
         };
 
         let decls = extract_declarations(&ast, &[target]);

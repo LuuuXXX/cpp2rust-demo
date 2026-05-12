@@ -233,6 +233,37 @@ pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
     CPP_TYPES.iter().any(|ty| *ty == cpp_type)\n\
 }\n",
     );
+
+    // Emit extracted C++ enum definitions as #[repr(C)] Rust enums.
+    if !decls.enums.is_empty() {
+        out.push_str("\n// C++ enum / enum class definitions.\n");
+        for enum_ir in &decls.enums {
+            out.push_str("#[repr(C)]\n");
+            out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
+            out.push_str(&format!("pub enum {} {{\n", enum_ir.name));
+            for variant in &enum_ir.variants {
+                if let Some(v) = variant.value {
+                    out.push_str(&format!("    {} = {},\n", variant.name, v));
+                } else {
+                    out.push_str(&format!("    {},\n", variant.name));
+                }
+            }
+            out.push_str("}\n\n");
+        }
+    }
+
+    // Emit simple typedef / using aliases for supported types.
+    if !decls.aliases.is_empty() {
+        out.push_str("// C++ typedef / using aliases.\n");
+        for alias in &decls.aliases {
+            out.push_str(&format!(
+                "pub type {} = {};\n",
+                alias.name, alias.aliased_rust_type
+            ));
+        }
+        out.push('\n');
+    }
+
     out
 }
 
@@ -702,7 +733,10 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
         writeln!(out, "| Mixed classes (companion interface) | {} |", mixed_classes).unwrap();
     }
     writeln!(out, "| Extracted constructors | {} |", total_ctors).unwrap();
-    writeln!(out, "| Global variables | {} |", decls.globals.len()).unwrap();
+    writeln!(out, "| Global variables | {} |", decls.globals.iter().filter(|g| g.class_name.is_none()).count()).unwrap();
+    writeln!(out, "| Static data members | {} |", decls.globals.iter().filter(|g| g.class_name.is_some()).count()).unwrap();
+    writeln!(out, "| Enums | {} |", decls.enums.len()).unwrap();
+    writeln!(out, "| Type aliases | {} |", decls.aliases.len()).unwrap();
     writeln!(out, "| Skipped | {} |", decls.skipped.len()).unwrap();
     writeln!(out).unwrap();
 
@@ -811,10 +845,43 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
         writeln!(out, "| C++ name | Rust fn name | Qualified name | C++ type | Rust type | Const |").unwrap();
         writeln!(out, "|----------|--------------|----------------|----------|-----------|-------|").unwrap();
         for gv in &decls.globals {
+            let owner = gv.class_name.as_deref().unwrap_or("(global)");
             writeln!(
                 out,
-                "| `{}` | `{}` | `{}` | `{}` | `{}` | {} |",
-                gv.name, gv.rust_name, gv.qualified_name, gv.cpp_type, gv.rust_type, gv.is_const
+                "| `{}` | `{}` | `{}` | `{}` | `{}` | {} | `{}` |",
+                gv.name, gv.rust_name, gv.qualified_name, gv.cpp_type, gv.rust_type, gv.is_const, owner
+            )
+            .unwrap();
+        }
+        writeln!(out).unwrap();
+    }
+
+    // Enum definitions section
+    if !decls.enums.is_empty() {
+        writeln!(out, "## Enums\n").unwrap();
+        for enum_ir in &decls.enums {
+            let kind = if enum_ir.is_class { "enum class" } else { "enum" };
+            writeln!(out, "### `{} {}` (`{}`)\n", kind, enum_ir.name, enum_ir.qualified_name).unwrap();
+            writeln!(out, "| Variant | Value |").unwrap();
+            writeln!(out, "|---------|-------|").unwrap();
+            for v in &enum_ir.variants {
+                let val = v.value.map(|n| n.to_string()).unwrap_or_else(|| "(implicit)".to_string());
+                writeln!(out, "| `{}` | `{}` |", v.name, val).unwrap();
+            }
+            writeln!(out).unwrap();
+        }
+    }
+
+    // Type aliases section
+    if !decls.aliases.is_empty() {
+        writeln!(out, "## Type Aliases\n").unwrap();
+        writeln!(out, "| C++ alias | Underlying C++ type | Rust type |").unwrap();
+        writeln!(out, "|-----------|---------------------|-----------|").unwrap();
+        for alias in &decls.aliases {
+            writeln!(
+                out,
+                "| `{}` | `{}` | `{}` |",
+                alias.name, alias.aliased_cpp_type, alias.aliased_rust_type
             )
             .unwrap();
         }
