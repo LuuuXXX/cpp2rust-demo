@@ -88,6 +88,7 @@
 | C++ 特性 | 跳过原因 | 建议方案 |
 |---------|---------|---------|
 | 析构函数 | hicc 不支持显式析构绑定语法 | 由 C++ RAII / 对象生命周期管理；无需 Rust 侧显式析构 |
+| 运算符重载 | hicc 不支持运算符名称作为绑定符号（`hicc_limitation`）；工具自动生成 `operator_shims.hpp` starter | 补全 `operator_shims.hpp` + 在 `hicc::cpp!` 中引入（见 `rapidjson-07-operator-shim`） |
 | `std::string` 参数/返回 | hicc 无 `std::string` ABI 支持 | 手写 C++ shim，将结果转为 `const char*` 或通过输出参数传出 |
 | `std::function` / lambda 参数 | 无法映射到 Rust 闭包 | 封装为虚函数接口 + `@make_proxy` 反向绑定（见 `rapidjson-04-abstract-interface`） |
 | Variadic 函数（`...`） | hicc 不支持可变参数 | 手写固定参数 C++ 包装函数 |
@@ -106,7 +107,6 @@
 | 模板类（无 typedef/using 别名） | 跳过 | 在 entry.cpp 添加 `typedef`/`using` 别名，触发 AliasRegistry 注册 |
 | `std::` 容器参数（无别名） | 跳过 | 为容器类型添加 `using` 别名 |
 | 函数模板（无显式特化） | 跳过 | 在 AST 中提供 concrete specialization 可见 |
-| 运算符重载 | 跳过（生成 shim starter） | 补全 `operator_shims.hpp` + 在 `hicc::cpp!` 中引入（见 `rapidjson-07-operator-shim`） |
 
 ### ⛔ 工具层面限制（ToolLimit，可改进）
 

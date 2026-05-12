@@ -262,7 +262,7 @@ done
 
 ### 步骤 7：使用自动化脚本（一键复现）
 
-上述步骤已集成到 `scripts/validate-rapidjson.sh`：
+上述步骤的核心流程（init → merge → 验证）已集成到 `scripts/validate-rapidjson.sh`，可直接执行：
 
 ```bash
 # 在仓库根目录执行（debug 构建）
@@ -276,6 +276,8 @@ done
 ```
 ✓ All validation checks passed.
 ```
+
+> **与手动步骤的差异**：脚本的 `init` 命令**不传 `--no-link`**（即会向 `build.rs` 注入 `cargo::rustc-link-lib=rapidjson`）。这是 CI 有意为之：脚本只验证接口提取和绑定生成的正确性，不实际执行 `cargo build`，因此是否注入链接指令不影响结果。若你需要将生成的 crate 用于 header-only 场景（不链接预编译库），应在自己的 entry.cpp 流程中加上 `--no-link`，如手动步骤 4 所示。
 
 ---
 
@@ -345,7 +347,7 @@ pub enum ParseErrorCode {
 | Name | Reason | Category |
 |------|--------|----------|
 | `~GenericDocument` | destructor | hicc_limitation |
-| `operator[]` | operator overload | tool_conservative (shim generated) |
+| `operator[]` | operator_overload | hicc_limitation |
 ...
 ```
 
