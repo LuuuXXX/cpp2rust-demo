@@ -122,12 +122,12 @@ jobs:
           test -f "${OUT}/meta/init-interface-report.md"
           test -f "${OUT}/meta/merge-report.md"
           test -f "${OUT}/cpp/${{ matrix.source_file }}.cpp2rust"
-          test -f "${OUT}/rust/src/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
+          test -f "${OUT}/rust/src.1/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
           test -f "${OUT}/rust/src/merged_ffi.rs"
 
           grep -q "${{ matrix.source_file }}.cpp2rust" "${OUT}/meta/selected_files.json"
-          grep -q 'import_lib!' "${OUT}/rust/src/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
-          grep -q "link_name = \"${{ matrix.expected_link_name }}\"" "${OUT}/rust/src/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
+          grep -q 'import_lib!' "${OUT}/rust/src.1/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
+          grep -q "link_name = \"${{ matrix.expected_link_name }}\"" "${OUT}/rust/src.1/${{ matrix.expected_group }}/free/${{ matrix.expected_free }}"
 
       - name: Upload .cpp2rust artifact
         if: always()
