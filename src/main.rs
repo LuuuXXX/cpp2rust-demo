@@ -13,6 +13,8 @@ use serde::Serialize;
 use selector::{FileSelector, InteractiveSelector};
 use std::path::{Path, PathBuf};
 
+pub(crate) const SEMANTIC_DIRS: [&str; 6] = ["include", "types", "free", "class", "method", "global"];
+
 // ---------------------------------------------------------------------------
 // CLI definition
 // ---------------------------------------------------------------------------
@@ -208,8 +210,9 @@ fn run_init(args: InitArgs) -> Result<()> {
         }
 
         // Step 3: generate grouped semantic module source.
+        let has_global = has_global_bindings(&decls);
         let group_dir = rust_src_dir.join(group_module);
-        write_group_scaffold(&group_dir, stem)?;
+        write_group_scaffold(&group_dir, stem, has_global)?;
 
         let include_mod_path = group_dir.join("include").join("mod.rs");
         let include_src = codegen::render_include_module(&selected_file.display().to_string());
@@ -261,8 +264,6 @@ fn run_init(args: InitArgs) -> Result<()> {
         let types_src = codegen::render_types_module(&decls);
         std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
             .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
-
-        let has_global = has_global_bindings(&decls);
 
         let group_mod_path = group_dir.join("mod.rs");
         std::fs::write(
@@ -500,8 +501,11 @@ fn write_common_modules(rust_src_dir: &Path, includes_src: &str, types_src: &str
     Ok(())
 }
 
-fn write_group_scaffold(group_dir: &Path, stem: &str) -> Result<()> {
-    for sub in ["include", "types", "free", "class", "method"] {
+fn write_group_scaffold(group_dir: &Path, stem: &str, with_global: bool) -> Result<()> {
+    for sub in SEMANTIC_DIRS {
+        if sub == "global" && !with_global {
+            continue;
+        }
         std::fs::create_dir_all(group_dir.join(sub))
             .map_err(|e| anyhow!("create {}: {}", group_dir.join(sub).display(), e))?;
     }

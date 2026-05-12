@@ -100,7 +100,7 @@ pub fn merge_grouped_modules(init_src_dir: &Path, out_src2_dir: &Path, link_name
 
 fn merge_group_module(group_dir: &Path, output_file: &Path, link_name: &str) -> Result<ModuleFragments> {
     let mut fragments = ModuleFragments::default();
-    for semantic_dir in ["include", "types", "free", "class", "method", "global"] {
+    for semantic_dir in crate::SEMANTIC_DIRS {
         let dir = group_dir.join(semantic_dir);
         if !dir.exists() {
             continue;
