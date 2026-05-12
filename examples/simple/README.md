@@ -1,32 +1,31 @@
-# Simple Example – Free Functions
+# 简单示例：自由函数
 
-This example demonstrates generating Rust FFI for a C++ library by compiling a
-translation unit that includes a header with free functions (including overloaded ones) inside a namespace.
+该示例演示如何从 C++ 源码（含命名空间与重载函数）生成 Rust FFI。
 
-## Source
+## 源码文件
 
-- `mylib.hpp` – C++ header with free functions in `namespace mylib`
-- `mylib.cpp` – implementation (compile separately)
+- `mylib.hpp`：`namespace mylib` 下的自由函数声明
+- `mylib.cpp`：对应实现（需单独编译）
 
-## Running the Example
+## 运行步骤
 
-From the repository root:
+在仓库根目录执行：
 
 ```bash
-# Step 1: generate FFI
+# 第 1 步：生成分组 FFI
 cpp2rust-demo init --link mylib -- clang -x c++ -fsyntax-only examples/simple/mylib.cpp
 
-# Step 2: consolidate into a single file
+# 第 2 步：合并输出
 cpp2rust-demo merge
 
-# Step 3: inspect the generated output
+# 第 3 步：查看结果
 ls .cpp2rust/default/rust/src/
 cat .cpp2rust/default/rust/src/merged_ffi.rs
 ```
 
-## Expected Generated FFI
+## 预期生成结果
 
-After running the above commands you should see a `merged_ffi.rs` similar to:
+执行后可在 `merged_ffi.rs` 中看到类似内容：
 
 ```rust
 hicc::import_lib! {
@@ -56,32 +55,29 @@ hicc::import_lib! {
 }
 ```
 
-## Compiling with the Generated Project
+## 使用生成项目进行编译
 
 ```bash
-# Copy the generated project
+# 拷贝生成的 Rust 工程
 cp -r .cpp2rust/default/rust/ mylib-ffi/
 cd mylib-ffi/
 
-# Compile the C++ library
+# 编译 C++ 静态库（也可改为 .so）
 clang++ -std=c++14 -c -fPIC ../../examples/simple/mylib.cpp -o mylib.o
 ar rcs libmylib.a mylib.o
-# OR: clang++ -shared -fPIC ../../examples/simple/mylib.cpp -o libmylib.so
 
-# Build the Rust crate (needs the library in the search path)
+# 构建 Rust crate（需要让链接器可找到库）
 LIBRARY_PATH=. cargo build
 ```
 
-## Overload Naming Convention
+## 重载命名规则
 
-By default, cpp2rust-demo resolves naming conflicts from C++ function overloads
-by appending a numeric suffix starting from `_2`:
+`cpp2rust-demo` 默认通过追加数字后缀解决重载冲突，后缀从 `_2` 开始：
 
-| C++ overload | Rust name |
+| C++ 重载 | Rust 名称 |
 |---|---|
 | `void process(int)` | `process` |
 | `void process(double)` | `process_2` |
 | `void process(const char*)` | `process_3` |
 
-The naming strategy is implemented in `src/ast.rs::extract_function` and can be
-customised by modifying the overload resolution logic there.
+该策略实现位于 `src/ast.rs` 的函数提取逻辑中。
