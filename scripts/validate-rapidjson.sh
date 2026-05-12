@@ -9,8 +9,8 @@
 # The script:
 #   1. Builds cpp2rust-demo (debug by default, --release for release build).
 #   2. Clones Tencent/rapidjson into /tmp/rapidjson (re-uses existing clone).
-#   3. Runs `cpp2rust-demo init` inside the rapidjson directory via a
-#      translation unit to trigger the complete “compile→capture→middleware” flow.
+#   3. Runs `cpp2rust-demo init` inside the rapidjson directory via multiple
+#      translation units to trigger the complete “compile→capture→middleware” flow.
 #   4. Runs `cpp2rust-demo merge`.
 #   5. Validates the expected output files exist and contain expected content.
 #
@@ -67,25 +67,54 @@ else
 fi
 echo ""
 
+# rapidjson validation cases by capability dimension:
+# - document     => DOM/document
+# - reader       => Reader/SAX
+# - writer       => Writer
+# - prettywriter => PrettyWriter
+# - pointer      => Pointer
+# - schema       => Schema/Error related
+CASE_NAMES=(document reader writer prettywriter pointer schema)
+CASE_INCLUDES=(
+    'rapidjson/document.h'
+    'rapidjson/reader.h'
+    'rapidjson/writer.h'
+    'rapidjson/prettywriter.h'
+    'rapidjson/pointer.h'
+    'rapidjson/schema.h'
+)
+
 # ---------------------------------------------------------------------------
 # Step 3: Run cpp2rust-demo init
-#
-# We create document.cpp as entry and include rapidjson/document.h.
-# Using -fsyntax-only avoids the need to link anything; -std=c++11 matches
-# rapidjson's minimum standard.
 # ---------------------------------------------------------------------------
 echo "=== Step 3: Running cpp2rust-demo init ==="
 (
     cd "${RAPIDJSON_DIR}"
     # Remove previous output so this script is idempotent.
     rm -rf .cpp2rust
-    cat > document.cpp <<'CPP'
-#include "rapidjson/document.h"
+    BUILD_STEPS=()
+    for i in "${!CASE_NAMES[@]}"; do
+        case_name="${CASE_NAMES[$i]}"
+        include_header="${CASE_INCLUDES[$i]}"
+        source_file="${case_name}.cpp"
+        cat > "${source_file}" <<CPP
+#include "${include_header}"
 CPP
+        # Keep one shared compile profile across cases for stable CI behavior:
+        # rapidjson is header-only and supports C++11 as a baseline.
+        BUILD_STEPS+=("clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude ${source_file}")
+    done
+    BUILD_CMD=""
+    for step in "${BUILD_STEPS[@]}"; do
+        if [ -n "${BUILD_CMD}" ]; then
+            BUILD_CMD="${BUILD_CMD} && "
+        fi
+        BUILD_CMD="${BUILD_CMD}${step}"
+    done
     "${BIN}" init \
         --feature "${FEATURE}" \
         --link rapidjson \
-        -- clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude document.cpp
+        -- sh -c "${BUILD_CMD}" < /dev/null
 )
 echo ""
 
@@ -127,25 +156,34 @@ check_contains() {
 
 OUT="${RAPIDJSON_DIR}/.cpp2rust/${FEATURE}"
 
+for case_name in "${CASE_NAMES[@]}"; do
+    middleware_file="${case_name}.cpp.cpp2rust"
+    check_file  "${OUT}/cpp/${middleware_file}"
+    check_file  "${OUT}/cpp/${middleware_file}.opts"
+    check_file  "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs"
+    check_file  "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs"
+    check_file  "${OUT}/rust/src.1/mod_${case_name}/meta.json"
+    check_contains "${OUT}/meta/selected_files.json" "${middleware_file}"
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs" "#include \"${middleware_file}\""
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs" "import_lib!"
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs" 'link_name = "rapidjson"'
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "\"group\": \"mod_${case_name}\""
+    check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "${middleware_file}"
+    check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${middleware_file}\""
+done
+
 check_file  "${OUT}/meta/build_cmd.txt"
 check_file  "${OUT}/meta/selected_files.json"
 check_file  "${OUT}/meta/headers.json"
 check_file  "${OUT}/meta/init-interface-report.md"
-check_file  "${OUT}/cpp/document.cpp.cpp2rust"
-check_file  "${OUT}/cpp/document.cpp.cpp2rust.opts"
 check_file  "${OUT}/rust/Cargo.toml"
 check_file  "${OUT}/rust/build.rs"
 check_file  "${OUT}/rust/src/lib.rs"
-check_file  "${OUT}/rust/src.1/mod_document/include/mod.rs"
-check_file  "${OUT}/rust/src.1/mod_document/free/fn_document.rs"
 check_file  "${OUT}/rust/src/merged_ffi.rs"
 check_file  "${OUT}/meta/merge-report.md"
 
-check_contains "${OUT}/meta/selected_files.json" "document.cpp.cpp2rust"
-check_contains "${OUT}/rust/src.1/mod_document/free/fn_document.rs"   "import_lib!"
-check_contains "${OUT}/rust/src.1/mod_document/free/fn_document.rs"   'link_name = "rapidjson"'
-check_contains "${OUT}/rust/src.1/mod_document/include/mod.rs"        '#include "document.cpp.cpp2rust"'
-check_contains "${OUT}/rust/src/merged_ffi.rs"     "import_lib!"
+check_contains "${OUT}/rust/src/merged_ffi.rs" "import_lib!"
+check_contains "${OUT}/rust/src/merged_ffi.rs" 'link_name = "rapidjson"'
 
 echo ""
 echo "=== Generated .cpp2rust directory tree ==="
