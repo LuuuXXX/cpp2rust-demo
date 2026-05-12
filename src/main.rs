@@ -13,7 +13,20 @@ use serde::Serialize;
 use selector::{FileSelector, InteractiveSelector};
 use std::path::{Path, PathBuf};
 
-pub(crate) const SEMANTIC_DIRS: [&str; 6] = ["include", "types", "free", "class", "method", "global"];
+pub(crate) const SEMANTIC_TYPES_DIR: &str = "types";
+pub(crate) const SEMANTIC_INCLUDE_DIR: &str = "include";
+pub(crate) const SEMANTIC_FREE_DIR: &str = "free";
+pub(crate) const SEMANTIC_CLASS_DIR: &str = "class";
+pub(crate) const SEMANTIC_METHOD_DIR: &str = "method";
+pub(crate) const SEMANTIC_GLOBAL_DIR: &str = "global";
+pub(crate) const SEMANTIC_DIRS: [&str; 6] = [
+    SEMANTIC_TYPES_DIR,
+    SEMANTIC_INCLUDE_DIR,
+    SEMANTIC_FREE_DIR,
+    SEMANTIC_CLASS_DIR,
+    SEMANTIC_METHOD_DIR,
+    SEMANTIC_GLOBAL_DIR,
+];
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -503,7 +516,7 @@ fn write_common_modules(rust_src_dir: &Path, includes_src: &str, types_src: &str
 
 fn write_group_scaffold(group_dir: &Path, stem: &str, with_global: bool) -> Result<()> {
     for sub in SEMANTIC_DIRS {
-        if sub == "global" && !with_global {
+        if sub == SEMANTIC_GLOBAL_DIR && !with_global {
             continue;
         }
         std::fs::create_dir_all(group_dir.join(sub))
