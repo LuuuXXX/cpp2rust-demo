@@ -321,7 +321,11 @@ fn run_init(args: InitArgs) -> Result<()> {
                 .iter()
                 .flat_map(|c| c.methods.iter().map(|m| m.qualified_name.clone()))
                 .collect(),
-            globals: vec![],
+            globals: decls
+                .globals
+                .iter()
+                .map(|g| g.qualified_name.clone())
+                .collect(),
         };
         let meta_path = group_dir.join("meta.json");
         std::fs::write(

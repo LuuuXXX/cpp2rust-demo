@@ -1955,5 +1955,22 @@ fn init_namespaced_global_variable_uses_qualified_name() {
         "namespaced const global should use qualified name: {}",
         free_src
     );
+
+    // meta.json should list the extracted globals.
+    let meta_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_ns_globals/meta.json"),
+    )
+    .unwrap();
+    assert!(
+        meta_src.contains("config::max_retries"),
+        "meta.json globals should include qualified global name: {}",
+        meta_src
+    );
+    assert!(
+        meta_src.contains("config::timeout_secs"),
+        "meta.json globals should include qualified global name: {}",
+        meta_src
+    );
 }
 
