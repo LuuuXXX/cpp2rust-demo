@@ -55,7 +55,7 @@ enum Type {
 ```bash
 # 第 1 步：生成分组 FFI（--no-link：header-only，不链接外部库）
 cpp2rust-demo init --feature rj01 --link rapidjson --no-link \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-01-enum/entry.cpp
+    -- clang -x c++ -fsyntax-only examples/rapidjson/01-enum/entry.cpp
 
 # 第 2 步：合并
 cpp2rust-demo merge --feature rj01

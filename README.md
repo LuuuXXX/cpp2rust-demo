@@ -196,11 +196,11 @@ cpp2rust-demo merge --feature myfeature --output /tmp/merged-rust
   - `examples/README.md`（总览，含能力速查与不支持特性说明）
   - `examples/simple/README.md`（自由函数、命名空间、重载）
   - `examples/class/README.md`（类、方法、构造函数、virtual、继承）
-  - `examples/rapidjson-01-enum/README.md`（枚举绑定）
-  - `examples/rapidjson-02-typedef-alias/README.md`（typedef/using 别名）
-  - `examples/rapidjson-03-template-class/README.md`（模板特化类）
-  - `examples/rapidjson-04-abstract-interface/README.md`（纯虚接口 + @make_proxy）
-  - `examples/rapidjson-05-virtual-methods/README.md`（非纯虚方法）
-  - `examples/rapidjson-06-inheritance/README.md`（public 继承）
-  - `examples/rapidjson-07-operator-shim/README.md`（运算符重载 shim）
-  - `examples/rapidjson-08-multi-tu/README.md`（多翻译单元 + merge）
+  - `examples/rapidjson/01-enum/README.md`（枚举绑定）
+  - `examples/rapidjson/02-typedef-alias/README.md`（typedef/using 别名）
+  - `examples/rapidjson/03-template-class/README.md`（模板特化类）
+  - `examples/rapidjson/04-abstract-interface/README.md`（纯虚接口 + @make_proxy）
+  - `examples/rapidjson/05-virtual-methods/README.md`（非纯虚方法）
+  - `examples/rapidjson/06-inheritance/README.md`（public 继承）
+  - `examples/rapidjson/07-operator-shim/README.md`（运算符重载 shim）
+  - `examples/rapidjson/08-multi-tu/README.md`（多翻译单元 + merge）

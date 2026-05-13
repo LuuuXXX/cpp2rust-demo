@@ -173,4 +173,4 @@ using FastDoc = rapidjson::GenericDocument<rapidjson::UTF8<char>,
 - **模板别名**：RapidJSON 核心类型（`Document`、`Value`、`Writer` 等）的 `typedef` 别名已内置于头文件，`#include` 后工具自动提取。
 - **虚函数**：非模板类的虚函数（含纯虚接口）可正常生成 hicc 绑定。
 - **operator 重载**：hicc 不支持运算符名称，需手写 C++ shim；工具自动生成 `operator_shims.hpp` starter 辅助填写。
-- **多翻译单元**：使用 `init` 多编译单元模式一次捕获全部头文件，通过 `merge` 合并为统一 FFI，见 `examples/rapidjson-08-multi-tu/`。
+- **多翻译单元**：使用 `init` 多编译单元模式一次捕获全部头文件，通过 `merge` 合并为统一 FFI，见 `examples/rapidjson/08-multi-tu/`。

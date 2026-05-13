@@ -63,7 +63,7 @@ namespace rjdoc {
 ```bash
 # 第 1 步：生成分组 FFI
 cpp2rust-demo init --feature rj03 --link rapidjson --no-link \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-03-template-class/entry.cpp
+    -- clang -x c++ -fsyntax-only examples/rapidjson/03-template-class/entry.cpp
 
 # 第 2 步：合并
 cpp2rust-demo merge --feature rj03
@@ -193,7 +193,7 @@ Rust 生成:  class Document: Value { ... }   ← 使用别名
 
 | 限制 | 说明 |
 |------|------|
-| `operator[]` 跳过 | 运算符重载不提取，见 `rapidjson-07-operator-shim/` |
+| `operator[]` 跳过 | 运算符重载不提取，见 `rapidjson/07-operator-shim/` |
 | 继承的方法不重复提取 | 若父类 `Value` 已提取，`Document` 中的同名 override 会以 `Document` 自身方法列表为准 |
 | 多个模板参数的特化 | 只有 typedef 覆盖的特化被提取；其他参数组合的特化仍跳过 |
 | `friend` 函数 | AST 中为 `FriendDecl`，当前跳过 |

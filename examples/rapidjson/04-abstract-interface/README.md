@@ -46,7 +46,7 @@ public:
 ```bash
 # 第 1 步：生成分组 FFI
 cpp2rust-demo init --feature rj04 --link rapidjson --no-link \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-04-abstract-interface/entry.cpp
+    -- clang -x c++ -fsyntax-only examples/rapidjson/04-abstract-interface/entry.cpp
 
 # 第 2 步：合并
 cpp2rust-demo merge --feature rj04
