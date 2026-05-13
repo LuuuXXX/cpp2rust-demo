@@ -264,6 +264,16 @@ pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
         out.push('\n');
     }
 
+    // Emit RustAny suggestions for any STL container types encountered.
+    // Only insert one blank-line separator regardless of what came before.
+    let rust_any = render_rust_any_suggestions(decls);
+    if !rust_any.is_empty() {
+        if !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str(&rust_any);
+    }
+
     out
 }
 
@@ -1120,6 +1130,46 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
         }
     }
 
+    // Placement-new skeletons section (P4).
+    {
+        let classes_with_ctors: Vec<&crate::ast::ClassIR> = decls
+            .classes
+            .iter()
+            .filter(|c| !c.is_abstract && !c.ctors.is_empty())
+            .collect();
+        if !classes_with_ctors.is_empty() {
+            writeln!(out, "## Placement-New Skeletons (P4)\n").unwrap();
+            writeln!(out, "_The following concrete classes have extracted constructors. Placement-new binding skeletons have been written to `free/placement_new.rs`. Uncomment the constructors you need to build C++ objects in Rust-managed memory._\n").unwrap();
+            for cls in &classes_with_ctors {
+                let rust_name = cls.canonical_name.as_deref().unwrap_or(cls.name.as_str());
+                let ctor_sigs: Vec<String> = cls
+                    .ctors
+                    .iter()
+                    .map(|c| format!("`{}`", c.cpp_signature))
+                    .collect();
+                writeln!(out, "- **`{rust_name}`** — constructors: {}", ctor_sigs.join(", ")).unwrap();
+            }
+            writeln!(out).unwrap();
+        }
+    }
+
+    // RustAny suggestions section (P4).
+    {
+        let stl_types: std::collections::BTreeSet<String> = decls
+            .skipped
+            .iter()
+            .filter_map(|s| s.stl_container_type.clone())
+            .collect();
+        if !stl_types.is_empty() {
+            writeln!(out, "## `hicc::RustAny` Suggestions for STL Containers (P4)\n").unwrap();
+            writeln!(out, "_The following STL container types were encountered in skipped declarations. See `types/mod.rs` for detailed suggestions on using `hicc::RustAny<T>` / `hicc-std` to store Rust data in these containers._\n").unwrap();
+            for ct in &stl_types {
+                writeln!(out, "- `{ct}`").unwrap();
+            }
+            writeln!(out).unwrap();
+        }
+    }
+
     out
 }
 
@@ -1390,6 +1440,181 @@ pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> S
     }
     writeln!(out, "}}").unwrap();
     out
+}
+
+/// Render placement-new binding skeletons for classes with constructors.
+///
+/// hicc supports constructing C++ objects directly in Rust-managed memory via
+/// `@placement_new<ClassName>(args...)`.  The generated bindings are all
+/// **commented-out** starters; users uncomment and adapt the ones they need.
+///
+/// Returns an empty string when no concrete class has any extracted constructors.
+pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> String {
+    let classes_with_ctors: Vec<&ClassIR> = decls
+        .classes
+        .iter()
+        .filter(|c| !c.is_abstract && !c.ctors.is_empty())
+        .collect();
+
+    if classes_with_ctors.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    writeln!(out, "// Auto-generated placement-new binding skeletons by cpp2rust-demo.").unwrap();
+    writeln!(out, "// hicc supports constructing C++ objects in Rust-managed memory.").unwrap();
+    writeln!(out, "// Uncomment the constructors you need and add this file to your hicc build.").unwrap();
+    writeln!(out, "//").unwrap();
+    writeln!(out, "// Usage pattern:").unwrap();
+    writeln!(out, "//   let mut storage = hicc::AlignedStorage::<Foo>::new();").unwrap();
+    writeln!(out, "//   let foo_ref = new_foo_inplace(&mut storage, ...);").unwrap();
+    writeln!(out, "//   // `foo_ref` borrows `storage`; it is destroyed when `storage` drops.").unwrap();
+    writeln!(out, "//").unwrap();
+    writeln!(out, "// See https://docs.rs/hicc for placement-new semantics.").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "hicc::import_lib! {{").unwrap();
+    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
+
+    for class in &classes_with_ctors {
+        let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+        let snake = crate::ast::to_snake_case(rust_name);
+
+        writeln!(out).unwrap();
+        writeln!(out, "    // Placement-new binding(s) for `{rust_name}` — uncomment and adapt.").unwrap();
+        for (i, ctor) in class.ctors.iter().enumerate() {
+            // Build rust param list (no self; first param is the storage).
+            let rust_params: Vec<String> = ctor
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", sanitize_ident(&p.name), p.rust_type))
+                .collect();
+            let param_str = if rust_params.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", rust_params.join(", "))
+            };
+
+            // Build the C++ param type list for @placement_new.
+            let cpp_param_types: Vec<String> = ctor
+                .params
+                .iter()
+                .map(|p| p.cpp_type.clone())
+                .collect();
+            let cpp_params_str = cpp_param_types.join(", ");
+
+            let fn_name = if i == 0 {
+                format!("new_{snake}_inplace")
+            } else {
+                format!("new_{snake}_inplace_{}", i + 1)
+            };
+
+            writeln!(out, "    // #[cpp(func = \"{rust_name} @placement_new<{rust_name}>({cpp_params_str})\")]").unwrap();
+            writeln!(out, "    // fn {fn_name}<'a>(mem: &'a mut hicc::AlignedStorage<{rust_name}>{param_str}) -> &'a mut {rust_name};").unwrap();
+        }
+    }
+
+    writeln!(out, "}}").unwrap();
+    out
+}
+
+/// Render `hicc::RustAny<T>` type-mapping suggestions for STL container types
+/// that were encountered and skipped during AST extraction.
+///
+/// When C++ functions/methods use STL container parameters (e.g.
+/// `std::vector<Foo>`, `std::map<Key, Value>`), those functions are currently
+/// skipped because hicc cannot pass container objects across the ABI boundary
+/// directly.  This function generates hint comments in `types/mod.rs` suggesting
+/// how to use `hicc::RustAny` or `hicc-std` equivalents to store Rust data in
+/// C++ containers.
+///
+/// Returns an empty string when no STL container types were detected.
+pub fn render_rust_any_suggestions(decls: &ExtractedDecls) -> String {
+    // Collect unique STL container types from skipped declarations.
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for s in &decls.skipped {
+        if let Some(ref ct) = s.stl_container_type {
+            seen.insert(ct.clone());
+        }
+    }
+
+    if seen.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    writeln!(out, "// ---------------------------------------------------------------------------").unwrap();
+    writeln!(out, "// hicc::RustAny suggestions for STL container types (P4)").unwrap();
+    writeln!(out, "//").unwrap();
+    writeln!(out, "// The following STL container types were encountered as parameter or return").unwrap();
+    writeln!(out, "// types in skipped declarations. They cannot be passed through the ABI").unwrap();
+    writeln!(out, "// boundary directly, but hicc supports storing Rust data inside C++").unwrap();
+    writeln!(out, "// containers via `hicc::RustAny<T>`.").unwrap();
+    writeln!(out, "//").unwrap();
+    writeln!(out, "// Pattern: replace `std::vector<Foo>` with `std::vector<hicc::RustAny<Foo>>`").unwrap();
+    writeln!(out, "// on the C++ side, then use `hicc_std::Vector<Foo>` on the Rust side.").unwrap();
+    writeln!(out, "//").unwrap();
+    writeln!(out, "// See https://docs.rs/hicc for RustAny / hicc-std container semantics.").unwrap();
+    writeln!(out, "// ---------------------------------------------------------------------------").unwrap();
+    writeln!(out).unwrap();
+    for ct in &seen {
+        // Derive a friendly suggestion based on the container type.
+        let suggestion = rust_any_suggestion_for(ct);
+        writeln!(out, "// Detected: `{ct}`").unwrap();
+        writeln!(out, "//   {suggestion}").unwrap();
+    }
+    out
+}
+
+/// Produce a one-line suggestion string for a given STL container type.
+fn rust_any_suggestion_for(ct: &str) -> String {
+    // Match common containers and produce hicc-std equivalents.
+    let trimmed = ct.trim();
+    if trimmed.contains("std::vector<") {
+        let inner = extract_template_arg(trimmed);
+        if let Some(t) = inner {
+            return format!(
+                "→ use `hicc_std::Vector<{t}>` (Rust) / `std::vector<hicc::RustAny<{t}>>` (C++)"
+            );
+        }
+    }
+    if trimmed.contains("std::map<") {
+        let inner = extract_template_arg(trimmed);
+        if let Some(t) = inner {
+            return format!(
+                "→ use `hicc_std::Map<{t}>` (Rust) / `std::map<Key, hicc::RustAny<Val>>` (C++)"
+            );
+        }
+    }
+    if trimmed.contains("std::unordered_map<") {
+        let inner = extract_template_arg(trimmed);
+        if let Some(t) = inner {
+            return format!(
+                "→ use `hicc_std::HashMap<{t}>` (Rust) / `std::unordered_map<Key, hicc::RustAny<Val>>` (C++)"
+            );
+        }
+    }
+    if trimmed.contains("std::set<") || trimmed.contains("std::unordered_set<") {
+        return format!(
+            "→ store Rust keys via `hicc::RustKey<T>` / `hicc::RustHashKey<T>` in the set"
+        );
+    }
+    format!("→ consider wrapping values with `hicc::RustAny<T>` to store Rust data in `{trimmed}`")
+}
+
+/// Extract the first template argument from a type string like `std::vector<int>`.
+///
+/// Returns `None` when no angle-bracket pair is found or the string is malformed.
+fn extract_template_arg(full: &str) -> Option<&str> {
+    let open = full.find('<')?;
+    let close = full.rfind('>')?;
+    if close <= open {
+        return None;
+    }
+    let inner = full[open + 1..close].trim();
+    if inner.is_empty() {
+        return None;
+    }
+    Some(inner)
 }
 
 // ---------------------------------------------------------------------------
@@ -1764,5 +1989,240 @@ mod tests {
             "unexpected double blank line in import_lib when all classes are abstract"
         );
         assert!(!free_src.contains("class IFoo;"));
+    }
+
+    // P4.1 — placement-new skeleton tests
+    #[test]
+    fn render_placement_new_module_empty_when_no_ctors() {
+        let decls = ExtractedDecls::default();
+        let src = render_placement_new_module(&decls, "mylib");
+        assert!(src.is_empty(), "expected empty output when no classes have ctors, got: {src}");
+    }
+
+    #[test]
+    fn render_placement_new_module_empty_for_abstract_class() {
+        // Abstract classes (pure-interface) should NOT get placement-new starters.
+        let class = ClassIR {
+            name: "IFoo".to_string(),
+            qualified_name: "IFoo".to_string(),
+            is_abstract: true,
+            ctors: vec![crate::ast::CtorIR {
+                params: vec![],
+                cpp_signature: "IFoo()".to_string(),
+            }],
+            ..ClassIR::default()
+        };
+        let decls = ExtractedDecls {
+            classes: vec![class],
+            ..ExtractedDecls::default()
+        };
+        let src = render_placement_new_module(&decls, "mylib");
+        assert!(
+            src.is_empty(),
+            "expected empty output for abstract-only class, got: {src}"
+        );
+    }
+
+    #[test]
+    fn render_placement_new_module_generates_commented_skeleton() {
+        use crate::ast::{CtorIR, ParamIR};
+        let class = ClassIR {
+            name: "Foo".to_string(),
+            qualified_name: "Foo".to_string(),
+            ctors: vec![
+                CtorIR {
+                    params: vec![
+                        ParamIR { name: "x".to_string(), cpp_type: "int".to_string(), rust_type: "i32".to_string() },
+                    ],
+                    cpp_signature: "Foo(int)".to_string(),
+                },
+            ],
+            ..ClassIR::default()
+        };
+        let decls = ExtractedDecls {
+            classes: vec![class],
+            ..ExtractedDecls::default()
+        };
+        let src = render_placement_new_module(&decls, "mylib");
+        // Must be commented-out (all binding lines start with //).
+        assert!(src.contains("import_lib!"), "missing import_lib! macro");
+        assert!(src.contains("@placement_new<Foo>"), "missing @placement_new annotation");
+        assert!(src.contains("new_foo_inplace"), "missing generated function name");
+        assert!(src.contains("AlignedStorage"), "missing AlignedStorage param");
+        assert!(src.contains("// #[cpp"), "binding lines should be commented out");
+        assert!(src.contains("link_name = \"mylib\""), "missing link_name");
+    }
+
+    #[test]
+    fn render_placement_new_module_multiple_ctors_get_indexed_names() {
+        use crate::ast::{CtorIR, ParamIR};
+        let class = ClassIR {
+            name: "Bar".to_string(),
+            qualified_name: "Bar".to_string(),
+            ctors: vec![
+                CtorIR { params: vec![], cpp_signature: "Bar()".to_string() },
+                CtorIR {
+                    params: vec![ParamIR { name: "n".to_string(), cpp_type: "int".to_string(), rust_type: "i32".to_string() }],
+                    cpp_signature: "Bar(int)".to_string(),
+                },
+            ],
+            ..ClassIR::default()
+        };
+        let decls = ExtractedDecls {
+            classes: vec![class],
+            ..ExtractedDecls::default()
+        };
+        let src = render_placement_new_module(&decls, "mylib");
+        assert!(src.contains("new_bar_inplace"), "primary ctor fn name");
+        assert!(src.contains("new_bar_inplace_2"), "second ctor fn name");
+    }
+
+    // P4.2 — RustAny suggestion tests
+    #[test]
+    fn render_rust_any_suggestions_empty_when_no_stl() {
+        let decls = ExtractedDecls::default();
+        let src = render_rust_any_suggestions(&decls);
+        assert!(src.is_empty(), "expected empty when no STL containers, got: {src}");
+    }
+
+    #[test]
+    fn render_rust_any_suggestions_for_vector() {
+        let decls = ExtractedDecls {
+            skipped: vec![SkippedDecl {
+                kind: "CXXMethodDecl".to_string(),
+                name: "Foo::push".to_string(),
+                reason: "unsupported_type".to_string(),
+                stl_container_type: Some("std::vector<Foo>".to_string()),
+                ..SkippedDecl::default()
+            }],
+            ..ExtractedDecls::default()
+        };
+        let src = render_rust_any_suggestions(&decls);
+        assert!(src.contains("std::vector<Foo>"), "missing container type");
+        assert!(src.contains("hicc_std::Vector"), "missing hicc_std suggestion");
+        assert!(src.contains("RustAny"), "missing RustAny suggestion");
+    }
+
+    #[test]
+    fn render_rust_any_suggestions_deduplicates_types() {
+        // Two different methods skipped for the same container type should produce
+        // only one suggestion entry.
+        let decls = ExtractedDecls {
+            skipped: vec![
+                SkippedDecl {
+                    kind: "CXXMethodDecl".to_string(),
+                    name: "Foo::push".to_string(),
+                    reason: "unsupported_type".to_string(),
+                    stl_container_type: Some("std::vector<int>".to_string()),
+                    ..SkippedDecl::default()
+                },
+                SkippedDecl {
+                    kind: "CXXMethodDecl".to_string(),
+                    name: "Foo::pop".to_string(),
+                    reason: "unsupported_type".to_string(),
+                    stl_container_type: Some("std::vector<int>".to_string()),
+                    ..SkippedDecl::default()
+                },
+            ],
+            ..ExtractedDecls::default()
+        };
+        let src = render_rust_any_suggestions(&decls);
+        // "std::vector<int>" should appear exactly once (deduplication).
+        let count = src.matches("std::vector<int>").count();
+        assert_eq!(count, 1, "expected deduplicated container type, found {count} times");
+    }
+
+    #[test]
+    fn render_types_module_includes_rust_any_when_stl_detected() {
+        let decls = ExtractedDecls {
+            skipped: vec![SkippedDecl {
+                kind: "CXXMethodDecl".to_string(),
+                name: "Bar::items".to_string(),
+                reason: "unsupported_type".to_string(),
+                stl_container_type: Some("std::list<Bar>".to_string()),
+                ..SkippedDecl::default()
+            }],
+            ..ExtractedDecls::default()
+        };
+        let types_src = render_types_module(&decls);
+        assert!(
+            types_src.contains("RustAny"),
+            "types module should contain RustAny suggestions when STL containers detected"
+        );
+        assert!(types_src.contains("std::list<Bar>"), "missing container type in types module");
+    }
+
+    #[test]
+    fn render_interface_report_includes_placement_new_section() {
+        use crate::ast::CtorIR;
+        let class = ClassIR {
+            name: "Widget".to_string(),
+            qualified_name: "Widget".to_string(),
+            ctors: vec![CtorIR { params: vec![], cpp_signature: "Widget()".to_string() }],
+            ..ClassIR::default()
+        };
+        let decls = ExtractedDecls {
+            classes: vec![class],
+            ..ExtractedDecls::default()
+        };
+        let report = render_interface_report(&decls, "mylib", "widget.hpp");
+        assert!(
+            report.contains("Placement-New Skeletons"),
+            "report should mention placement-new skeletons section"
+        );
+        assert!(
+            report.contains("Widget"),
+            "report should mention the class name"
+        );
+    }
+
+    #[test]
+    fn render_interface_report_includes_rust_any_section() {
+        let decls = ExtractedDecls {
+            skipped: vec![SkippedDecl {
+                kind: "FunctionDecl".to_string(),
+                name: "process_items".to_string(),
+                reason: "unsupported_type".to_string(),
+                stl_container_type: Some("std::vector<Item>".to_string()),
+                ..SkippedDecl::default()
+            }],
+            ..ExtractedDecls::default()
+        };
+        let report = render_interface_report(&decls, "mylib", "items.hpp");
+        assert!(
+            report.contains("RustAny"),
+            "report should contain RustAny section when STL containers detected"
+        );
+        assert!(report.contains("std::vector<Item>"), "report should list the container type");
+    }
+
+    #[test]
+    fn render_types_module_no_double_blank_line_with_aliases_and_stl() {
+        use crate::ast::AliasIR;
+        let decls = ExtractedDecls {
+            aliases: vec![AliasIR {
+                name: "MyInt".to_string(),
+                qualified_name: "MyInt".to_string(),
+                aliased_cpp_type: "int".to_string(),
+                aliased_rust_type: "i32".to_string(),
+            }],
+            skipped: vec![SkippedDecl {
+                kind: "FunctionDecl".to_string(),
+                name: "push_items".to_string(),
+                reason: "unsupported_type".to_string(),
+                stl_container_type: Some("std::vector<MyInt>".to_string()),
+                ..SkippedDecl::default()
+            }],
+            ..ExtractedDecls::default()
+        };
+        let src = render_types_module(&decls);
+        // Should not have a triple newline (= double blank line).
+        assert!(
+            !src.contains("\n\n\n"),
+            "types module should not have double blank lines when aliases and STL suggestions are both present"
+        );
+        // Both alias and suggestion must still appear.
+        assert!(src.contains("pub type MyInt = i32;"), "alias must appear");
+        assert!(src.contains("std::vector<MyInt>"), "STL suggestion must appear");
     }
 }

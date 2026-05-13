@@ -289,6 +289,10 @@ fn run_init(args: InitArgs) -> Result<()> {
         let dynamic_casts_src = codegen::render_dynamic_casts_module(&decls, link_name);
         let has_dynamic_casts = !dynamic_casts_src.is_empty();
 
+        // Placement-new skeletons (P4): generated whenever a concrete class has ctors.
+        let placement_new_src = codegen::render_placement_new_module(&decls, link_name);
+        let has_placement_new = !placement_new_src.is_empty();
+
         if !dry_run {
             // Step 3: generate grouped semantic module source.
             let group_dir = rust_src_dir.join(group_module);
@@ -376,13 +380,23 @@ fn run_init(args: InitArgs) -> Result<()> {
                 println!("  Dynamic cast skeletons → {}", dc_path.display());
             }
 
+            // Placement-new skeletons (P4): write free/placement_new.rs when any concrete
+            // class has extracted constructors.  All bindings are commented-out starters.
+            if has_placement_new {
+                let pn_path = group_dir.join("free").join("placement_new.rs");
+                std::fs::write(&pn_path, &placement_new_src)
+                    .map_err(|e| anyhow!("write placement_new.rs: {}", e))?;
+                println!("  Placement-new skeletons → {}", pn_path.display());
+            }
+
             // Write free/mod.rs registering all submodules in the free/ directory.
             let has_op_shims = !decls.operator_shims.is_empty();
-            if has_free || has_op_shims || has_dynamic_casts {
+            if has_free || has_op_shims || has_dynamic_casts || has_placement_new {
                 let free_submodules: Vec<&str> = [
                     has_free.then(|| free_mod_name.as_str()),
                     has_op_shims.then_some("shim_ops"),
                     has_dynamic_casts.then_some("dynamic_casts"),
+                    has_placement_new.then_some("placement_new"),
                 ]
                 .into_iter()
                 .flatten()
@@ -397,7 +411,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             let group_mod_path = group_dir.join("mod.rs");
             std::fs::write(
                 &group_mod_path,
-                render_group_mod_rs(has_free || has_op_shims || has_dynamic_casts, has_class, has_method),
+                render_group_mod_rs(has_free || has_op_shims || has_dynamic_casts || has_placement_new, has_class, has_method),
             )
             .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
 
@@ -443,6 +457,9 @@ fn run_init(args: InitArgs) -> Result<()> {
             }
             if has_dynamic_casts {
                 build_rs_sources.push(format!("src/{}/free/dynamic_casts.rs", group_module));
+            }
+            if has_placement_new {
+                build_rs_sources.push(format!("src/{}/free/placement_new.rs", group_module));
             }
             if has_class {
                 build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));

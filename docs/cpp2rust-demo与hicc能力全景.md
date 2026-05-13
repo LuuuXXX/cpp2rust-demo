@@ -102,8 +102,8 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | 方法模板（类内函数模板） | ❌ 跳过 | — | ❌ | `HiccLimitation` |
 | `dynamic_cast` | ✅ 骨架自动生成 | `free/dynamic_casts.rs` | ✅（hicc 支持） | 识别继承关系，在 `free/dynamic_casts.rs` 输出注释掉的 `@dynamic_cast` 绑定骨架供用户解注释使用（P3 已实现） |
 | 类成员变量 / 静态变量 | ✅ 自动提取（非静态字段） | `method/mtd_*.rs` | ✅ | `#[cpp(field=...)]` 生成 `get_<name>` / `get_<name>_mut` 访问器（P2 已实现） |
-| placement new（Rust 内存构造 C++ 对象） | ❌ 未生成 | — | ✅（hicc 支持） | 工具未处理 |
-| C++ 容器存储 Rust 数据（RustAny） | ❌ 未生成 | — | ✅（hicc 支持） | 工具未处理 |
+| placement new（Rust 内存构造 C++ 对象） | ✅ 已实现 | `free/placement_new.rs` | ✅（hicc 支持） | 识别构造函数签名，在 `free/placement_new.rs` 输出注释掉的 `@placement_new` 绑定骨架供用户解注释使用（P4 已实现） |
+| C++ 容器存储 Rust 数据（RustAny） | ✅ 已实现 | `types/mod.rs` + 接口报告 | ✅（hicc 支持） | 识别 STL 容器实例化类型（`std::vector<T>` 等），在 `types/mod.rs` 末尾和接口报告中生成 `hicc::RustAny<T>` 类型映射建议（P4 已实现） |
 | `hicc::cpp!` 灵活适配 | ❌ 未生成 | — | ✅（hicc 支持） | 工具不自动生成，需手写 |
 
 ---
@@ -125,8 +125,8 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | **`dynamic_cast` 绑定** | ✅ 已实现：识别继承关系中可做 downcast 的类对，在 `free/dynamic_casts.rs` 生成注释掉的 `@dynamic_cast` 绑定骨架 | ToolLimit | 识别继承关系中可做 downcast 的类对，在 `free/` 生成 `@dynamic_cast` 绑定骨架 | `ast.rs` 继承链分析 + `codegen.rs` | P3 ✅ |
 | **`va_list` / variadic 函数** | ✅ 已实现：识别 `va_list` 最后参数，提取为 `unsafe fn foo(fixed_params, ...) -> T` 绑定；`is_variadic = true` 标记在 `FunctionIR` | ToolConservative | 识别 `va_list` 最后参数，生成对应 `unsafe fn foo(name: &T, ...)` 绑定（hicc 支持，参数/返回无类类型限制需校验） | `ast.rs` 参数类型识别 + `codegen.rs` | P3 ✅ |
 | **`--dry-run` 模式** | 不支持 | ToolLimit | `init` 子命令增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，仅打印接口报告到 stdout | `main.rs` CLI + init 主流程 | P2 ✅ |
-| **placement new 绑定** | 未生成 | ToolLimit | 识别构造函数签名，在 codegen 阶段对需要 placement new 场景生成对应 Rust 接口骨架 | `ast.rs` + `codegen.rs` | P4 |
-| **C++ 容器存储 Rust 数据（RustAny 模板）** | 未生成 | ToolLimit | 识别 STL 容器实例化类型，在 `types/` 中生成 `hicc::RustAny<T>` 类型映射建议 | `ast.rs` + `codegen.rs` | P4 |
+| **placement new 绑定** | ✅ 已实现：识别有构造函数的非抽象类，在 `free/placement_new.rs` 生成注释掉的 `@placement_new` 绑定骨架 | ToolLimit | 识别构造函数签名，在 codegen 阶段对需要 placement new 场景生成对应 Rust 接口骨架 | `ast.rs` + `codegen.rs` | P4 ✅ |
+| **C++ 容器存储 Rust 数据（RustAny 模板）** | ✅ 已实现：识别 STL 容器类型，在 `types/mod.rs` 末尾和接口报告中生成 `hicc::RustAny<T>` 使用建议 | ToolLimit | 识别 STL 容器实例化类型，在 `types/` 中生成 `hicc::RustAny<T>` 类型映射建议 | `ast.rs` + `codegen.rs` | P4 ✅ |
 
 ---
 
@@ -161,3 +161,10 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | P3 函数指针参数（接口建议） | ✅ 已实现 | `is_function_pointer_type()` 检测含 `(*)` 类型；`categorize_unsupported_type()` 分类为 `ToolConservative`；`generate_unsupported_type_shim()` 生成虚函数接口骨架（`FooHandler`）+ `@make_proxy` 使用提示；接口报告显示 `Shim Suggestions` |
 | P3 `@dynamic_cast` 绑定骨架 | ✅ 已实现 | `render_dynamic_casts_module()` 遍历有基类的类，在 `free/dynamic_casts.rs` 输出注释掉的 `@dynamic_cast<Derived>(Base *)` 绑定供用户按需解注释；`free/mod.rs` 自动注册 `dynamic_casts` 子模块 |
 | P3 `va_list` / variadic 函数 | ✅ 已实现 | `is_va_list_type()` 检测 `va_list` / `__va_list_tag *` 等变体；`FunctionIR.is_variadic: bool` 标记；`extract_function()` 检测最后参数为 `va_list` 时跳过该参数并置 `is_variadic = true`；`render_free_function_with_name()` / `render_method()` 生成 `unsafe fn foo(fixed_params, ...) -> T` 绑定；接口报告增加 `Variadic Functions` 和 `@dynamic_cast Skeletons` 章节 |
+
+**批次四改进状态（P4，已完成）：**
+
+| 改进项 | 状态 | 说明 |
+|-------|:----:|------|
+| P4.1 placement new 绑定骨架 | ✅ 已实现 | 新增 `render_placement_new_module()`；对每个有提取到构造函数（`CtorIR`）的非抽象类，在 `free/placement_new.rs` 输出注释掉的 `@placement_new<ClassName>(args...)` 绑定骨架，包含 `hicc::AlignedStorage<T>` 内存参数和生命周期关联返回值（`-> &'a mut T`）；`free/mod.rs` 自动注册 `placement_new` 子模块；`build.rs` 源列表同步更新；接口报告增加 `Placement-New Skeletons (P4)` 章节列出所有可 placement new 的类及构造函数签名 |
+| P4.2 STL 容器 `hicc::RustAny` 类型映射建议 | ✅ 已实现 | 新增 `SkippedDecl.stl_container_type: Option<String>` 字段；`is_stl_container_type()` 检测 15 种标准容器（`std::vector` / `std::map` / `std::set` 等）；`find_stl_container_type()` 在 `extract_function()` 跳过函数时提取首个 STL 容器类型；新增 `render_rust_any_suggestions()` 去重后输出 `hicc_std::Vector<T>` / `hicc_std::Map<T>` 等建议注释；`render_types_module()` 末尾追加建议块；接口报告增加 `hicc::RustAny Suggestions for STL Containers (P4)` 章节 |
