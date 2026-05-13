@@ -265,9 +265,12 @@ pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
     }
 
     // Emit RustAny suggestions for any STL container types encountered.
+    // Only insert one blank-line separator regardless of what came before.
     let rust_any = render_rust_any_suggestions(decls);
     if !rust_any.is_empty() {
-        out.push('\n');
+        if !out.ends_with("\n\n") {
+            out.push('\n');
+        }
         out.push_str(&rust_any);
     }
 
@@ -2191,5 +2194,35 @@ mod tests {
             "report should contain RustAny section when STL containers detected"
         );
         assert!(report.contains("std::vector<Item>"), "report should list the container type");
+    }
+
+    #[test]
+    fn render_types_module_no_double_blank_line_with_aliases_and_stl() {
+        use crate::ast::AliasIR;
+        let decls = ExtractedDecls {
+            aliases: vec![AliasIR {
+                name: "MyInt".to_string(),
+                qualified_name: "MyInt".to_string(),
+                aliased_cpp_type: "int".to_string(),
+                aliased_rust_type: "i32".to_string(),
+            }],
+            skipped: vec![SkippedDecl {
+                kind: "FunctionDecl".to_string(),
+                name: "push_items".to_string(),
+                reason: "unsupported_type".to_string(),
+                stl_container_type: Some("std::vector<MyInt>".to_string()),
+                ..SkippedDecl::default()
+            }],
+            ..ExtractedDecls::default()
+        };
+        let src = render_types_module(&decls);
+        // Should not have a triple newline (= double blank line).
+        assert!(
+            !src.contains("\n\n\n"),
+            "types module should not have double blank lines when aliases and STL suggestions are both present"
+        );
+        // Both alias and suggestion must still appear.
+        assert!(src.contains("pub type MyInt = i32;"), "alias must appear");
+        assert!(src.contains("std::vector<MyInt>"), "STL suggestion must appear");
     }
 }
