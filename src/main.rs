@@ -1102,11 +1102,8 @@ fn run_suggest_aliases(args: SuggestAliasesArgs) -> Result<()> {
                         .next()
                         .unwrap_or(spec_type)
                         .trim();
-                    let alias_name = if i == 0 {
-                        format!("My{}", bare)
-                    } else {
-                        format!("My{}_{}", bare, i + 1)
-                    };
+                    // Use a consistent numeric suffix: MyFoo_1, MyFoo_2, ...
+                    let alias_name = format!("My{}_{}", bare, i + 1);
                     println!("using {} = {};", alias_name, spec_type);
                 }
             }
@@ -1117,8 +1114,10 @@ fn run_suggest_aliases(args: SuggestAliasesArgs) -> Result<()> {
 
     if total_suggestions == 0 {
         println!("No unaliased template specialisations found.");
-        println!("Either all templates already have aliases, or no template specialisations");
-        println!("were instantiated in the captured translation units.");
+        println!("Either all templates already have aliases, or no concrete specialisations");
+        println!("were visible in the captured translation units.");
+        println!("Tip: add explicit template instantiations (e.g. `template class Foo<int>;`)");
+        println!("to make specialisations visible in the AST, then re-run `init`.");
     } else {
         println!("Found {} template(s) without aliases.", total_suggestions);
         println!("After adding the suggested aliases, re-run:");

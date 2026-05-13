@@ -3067,11 +3067,12 @@ fn suggest_aliases_prints_suggestions_for_unaliased_templates() {
         .stdout
         .clone();
     let stdout = String::from_utf8_lossy(&output);
-    // The output should either contain a `using` suggestion or indicate nothing
+    // The output should either contain a `using ` suggestion (note trailing space
+    // to avoid matching the word "using" inside other text) or indicate nothing
     // was found (no concrete specialisations may be visible in header-only AST).
     assert!(
-        stdout.contains("using") || stdout.contains("No unaliased"),
-        "suggest-aliases output should mention using or no suggestions: {stdout}"
+        stdout.contains("using ") || stdout.contains("No unaliased template"),
+        "suggest-aliases output should mention 'using ' or 'No unaliased template': {stdout}"
     );
 }
 

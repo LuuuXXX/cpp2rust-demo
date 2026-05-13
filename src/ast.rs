@@ -2356,7 +2356,7 @@ fn collect_template_alias_suggestions(node: &AstNode, namespace: &[String]) -> O
     if seen.is_empty() {
         // Use the template name to produce a minimal (but still actionable) hint.
         let placeholder = format!(
-            "// Add a typedef alias for `{}` to unlock extraction, e.g.:\n// using My{} = {}</* args */>;",
+            "// Add a using/typedef alias for `{}` to unlock extraction, e.g.:\n// using My{}_1 = {}</* args */>;",
             qualified_template, template_name, qualified_template
         );
         return Some(placeholder);
