@@ -285,6 +285,10 @@ fn run_init(args: InitArgs) -> Result<()> {
         let method_mod_name = format!("mtd_{}", stem);
         let free_mod_name = format!("fn_{}", stem);
 
+        // Dynamic cast skeletons are generated whenever any class has public bases.
+        let dynamic_casts_src = codegen::render_dynamic_casts_module(&decls, link_name);
+        let has_dynamic_casts = !dynamic_casts_src.is_empty();
+
         if !dry_run {
             // Step 3: generate grouped semantic module source.
             let group_dir = rust_src_dir.join(group_module);
@@ -363,12 +367,22 @@ fn run_init(args: InitArgs) -> Result<()> {
                 }
             }
 
+            // @dynamic_cast skeletons: write free/dynamic_casts.rs when any class
+            // has public base classes.  All bindings are commented-out starters.
+            if has_dynamic_casts {
+                let dc_path = group_dir.join("free").join("dynamic_casts.rs");
+                std::fs::write(&dc_path, &dynamic_casts_src)
+                    .map_err(|e| anyhow!("write dynamic_casts.rs: {}", e))?;
+                println!("  Dynamic cast skeletons → {}", dc_path.display());
+            }
+
             // Write free/mod.rs registering all submodules in the free/ directory.
             let has_op_shims = !decls.operator_shims.is_empty();
-            if has_free || has_op_shims {
+            if has_free || has_op_shims || has_dynamic_casts {
                 let free_submodules: Vec<&str> = [
                     has_free.then(|| free_mod_name.as_str()),
                     has_op_shims.then_some("shim_ops"),
+                    has_dynamic_casts.then_some("dynamic_casts"),
                 ]
                 .into_iter()
                 .flatten()
@@ -383,7 +397,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             let group_mod_path = group_dir.join("mod.rs");
             std::fs::write(
                 &group_mod_path,
-                render_group_mod_rs(has_free || has_op_shims, has_class, has_method),
+                render_group_mod_rs(has_free || has_op_shims || has_dynamic_casts, has_class, has_method),
             )
             .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
 
@@ -426,6 +440,9 @@ fn run_init(args: InitArgs) -> Result<()> {
             }
             if has_op_shims {
                 build_rs_sources.push(format!("src/{}/free/shim_ops.rs", group_module));
+            }
+            if has_dynamic_casts {
+                build_rs_sources.push(format!("src/{}/free/dynamic_casts.rs", group_module));
             }
             if has_class {
                 build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));
@@ -1425,6 +1442,7 @@ mod tests {
             is_virtual: false,
             is_pure: false,
             class_name: None,
+            is_variadic: false,
         }
     }
 

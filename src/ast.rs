@@ -456,6 +456,11 @@ pub struct FunctionIR {
     pub is_pure: bool,
     /// Class name, if this is a method.
     pub class_name: Option<String>,
+    /// Whether the last C++ parameter was `va_list` (C-style variadic).
+    ///
+    /// When `true`, the `va_list` parameter is dropped from `params` and an
+    /// `unsafe fn` binding with a trailing `...` marker is generated instead.
+    pub is_variadic: bool,
 }
 
 /// A single function parameter.
@@ -1800,14 +1805,19 @@ fn extract_function(
     }
 
     // Collect parameters from ParmVarDecl children.
-    let mut params: Vec<ParamIR> = Vec::new();
-    for (i, p) in node
+    // Pre-collect so we know total count (needed to identify the last param).
+    let parm_nodes: Vec<&AstNode> = node
         .inner
         .iter()
         .flatten()
         .filter(|c| c.kind == "ParmVarDecl")
-        .enumerate()
-    {
+        .collect();
+    let parm_count = parm_nodes.len();
+
+    let mut params: Vec<ParamIR> = Vec::new();
+    let mut is_variadic = false;
+
+    for (i, p) in parm_nodes.iter().enumerate() {
         let pname = p
             .name
             .as_deref()
@@ -1825,13 +1835,19 @@ fn extract_function(
             });
             return None;
         };
+
+        // Special case: `va_list` (or its internal representation) as the last
+        // parameter → variadic C-style function.  hicc supports this; we drop
+        // the `va_list` param and generate an `unsafe fn` with `...` instead.
+        if is_va_list_type(&cpp_type) && i == parm_count - 1 {
+            is_variadic = true;
+            continue; // skip adding to params
+        }
+
         if !is_supported_cpp_type(&cpp_type, class_map, alias_registry) {
             // Collect all param types (including this one) for shim generation.
-            let all_param_types: Vec<(String, String)> = node
-                .inner
+            let all_param_types: Vec<(String, String)> = parm_nodes
                 .iter()
-                .flatten()
-                .filter(|c| c.kind == "ParmVarDecl")
                 .enumerate()
                 .map(|(j, q)| {
                     let qname = q
@@ -1908,6 +1924,7 @@ fn extract_function(
         is_virtual,
         is_pure,
         class_name: class_name.map(|s| s.to_string()),
+        is_variadic,
     })
 }
 
@@ -2286,9 +2303,14 @@ fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, al
 ///
 /// Template types that might become supported with an alias are categorised
 /// as `ToolConservative`; truly unsupported constructs are `HiccLimitation`.
+/// Function-pointer types are also `ToolConservative` because they can be
+/// wrapped via a pure-virtual interface class + `@make_proxy`.
 fn categorize_unsupported_type(cpp_type: &str) -> SkipCategory {
     let t = cpp_type.trim();
     if t.contains('<') || t.contains("type-parameter-") || t.contains("dependent") {
+        SkipCategory::ToolConservative
+    } else if is_function_pointer_type(t) {
+        // Function pointers can be replaced by a virtual interface wrapper.
         SkipCategory::ToolConservative
     } else {
         SkipCategory::HiccLimitation
@@ -2680,7 +2702,7 @@ fn extract_field(
 }
 
 // ---------------------------------------------------------------------------
-// Shim-suggestion helpers (P2: std::string / std::function)
+// Shim-suggestion helpers (P2: std::string / std::function; P3: fn-pointer / va_list)
 // ---------------------------------------------------------------------------
 
 /// True when `t` contains `std::string` or any `basic_string` variant.
@@ -2705,10 +2727,32 @@ fn is_std_function_type(t: &str) -> bool {
     bare.starts_with("std::function<") || bare.contains(" std::function<")
 }
 
-/// Generate a `suggested_shim` string for a function that was skipped because
-/// one of its types is `std::string` or `std::function`.
+/// True when `t` is a function pointer type (e.g. `"int (*)(int, double)"`).
 ///
-/// Returns `None` when neither `std::string` nor `std::function` is involved
+/// Clang encodes these with `(*)` in the `qualType` string.  Function pointers
+/// cannot be passed through hicc directly but can be replaced by a pure-virtual
+/// C++ interface class whose implementor is connected via `@make_proxy`.
+pub(crate) fn is_function_pointer_type(t: &str) -> bool {
+    t.contains("(*)")
+}
+
+/// True when `t` is `va_list` or its platform-specific internal form.
+///
+/// Used to detect C-style variadic functions whose last parameter is `va_list`.
+/// hicc supports these; the `va_list` parameter is dropped from the Rust
+/// binding and an `unsafe fn` with trailing `...` is generated instead.
+pub(crate) fn is_va_list_type(t: &str) -> bool {
+    let bare = t.trim();
+    bare == "va_list"
+        || bare == "__va_list_tag *"
+        || bare == "__builtin_va_list"
+        || bare.contains("__va_list")
+}
+
+/// Generate a `suggested_shim` string for a function that was skipped because
+/// one of its types is `std::string`, `std::function`, or a function pointer.
+///
+/// Returns `None` when none of these types is involved
 /// (i.e. the skip is due to some other unsupported type).
 fn generate_unsupported_type_shim(
     fn_name: &str,
@@ -2720,8 +2764,10 @@ fn generate_unsupported_type_shim(
         || params.iter().any(|(_, t)| is_std_string_type(t));
     let has_function = is_std_function_type(return_type)
         || params.iter().any(|(_, t)| is_std_function_type(t));
+    let has_fn_ptr = is_function_pointer_type(return_type)
+        || params.iter().any(|(_, t)| is_function_pointer_type(t));
 
-    if !has_string && !has_function {
+    if !has_string && !has_function && !has_fn_ptr {
         return None;
     }
 
@@ -2837,6 +2883,46 @@ fn generate_unsupported_type_shim(
         out.push_str(&format!("//   virtual ~{interface_name}() = default;\n"));
         out.push_str("// };\n");
         out.push_str("// Then pass `&proxy_instance` instead of the std::function.\n");
+        out.push_str("// Use hicc @make_proxy to implement the interface from Rust.\n");
+    }
+
+    if has_fn_ptr {
+        // Generate a pure-virtual interface class suggestion for function pointer parameters.
+        // Find the first function-pointer param to derive the interface name.
+        let (fp_param_name, fp_type) = if is_function_pointer_type(return_type) {
+            (fn_name.to_string(), return_type.to_string())
+        } else {
+            params
+                .iter()
+                .find(|(_, t)| is_function_pointer_type(t))
+                .map(|(n, t)| (n.clone(), t.clone()))
+                .unwrap_or_default()
+        };
+        let base_name = fp_param_name
+            .split("::")
+            .last()
+            .unwrap_or(fp_param_name.as_str());
+        let interface_name = format!(
+            "{}Handler",
+            base_name
+                .chars()
+                .enumerate()
+                .map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c })
+                .collect::<String>()
+        );
+        out.push_str(&format!(
+            "// Function pointer `{fp_param_name}` in `{fn_name}` — suggest virtual interface + @make_proxy:\n"
+        ));
+        out.push_str(&format!("// struct {interface_name} {{\n"));
+        out.push_str(&format!(
+            "//   // Underlying type: {fp_type}\n"
+        ));
+        out.push_str("//   virtual /* return_type */ call(/* args */) = 0;\n");
+        out.push_str(&format!("//   virtual ~{interface_name}() = default;\n"));
+        out.push_str("// };\n");
+        out.push_str(&format!(
+            "// Replace `{fp_param_name}` parameter with `{interface_name} *` and forward the call.\n"
+        ));
         out.push_str("// Use hicc @make_proxy to implement the interface from Rust.\n");
     }
 

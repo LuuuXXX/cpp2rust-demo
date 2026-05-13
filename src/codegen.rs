@@ -510,10 +510,34 @@ fn render_method(out: &mut String, func: &FunctionIR) {
         "&mut self, ".to_string()
     };
 
-    let rust_params = render_rust_params(&func.params, &self_arg);
     let ret = render_return_type(&func.rust_return_type);
 
-    writeln!(out, "        fn {}{}{};", func.rust_name, rust_params, ret).unwrap();
+    if func.is_variadic {
+        // C-style variadic method: emit `unsafe fn name(self, fixed_params, ...) -> T`
+        let self_str = self_arg.trim_end_matches(", ");
+        let variadic_params = if func.params.is_empty() {
+            if self_str.is_empty() {
+                "...".to_string()
+            } else {
+                format!("{}, ...", self_str)
+            }
+        } else {
+            let fixed: Vec<String> = func
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", sanitize_ident(&p.name), p.rust_type))
+                .collect();
+            if self_str.is_empty() {
+                format!("{}, ...", fixed.join(", "))
+            } else {
+                format!("{}, {}, ...", self_str, fixed.join(", "))
+            }
+        };
+        writeln!(out, "        unsafe fn {}({}){};", func.rust_name, variadic_params, ret).unwrap();
+    } else {
+        let rust_params = render_rust_params(&func.params, &self_arg);
+        writeln!(out, "        fn {}{}{};", func.rust_name, rust_params, ret).unwrap();
+    }
 }
 
 fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) {
@@ -679,7 +703,20 @@ fn render_free_function_with_name(out: &mut String, func: &FunctionIR, rust_name
     writeln!(out, "    #[cpp(func = \"{}\")]", func.cpp_signature).unwrap();
     let rust_params = render_rust_params(&func.params, "");
     let ret = render_return_type(&func.rust_return_type);
-    writeln!(out, "    fn {}{}{};", rust_name, rust_params, ret).unwrap();
+    if func.is_variadic {
+        // C-style variadic function: emit `unsafe fn name(fixed_params, ...) -> T`
+        let inner = if func.params.is_empty() {
+            "...".to_string()
+        } else {
+            let fixed = render_rust_params(&func.params, "");
+            // Strip outer parens and append `...`
+            let inner_str = fixed.trim_start_matches('(').trim_end_matches(')');
+            format!("{}, ...", inner_str)
+        };
+        writeln!(out, "    unsafe fn {}({}){};", rust_name, inner, ret).unwrap();
+    } else {
+        writeln!(out, "    fn {}{}{};", rust_name, rust_params, ret).unwrap();
+    }
 }
 
 fn render_rust_params(params: &[crate::ast::ParamIR], self_prefix: &str) -> String {
@@ -993,7 +1030,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             writeln!(out).unwrap();
         }
 
-        // Shim suggestions for std::string / std::function skips.
+        // Shim suggestions for std::string / std::function / function-pointer skips.
         let shim_suggestions: Vec<&SkippedDecl> = decls
             .skipped
             .iter()
@@ -1001,13 +1038,54 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .collect();
         if !shim_suggestions.is_empty() {
             writeln!(out, "## Shim Suggestions for Skipped Functions\n").unwrap();
-            writeln!(out, "_The following functions were skipped because they use `std::string` or `std::function` parameter/return types that hicc cannot pass through the ABI boundary directly. Copy the suggested shim prototypes into your C++ header or a `hicc::cpp!` block, then add `#[cpp(func = \"...\")]` bindings in `import_lib!`._\n").unwrap();
+            writeln!(out, "_The following functions were skipped because they use types that hicc cannot pass through the ABI boundary directly (`std::string`, `std::function`, or function pointers). Copy the suggested shim or interface prototypes into your C++ header or a `hicc::cpp!` block, then add `#[cpp(func = \"...\")]` bindings in `import_lib!`._\n").unwrap();
             for item in &shim_suggestions {
                 writeln!(out, "**`{}`** (`{}`):\n", item.name, item.reason).unwrap();
                 if let Some(ref shim) = item.suggested_shim {
                     writeln!(out, "```cpp\n{}\n```\n", shim).unwrap();
                 }
             }
+        }
+
+        // Variadic functions that were extracted with a `...` parameter.
+        let variadic_fns: Vec<&crate::ast::FunctionIR> = decls
+            .functions
+            .iter()
+            .filter(|f| f.is_variadic)
+            .collect();
+        let variadic_methods: Vec<(&crate::ast::ClassIR, &crate::ast::FunctionIR)> = decls
+            .classes
+            .iter()
+            .flat_map(|c| c.methods.iter().filter(|m| m.is_variadic).map(move |m| (c, m)))
+            .collect();
+        if !variadic_fns.is_empty() || !variadic_methods.is_empty() {
+            writeln!(out, "## Variadic Functions (`va_list` last-param)\n").unwrap();
+            writeln!(out, "_These functions have a `va_list` last parameter and are bound as `unsafe fn ... (fixed_params, ...) -> T`. Call them with a Rust format macro or pass a `VaList` obtained from another variadic function._\n").unwrap();
+            for f in &variadic_fns {
+                writeln!(out, "- `{}` → `unsafe fn {}(...)`", f.qualified_name, f.rust_name).unwrap();
+            }
+            for (cls, m) in &variadic_methods {
+                writeln!(out, "- `{}::{}` → `unsafe fn {}(...)`", cls.qualified_name, m.name, m.rust_name).unwrap();
+            }
+            writeln!(out).unwrap();
+        }
+
+        // Dynamic cast skeleton hint.
+        let inherited_classes: Vec<&crate::ast::ClassIR> = decls
+            .classes
+            .iter()
+            .filter(|c| !c.bases.is_empty())
+            .collect();
+        if !inherited_classes.is_empty() {
+            writeln!(out, "## @dynamic_cast Skeletons\n").unwrap();
+            writeln!(out, "_The following classes have public base classes. `@dynamic_cast` binding skeletons have been written to `free/dynamic_casts.rs`. Uncomment the pairs you need._\n").unwrap();
+            for cls in &inherited_classes {
+                let rust_name = cls.canonical_name.as_deref().unwrap_or(cls.name.as_str());
+                writeln!(out, "- **`{}`** inherits from: {}", rust_name,
+                    cls.bases.iter().map(|b| format!("`{}`", b)).collect::<Vec<_>>().join(", ")
+                ).unwrap();
+            }
+            writeln!(out).unwrap();
         }
 
         // Dedicated section for operator overloads: guide users on how to
@@ -1258,6 +1336,62 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
     out
 }
 
+/// Render `@dynamic_cast` binding skeletons for classes that inherit from other classes.
+///
+/// For each (Base → Derived) relationship found in `decls.classes`, emits a
+/// commented-out `@dynamic_cast` import_lib! stub in a dedicated
+/// `free/dynamic_casts.rs` file.  Users can uncomment the pairs they need and
+/// add the file to their build.
+///
+/// Returns an empty string when no inheritance relationships exist.
+pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> String {
+    // Collect (base_name, derived_name) pairs from classes with non-virtual
+    // public base classes.
+    let cast_pairs: Vec<(String, String)> = decls
+        .classes
+        .iter()
+        .filter(|c| !c.bases.is_empty())
+        .flat_map(|c| {
+            let derived_name = c
+                .canonical_name
+                .as_deref()
+                .unwrap_or(c.name.as_str())
+                .to_string();
+            c.bases.iter().map(move |base| {
+                let base_name = base
+                    .rsplit("::")
+                    .next()
+                    .unwrap_or(base.as_str())
+                    .to_string();
+                (base_name, derived_name.clone())
+            })
+        })
+        .collect();
+
+    if cast_pairs.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    writeln!(out, "// Auto-generated @dynamic_cast binding skeletons by cpp2rust-demo.").unwrap();
+    writeln!(out, "// Uncomment the casts you need and add this file to your hicc build.").unwrap();
+    writeln!(out, "// Each binding allows downcasting a Base* pointer to a Derived* at runtime.").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "hicc::import_lib! {{").unwrap();
+    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "    // Dynamic cast bindings — downcast Base* → Derived*.").unwrap();
+    for (base_name, derived_name) in &cast_pairs {
+        let snake_derived = crate::ast::to_snake_case(derived_name);
+        writeln!(out).unwrap();
+        writeln!(out, "    // Cast {base_name}* → {derived_name}* (returns null if types don't match).").unwrap();
+        writeln!(out, "    // #[cpp(func = \"{derived_name} @dynamic_cast<{derived_name}>({base_name} *)\")]").unwrap();
+        writeln!(out, "    // fn dynamic_cast_to_{snake_derived}(ptr: *mut {base_name}) -> *mut {derived_name};").unwrap();
+    }
+    writeln!(out, "}}").unwrap();
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -1329,6 +1463,7 @@ mod tests {
             is_virtual: false,
             is_pure: false,
             class_name: None,
+            is_variadic: false,
         }
     }
 
@@ -1405,6 +1540,7 @@ mod tests {
             is_virtual: false,
             is_pure: false,
             class_name: Some("Widget".to_string()),
+            is_variadic: false,
         };
         let class = ClassIR {
             name: "Widget".to_string(),
@@ -1484,6 +1620,7 @@ mod tests {
             is_virtual: true,
             is_pure: true,
             class_name: Some("IFoo".to_string()),
+            is_variadic: false,
         };
         let class = ClassIR {
             name: "IFoo".to_string(),
@@ -1525,6 +1662,7 @@ mod tests {
             is_virtual: true,
             is_pure: false,
             class_name: Some("Base".to_string()),
+            is_variadic: false,
         };
         let class = ClassIR {
             name: "Base".to_string(),
@@ -1583,6 +1721,7 @@ mod tests {
             is_virtual: true,
             is_pure: true,
             class_name: Some("ITask".to_string()),
+            is_variadic: false,
         };
         let decls = ExtractedDecls {
             classes: vec![ClassIR {
