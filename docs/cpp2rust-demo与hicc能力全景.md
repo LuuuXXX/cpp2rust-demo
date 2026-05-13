@@ -94,7 +94,7 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | 虚继承（菱形继承） | ⚠️ 跳过并报告 | 接口报告 | ❌ | 虚基类被跳过，接口报告列出警告（P3 已实现） |
 | 友元函数 | ❌ 跳过 | — | ❌ | AST 不可靠提取；`HiccLimitation` |
 | 函数指针参数 | ❌ 跳过 | — | ❌ | `HiccLimitation`；建议封装为虚函数接口 |
-| `std::string` 参数/返回值 | ❌ 跳过 | — | ❌ | `HiccLimitation`；需手写 C++ shim 转 `const char*` |
+| `std::string` 参数/返回值 | ❌ 跳过（报告含 shim 建议） | — | ❌ | `HiccLimitation`；接口报告自动生成 C++ shim 原型（P2 已实现） |
 | `std::function` / lambda 参数 | ❌ 跳过 | — | ✅（hicc 支持） | 工具层未处理；需手写封装为虚函数接口 + `@make_proxy` |
 | `auto` / `decltype` 返回类型 | ❌ 跳过 | — | ❌ | `HiccLimitation`；需手写包装函数 |
 | `va_list` / variadic `...` | ❌ 跳过 | — | ⚠️（hicc 部分支持） | 工具层未处理；`HiccLimitation` |
@@ -118,13 +118,13 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | **链式类型别名** (`using B = A`) | ✅ 已支持；AliasRegistry 传递性闭合解析 | ToolLimit | AliasRegistry 增加传递性解析（transitive closure），收集完毕后迭代闭合直到稳定 | `ast.rs` `AliasRegistry::resolve_transitive()` + `is_alias_of_template()` + `is_supported_cpp_type()` | P1 ✅ |
 | **`std::function` / lambda 参数** | 跳过（无生成） | ToolLimit | AST 中识别 `std::function<R(Args)>` 类型，生成对应虚函数接口 + `@make_proxy` 绑定骨架建议到接口报告 | `ast.rs` 类型识别 + `codegen.rs` 报告输出 | P2 |
 | **类成员变量 / 静态变量** | 未提取 | ToolLimit | AST 中提取 `FieldDecl` / `VarDecl`（static），生成 `#[cpp(field)]` / `#[cpp(data)]` 绑定到 `free/` 或 `method/` | `ast.rs` 新增 `FieldIR` + `codegen.rs` render | P2 |
-| **`std::string` 参数/返回（shim 建议）** | 跳过（`hicc_limitation`） | ToolConservative | 在接口报告和 `operator_shims.hpp` 中自动生成可复制的 C++ shim 函数原型（`static inline const char* foo_shim(...)`） | `ast.rs` `SkippedDecl.suggested_shim` + `codegen.rs` | P2 |
+| **`std::string` 参数/返回（shim 建议）** | 跳过（`hicc_limitation`）；接口报告自动生成可复制的 C++ shim 函数原型 ✅ 已实现 | ToolConservative | 在接口报告中自动生成可复制的 C++ shim 函数原型（`static inline const char* foo_shim(...)`） | `ast.rs` `SkippedDecl.suggested_shim` + `codegen.rs` | P2 ✅ |
 | **多重继承（全部 public 基类）** | 仅提取首个基类 | ToolLimit | `ClassIR.bases` 改为 `Vec<String>` 存全部 public 基类，`render_import_class()` 生成 `class C: A + B`（需确认 hicc 语法） | `ast.rs` `ClassIR` + `codegen.rs` | P3 |
 | **虚继承检测与提示** | ✅ 已实现：`BaseSpecifier.is_virtual` 跳过虚基类，接口报告列出警告 | ToolLimit | `BaseSpecifier` 增加 `is_virtual: bool`，跳过虚基类并在接口报告中列出 `Virtual bases (skipped)` | `ast.rs` `BaseSpecifier` + `codegen.rs` | P3 ✅ |
 | **函数指针参数（接口建议）** | 跳过无提示 | ToolConservative | 识别含 `(*)` 的类型，在接口报告中生成对应纯虚接口类模板 + `@make_proxy` 调用示例 | `ast.rs` skip 分支 + `codegen.rs` | P3 |
 | **`dynamic_cast` 绑定** | 未生成 | ToolLimit | 识别继承关系中可做 downcast 的类对，在 `free/` 生成 `@dynamic_cast` 绑定骨架 | `ast.rs` 继承链分析 + `codegen.rs` | P3 |
 | **`va_list` / variadic 函数** | 跳过 | ToolConservative | 识别 `va_list` 最后参数，生成对应 `unsafe fn foo(name: &T, ...)` 绑定（hicc 支持，参数/返回无类类型限制需校验） | `ast.rs` 参数类型识别 + `codegen.rs` | P3 |
-| **`--dry-run` 模式** | 不支持 | ToolLimit | `init` 子命令增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，仅打印接口报告到 stdout | `main.rs` CLI + init 主流程 | P2 |
+| **`--dry-run` 模式** | ✅ 已实现：`init --dry-run` 执行编译和 AST dump，不写 `rust/src/`，接口报告打印到 stdout | ToolLimit | `init` 子命令增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，仅打印接口报告到 stdout | `main.rs` CLI + init 主流程 | P2 ✅ |
 | **placement new 绑定** | 未生成 | ToolLimit | 识别构造函数签名，在 codegen 阶段对需要 placement new 场景生成对应 Rust 接口骨架 | `ast.rs` + `codegen.rs` | P4 |
 | **C++ 容器存储 Rust 数据（RustAny 模板）** | 未生成 | ToolLimit | 识别 STL 容器实例化类型，在 `types/` 中生成 `hicc::RustAny<T>` 类型映射建议 | `ast.rs` + `codegen.rs` | P4 |
 
@@ -143,3 +143,10 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | P1 链式类型别名传递性解析 | ✅ 已实现 | `AliasRegistry::resolve_transitive()` + `is_alias_of_template()`；`is_supported_cpp_type()` 识别传递性别名 |
 | P1 模板别名建议（`suggest-aliases` 子命令） | ✅ 已实现 | 新增 `suggest-aliases` CLI 子命令；`SkippedDecl.suggested_alias`；接口报告显示 `using` 建议代码块 |
 | P3 虚继承检测与提示 | ✅ 已实现 | `BaseSpecifier.is_virtual`；虚基类被跳过；接口报告显示 `⚠️ Virtual bases (skipped)` 警告 |
+
+**批次二改进状态（已完成）：**
+
+| 改进项 | 状态 | 说明 |
+|-------|:----:|------|
+| P2 `std::string` 参数/返回 shim 建议 | ✅ 已实现 | `SkippedDecl.suggested_shim`；`try_generate_string_shim()` 在 `extract_function` 检测到 `basic_string`/`std::string` 时生成可复制的 C++ shim 原型；`codegen.rs` 接口报告 `hicc_limitation` 和 `tool_conservative` 节均显示建议代码块 |
+| P2 `--dry-run` 模式 | ✅ 已实现 | `InitArgs.dry_run` flag；`run_init()` 在 dry_run=true 时跳过 `rust/src/` 文件写入，接口报告打印到 stdout；AST JSON 仍写入 `ast/` 供调试 |

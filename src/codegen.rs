@@ -950,6 +950,50 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
                 writeln!(out, "| `{}` | `{}` | `{}` |", item.kind, item.name, item.reason).unwrap();
             }
             writeln!(out).unwrap();
+
+            // Show std::string shim suggestions for items that have one.
+            let shim_items: Vec<&&SkippedDecl> = hicc_limitation
+                .iter()
+                .filter(|s| s.suggested_shim.is_some())
+                .collect();
+            if !shim_items.is_empty() {
+                writeln!(out, "#### `std::string` shim suggestions\n").unwrap();
+                writeln!(
+                    out,
+                    "The following functions/methods were skipped because of `std::string` \
+                     parameters or return values. Copy the generated shims into your C++ header, \
+                     then bind them via `#[cpp(func = \"...\")]` in `import_lib!`:\n"
+                )
+                .unwrap();
+                writeln!(out, "```cpp").unwrap();
+                writeln!(out, "#include <string>").unwrap();
+                for item in shim_items {
+                    if let Some(ref shim) = item.suggested_shim {
+                        writeln!(out).unwrap();
+                        writeln!(out, "{}", shim).unwrap();
+                    }
+                }
+                writeln!(out, "```\n").unwrap();
+            }
+        }
+
+        // Also show std::string shim suggestions from ToolConservative skips
+        // (e.g. template-wrapped std::string types).
+        let tool_conservative_shims: Vec<&&SkippedDecl> = tool_conservative
+            .iter()
+            .filter(|s| s.suggested_shim.is_some())
+            .collect();
+        if !tool_conservative_shims.is_empty() {
+            writeln!(out, "#### `std::string` shim suggestions (template context)\n").unwrap();
+            writeln!(out, "```cpp").unwrap();
+            writeln!(out, "#include <string>").unwrap();
+            for item in tool_conservative_shims {
+                if let Some(ref shim) = item.suggested_shim {
+                    writeln!(out).unwrap();
+                    writeln!(out, "{}", shim).unwrap();
+                }
+            }
+            writeln!(out, "```\n").unwrap();
         }
 
         // Dedicated section for operator overloads: guide users on how to

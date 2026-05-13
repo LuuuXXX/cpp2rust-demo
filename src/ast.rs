@@ -626,6 +626,11 @@ pub struct SkippedDecl {
     ///
     /// Example: `"using MyDoc = rapidjson::GenericDocument<rapidjson::UTF8<char>>;"`
     pub suggested_alias: Option<String>,
+    /// For functions/methods skipped because of a `std::string`-typed parameter
+    /// or return value: a ready-to-use C++ shim prototype that converts
+    /// `std::string` to `const char *` so the wrapper can be bound via
+    /// `#[cpp(func = "...")]` in `import_lib!`.
+    pub suggested_shim: Option<String>,
 }
 
 /// All declarations extracted from a set of header files.
@@ -1675,6 +1680,7 @@ fn extract_function(
             reason: "destructor".to_string(),
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
+            suggested_shim: None,
         });
         return None;
     }
@@ -1686,6 +1692,7 @@ fn extract_function(
             reason: "operator_overload".to_string(),
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
+            suggested_shim: None,
         });
         return None;
     }
@@ -1697,6 +1704,7 @@ fn extract_function(
             reason: "unsupported_type".to_string(),
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
+            suggested_shim: None,
         });
         return None;
     };
@@ -1707,16 +1715,19 @@ fn extract_function(
             reason: "unsupported_type".to_string(),
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
+            suggested_shim: None,
         });
         return None;
     };
     if !is_supported_cpp_type(&return_type, class_map, alias_registry) {
+        let suggested_shim = try_generate_string_shim(node, &qualified_name, class_name, namespace, qual_type);
         skipped.push(SkippedDecl {
             kind: node.kind.clone(),
             name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
             category: categorize_unsupported_type(&return_type),
             suggested_alias: None,
+            suggested_shim,
         });
         return None;
     }
@@ -1743,16 +1754,19 @@ fn extract_function(
                 reason: "unsupported_type".to_string(),
                 category: SkipCategory::HiccLimitation,
                 suggested_alias: None,
+                suggested_shim: None,
             });
             return None;
         };
         if !is_supported_cpp_type(&cpp_type, class_map, alias_registry) {
+            let suggested_shim = try_generate_string_shim(node, &qualified_name, class_name, namespace, qual_type);
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
                 reason: "unsupported_type".to_string(),
                 category: categorize_unsupported_type(&cpp_type),
                 suggested_alias: None,
+                suggested_shim,
             });
             return None;
         }
@@ -2297,6 +2311,7 @@ fn record_skipped_with_hint(
         reason: reason.to_string(),
         category,
         suggested_alias,
+        suggested_shim: None,
     });
 }
 
@@ -2372,6 +2387,142 @@ fn collect_template_alias_suggestions(node: &AstNode, namespace: &[String]) -> O
         lines.push_str(&format!("// using {} = {};\n", alias_name, qt));
     }
     Some(lines.trim_end().to_string())
+}
+
+// ---------------------------------------------------------------------------
+// std::string shim suggestion helpers
+// ---------------------------------------------------------------------------
+
+/// Return `true` when `t` looks like a C++ `std::string` type (or a reference
+/// / const-ref to one).
+///
+/// In practice, clang emits `std::string` parameters with their fully-expanded
+/// `qualType`, which contains `"basic_string"`.  We also match the typedef name
+/// `"std::string"` for cases where clang preserves it.
+fn is_std_string_type(t: &str) -> bool {
+    let core = t.trim();
+    // Strip outer const and reference to get the base type.
+    let core = strip_top_level_const(core);
+    let core = strip_trailing_ref(core).unwrap_or(core);
+    let core = strip_top_level_const(core);
+    // Match std::string and its common expansions.
+    core == "std::string"
+        || core.contains("basic_string")
+        || (core.contains("string") && core.contains("std::"))
+}
+
+/// Try to generate a C++ shim prototype for a function/method that was skipped
+/// because of a `std::string`-typed return value or parameter.
+///
+/// Returns `None` when the signature does not involve `std::string`-like types.
+fn try_generate_string_shim(
+    node: &AstNode,
+    qualified_name: &str,
+    class_name: Option<&str>,
+    namespace: &[String],
+    qual_type: &str,
+) -> Option<String> {
+    // Parse return type.
+    let (return_type, _) = parse_fn_qual_type(qual_type)?;
+    let is_const = qual_type.ends_with(") const") || qual_type.ends_with("() const");
+
+    // Collect parameter types from ParmVarDecl children (best-effort).
+    let raw_params: Vec<(String, String)> = node
+        .inner
+        .iter()
+        .flatten()
+        .filter(|c| c.kind == "ParmVarDecl")
+        .enumerate()
+        .map(|(i, p)| {
+            let pname = p
+                .name
+                .as_deref()
+                .filter(|n| !n.is_empty())
+                .unwrap_or(&format!("arg{}", i))
+                .to_string();
+            let cpp_type = p
+                .type_info
+                .as_ref()
+                .map(|t| t.qual_type.clone())
+                .unwrap_or_else(|| format!("/* unknown_type_{} */", i));
+            (pname, cpp_type)
+        })
+        .collect();
+
+    // Only generate a shim when at least one string-like type is involved.
+    let has_string_return = is_std_string_type(&return_type);
+    let has_string_param = raw_params.iter().any(|(_, t)| is_std_string_type(t));
+    if !has_string_return && !has_string_param {
+        return None;
+    }
+
+    // Build the shim function name: snake_case of the original name suffixed `_shim`.
+    let bare_fn_name = qualified_name.rsplit("::").next().unwrap_or(qualified_name);
+    let shim_name = if let Some(cls) = class_name {
+        format!("{}_{}_{}", to_snake_case(&make_qualified(namespace, cls).replace("::", "_")), to_snake_case(bare_fn_name), "shim")
+    } else {
+        format!("{}_{}", to_snake_case(bare_fn_name), "shim")
+    };
+
+    // Build the shim return type: if original returns std::string, use const char*.
+    let shim_return_type = if has_string_return {
+        "const char*".to_string()
+    } else {
+        return_type.clone()
+    };
+
+    // Build the parameter list for the shim, replacing std::string with const char*.
+    let mut shim_params: Vec<String> = Vec::new();
+
+    // Add self parameter for methods.
+    if let Some(cls) = class_name {
+        let qualified_cls = make_qualified(namespace, cls);
+        let const_q = if is_const { "const " } else { "" };
+        shim_params.push(format!("{}{} &self", const_q, qualified_cls));
+    }
+    for (pname, cpp_type) in &raw_params {
+        let shim_type = if is_std_string_type(cpp_type) {
+            "const char*".to_string()
+        } else {
+            cpp_type.clone()
+        };
+        shim_params.push(format!("{} {}", shim_type, pname));
+    }
+
+    // Build the call arguments, wrapping const char* params in std::string().
+    let mut call_args: Vec<String> = Vec::new();
+    for (pname, cpp_type) in &raw_params {
+        if is_std_string_type(cpp_type) {
+            call_args.push(format!("std::string({})", pname));
+        } else {
+            call_args.push(pname.clone());
+        }
+    }
+
+    let shim_params_str = shim_params.join(", ");
+    let call_args_str = call_args.join(", ");
+    let self_call = if class_name.is_some() { "self." } else { "" };
+    let call_expr = format!("{}{bare_fn_name}({call_args_str})", self_call);
+
+    let mut shim = String::new();
+    shim.push_str(&format!(
+        "// Suggested shim for: {} {}\n",
+        return_type, qualified_name
+    ));
+    shim.push_str("// Copy into your C++ header and bind via #[cpp(func = \"...\")] in import_lib!\n");
+    shim.push_str(&format!(
+        "static inline {} {}({}) {{\n",
+        shim_return_type, shim_name, shim_params_str
+    ));
+    if has_string_return {
+        shim.push_str("    static std::string _buf;\n");
+        shim.push_str(&format!("    _buf = {};\n", call_expr));
+        shim.push_str("    return _buf.c_str();\n");
+    } else {
+        shim.push_str(&format!("    return {};\n", call_expr));
+    }
+    shim.push('}');
+    Some(shim)
 }
 
 /// Extract a `CtorIR` from a `CXXConstructorDecl` node.

@@ -3200,3 +3200,127 @@ fn init_virtual_base_skipped_and_reported() {
         "Derived should appear somewhere in output: method_rs={method_rs}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// P2: std::string shim suggestion
+// ---------------------------------------------------------------------------
+
+/// When a function is skipped because of a std::string parameter or return type,
+/// the interface report should include a suggested C++ shim prototype.
+#[test]
+fn init_std_string_skip_generates_shim_suggestion() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "strfn.hpp",
+        r#"
+        #include <string>
+        // A free function whose parameter is std::string — hicc cannot bind this
+        // directly, but a shim should be suggested in the report.
+        void print_message(std::string msg);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "strfn.cpp", "strfn.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+
+    // The report must say the function was skipped.
+    assert!(
+        report.contains("print_message"),
+        "report should mention the skipped function: {report}"
+    );
+
+    // The report should include a shim suggestion mentioning const char*.
+    assert!(
+        report.contains("const char*") || report.contains("shim"),
+        "report should include a shim suggestion for std::string: {report}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P2: --dry-run mode
+// ---------------------------------------------------------------------------
+
+/// In dry-run mode, the interface report is printed to stdout and no files
+/// are written to rust/src/.
+#[test]
+fn init_dry_run_prints_report_and_skips_file_writing() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "dry.hpp",
+        r#"
+        int add(int a, int b);
+        double scale(double x, double factor);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "dry.cpp", "dry.hpp");
+
+    let output = bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--dry-run",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+
+    // The report should be printed to stdout in dry-run mode.
+    assert!(
+        stdout.contains("Dry-run"),
+        "stdout should mention dry-run: {stdout}"
+    );
+    assert!(
+        stdout.contains("add") || stdout.contains("scale"),
+        "stdout should include the interface report with extracted functions: {stdout}"
+    );
+
+    // Rust project skeleton must NOT be created.
+    let rust_src = tmp.path().join(".cpp2rust/default/rust/src");
+    assert!(
+        !rust_src.exists(),
+        "rust/src/ should not exist in dry-run mode"
+    );
+
+    // The interface report file should NOT be written.
+    let report_path = tmp
+        .path()
+        .join(".cpp2rust/default/meta/init-interface-report.md");
+    assert!(
+        !report_path.exists(),
+        "interface report file should not be written in dry-run mode"
+    );
+}
