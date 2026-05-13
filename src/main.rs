@@ -571,8 +571,37 @@ fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
 /// The `src` symlink (which points to `src.2`) is followed so that a real
 /// `src/` directory is written into the output.
 fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
-    std::fs::create_dir_all(output_dir)
-        .map_err(|e| anyhow!("create output dir {}: {}", output_dir.display(), e))?;
+    let rust_dir_canon = rust_dir
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", rust_dir.display(), e))?;
+    let output_abs = if output_dir.is_absolute() {
+        output_dir.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| anyhow!("current_dir: {}", e))?
+            .join(output_dir)
+    };
+
+    if output_abs.starts_with(&rust_dir_canon) {
+        return Err(anyhow!(
+            "output dir {} must not be inside rust dir {}",
+            output_abs.display(),
+            rust_dir_canon.display()
+        ));
+    }
+
+    if output_abs.exists() {
+        if output_abs.is_dir() {
+            std::fs::remove_dir_all(&output_abs)
+                .map_err(|e| anyhow!("clear output dir {}: {}", output_abs.display(), e))?;
+        } else {
+            std::fs::remove_file(&output_abs)
+                .map_err(|e| anyhow!("remove output file {}: {}", output_abs.display(), e))?;
+        }
+    }
+
+    std::fs::create_dir_all(&output_abs)
+        .map_err(|e| anyhow!("create output dir {}: {}", output_abs.display(), e))?;
 
     let skip = ["src.1", "src.2"];
 
@@ -588,7 +617,7 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
         }
 
         let src_path = entry.path();
-        let dst_path = output_dir.join(&name);
+        let dst_path = output_abs.join(&name);
 
         // Follow symlinks (e.g. `src` → `src.2`)
         let actual_path = if src_path.is_symlink() {
@@ -1202,6 +1231,8 @@ mod tests {
         std::fs::write(rust_dir.join("src.1").join("old.rs"), "// old").unwrap();
         std::fs::write(rust_dir.join("src.2").join("lib.rs"), "pub fn merged() {}").unwrap();
         std::fs::write(rust_dir.join("build.rs"), "// build").unwrap();
+        std::fs::create_dir_all(&output_dir).unwrap();
+        std::fs::write(output_dir.join("stale.txt"), "stale").unwrap();
 
         std::os::unix::fs::symlink(rust_dir.join("src.2"), rust_dir.join("src")).unwrap();
 
@@ -1211,12 +1242,27 @@ mod tests {
         assert!(output_dir.join("src").join("lib.rs").exists());
         assert!(!output_dir.join("src.1").exists());
         assert!(!output_dir.join("src.2").exists());
+        assert!(!output_dir.join("stale.txt").exists());
         assert!(
             !std::fs::symlink_metadata(output_dir.join("src"))
                 .unwrap()
                 .file_type()
                 .is_symlink(),
             "copied src should be a real directory, not a symlink"
+        );
+    }
+
+    #[test]
+    fn copy_merge_output_rejects_output_inside_rust_dir() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        let output_dir = rust_dir.join("out");
+        std::fs::create_dir_all(&rust_dir).unwrap();
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
         );
     }
 }
