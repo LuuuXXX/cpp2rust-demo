@@ -136,6 +136,12 @@ pub struct BaseSpecifier {
     pub access: String,
     #[serde(rename = "type")]
     pub type_info: TypeInfo,
+    /// Whether this base is declared `virtual` (virtual inheritance / diamond).
+    ///
+    /// hicc does not support virtual inheritance; virtual bases are skipped
+    /// and reported in the interface report.
+    #[serde(rename = "isVirtual", default)]
+    pub is_virtual: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -256,7 +262,65 @@ impl AliasRegistry {
     pub fn collect_from_ast(root: &AstNode) -> Self {
         let mut reg = AliasRegistry::default();
         collect_alias_nodes(root, &[], &mut reg);
+        reg.resolve_transitive();
         reg
+    }
+
+    /// Resolve chains of aliases so that an alias of an alias of a template
+    /// specialisation is treated the same as a direct alias.
+    ///
+    /// For example, given:
+    /// ```cpp
+    /// using A = SomeTemplate<int>;   // registered: A → "SomeTemplate<int>"
+    /// using B = A;                   // initially:   B → "A"  (no '<')
+    /// ```
+    /// After this call `B` resolves to `"SomeTemplate<int>"` in
+    /// `alias_to_type`, and `template_to_alias` gains `"SomeTemplate" → "A"`
+    /// (first alias wins; `B` is a second-level alias and is not preferred).
+    ///
+    /// The algorithm iterates until no further resolutions are possible
+    /// (fixed-point / transitive closure).
+    fn resolve_transitive(&mut self) {
+        loop {
+            let mut changed = false;
+            let keys: Vec<String> = self.alias_to_type.keys().cloned().collect();
+            for key in &keys {
+                let val = self.alias_to_type[key].clone();
+                // If the stored value is already a template type, nothing to do.
+                if val.contains('<') {
+                    continue;
+                }
+                // Try to resolve through one more alias hop.
+                if let Some(resolved) = self.alias_to_type.get(&val).cloned() {
+                    if resolved.contains('<') {
+                        // Found a template through the chain – update the entry
+                        // to point directly to the template type.
+                        *self.alias_to_type.get_mut(key).unwrap() = resolved.clone();
+                        // Also register this alias in template_to_alias if the
+                        // template doesn't already have a preferred alias.
+                        let bare = bare_template_name(&resolved);
+                        if !bare.is_empty() {
+                            self.template_to_alias
+                                .entry(bare.to_string())
+                                .or_insert_with(|| key.clone());
+                        }
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+
+    /// True if `name` is a typedef/using alias whose underlying type (possibly
+    /// reached through a transitive chain after [`resolve_transitive`]) is a
+    /// template specialisation.
+    pub fn is_alias_of_template(&self, name: &str) -> bool {
+        self.alias_to_type
+            .get(name)
+            .is_some_and(|t| t.contains('<'))
     }
 
     /// Return the alias Rust name for a bare template class name, if any.
@@ -537,6 +601,12 @@ pub struct ClassIR {
     /// methods (distinct from `is_abstract`, which means *all* methods are
     /// pure-virtual).
     pub has_pure_virtual: bool,
+    /// Names of base classes declared with `virtual` keyword that were skipped
+    /// because hicc does not support virtual inheritance.
+    ///
+    /// Populated for diagnostic / reporting purposes; these bases are **not**
+    /// emitted in `import_class!`.
+    pub skipped_virtual_bases: Vec<String>,
 }
 
 /// A declaration that is intentionally skipped during extraction.
@@ -550,6 +620,12 @@ pub struct SkippedDecl {
     pub reason: String,
     /// Classification of why this was skipped.
     pub category: SkipCategory,
+    /// For `ToolConservative` template skips: a suggested `using` alias
+    /// declaration that, when added to the C++ header, would unlock automatic
+    /// extraction on the next `init` run.
+    ///
+    /// Example: `"using MyDoc = rapidjson::GenericDocument<rapidjson::UTF8<char>>;"`
+    pub suggested_alias: Option<String>,
 }
 
 /// All declarations extracted from a set of header files.
@@ -954,7 +1030,10 @@ fn walk_node(
                 }
             }
             if !extracted_any {
-                record_skipped(
+                // Collect concrete specialisation types from children so we can
+                // suggest `using` aliases to the user.
+                let suggested = collect_template_alias_suggestions(node, namespace);
+                record_skipped_with_hint(
                     result,
                     node,
                     namespace,
@@ -962,6 +1041,7 @@ fn walk_node(
                     "template_decl",
                     // ToolConservative: adding a typedef alias unlocks extraction.
                     SkipCategory::ToolConservative,
+                    suggested,
                 );
             }
         }
@@ -985,7 +1065,8 @@ fn walk_node(
             ) {
                 result.classes.push(spec_class);
             } else {
-                record_skipped(
+                let suggested = collect_template_alias_suggestions(node, namespace);
+                record_skipped_with_hint(
                     result,
                     node,
                     namespace,
@@ -993,6 +1074,7 @@ fn walk_node(
                     "template_decl",
                     // ToolConservative: adding a typedef alias unlocks extraction.
                     SkipCategory::ToolConservative,
+                    suggested,
                 );
             }
         }
@@ -1218,6 +1300,12 @@ fn extract_class_body(
                 .unwrap_or(raw)
                 .trim();
             if !bare.is_empty() {
+                // Virtual bases are not supported by hicc; record them for
+                // reporting but do not emit them in import_class!.
+                if base.is_virtual {
+                    class_ir.skipped_virtual_bases.push(bare.to_string());
+                    continue;
+                }
                 // Prefer alias name if the base is a template with an alias.
                 let resolved_base = {
                     let template_bare = bare_template_name(bare);
@@ -1586,6 +1674,7 @@ fn extract_function(
             name: qualified_name.clone(),
             reason: "destructor".to_string(),
             category: SkipCategory::HiccLimitation,
+            suggested_alias: None,
         });
         return None;
     }
@@ -1596,6 +1685,7 @@ fn extract_function(
             name: qualified_name.clone(),
             reason: "operator_overload".to_string(),
             category: SkipCategory::HiccLimitation,
+            suggested_alias: None,
         });
         return None;
     }
@@ -1606,6 +1696,7 @@ fn extract_function(
             name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
             category: SkipCategory::HiccLimitation,
+            suggested_alias: None,
         });
         return None;
     };
@@ -1615,6 +1706,7 @@ fn extract_function(
             name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
             category: SkipCategory::HiccLimitation,
+            suggested_alias: None,
         });
         return None;
     };
@@ -1624,6 +1716,7 @@ fn extract_function(
             name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
             category: categorize_unsupported_type(&return_type),
+            suggested_alias: None,
         });
         return None;
     }
@@ -1649,6 +1742,7 @@ fn extract_function(
                 name: qualified_name.clone(),
                 reason: "unsupported_type".to_string(),
                 category: SkipCategory::HiccLimitation,
+                suggested_alias: None,
             });
             return None;
         };
@@ -1658,6 +1752,7 @@ fn extract_function(
                 name: qualified_name.clone(),
                 reason: "unsupported_type".to_string(),
                 category: categorize_unsupported_type(&cpp_type),
+                suggested_alias: None,
             });
             return None;
         }
@@ -2074,6 +2169,11 @@ fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, al
             let u = strip_top_level_const(underlying.trim());
             return is_primitive_cpp_type(u) || is_known_class_type(u, class_map);
         }
+        // After transitive resolution, this alias directly names a template
+        // specialisation – treat it as supported (the alias is the Rust name).
+        if alias_registry.is_alias_of_template(base) {
+            return true;
+        }
     }
 
     is_primitive_cpp_type(base) || is_known_class_type(base, class_map)
@@ -2173,6 +2273,18 @@ fn record_skipped(
     reason: &str,
     category: SkipCategory,
 ) {
+    record_skipped_with_hint(result, node, namespace, class_name, reason, category, None);
+}
+
+fn record_skipped_with_hint(
+    result: &mut ExtractedDecls,
+    node: &AstNode,
+    namespace: &[String],
+    class_name: Option<&str>,
+    reason: &str,
+    category: SkipCategory,
+    suggested_alias: Option<String>,
+) {
     let raw_name = node.name.as_deref().unwrap_or("<anonymous>");
     let name = if let Some(cls) = class_name {
         format!("{}::{}", make_qualified(namespace, cls), raw_name)
@@ -2184,6 +2296,7 @@ fn record_skipped(
         name,
         reason: reason.to_string(),
         category,
+        suggested_alias,
     });
 }
 
@@ -2198,6 +2311,67 @@ fn bare_class_name(t: &str) -> String {
     let last = t.rsplit("::").next().unwrap_or(t).trim();
     // Drop template parameters.
     last.split('<').next().unwrap_or(last).trim().to_string()
+}
+
+/// Build a suggested `using` alias declaration for a skipped template.
+///
+/// Scans the `node`'s children for concrete `ClassTemplateSpecializationDecl`
+/// nodes and returns a multi-line string with one `using` suggestion per unique
+/// concrete instantiation type, e.g.:
+/// ```text
+/// // Concrete instantiation(s) found – add an alias to your header:
+/// using MyBox_int = Box<int>;
+/// using MyBox_float = Box<float>;
+/// ```
+///
+/// Returns `None` when no concrete instantiations are found in the children.
+fn collect_template_alias_suggestions(node: &AstNode, namespace: &[String]) -> Option<String> {
+    // The template name is the bare name (e.g. "Box", "GenericDocument").
+    let template_name = node.name.as_deref().unwrap_or("Unknown");
+    let qualified_template = make_qualified(namespace, template_name);
+
+    // Collect unique full instantiation type strings from specialisation children.
+    let mut seen: Vec<String> = Vec::new();
+    let children = node.inner.iter().flatten();
+    for child in children {
+        if child.kind == "ClassTemplateSpecializationDecl"
+            && child.complete_definition.unwrap_or(false)
+        {
+            if let Some(ref ti) = child.type_info {
+                let qt = ti.qual_type.trim();
+                // Strip leading "struct " / "class " that clang sometimes emits.
+                let qt = qt
+                    .strip_prefix("struct ")
+                    .or_else(|| qt.strip_prefix("class "))
+                    .unwrap_or(qt)
+                    .trim();
+                if !qt.is_empty() && !seen.contains(&qt.to_string()) {
+                    seen.push(qt.to_string());
+                }
+            }
+        }
+    }
+
+    // If no concrete instantiations were found, fall back to a generic placeholder.
+    if seen.is_empty() {
+        // Use the template name to produce a minimal (but still actionable) hint.
+        let placeholder = format!(
+            "// Add a using/typedef alias for `{}` to unlock extraction, e.g.:\n// using My{}_1 = {}</* args */>;",
+            qualified_template, template_name, qualified_template
+        );
+        return Some(placeholder);
+    }
+
+    let mut lines = String::from(
+        "// Concrete instantiation(s) found – add a `using` alias to your header to unlock extraction:\n",
+    );
+    for (i, qt) in seen.iter().enumerate() {
+        // Use the same My{bare}_{n} pattern as the suggest-aliases subcommand output.
+        let bare = bare_template_name(qt);
+        let alias_name = format!("My{}_{}", bare, i + 1);
+        lines.push_str(&format!("// using {} = {};\n", alias_name, qt));
+    }
+    Some(lines.trim_end().to_string())
 }
 
 /// Extract a `CtorIR` from a `CXXConstructorDecl` node.

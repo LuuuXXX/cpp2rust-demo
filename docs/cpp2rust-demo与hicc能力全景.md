@@ -91,14 +91,14 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | 运算符重载 | ⚠️ 半自动 | `free/shim_ops.rs` | ❌ | 生成 `operator_shims.hpp` starter；需手写 C++ shim 再绑定 |
 | 析构函数 | ❌ 跳过 | — | ❌ | `HiccLimitation`；由 RAII 管理 |
 | 多重继承 | ❌ 仅首个基类 | `method/mtd_*.rs`（部分） | ❌ | `ToolLimit`；hicc 亦不支持 |
-| 虚继承（菱形继承） | ❌ 跳过 | — | ❌ | `ToolLimit` |
+| 虚继承（菱形继承） | ⚠️ 跳过并报告 | 接口报告 | ❌ | 虚基类被跳过，接口报告列出警告（P3 已实现） |
 | 友元函数 | ❌ 跳过 | — | ❌ | AST 不可靠提取；`HiccLimitation` |
 | 函数指针参数 | ❌ 跳过 | — | ❌ | `HiccLimitation`；建议封装为虚函数接口 |
 | `std::string` 参数/返回值 | ❌ 跳过 | — | ❌ | `HiccLimitation`；需手写 C++ shim 转 `const char*` |
 | `std::function` / lambda 参数 | ❌ 跳过 | — | ✅（hicc 支持） | 工具层未处理；需手写封装为虚函数接口 + `@make_proxy` |
 | `auto` / `decltype` 返回类型 | ❌ 跳过 | — | ❌ | `HiccLimitation`；需手写包装函数 |
 | `va_list` / variadic `...` | ❌ 跳过 | — | ⚠️（hicc 部分支持） | 工具层未处理；`HiccLimitation` |
-| 链式类型别名（`using B = A; using A = T<...>`） | ❌ 不追踪 | — | ✅（hicc 支持） | `ToolLimit`；AliasRegistry 不支持传递性解析 |
+| 链式类型别名（`using B = A; using A = T<...>`） | ✅ 已支持 | — | ✅（hicc 支持） | AliasRegistry 传递性闭合解析（P1 已实现） |
 | 方法模板（类内函数模板） | ❌ 跳过 | — | ❌ | `HiccLimitation` |
 | `dynamic_cast` | ❌ 未生成 | — | ✅（hicc 支持） | 工具未处理，需手写 |
 | 类成员变量 / 静态变量 | ❌ 未生成 | — | ✅（hicc 支持） | 工具未处理 `#[cpp(field)]` / `#[cpp(data)]` |
@@ -114,13 +114,13 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 
 | C++ 特性 | 当前状态 | 分类 | 改进方案 | 实现入口 | 优先级 |
 |---------|---------|:----:|---------|---------|:------:|
-| **模板类（无别名）** | 跳过（`tool_conservative`） | ToolConservative | 新增 `suggest-aliases` 子命令；在接口报告中自动输出 `using Alias = FullType<...>;` 建议；用户补充后重跑解锁 | `ast.rs` `SkippedDecl` + `codegen.rs` 报告渲染 + `main.rs` 新子命令 | P1 |
-| **链式类型别名** (`using B = A`) | AliasRegistry 单层，`B` 无法解锁模板 | ToolLimit | AliasRegistry 增加传递性解析（transitive closure），收集完毕后迭代闭合直到稳定 | `ast.rs` `AliasRegistry::collect_from_ast()` 末尾增加 `resolve_transitive()` | P1 |
+| **模板类（无别名）** | 跳过（`tool_conservative`）；接口报告和 `suggest-aliases` 子命令自动输出 `using` 别名建议 ✅ 已实现 | ToolConservative | 新增 `suggest-aliases` 子命令；在接口报告中自动输出 `using Alias = FullType<...>;` 建议；用户补充后重跑解锁 | `ast.rs` `SkippedDecl.suggested_alias` + `codegen.rs` 报告渲染 + `main.rs` 新子命令 | P1 ✅ |
+| **链式类型别名** (`using B = A`) | ✅ 已支持；AliasRegistry 传递性闭合解析 | ToolLimit | AliasRegistry 增加传递性解析（transitive closure），收集完毕后迭代闭合直到稳定 | `ast.rs` `AliasRegistry::resolve_transitive()` + `is_alias_of_template()` + `is_supported_cpp_type()` | P1 ✅ |
 | **`std::function` / lambda 参数** | 跳过（无生成） | ToolLimit | AST 中识别 `std::function<R(Args)>` 类型，生成对应虚函数接口 + `@make_proxy` 绑定骨架建议到接口报告 | `ast.rs` 类型识别 + `codegen.rs` 报告输出 | P2 |
 | **类成员变量 / 静态变量** | 未提取 | ToolLimit | AST 中提取 `FieldDecl` / `VarDecl`（static），生成 `#[cpp(field)]` / `#[cpp(data)]` 绑定到 `free/` 或 `method/` | `ast.rs` 新增 `FieldIR` + `codegen.rs` render | P2 |
 | **`std::string` 参数/返回（shim 建议）** | 跳过（`hicc_limitation`） | ToolConservative | 在接口报告和 `operator_shims.hpp` 中自动生成可复制的 C++ shim 函数原型（`static inline const char* foo_shim(...)`） | `ast.rs` `SkippedDecl.suggested_shim` + `codegen.rs` | P2 |
 | **多重继承（全部 public 基类）** | 仅提取首个基类 | ToolLimit | `ClassIR.bases` 改为 `Vec<String>` 存全部 public 基类，`render_import_class()` 生成 `class C: A + B`（需确认 hicc 语法） | `ast.rs` `ClassIR` + `codegen.rs` | P3 |
-| **虚继承检测与提示** | 无特殊处理 | ToolLimit | `BaseSpecifier` 增加 `is_virtual: bool`，跳过虚基类并在接口报告中列出 `Virtual bases (skipped)` | `ast.rs` `BaseSpecifier` + `codegen.rs` | P3 |
+| **虚继承检测与提示** | ✅ 已实现：`BaseSpecifier.is_virtual` 跳过虚基类，接口报告列出警告 | ToolLimit | `BaseSpecifier` 增加 `is_virtual: bool`，跳过虚基类并在接口报告中列出 `Virtual bases (skipped)` | `ast.rs` `BaseSpecifier` + `codegen.rs` | P3 ✅ |
 | **函数指针参数（接口建议）** | 跳过无提示 | ToolConservative | 识别含 `(*)` 的类型，在接口报告中生成对应纯虚接口类模板 + `@make_proxy` 调用示例 | `ast.rs` skip 分支 + `codegen.rs` | P3 |
 | **`dynamic_cast` 绑定** | 未生成 | ToolLimit | 识别继承关系中可做 downcast 的类对，在 `free/` 生成 `@dynamic_cast` 绑定骨架 | `ast.rs` 继承链分析 + `codegen.rs` | P3 |
 | **`va_list` / variadic 函数** | 跳过 | ToolConservative | 识别 `va_list` 最后参数，生成对应 `unsafe fn foo(name: &T, ...)` 绑定（hicc 支持，参数/返回无类类型限制需校验） | `ast.rs` 参数类型识别 + `codegen.rs` | P3 |
@@ -135,3 +135,11 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 - **hicc** 功能完整的 C++ FFI 框架，几乎覆盖所有常见 C++ 特性（含模板类、虚函数、STL 容器、RustAny 等），核心不支持项仅有：多重继承、虚继承、运算符重、析构函数显式绑定、函数指针参数、纯 `...` variadic（含类类型时）
 - **cpp2rust-demo** 是 hicc 的 AST 驱动脚手架生成器，当前已覆盖最主要的使用场景（自由函数、类方法、虚函数、继承、枚举、别名解锁模板），大量"不支持"项是**工具层面未实现**（hicc 本身支持），改进空间充足且明确
 - 优先级最高的改进是 **模板别名建议（§1）** 和 **链式别名传递性解析（§3）**，因为这两项直接影响模板密集型 C++ 库（如 RapidJSON）的提取覆盖率
+
+**批次一改进状态（已完成）：**
+
+| 改进项 | 状态 | 说明 |
+|-------|:----:|------|
+| P1 链式类型别名传递性解析 | ✅ 已实现 | `AliasRegistry::resolve_transitive()` + `is_alias_of_template()`；`is_supported_cpp_type()` 识别传递性别名 |
+| P1 模板别名建议（`suggest-aliases` 子命令） | ✅ 已实现 | 新增 `suggest-aliases` CLI 子命令；`SkippedDecl.suggested_alias`；接口报告显示 `using` 建议代码块 |
+| P3 虚继承检测与提示 | ✅ 已实现 | `BaseSpecifier.is_virtual`；虚基类被跳过；接口报告显示 `⚠️ Virtual bases (skipped)` 警告 |

@@ -52,6 +52,18 @@ enum Commands {
     /// Example:
     ///   cpp2rust-demo merge --feature default
     Merge(MergeArgs),
+
+    /// Print `using` alias suggestions for skipped C++ templates.
+    ///
+    /// Reads the saved clang AST JSON files produced by a previous `init` run
+    /// and emits a list of `using Alias = FullType<Args...>;` declarations.
+    /// Copy the relevant ones into your C++ header and re-run `init` to unlock
+    /// automatic FFI extraction for template specialisations.
+    ///
+    /// Example:
+    ///   cpp2rust-demo suggest-aliases --feature default
+    #[command(name = "suggest-aliases")]
+    SuggestAliases(SuggestAliasesArgs),
 }
 
 #[derive(Args)]
@@ -99,6 +111,13 @@ struct MergeArgs {
     /// (src.1 and src.2 are excluded; src symlink is followed).
     #[arg(short = 'o', long, value_name = "DIR")]
     output: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct SuggestAliasesArgs {
+    /// Feature name (must match a previous `init` run).
+    #[arg(long, default_value = "default")]
+    feature: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -1011,11 +1030,174 @@ fn stable_short_path_hash(path: &Path) -> String {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Implementation of the `suggest-aliases` subcommand.
+///
+/// Reads the clang AST JSON files saved by a previous `init` run and scans
+/// for `ClassTemplateDecl` / `ClassTemplateSpecializationDecl` nodes that do
+/// not yet have a `typedef`/`using` alias in the user's header.  For each
+/// such template, prints ready-to-copy `using` declarations so the user can
+/// paste them into the header and re-run `init` to unlock automatic extraction.
+fn run_suggest_aliases(args: SuggestAliasesArgs) -> Result<()> {
+    let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
+    let project_root = layout::find_project_root(&cwd);
+    let lo = layout::FeatureLayout::new(project_root.clone(), &args.feature);
+
+    if !lo.ast_dir.exists() {
+        return Err(anyhow!(
+            "AST directory not found at {}; run 'init' first",
+            lo.ast_dir.display()
+        ));
+    }
+
+    println!("=== cpp2rust-demo suggest-aliases ===");
+    println!("Project root : {}", project_root.display());
+    println!("Feature      : {}", args.feature);
+    println!();
+
+    // Collect AST JSON files.
+    let ast_files: Vec<PathBuf> = std::fs::read_dir(&lo.ast_dir)
+        .map_err(|e| anyhow!("read dir {}: {}", lo.ast_dir.display(), e))?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if ast_files.is_empty() {
+        println!("No AST JSON files found. Run 'init' first.");
+        return Ok(());
+    }
+
+    let mut total_suggestions = 0usize;
+
+    for ast_path in &ast_files {
+        let json_str = std::fs::read_to_string(ast_path)
+            .map_err(|e| anyhow!("read {}: {}", ast_path.display(), e))?;
+        let ast_root: ast::AstNode = serde_json::from_str(&json_str)
+            .map_err(|e| anyhow!("parse AST JSON {}: {}", ast_path.display(), e))?;
+
+        // Build the alias registry to know which templates already have aliases.
+        let alias_registry = ast::AliasRegistry::collect_from_ast(&ast_root);
+
+        // Collect suggestions.
+        let suggestions = collect_alias_suggestions_from_ast(&ast_root, &alias_registry, &[]);
+
+        if !suggestions.is_empty() {
+            println!("## From `{}`\n", ast_path.display());
+            println!("Add these `using` declarations to your C++ header, then re-run `cpp2rust-demo init`:\n");
+            println!("```cpp");
+            for (template_name, specializations) in &suggestions {
+                println!("// Template: {}", template_name);
+                for (i, spec_type) in specializations.iter().enumerate() {
+                    let bare = spec_type
+                        .split('<')
+                        .next()
+                        .unwrap_or(spec_type)
+                        .rsplit("::")
+                        .next()
+                        .unwrap_or(spec_type)
+                        .trim();
+                    // Use a consistent numeric suffix: MyFoo_1, MyFoo_2, ...
+                    let alias_name = format!("My{}_{}", bare, i + 1);
+                    println!("using {} = {};", alias_name, spec_type);
+                }
+            }
+            println!("```\n");
+            total_suggestions += suggestions.len();
+        }
+    }
+
+    if total_suggestions == 0 {
+        println!("No unaliased template specialisations found.");
+        println!("Either all templates already have aliases, or no concrete specialisations");
+        println!("were visible in the captured translation units.");
+        println!("Tip: add explicit template instantiations (e.g. `template class Foo<int>;`)");
+        println!("to make specialisations visible in the AST, then re-run `init`.");
+    } else {
+        println!("Found {} template(s) without aliases.", total_suggestions);
+        println!("After adding the suggested aliases, re-run:");
+        println!("  cpp2rust-demo init --link <libname> -- <build-command>");
+    }
+
+    Ok(())
+}
+
+/// Recursively walk an AST and collect (template_name, [specialization_types])
+/// pairs for templates that do not yet have a `typedef`/`using` alias.
+fn collect_alias_suggestions_from_ast(
+    node: &ast::AstNode,
+    alias_registry: &ast::AliasRegistry,
+    namespace: &[String],
+) -> Vec<(String, Vec<String>)> {
+    let mut results: Vec<(String, Vec<String>)> = Vec::new();
+
+    match node.kind.as_str() {
+        "NamespaceDecl" => {
+            if let Some(ref ns_name) = node.name {
+                let mut ns = namespace.to_vec();
+                ns.push(ns_name.clone());
+                for child in node.inner.iter().flatten() {
+                    results.extend(collect_alias_suggestions_from_ast(child, alias_registry, &ns));
+                }
+            }
+        }
+
+        "ClassTemplateDecl" => {
+            if let Some(template_name) = node.name.as_deref() {
+                // Skip if the template already has an alias registered.
+                if !alias_registry.has_template_alias(template_name) {
+                    let mut spec_types: Vec<String> = Vec::new();
+                    for child in node.inner.iter().flatten() {
+                        if child.kind == "ClassTemplateSpecializationDecl"
+                            && child.complete_definition.unwrap_or(false)
+                        {
+                            if let Some(ref ti) = child.type_info {
+                                let qt = ti.qual_type.trim();
+                                let qt = qt
+                                    .strip_prefix("struct ")
+                                    .or_else(|| qt.strip_prefix("class "))
+                                    .unwrap_or(qt)
+                                    .trim()
+                                    .to_string();
+                                if !qt.is_empty() && !spec_types.contains(&qt) {
+                                    spec_types.push(qt);
+                                }
+                            }
+                        }
+                    }
+                    if !spec_types.is_empty() {
+                        let qualified = if namespace.is_empty() {
+                            template_name.to_string()
+                        } else {
+                            format!("{}::{}", namespace.join("::"), template_name)
+                        };
+                        results.push((qualified, spec_types));
+                    }
+                }
+            }
+        }
+
+        _ => {
+            for child in node.inner.iter().flatten() {
+                results.extend(collect_alias_suggestions_from_ast(child, alias_registry, namespace));
+            }
+        }
+    }
+
+    results
+}
+
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
         Commands::Init(args) => run_init(args),
         Commands::Merge(args) => run_merge(args),
+        Commands::SuggestAliases(args) => run_suggest_aliases(args),
     };
     if let Err(e) = result {
         eprintln!("Error: {:#}", e);
