@@ -96,7 +96,16 @@ cpp2rust-demo init --link rapidjson --no-link -- clang++ -x c++ -std=c++17 -fsyn
 ```bash
 cpp2rust-demo merge
 cpp2rust-demo merge --feature myfeature
+cpp2rust-demo merge --feature myfeature --output /tmp/merged-rust
 ```
+
+常用参数（以 `cpp2rust-demo merge --help` 为准）：
+
+- `--feature <name>`：要合并的 feature，默认 `default`
+- `-o, --output <dir>`：可选；将 merge 后 `rust/` 导出到目标目录
+  - 导出会跳过顶层 `src.1` / `src.2`
+  - 导出后的 `src` 会是实体目录（跟随 `src -> src.2` 符号链接复制）
+  - 目标目录必须为空目录（或不存在）
 
 ## 产物目录说明
 

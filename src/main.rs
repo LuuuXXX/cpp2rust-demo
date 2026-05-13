@@ -94,6 +94,11 @@ struct MergeArgs {
     /// Feature name (must match a previous `init` run).
     #[arg(long, default_value = "default")]
     feature: String,
+
+    /// Output directory: if specified, copy the merged Rust project here
+    /// (src.1 and src.2 are excluded; src symlink is followed).
+    #[arg(short = 'o', long, value_name = "DIR")]
+    output: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +539,11 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("  2. Add it as a Cargo dependency or inline the merged_ffi.rs");
     println!("  3. Adjust build.rs to point to your C++ library");
 
+    if let Some(output_dir) = &args.output {
+        copy_merge_output(&lo.rust_dir, output_dir)?;
+        println!("\nMerge output copied to: {}", output_dir.display());
+    }
+
     Ok(())
 }
 
@@ -553,6 +563,160 @@ fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
         .collect();
     dirs.sort();
     dirs
+}
+
+/// Copy the merged Rust project from `rust_dir` to `output_dir`.
+///
+/// Entries named `src.1` or `src.2` are skipped.
+/// The `src` symlink (which points to `src.2`) is followed so that a real
+/// `src/` directory is written into the output.
+fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
+    let rust_dir_canon = rust_dir
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", rust_dir.display(), e))?;
+    let output_abs = if output_dir.is_absolute() {
+        output_dir.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| anyhow!("current_dir: {}", e))?
+            .join(output_dir)
+    };
+
+    let mut created_output_root: Option<PathBuf> = None;
+    if output_abs.exists() {
+        if !output_abs.is_dir() {
+            return Err(anyhow!(
+                "output path {} exists and is not a directory",
+                output_abs.display()
+            ));
+        }
+        let mut existing_entries = std::fs::read_dir(&output_abs)
+            .map_err(|e| anyhow!("read dir {}: {}", output_abs.display(), e))?;
+        if existing_entries
+            .next()
+            .transpose()
+            .map_err(|e| anyhow!("read entry in {}: {}", output_abs.display(), e))?
+            .is_some()
+        {
+            return Err(anyhow!(
+                "output dir {} already exists and is not empty",
+                output_abs.display()
+            ));
+        }
+    } else {
+        created_output_root = Some(first_missing_ancestor(&output_abs));
+        std::fs::create_dir_all(&output_abs)
+            .map_err(|e| anyhow!("create output dir {}: {}", output_abs.display(), e))?;
+    }
+
+    let output_canon = output_abs
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", output_abs.display(), e))?;
+
+    if output_canon.starts_with(&rust_dir_canon) {
+        if let Some(created_root) = &created_output_root {
+            cleanup_created_empty_dirs(&output_abs, created_root);
+        }
+        return Err(anyhow!(
+            "output dir {} must not be inside rust dir {}",
+            output_canon.display(),
+            rust_dir_canon.display()
+        ));
+    }
+
+    let skip = ["src.1", "src.2"];
+
+    for entry in
+        std::fs::read_dir(rust_dir).map_err(|e| anyhow!("read dir {}: {}", rust_dir.display(), e))?
+    {
+        let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        if skip.contains(&name_str.as_ref()) {
+            continue;
+        }
+
+        let src_path = entry.path();
+        let dst_path = output_canon.join(&name);
+
+        // Follow symlinks (e.g. `src` → `src.2`)
+        let actual_path = if src_path.is_symlink() {
+            src_path
+                .canonicalize()
+                .map_err(|e| anyhow!("canonicalize {}: {}", src_path.display(), e))?
+        } else {
+            src_path.clone()
+        };
+
+        if actual_path.is_dir() {
+            copy_dir_recursive(&actual_path, &dst_path)?;
+        } else {
+            std::fs::copy(&actual_path, &dst_path).map_err(|e| {
+                anyhow!(
+                    "copy {} to {}: {}",
+                    actual_path.display(),
+                    dst_path.display(),
+                    e
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn first_missing_ancestor(path: &Path) -> PathBuf {
+    let mut first_missing = path.to_path_buf();
+    let mut current = path;
+    loop {
+        if current.exists() {
+            break;
+        }
+        first_missing = current.to_path_buf();
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    first_missing
+}
+
+fn cleanup_created_empty_dirs(path: &Path, created_root: &Path) {
+    let mut current = Some(path);
+    while let Some(dir) = current {
+        match std::fs::remove_dir(dir) {
+            Ok(()) => {}
+            Err(_) => break,
+        }
+        if dir == created_root {
+            break;
+        }
+        current = dir.parent();
+    }
+}
+
+/// Recursively copy a directory tree from `src` to `dst`.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst).map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
+    for entry in std::fs::read_dir(src).map_err(|e| anyhow!("read dir {}: {}", src.display(), e))? {
+        let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path).map_err(|e| {
+                anyhow!(
+                    "copy {} to {}: {}",
+                    src_path.display(),
+                    dst_path.display(),
+                    e
+                )
+            })?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -868,6 +1032,7 @@ mod tests {
     use super::*;
     use crate::ast::{ClassIR, ExtractedDecls, FunctionIR};
     use clap::CommandFactory;
+    use tempfile::TempDir;
 
     #[test]
     fn cli_help_does_not_panic() {
@@ -1087,5 +1252,146 @@ mod tests {
             panic!("expected Merge");
         };
         assert_eq!(merge.feature, "myfeature");
+    }
+
+    #[test]
+    fn merge_output_dir_args() {
+        let args = Cli::try_parse_from(["cpp2rust-demo", "merge", "-o", "out-dir"]).unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.output, Some(PathBuf::from("out-dir")));
+
+        let args =
+            Cli::try_parse_from(["cpp2rust-demo", "merge", "--output", "other-dir"]).unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.output, Some(PathBuf::from("other-dir")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_merge_output_skips_src1_src2_and_follows_src_symlink() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        let output_dir = tmp.path().join("out");
+
+        std::fs::create_dir_all(rust_dir.join("src.1")).unwrap();
+        std::fs::create_dir_all(rust_dir.join("src.2")).unwrap();
+        std::fs::write(rust_dir.join("src.1").join("old.rs"), "// old").unwrap();
+        std::fs::write(rust_dir.join("src.2").join("lib.rs"), "pub fn merged() {}").unwrap();
+        std::fs::write(rust_dir.join("build.rs"), "// build").unwrap();
+
+        std::os::unix::fs::symlink(rust_dir.join("src.2"), rust_dir.join("src")).unwrap();
+
+        copy_merge_output(&rust_dir, &output_dir).unwrap();
+
+        assert!(output_dir.join("build.rs").exists());
+        assert!(output_dir.join("src").join("lib.rs").exists());
+        assert!(!output_dir.join("src.1").exists());
+        assert!(!output_dir.join("src.2").exists());
+        assert!(
+            !std::fs::symlink_metadata(output_dir.join("src"))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "copied src should be a real directory, not a symlink"
+        );
+    }
+
+    #[test]
+    fn copy_merge_output_rejects_output_inside_rust_dir() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        let output_dir = rust_dir.join("out");
+        std::fs::create_dir_all(&rust_dir).unwrap();
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_merge_output_rejects_output_inside_rust_dir_via_symlink() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(&rust_dir).unwrap();
+        let link_dir = tmp.path().join("link-to-rust");
+        std::os::unix::fs::symlink(&rust_dir, &link_dir).unwrap();
+        let output_dir = link_dir.join("out");
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            !rust_dir.join("out").exists(),
+            "created output dir under rust should be cleaned up on rejection"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_merge_output_rejects_existing_symlinked_output_without_deleting_it() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(rust_dir.join("out")).unwrap();
+        let link_dir = tmp.path().join("link-to-rust");
+        std::os::unix::fs::symlink(&rust_dir, &link_dir).unwrap();
+        let output_dir = link_dir.join("out");
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            rust_dir.join("out").exists(),
+            "existing output dir should not be deleted on rejection"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_merge_output_rejects_nested_output_inside_rust_dir_and_cleans_parents() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(&rust_dir).unwrap();
+        let link_dir = tmp.path().join("link-to-rust");
+        std::os::unix::fs::symlink(&rust_dir, &link_dir).unwrap();
+        let output_dir = link_dir.join("out").join("nested");
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            !rust_dir.join("out").exists(),
+            "newly created parent dirs under rust should be cleaned up on rejection"
+        );
+    }
+
+    #[test]
+    fn copy_merge_output_rejects_non_empty_output_dir() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        let src_dir = rust_dir.join("src");
+        let output_dir = tmp.path().join("out");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(src_dir.join("lib.rs"), "pub fn merged() {}").unwrap();
+        std::fs::create_dir_all(&output_dir).unwrap();
+        std::fs::write(output_dir.join("stale.txt"), "stale").unwrap();
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("already exists and is not empty"),
+            "unexpected error: {err}"
+        );
     }
 }
