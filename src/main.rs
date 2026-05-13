@@ -94,6 +94,11 @@ struct MergeArgs {
     /// Feature name (must match a previous `init` run).
     #[arg(long, default_value = "default")]
     feature: String,
+
+    /// Output directory: if specified, copy the merged Rust project here
+    /// (src.1 and src.2 are excluded; src symlink is followed).
+    #[arg(short = 'o', long, value_name = "DIR")]
+    output: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +539,11 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("  2. Add it as a Cargo dependency or inline the merged_ffi.rs");
     println!("  3. Adjust build.rs to point to your C++ library");
 
+    if let Some(output_dir) = &args.output {
+        copy_merge_output(&lo.rust_dir, output_dir)?;
+        println!("\nMerge output copied to: {}", output_dir.display());
+    }
+
     Ok(())
 }
 
@@ -553,6 +563,80 @@ fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
         .collect();
     dirs.sort();
     dirs
+}
+
+/// Copy the merged Rust project from `rust_dir` to `output_dir`.
+///
+/// Entries named `src.1` or `src.2` are skipped.
+/// The `src` symlink (which points to `src.2`) is followed so that a real
+/// `src/` directory is written into the output.
+fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| anyhow!("create output dir {}: {}", output_dir.display(), e))?;
+
+    let skip = ["src.1", "src.2"];
+
+    for entry in
+        std::fs::read_dir(rust_dir).map_err(|e| anyhow!("read dir {}: {}", rust_dir.display(), e))?
+    {
+        let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        if skip.contains(&name_str.as_ref()) {
+            continue;
+        }
+
+        let src_path = entry.path();
+        let dst_path = output_dir.join(&name);
+
+        // Follow symlinks (e.g. `src` → `src.2`)
+        let actual_path = if src_path.is_symlink() {
+            src_path
+                .canonicalize()
+                .map_err(|e| anyhow!("canonicalize {}: {}", src_path.display(), e))?
+        } else {
+            src_path.clone()
+        };
+
+        if actual_path.is_dir() {
+            copy_dir_recursive(&actual_path, &dst_path)?;
+        } else {
+            std::fs::copy(&actual_path, &dst_path).map_err(|e| {
+                anyhow!(
+                    "copy {} to {}: {}",
+                    actual_path.display(),
+                    dst_path.display(),
+                    e
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Recursively copy a directory tree from `src` to `dst`.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst).map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
+    for entry in std::fs::read_dir(src).map_err(|e| anyhow!("read dir {}: {}", src.display(), e))? {
+        let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path).map_err(|e| {
+                anyhow!(
+                    "copy {} to {}: {}",
+                    src_path.display(),
+                    dst_path.display(),
+                    e
+                )
+            })?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -868,6 +952,7 @@ mod tests {
     use super::*;
     use crate::ast::{ClassIR, ExtractedDecls, FunctionIR};
     use clap::CommandFactory;
+    use tempfile::TempDir;
 
     #[test]
     fn cli_help_does_not_panic() {
@@ -1087,5 +1172,51 @@ mod tests {
             panic!("expected Merge");
         };
         assert_eq!(merge.feature, "myfeature");
+    }
+
+    #[test]
+    fn merge_output_dir_args() {
+        let args = Cli::try_parse_from(["cpp2rust-demo", "merge", "-o", "out-dir"]).unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.output, Some(PathBuf::from("out-dir")));
+
+        let args =
+            Cli::try_parse_from(["cpp2rust-demo", "merge", "--output", "other-dir"]).unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.output, Some(PathBuf::from("other-dir")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_merge_output_skips_src1_src2_and_follows_src_symlink() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        let output_dir = tmp.path().join("out");
+
+        std::fs::create_dir_all(rust_dir.join("src.1")).unwrap();
+        std::fs::create_dir_all(rust_dir.join("src.2")).unwrap();
+        std::fs::write(rust_dir.join("src.1").join("old.rs"), "// old").unwrap();
+        std::fs::write(rust_dir.join("src.2").join("lib.rs"), "pub fn merged() {}").unwrap();
+        std::fs::write(rust_dir.join("build.rs"), "// build").unwrap();
+
+        std::os::unix::fs::symlink(rust_dir.join("src.2"), rust_dir.join("src")).unwrap();
+
+        copy_merge_output(&rust_dir, &output_dir).unwrap();
+
+        assert!(output_dir.join("build.rs").exists());
+        assert!(output_dir.join("src").join("lib.rs").exists());
+        assert!(!output_dir.join("src.1").exists());
+        assert!(!output_dir.join("src.2").exists());
+        assert!(
+            !std::fs::symlink_metadata(output_dir.join("src"))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "copied src should be a real directory, not a symlink"
+        );
     }
 }
