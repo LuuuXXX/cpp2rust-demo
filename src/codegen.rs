@@ -1567,7 +1567,7 @@ fn rust_any_suggestion_for(ct: &str) -> String {
     // Match common containers and produce hicc-std equivalents.
     let trimmed = ct.trim();
     if trimmed.contains("std::vector<") {
-        let inner = extract_template_arg(trimmed, "std::vector");
+        let inner = extract_template_arg(trimmed);
         if let Some(t) = inner {
             return format!(
                 "→ use `hicc_std::Vector<{t}>` (Rust) / `std::vector<hicc::RustAny<{t}>>` (C++)"
@@ -1575,7 +1575,7 @@ fn rust_any_suggestion_for(ct: &str) -> String {
         }
     }
     if trimmed.contains("std::map<") {
-        let inner = extract_template_arg(trimmed, "std::map");
+        let inner = extract_template_arg(trimmed);
         if let Some(t) = inner {
             return format!(
                 "→ use `hicc_std::Map<{t}>` (Rust) / `std::map<Key, hicc::RustAny<Val>>` (C++)"
@@ -1583,7 +1583,7 @@ fn rust_any_suggestion_for(ct: &str) -> String {
         }
     }
     if trimmed.contains("std::unordered_map<") {
-        let inner = extract_template_arg(trimmed, "std::unordered_map");
+        let inner = extract_template_arg(trimmed);
         if let Some(t) = inner {
             return format!(
                 "→ use `hicc_std::HashMap<{t}>` (Rust) / `std::unordered_map<Key, hicc::RustAny<Val>>` (C++)"
@@ -1601,7 +1601,7 @@ fn rust_any_suggestion_for(ct: &str) -> String {
 /// Extract the first template argument from a type string like `std::vector<int>`.
 ///
 /// Returns `None` when no angle-bracket pair is found or the string is malformed.
-fn extract_template_arg<'a>(full: &'a str, _prefix: &str) -> Option<&'a str> {
+fn extract_template_arg(full: &str) -> Option<&str> {
     let open = full.find('<')?;
     let close = full.rfind('>')?;
     if close <= open {
