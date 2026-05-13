@@ -590,9 +590,12 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
                 output_abs.display()
             ));
         }
-        if std::fs::read_dir(&output_abs)
-            .map_err(|e| anyhow!("read dir {}: {}", output_abs.display(), e))?
+        let mut existing_entries = std::fs::read_dir(&output_abs)
+            .map_err(|e| anyhow!("read dir {}: {}", output_abs.display(), e))?;
+        if existing_entries
             .next()
+            .transpose()
+            .map_err(|e| anyhow!("read entry in {}: {}", output_abs.display(), e))?
             .is_some()
         {
             return Err(anyhow!(
