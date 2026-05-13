@@ -668,6 +668,13 @@ pub struct SkippedDecl {
     /// `const char*` instead.  For `std::function` this is a pure-virtual
     /// interface class skeleton with an `@make_proxy` usage hint.
     pub suggested_shim: Option<String>,
+    /// When this skip was caused by an STL container parameter/return type
+    /// (e.g. `"std::vector<Foo>"`, `"std::map<Key, Value>"`), this field holds
+    /// the first such container type string encountered.
+    ///
+    /// Used to generate `hicc::RustAny<T>` / `hicc-std` type-mapping suggestions
+    /// in the `types/` semantic module.
+    pub stl_container_type: Option<String>,
 }
 
 /// All declarations extracted from a set of header files.
@@ -1730,6 +1737,7 @@ fn extract_function(
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
             suggested_shim: None,
+            stl_container_type: None,
         });
         return None;
     }
@@ -1742,6 +1750,7 @@ fn extract_function(
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
             suggested_shim: None,
+            stl_container_type: None,
         });
         return None;
     }
@@ -1754,6 +1763,7 @@ fn extract_function(
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
             suggested_shim: None,
+            stl_container_type: None,
         });
         return None;
     };
@@ -1765,6 +1775,7 @@ fn extract_function(
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
             suggested_shim: None,
+            stl_container_type: None,
         });
         return None;
     };
@@ -1793,6 +1804,7 @@ fn extract_function(
             })
             .collect();
         let shim = generate_unsupported_type_shim(name, class_name, &return_type, &all_param_types);
+        let stl_container = find_stl_container_type(&return_type, &all_param_types);
         skipped.push(SkippedDecl {
             kind: node.kind.clone(),
             name: qualified_name.clone(),
@@ -1800,6 +1812,7 @@ fn extract_function(
             category: categorize_unsupported_type(&return_type),
             suggested_alias: None,
             suggested_shim: shim,
+            stl_container_type: stl_container,
         });
         return None;
     }
@@ -1832,6 +1845,7 @@ fn extract_function(
                 category: SkipCategory::HiccLimitation,
                 suggested_alias: None,
                 suggested_shim: None,
+                stl_container_type: None,
             });
             return None;
         };
@@ -1865,6 +1879,7 @@ fn extract_function(
                 })
                 .collect();
             let shim = generate_unsupported_type_shim(name, class_name, &return_type, &all_param_types);
+            let stl_container = find_stl_container_type(&return_type, &all_param_types);
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
@@ -1872,6 +1887,7 @@ fn extract_function(
                 category: categorize_unsupported_type(&cpp_type),
                 suggested_alias: None,
                 suggested_shim: shim,
+                stl_container_type: stl_container,
             });
             return None;
         }
@@ -2423,6 +2439,7 @@ fn record_skipped_with_hint(
         category,
         suggested_alias,
         suggested_shim: None,
+        stl_container_type: None,
     });
 }
 
@@ -2750,6 +2767,54 @@ pub(crate) fn is_va_list_type(t: &str) -> bool {
         // GCC/Clang internal representations: exact known forms only.
         || bare == "struct __va_list_tag *"
         || bare == "struct __va_list_tag[1]"
+}
+
+/// True when `t` looks like a standard STL sequential/associative container type
+/// that could store arbitrary Rust data via `hicc::RustAny`.
+///
+/// Recognises the most common standard containers from both the `std::` and
+/// `std::__cxx11::` namespaces as emitted by clang.
+///
+/// Does **not** match `std::string` / `std::function` (handled separately) or
+/// `std::array<T,N>` (fixed-size; no heap allocation, different pattern).
+pub(crate) fn is_stl_container_type(t: &str) -> bool {
+    let bare = t.trim();
+    // Standard sequential and associative containers.
+    const STL_CONTAINERS: &[&str] = &[
+        "std::vector<",
+        "std::list<",
+        "std::deque<",
+        "std::forward_list<",
+        "std::set<",
+        "std::multiset<",
+        "std::map<",
+        "std::multimap<",
+        "std::unordered_set<",
+        "std::unordered_multiset<",
+        "std::unordered_map<",
+        "std::unordered_multimap<",
+        "std::queue<",
+        "std::stack<",
+        "std::priority_queue<",
+    ];
+    STL_CONTAINERS.iter().any(|prefix| bare.contains(prefix))
+}
+
+/// Find the first STL container type in the return type or parameter list of a
+/// skipped function / method.
+///
+/// Returns `Some(container_type_string)` if any is found, otherwise `None`.
+fn find_stl_container_type(
+    return_type: &str,
+    params: &[(String, String)],
+) -> Option<String> {
+    if is_stl_container_type(return_type) {
+        return Some(return_type.to_string());
+    }
+    params
+        .iter()
+        .find(|(_, t)| is_stl_container_type(t))
+        .map(|(_, t)| t.clone())
 }
 
 /// Generate a `suggested_shim` string for a function that was skipped because

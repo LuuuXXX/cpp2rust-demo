@@ -3826,3 +3826,266 @@ fn init_multiple_inheritance_all_bases_extracted() {
         doc_line
     );
 }
+
+// ---------------------------------------------------------------------------
+// P4.1: Placement-new binding skeletons
+// ---------------------------------------------------------------------------
+
+/// When a C++ class has extracted constructors, the tool should generate a
+/// `free/placement_new.rs` file with commented-out placement-new starters.
+#[test]
+fn init_placement_new_file_created_for_class_with_ctor() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "widget.hpp",
+        r#"
+        class Widget {
+        public:
+            Widget(int x, int y);
+            void draw() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "widget.cpp", "widget.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let pn_path = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_widget/free/placement_new.rs");
+    assert!(
+        pn_path.exists(),
+        "placement_new.rs should be created when a class has constructors"
+    );
+
+    let pn_src = std::fs::read_to_string(&pn_path).unwrap();
+    // Must contain the @placement_new annotation (commented out).
+    assert!(
+        pn_src.contains("@placement_new"),
+        "placement_new.rs should contain @placement_new annotation: {}",
+        pn_src
+    );
+    // Must reference the class name and function name.
+    assert!(
+        pn_src.contains("Widget"),
+        "placement_new.rs should reference the class Widget"
+    );
+    assert!(
+        pn_src.contains("new_widget_inplace"),
+        "placement_new.rs should contain the generated fn name"
+    );
+    // All binding lines must be commented out (users uncomment what they need).
+    assert!(
+        pn_src.contains("// #[cpp"),
+        "binding lines should be commented out"
+    );
+    assert!(
+        pn_src.contains("AlignedStorage"),
+        "placement_new.rs should reference AlignedStorage"
+    );
+}
+
+/// When no constructors are extracted (e.g. only free functions), no
+/// `placement_new.rs` file should be produced.
+#[test]
+fn init_no_placement_new_file_when_only_free_functions() {
+    let tmp = TempDir::new().unwrap();
+    write_header(&tmp, "util.hpp", "int add(int a, int b);");
+    let tu = write_translation_unit(&tmp, "util.cpp", "util.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let pn_path = tmp
+        .path()
+        .join(".cpp2rust/default/rust/src/mod_util/free/placement_new.rs");
+    assert!(
+        !pn_path.exists(),
+        "placement_new.rs should NOT be created when there are no classes with ctors"
+    );
+}
+
+/// The interface report should contain a placement-new skeletons section when
+/// a class has extracted constructors.
+#[test]
+fn init_report_contains_placement_new_section() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "box.hpp",
+        r#"
+        class Box {
+        public:
+            Box(int w, int h);
+            int area() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "box.cpp", "box.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("Placement-New Skeletons"),
+        "interface report should contain a placement-new section: {}",
+        &report[report.len().saturating_sub(500)..]
+    );
+    assert!(
+        report.contains("Box"),
+        "placement-new section should mention the Box class"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P4.2: RustAny suggestions for STL container types
+// ---------------------------------------------------------------------------
+
+/// When a function is skipped because of an STL container parameter, the
+/// `types/mod.rs` should contain RustAny suggestions.
+#[test]
+fn init_types_module_contains_rust_any_for_stl_param() {
+    let tmp = TempDir::new().unwrap();
+    // Use a self-contained stub for std::vector so the type survives
+    // clang preprocessing (-P) without being expanded into the full STL.
+    write_header(
+        &tmp,
+        "items.hpp",
+        r#"
+        namespace std {
+            template<typename T, typename Alloc = void>
+            class vector {};
+        }
+
+        class Registry {
+        public:
+            void add_all(std::vector<int> items);
+            int count() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "items.cpp", "items.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let types_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_items/types/mod.rs"),
+    )
+    .unwrap();
+    assert!(
+        types_src.contains("RustAny"),
+        "types/mod.rs should contain RustAny suggestions when STL containers detected: {}",
+        types_src
+    );
+}
+
+/// The interface report should contain a RustAny section when STL container
+/// types are encountered in skipped declarations.
+#[test]
+fn init_report_contains_rust_any_section_for_stl() {
+    let tmp = TempDir::new().unwrap();
+    // Use a self-contained stub for std::vector so the type survives
+    // clang preprocessing (-P) without being expanded into the full STL.
+    write_header(
+        &tmp,
+        "store.hpp",
+        r#"
+        namespace std {
+            template<typename T, typename Alloc = void>
+            class vector {};
+        }
+
+        void process(std::vector<int> data);
+        int size_of(const std::vector<int>& data);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "store.cpp", "store.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("RustAny"),
+        "interface report should contain a RustAny suggestions section: {}",
+        &report[report.len().saturating_sub(500)..]
+    );
+}
