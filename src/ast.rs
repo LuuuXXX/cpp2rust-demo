@@ -608,8 +608,10 @@ pub fn dump_ast(
         ));
     }
 
-    serde_json::from_slice(&output.stdout)
-        .map_err(|e| anyhow!("parse clang AST JSON for {}: {}", header.display(), e))
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| anyhow!("parse clang AST JSON for {}: {}", header.display(), e))?;
+    serde_json::from_value(v)
+        .map_err(|e| anyhow!("deserialize AstNode from clang AST JSON for {}: {}", header.display(), e))
 }
 
 /// Extract `FunctionIR` / `ClassIR` from the AST root, keeping only declarations
