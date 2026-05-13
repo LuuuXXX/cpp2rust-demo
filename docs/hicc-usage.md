@@ -112,6 +112,48 @@ hicc::import_lib! {
 - `const` 变量返回 `&'static T`（只读引用）
 - 非 const 变量返回 `&'static mut T`（可写引用）
 
+### `va_list` 变参函数（P3）
+
+最后参数为 `va_list` 的函数会被自动提取为 `unsafe fn`，`va_list` 参数被丢弃并以 `...` 替代：
+
+```rust
+// C++: void log_message(int level, va_list args);
+#[cpp(func = "void log_message(int)")]
+unsafe fn log_message(level: i32, ...);
+```
+
+> 注意：纯 `...` 变参（如 `printf(const char*, ...)`）暂不支持，需手写固定参数 C++ 包装。
+
+### 函数指针参数提示（P3）
+
+含函数指针参数的函数会被跳过，并在接口报告（`meta/init-interface-report.md`）中生成对应的虚函数接口骨架 + `@make_proxy` 使用提示：
+
+```cpp
+// 接口报告中自动生成：
+// struct CallbackHandler {
+//   // Underlying type: void (*)(int)
+//   virtual /* return_type */ call(/* args */) = 0;
+//   virtual ~CallbackHandler() = default;
+// };
+// Replace `callback` parameter with `CallbackHandler *` and forward the call.
+// Use hicc @make_proxy to implement the interface from Rust.
+```
+
+### `@dynamic_cast` 骨架（P3）
+
+当存在类继承关系时，工具自动在 `free/dynamic_casts.rs` 生成注释掉的 `@dynamic_cast` 绑定骨架。解注释所需的行并重新构建即可：
+
+```rust
+// free/dynamic_casts.rs（自动生成，解注释你需要的部分）
+hicc::import_lib! {
+    #![link_name = "mylib"]
+
+    // Cast Shape* → Circle* (returns null if types don't match).
+    // #[cpp(func = "Circle @dynamic_cast<Circle>(Shape *)")]
+    // fn dynamic_cast_to_circle(ptr: *mut Shape) -> *mut Circle;
+}
+```
+
 ## Cargo 依赖
 
 ```toml
@@ -144,7 +186,9 @@ cpp2rust-demo init --link rapidjson --no-link \
 | 自定义 allocator 注入 | 写 C++ 工厂函数封装构造，暴露为 `import_lib!` 自由函数 |
 | `std::string` 返回 | 写 C++ shim 将结果复制到 `const char*` 或通过输出参数传出 |
 | `std::function`/lambda 参数 | 在 C++ 侧封装为虚函数接口，再用 `@make_proxy` 反向绑定 |
-| 变参函数（`printf`-style） | 写固定参数的 C++ 包装，或使用 `libc::printf` |
+| 函数指针参数 | 工具自动在接口报告中生成虚函数接口骨架（`FooHandler { virtual call(...) = 0; }`）+ `@make_proxy` 提示 |
+| `va_list` 变参函数 | ✅ P3 已自动支持：最后参数为 `va_list` 时直接生成 `unsafe fn foo(fixed_params, ...) -> T` |
+| 纯 `...` 变参函数（`printf`-style，无 `va_list` 参数） | 写固定参数的 C++ 包装，或使用 `libc::printf` |
 
 ### operator shim 工作流
 
