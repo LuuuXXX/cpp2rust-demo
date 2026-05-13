@@ -792,6 +792,21 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .unwrap();
         }
 
+        // Virtual bases that were skipped.
+        if !class.skipped_virtual_bases.is_empty() {
+            writeln!(
+                out,
+                "> ⚠️ **Virtual bases (skipped — hicc does not support virtual inheritance):** {}\n",
+                class
+                    .skipped_virtual_bases
+                    .iter()
+                    .map(|b| format!("`{}`", b))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .unwrap();
+        }
+
         if !class.methods.is_empty() {
             writeln!(out, "| Method | Rust name | Const | Static |").unwrap();
             writeln!(out, "|--------|-----------|-------|--------|").unwrap();
@@ -904,6 +919,26 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
                 writeln!(out, "| `{}` | `{}` | `{}` |", item.kind, item.name, item.reason).unwrap();
             }
             writeln!(out).unwrap();
+
+            // Emit alias suggestions for template_decl skips.
+            let template_skips: Vec<&SkippedDecl> = tool_conservative
+                .iter()
+                .copied()
+                .filter(|s| s.reason == "template_decl" && s.suggested_alias.is_some())
+                .collect();
+            if !template_skips.is_empty() {
+                writeln!(out, "#### Alias suggestions to unlock template extraction\n").unwrap();
+                writeln!(out, "Add the following `using` declarations to your C++ header and re-run `cpp2rust-demo init` to unlock extraction:\n").unwrap();
+                writeln!(out, "```cpp").unwrap();
+                for item in &template_skips {
+                    if let Some(ref hint) = item.suggested_alias {
+                        writeln!(out, "// Template: {}", item.name).unwrap();
+                        writeln!(out, "{}", hint).unwrap();
+                    }
+                }
+                writeln!(out, "```\n").unwrap();
+                writeln!(out, "Run `cpp2rust-demo suggest-aliases --feature <name>` for a formatted summary.\n").unwrap();
+            }
         }
 
         if !hicc_limitation.is_empty() {
