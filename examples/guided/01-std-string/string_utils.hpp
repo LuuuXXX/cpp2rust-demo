@@ -32,4 +32,7 @@ public:
 
     /// Return the stored prefix as a C-string.
     const char* prefix() const;
+
+private:
+    std::string prefix_;
 };
