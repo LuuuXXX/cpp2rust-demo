@@ -582,7 +582,7 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
             .join(output_dir)
     };
 
-    let mut created_output_dir = false;
+    let mut created_output_root: Option<PathBuf> = None;
     if output_abs.exists() {
         if !output_abs.is_dir() {
             return Err(anyhow!(
@@ -601,9 +601,9 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
             ));
         }
     } else {
+        created_output_root = Some(first_missing_ancestor(&output_abs));
         std::fs::create_dir_all(&output_abs)
             .map_err(|e| anyhow!("create output dir {}: {}", output_abs.display(), e))?;
-        created_output_dir = true;
     }
 
     let output_canon = output_abs
@@ -611,8 +611,8 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
         .map_err(|e| anyhow!("canonicalize {}: {}", output_abs.display(), e))?;
 
     if output_canon.starts_with(&rust_dir_canon) {
-        if created_output_dir {
-            let _ = std::fs::remove_dir_all(&output_abs);
+        if let Some(created_root) = &created_output_root {
+            cleanup_created_empty_dirs(&output_abs, created_root);
         }
         return Err(anyhow!(
             "output dir {} must not be inside rust dir {}",
@@ -661,6 +661,36 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn first_missing_ancestor(path: &Path) -> PathBuf {
+    let mut first_missing = path.to_path_buf();
+    let mut current = path;
+    loop {
+        if current.exists() {
+            break;
+        }
+        first_missing = current.to_path_buf();
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    first_missing
+}
+
+fn cleanup_created_empty_dirs(path: &Path, created_root: &Path) {
+    let mut current = Some(path);
+    while let Some(dir) = current {
+        match std::fs::remove_dir(dir) {
+            Ok(()) => {}
+            Err(_) => break,
+        }
+        if dir == created_root {
+            break;
+        }
+        current = dir.parent();
+    }
 }
 
 /// Recursively copy a directory tree from `src` to `dst`.
@@ -1320,6 +1350,27 @@ mod tests {
         assert!(
             rust_dir.join("out").exists(),
             "existing output dir should not be deleted on rejection"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_merge_output_rejects_nested_output_inside_rust_dir_and_cleans_parents() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(&rust_dir).unwrap();
+        let link_dir = tmp.path().join("link-to-rust");
+        std::os::unix::fs::symlink(&rust_dir, &link_dir).unwrap();
+        let output_dir = link_dir.join("out").join("nested");
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            !rust_dir.join("out").exists(),
+            "newly created parent dirs under rust should be cleaned up on rejection"
         );
     }
 
