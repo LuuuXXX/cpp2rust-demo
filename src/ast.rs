@@ -2746,7 +2746,10 @@ pub(crate) fn is_va_list_type(t: &str) -> bool {
     bare == "va_list"
         || bare == "__va_list_tag *"
         || bare == "__builtin_va_list"
-        || bare.contains("__va_list")
+        || bare == "__va_list_tag [1]"
+        // GCC/Clang internal representations: exact known forms only.
+        || bare == "struct __va_list_tag *"
+        || bare == "struct __va_list_tag[1]"
 }
 
 /// Generate a `suggested_shim` string for a function that was skipped because

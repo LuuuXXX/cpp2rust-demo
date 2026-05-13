@@ -3662,6 +3662,12 @@ fn init_va_list_last_param_generates_unsafe_variadic_binding() {
         "va_list last param should produce variadic `...` in Rust binding: {}",
         free_src
     );
+    // The fixed parameters should still be present and `...` should come after them.
+    assert!(
+        free_src.contains("level: i32, ..."),
+        "fixed params should precede `...` in the variadic binding: {}",
+        free_src
+    );
 }
 
 // ---------------------------------------------------------------------------
