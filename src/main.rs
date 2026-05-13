@@ -581,6 +581,7 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
             .map_err(|e| anyhow!("current_dir: {}", e))?
             .join(output_dir)
     };
+    let output_abs = normalize_lexical_path(&output_abs);
 
     if output_abs.starts_with(&rust_dir_canon) {
         return Err(anyhow!(
@@ -591,17 +592,26 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
     }
 
     if output_abs.exists() {
-        if output_abs.is_dir() {
-            std::fs::remove_dir_all(&output_abs)
-                .map_err(|e| anyhow!("clear output dir {}: {}", output_abs.display(), e))?;
-        } else {
-            std::fs::remove_file(&output_abs)
-                .map_err(|e| anyhow!("remove output file {}: {}", output_abs.display(), e))?;
+        if !output_abs.is_dir() {
+            return Err(anyhow!(
+                "output path {} exists and is not a directory",
+                output_abs.display()
+            ));
         }
+        if std::fs::read_dir(&output_abs)
+            .map_err(|e| anyhow!("read dir {}: {}", output_abs.display(), e))?
+            .next()
+            .is_some()
+        {
+            return Err(anyhow!(
+                "output dir {} already exists and is not empty",
+                output_abs.display()
+            ));
+        }
+    } else {
+        std::fs::create_dir_all(&output_abs)
+            .map_err(|e| anyhow!("create output dir {}: {}", output_abs.display(), e))?;
     }
-
-    std::fs::create_dir_all(&output_abs)
-        .map_err(|e| anyhow!("create output dir {}: {}", output_abs.display(), e))?;
 
     let skip = ["src.1", "src.2"];
 
@@ -956,6 +966,20 @@ fn stable_short_path_hash(path: &Path) -> String {
     format!("{:08x}", (hash & 0xffff_ffff) as u32)
 }
 
+fn normalize_lexical_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -1231,8 +1255,6 @@ mod tests {
         std::fs::write(rust_dir.join("src.1").join("old.rs"), "// old").unwrap();
         std::fs::write(rust_dir.join("src.2").join("lib.rs"), "pub fn merged() {}").unwrap();
         std::fs::write(rust_dir.join("build.rs"), "// build").unwrap();
-        std::fs::create_dir_all(&output_dir).unwrap();
-        std::fs::write(output_dir.join("stale.txt"), "stale").unwrap();
 
         std::os::unix::fs::symlink(rust_dir.join("src.2"), rust_dir.join("src")).unwrap();
 
@@ -1242,7 +1264,6 @@ mod tests {
         assert!(output_dir.join("src").join("lib.rs").exists());
         assert!(!output_dir.join("src.1").exists());
         assert!(!output_dir.join("src.2").exists());
-        assert!(!output_dir.join("stale.txt").exists());
         assert!(
             !std::fs::symlink_metadata(output_dir.join("src"))
                 .unwrap()
@@ -1262,6 +1283,24 @@ mod tests {
         let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
         assert!(
             err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn copy_merge_output_rejects_non_empty_output_dir() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        let src_dir = rust_dir.join("src");
+        let output_dir = tmp.path().join("out");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(src_dir.join("lib.rs"), "pub fn merged() {}").unwrap();
+        std::fs::create_dir_all(&output_dir).unwrap();
+        std::fs::write(output_dir.join("stale.txt"), "stale").unwrap();
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("already exists and is not empty"),
             "unexpected error: {err}"
         );
     }
