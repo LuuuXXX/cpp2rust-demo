@@ -100,6 +100,18 @@ run_case() {
     echo "══════════════════════════════════════════════════════"
 }
 
+# merge_and_export FEATURE EXAMPLE_DIR
+# Runs "merge --feature FEATURE" and exports the Rust output to
+# EXAMPLE_DIR/rust/, cleaning any previous export first.
+merge_and_export() {
+    local feature="$1"
+    local example_dir="$2"
+    local dest="${REPO_ROOT}/${example_dir}/rust"
+    rm -rf "${dest}"
+    (cd "${REPO_ROOT}" && "${BIN}" merge --feature "${feature}" \
+        -o "${dest}")
+}
+
 # ---------------------------------------------------------------------------
 # Step 1: Build cpp2rust-demo
 # ---------------------------------------------------------------------------
@@ -118,7 +130,7 @@ run_case "simple/ (free functions, namespace, overloads)"
     --feature simple \
     --link mylib \
     -- clang -x c++ -fsyntax-only examples/simple/mylib.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature simple)
+merge_and_export simple examples/simple
 
 OUT="${REPO_ROOT}/.cpp2rust/simple"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -138,7 +150,7 @@ run_case "class/ (classes, virtual methods, inheritance, @make_proxy)"
     --feature widget \
     --link widget \
     -- clang -x c++ -fsyntax-only examples/class/widget.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature widget)
+merge_and_export widget examples/class
 
 OUT="${REPO_ROOT}/.cpp2rust/widget"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -158,7 +170,7 @@ run_case "rapidjson/01-enum/ (enum / enum class → #[repr(C)] enum)"
     --link rapidjson \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/rapidjson/01-enum/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature rj01)
+merge_and_export rj01 examples/rapidjson/01-enum
 
 OUT="${REPO_ROOT}/.cpp2rust/rj01"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -177,7 +189,7 @@ run_case "rapidjson/02-typedef-alias/ (typedef/using → AliasRegistry)"
     --link rapidjson \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/rapidjson/02-typedef-alias/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature rj02)
+merge_and_export rj02 examples/rapidjson/02-typedef-alias
 
 OUT="${REPO_ROOT}/.cpp2rust/rj02"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -197,7 +209,7 @@ run_case "rapidjson/03-template-class/ (template class without explicit use → 
     --link rapidjson \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/rapidjson/03-template-class/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature rj03)
+merge_and_export rj03 examples/rapidjson/03-template-class
 
 OUT="${REPO_ROOT}/.cpp2rust/rj03"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -216,7 +228,7 @@ run_case "rapidjson/04-abstract-interface/ (pure-virtual class → #[interface] 
     --link rapidjson \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/rapidjson/04-abstract-interface/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature rj04)
+merge_and_export rj04 examples/rapidjson/04-abstract-interface
 
 OUT="${REPO_ROOT}/.cpp2rust/rj04"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -233,7 +245,7 @@ run_case "rapidjson/05-virtual-methods/ (non-pure virtual methods extracted like
     --feature rj05 \
     --link allocator \
     -- clang -x c++ -fsyntax-only examples/rapidjson/05-virtual-methods/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature rj05)
+merge_and_export rj05 examples/rapidjson/05-virtual-methods
 
 OUT="${REPO_ROOT}/.cpp2rust/rj05"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -252,7 +264,7 @@ run_case "rapidjson/06-inheritance/ (public inheritance: PrettyWriterImpl: Write
     --feature rj06 \
     --link writer \
     -- clang -x c++ -fsyntax-only examples/rapidjson/06-inheritance/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature rj06)
+merge_and_export rj06 examples/rapidjson/06-inheritance
 
 OUT="${REPO_ROOT}/.cpp2rust/rj06"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -271,7 +283,7 @@ run_case "rapidjson/07-operator-shim/ (operator overload → shim_ops.rs + opera
     --feature rj07 \
     --link jsonvalue \
     -- clang -x c++ -fsyntax-only examples/rapidjson/07-operator-shim/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature rj07)
+merge_and_export rj07 examples/rapidjson/07-operator-shim
 
 OUT="${REPO_ROOT}/.cpp2rust/rj07"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -294,7 +306,7 @@ for tu in entry-document.cpp entry-writer.cpp entry-errors.cpp; do
         --no-link \
         -- clang -x c++ -fsyntax-only "examples/rapidjson/08-multi-tu/${tu}" < /dev/null)
 done
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature "${FEATURE}")
+merge_and_export "${FEATURE}" examples/rapidjson/08-multi-tu
 
 OUT="${REPO_ROOT}/.cpp2rust/${FEATURE}"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -315,7 +327,7 @@ run_case "conditional/01-template-no-alias/ (template class skipped; report sugg
     --link stack \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/conditional/01-template-no-alias/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature cond01)
+merge_and_export cond01 examples/conditional/01-template-no-alias
 
 OUT="${REPO_ROOT}/.cpp2rust/cond01"
 check_file    "${OUT}/meta/init-interface-report.md"
@@ -333,7 +345,7 @@ run_case "conditional/02-function-template/ (function template skipped without e
     --link algorithms \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/conditional/02-function-template/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature cond02)
+merge_and_export cond02 examples/conditional/02-function-template
 
 OUT="${REPO_ROOT}/.cpp2rust/cond02"
 check_file    "${OUT}/meta/init-interface-report.md"
@@ -351,7 +363,7 @@ run_case "semi-auto/01-dynamic-cast/ (Dog/Cat classes extracted; dynamic_cast sk
     --link animals \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/semi-auto/01-dynamic-cast/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature sa01)
+merge_and_export sa01 examples/semi-auto/01-dynamic-cast
 
 OUT="${REPO_ROOT}/.cpp2rust/sa01"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -369,7 +381,7 @@ run_case "semi-auto/02-placement-new/ (FixedBuffer extracted; placement_new.rs s
     --link fixed_buffer \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/semi-auto/02-placement-new/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature sa02)
+merge_and_export sa02 examples/semi-auto/02-placement-new
 
 OUT="${REPO_ROOT}/.cpp2rust/sa02"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -387,7 +399,7 @@ run_case "guided/01-std-string/ (std::string params skipped; prefix() extracted)
     --link string_utils \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/guided/01-std-string/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature g01)
+merge_and_export g01 examples/guided/01-std-string
 
 OUT="${REPO_ROOT}/.cpp2rust/g01"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -407,7 +419,7 @@ run_case "guided/02-std-function/ (std::function params skipped; emit/handler_co
     --link event_emitter \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/guided/02-std-function/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature g02)
+merge_and_export g02 examples/guided/02-std-function
 
 OUT="${REPO_ROOT}/.cpp2rust/g02"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
@@ -426,7 +438,7 @@ run_case "guided/03-function-pointer/ (function-pointer params skipped; dispatch
     --link dispatcher \
     --no-link \
     -- clang -x c++ -fsyntax-only examples/guided/03-function-pointer/entry.cpp < /dev/null)
-(cd "${REPO_ROOT}" && "${BIN}" merge --feature g03)
+merge_and_export g03 examples/guided/03-function-pointer
 
 OUT="${REPO_ROOT}/.cpp2rust/g03"
 check_file    "${OUT}/rust/src/merged_ffi.rs"

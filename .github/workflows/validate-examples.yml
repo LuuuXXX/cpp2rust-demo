@@ -76,5 +76,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: examples-cpp2rust-output
-          path: .cpp2rust/
+          path: |
+            .cpp2rust/
+            examples/*/rust/
+            examples/*/*/rust/
           if-no-files-found: warn
