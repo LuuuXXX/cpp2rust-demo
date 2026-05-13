@@ -2405,10 +2405,10 @@ fn is_std_string_type(t: &str) -> bool {
     let core = strip_top_level_const(core);
     let core = strip_trailing_ref(core).unwrap_or(core);
     let core = strip_top_level_const(core);
-    // Match std::string and its common expansions.
-    core == "std::string"
-        || core.contains("basic_string")
-        || (core.contains("string") && core.contains("std::"))
+    // Match std::string and its clang-expanded form (basic_string<char, ...>).
+    // Using precise matches avoids false positives from unrelated types whose
+    // names happen to contain "string" (e.g. std::my_custom_string_wrapper).
+    core == "std::string" || core.contains("basic_string")
 }
 
 /// Try to generate a C++ shim prototype for a function/method that was skipped
@@ -2459,7 +2459,8 @@ fn try_generate_string_shim(
     // Build the shim function name: snake_case of the original name suffixed `_shim`.
     let bare_fn_name = qualified_name.rsplit("::").next().unwrap_or(qualified_name);
     let shim_name = if let Some(cls) = class_name {
-        format!("{}_{}_{}", to_snake_case(&make_qualified(namespace, cls).replace("::", "_")), to_snake_case(bare_fn_name), "shim")
+        let qualified_cls_snake = to_snake_case(&make_qualified(namespace, cls).replace("::", "_"));
+        format!("{}_{}_{}", qualified_cls_snake, to_snake_case(bare_fn_name), "shim")
     } else {
         format!("{}_{}", to_snake_case(bare_fn_name), "shim")
     };
@@ -2515,9 +2516,9 @@ fn try_generate_string_shim(
         shim_return_type, shim_name, shim_params_str
     ));
     if has_string_return {
-        shim.push_str("    static std::string _buf;\n");
-        shim.push_str(&format!("    _buf = {};\n", call_expr));
-        shim.push_str("    return _buf.c_str();\n");
+        shim.push_str("    static std::string result_buf;\n");
+        shim.push_str(&format!("    result_buf = {};\n", call_expr));
+        shim.push_str("    return result_buf.c_str();\n");
     } else {
         shim.push_str(&format!("    return {};\n", call_expr));
     }
