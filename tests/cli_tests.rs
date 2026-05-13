@@ -3292,6 +3292,70 @@ fn init_instance_fields_generate_field_bindings() {
     assert!(report.contains("`value`"), "report should list field 'value'");
 }
 
+/// A class that exposes only public fields (no methods) should still get an
+/// `import_class!` block with `#[cpp(field = "...")]` accessor bindings.
+/// Previously, the early-return guard skipped such classes entirely.
+#[test]
+fn init_field_only_class_generates_bindings() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "point.hpp",
+        r#"
+        class Point {
+        public:
+            float x;
+            float y;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "point.cpp", "point.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_point/method/mtd_point.rs"),
+    )
+    .unwrap();
+
+    // Field-only class must produce an import_class! block with field accessors.
+    assert!(
+        method_src.contains("hicc::import_class!"),
+        "field-only class should produce import_class! block:\n{method_src}"
+    );
+    assert!(
+        method_src.contains(r#"#[cpp(field = "Point::x")]"#),
+        "expected #[cpp(field = \"Point::x\")] in:\n{method_src}"
+    );
+    assert!(
+        method_src.contains("fn get_x(&self) -> &f32"),
+        "expected get_x read accessor in:\n{method_src}"
+    );
+    assert!(
+        method_src.contains("fn get_x_mut(&mut self) -> &mut f32"),
+        "expected get_x_mut write accessor in:\n{method_src}"
+    );
+    assert!(
+        method_src.contains(r#"#[cpp(field = "Point::y")]"#),
+        "expected #[cpp(field = \"Point::y\")] in:\n{method_src}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // P2: std::string shim suggestions
 // ---------------------------------------------------------------------------

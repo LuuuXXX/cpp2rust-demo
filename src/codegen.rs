@@ -356,12 +356,13 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
     let instance_methods: Vec<&FunctionIR> =
         class.methods.iter().filter(|m| !m.is_static).collect();
 
-    if instance_methods.is_empty() && !class.is_abstract {
+    // Nothing to emit: skip if there are no instance methods, no fields, and it's not abstract.
+    if instance_methods.is_empty() && class.fields.is_empty() && !class.is_abstract {
         // Don't emit an empty import_class! block; the class will still be
         // forward-declared in import_lib! (if it is not abstract).
         return;
     }
-    if instance_methods.is_empty() && class.is_abstract {
+    if instance_methods.is_empty() && class.fields.is_empty() && class.is_abstract {
         // Abstract class with no methods — still need the #[interface] block.
     }
 
