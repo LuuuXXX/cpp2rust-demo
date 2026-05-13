@@ -18,6 +18,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     name: Run examples end-to-end
