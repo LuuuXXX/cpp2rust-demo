@@ -3,6 +3,8 @@
 // Translation unit 2: Writer / StringBuffer types.
 // With real RapidJSON: #include "rapidjson/writer.h" + "rapidjson/stringbuffer.h"
 
+#include <cstddef>
+
 namespace rapidjson {
 
 // Forward declaration of Value (from entry-document.cpp)

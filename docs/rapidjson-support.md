@@ -366,7 +366,7 @@ pub enum ParseErrorCode {
 3. 在 `hicc::cpp!` 块中引入 `operator_shims.hpp`
 4. `shim_ops.rs` 中的 `import_lib!` 绑定即可激活
 
-详细工作流见 `examples/rapidjson-07-operator-shim/README.md`。
+详细工作流见 `examples/rapidjson/07-operator-shim/README.md`。
 
 ### 5.2 析构函数（跳过，hicc 限制）
 
@@ -424,16 +424,16 @@ RapidJSON 的 `SchemaValidator` 等少数类使用多重继承，当前工具只
 
 | 示例目录 | 演示特性 | 对应 RapidJSON 组件 |
 |---------|---------|-------------------|
-| `rapidjson-01-enum/` | `enum` / `enum class` | `ParseErrorCode`, `Type` |
-| `rapidjson-02-typedef-alias/` | `typedef`/`using` + AliasRegistry | `Document`, `Value` 别名机制 |
-| `rapidjson-03-template-class/` | 模板特化类提取 | `GenericDocument`, `GenericValue` |
-| `rapidjson-04-abstract-interface/` | 全纯虚类 + `@make_proxy` | 自定义 Allocator 接口 |
-| `rapidjson-05-virtual-methods/` | 非纯虚方法 | `CrtAllocator` 类 |
-| `rapidjson-06-inheritance/` | public 继承链 | `PrettyWriter: Writer` |
-| `rapidjson-07-operator-shim/` | 运算符重载 shim | `GenericValue::operator[]` 等 |
-| `rapidjson-08-multi-tu/` | 多翻译单元 + `--no-link` + `merge` | 完整 RapidJSON 多头文件场景 |
+| `rapidjson/01-enum/` | `enum` / `enum class` | `ParseErrorCode`, `Type` |
+| `rapidjson/02-typedef-alias/` | `typedef`/`using` + AliasRegistry | `Document`, `Value` 别名机制 |
+| `rapidjson/03-template-class/` | 模板特化类提取 | `GenericDocument`, `GenericValue` |
+| `rapidjson/04-abstract-interface/` | 全纯虚类 + `@make_proxy` | 自定义 Allocator 接口 |
+| `rapidjson/05-virtual-methods/` | 非纯虚方法 | `CrtAllocator` 类 |
+| `rapidjson/06-inheritance/` | public 继承链 | `PrettyWriter: Writer` |
+| `rapidjson/07-operator-shim/` | 运算符重载 shim | `GenericValue::operator[]` 等 |
+| `rapidjson/08-multi-tu/` | 多翻译单元 + `--no-link` + `merge` | 完整 RapidJSON 多头文件场景 |
 
-运行任意示例（以 `rapidjson-01-enum` 为例）：
+运行任意示例（以 `rapidjson/01-enum` 为例）：
 
 ```bash
 # 在仓库根目录
@@ -444,7 +444,7 @@ BINARY=./target/release/cpp2rust-demo
 # --no-link        : 不向 build.rs 注入 cargo::rustc-link-lib（header-only 无需实际链接）
 # 两个标志不矛盾：--link 决定"叫什么名字"，--no-link 决定"是否要链接"
 ${BINARY} init --feature rj01 --link rapidjson --no-link \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-01-enum/entry.cpp < /dev/null
+    -- clang -x c++ -fsyntax-only examples/rapidjson/01-enum/entry.cpp < /dev/null
 
 ${BINARY} merge --feature rj01
 

@@ -155,15 +155,24 @@
 
 ## 示例与参考
 
-| 特性分类 | 对应示例 |
-|----------|---------|
-| enum / enum class | `examples/rapidjson-01-enum/` |
-| typedef / using 别名 | `examples/rapidjson-02-typedef-alias/` |
-| 模板类特化 | `examples/rapidjson-03-template-class/` |
-| 全纯虚接口 + @make_proxy | `examples/rapidjson-04-abstract-interface/` |
-| 非纯虚方法 | `examples/rapidjson-05-virtual-methods/` |
-| public 继承 | `examples/rapidjson-06-inheritance/` |
-| 运算符重载 shim | `examples/rapidjson-07-operator-shim/` |
-| 多翻译单元 + merge | `examples/rapidjson-08-multi-tu/` |
-| 自由函数 / 重载 | `examples/simple/` |
-| 类全特性（ctor、virtual、继承、static） | `examples/class/` |
+示例目录按汇总统计类别组织，详见 [`examples/README.md`](../examples/README.md)。
+
+| 特性分类 | 汇总类别 | 对应示例 |
+|----------|---------|---------|
+| 自由函数 / 重载 | ✅ | `examples/simple/` |
+| 类全特性（ctor、virtual、继承、static） | ✅ | `examples/class/` |
+| enum / enum class | ✅ | `examples/rapidjson/01-enum/` |
+| typedef / using 别名 | ✅ | `examples/rapidjson/02-typedef-alias/` |
+| 模板类特化（有别名） | ✅ | `examples/rapidjson/03-template-class/` |
+| 全纯虚接口 + @make_proxy | ✅ | `examples/rapidjson/04-abstract-interface/` |
+| 非纯虚方法 | ✅ | `examples/rapidjson/05-virtual-methods/` |
+| public 继承 | ✅ | `examples/rapidjson/06-inheritance/` |
+| 运算符重载 shim | 🔧 | `examples/rapidjson/07-operator-shim/` |
+| 多翻译单元 + merge | ✅ | `examples/rapidjson/08-multi-tu/` |
+| dynamic_cast 向下转型 | ⚙️ | `examples/semi-auto/01-dynamic-cast/` |
+| Placement New | ⚙️ | `examples/semi-auto/02-placement-new/` |
+| 模板类（无别名） | ⚠️ | `examples/conditional/01-template-no-alias/` |
+| 函数模板（无显式特化） | ⚠️ | `examples/conditional/02-function-template/` |
+| std::string 参数/返回 | 🔧 | `examples/guided/01-std-string/` |
+| std::function / lambda 参数 | 🔧 | `examples/guided/02-std-function/` |
+| 函数指针参数 | 🔧 | `examples/guided/03-function-pointer/` |

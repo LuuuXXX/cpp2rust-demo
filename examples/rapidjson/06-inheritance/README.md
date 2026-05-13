@@ -59,7 +59,7 @@ public:
 ```bash
 # 第 1 步：生成分组 FFI
 cpp2rust-demo init --feature rj06 --link writer \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-06-inheritance/entry.cpp
+    -- clang -x c++ -fsyntax-only examples/rapidjson/06-inheritance/entry.cpp
 
 # 第 2 步：合并
 cpp2rust-demo merge --feature rj06

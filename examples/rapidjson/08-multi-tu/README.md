@@ -46,15 +46,15 @@ LINK="rapidjson"
 
 # 编译单元 1：Document / Value
 cpp2rust-demo init --feature $FEATURE --link $LINK --no-link \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-08-multi-tu/entry-document.cpp
+    -- clang -x c++ -fsyntax-only examples/rapidjson/08-multi-tu/entry-document.cpp
 
 # 编译单元 2：Writer / StringBuffer
 cpp2rust-demo init --feature $FEATURE --link $LINK --no-link \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-08-multi-tu/entry-writer.cpp
+    -- clang -x c++ -fsyntax-only examples/rapidjson/08-multi-tu/entry-writer.cpp
 
 # 编译单元 3：Errors / enum
 cpp2rust-demo init --feature $FEATURE --link $LINK --no-link \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-08-multi-tu/entry-errors.cpp
+    -- clang -x c++ -fsyntax-only examples/rapidjson/08-multi-tu/entry-errors.cpp
 
 # 合并所有分组
 cpp2rust-demo merge --feature $FEATURE
@@ -72,7 +72,7 @@ ls  .cpp2rust/$FEATURE/rust/src.2/             # merge 产物
 #!/usr/bin/env bash
 FEATURE="rj08"
 LINK="rapidjson"
-BASE="examples/rapidjson-08-multi-tu"
+BASE="examples/rapidjson/08-multi-tu"
 
 for tu in entry-document.cpp entry-writer.cpp entry-errors.cpp; do
     cpp2rust-demo init --feature $FEATURE --link $LINK --no-link \

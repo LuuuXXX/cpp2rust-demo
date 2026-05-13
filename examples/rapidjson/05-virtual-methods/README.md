@@ -45,7 +45,7 @@ public:
 ```bash
 # 第 1 步：生成分组 FFI
 cpp2rust-demo init --feature rj05 --link allocator \
-    -- clang -x c++ -fsyntax-only examples/rapidjson-05-virtual-methods/entry.cpp
+    -- clang -x c++ -fsyntax-only examples/rapidjson/05-virtual-methods/entry.cpp
 
 # 第 2 步：合并
 cpp2rust-demo merge --feature rj05
