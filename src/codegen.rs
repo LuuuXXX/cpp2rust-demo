@@ -356,12 +356,13 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
     let instance_methods: Vec<&FunctionIR> =
         class.methods.iter().filter(|m| !m.is_static).collect();
 
-    if instance_methods.is_empty() && !class.is_abstract {
+    // Nothing to emit: skip if there are no instance methods, no fields, and it's not abstract.
+    if instance_methods.is_empty() && class.fields.is_empty() && !class.is_abstract {
         // Don't emit an empty import_class! block; the class will still be
         // forward-declared in import_lib! (if it is not abstract).
         return;
     }
-    if instance_methods.is_empty() && class.is_abstract {
+    if instance_methods.is_empty() && class.fields.is_empty() && class.is_abstract {
         // Abstract class with no methods — still need the #[interface] block.
     }
 
@@ -412,6 +413,25 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
 
     for method in &instance_methods {
         render_method(out, method);
+    }
+
+    // Instance field accessors via `#[cpp(field = "...")]`.
+    // Each field gets a read accessor and (unless const) a mutable accessor.
+    if !class.is_abstract {
+        for field in &class.fields {
+            let rust_type = &field.rust_type;
+            writeln!(out, "        #[cpp(field = \"{}\")]", field.qualified_name).unwrap();
+            writeln!(out, "        fn get_{}(&self) -> &{};", field.rust_name, rust_type).unwrap();
+            if !field.is_const {
+                writeln!(out, "        #[cpp(field = \"{}\")]", field.qualified_name).unwrap();
+                writeln!(
+                    out,
+                    "        fn get_{}_mut(&mut self) -> &mut {};",
+                    field.rust_name, rust_type
+                )
+                .unwrap();
+            }
+        }
     }
 
     writeln!(out, "    }}").unwrap();
@@ -821,6 +841,27 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             writeln!(out).unwrap();
         }
 
+        // Instance fields.
+        if !class.fields.is_empty() {
+            writeln!(out, "### Instance Fields\n").unwrap();
+            writeln!(out, "| Field | C++ type | Rust type | Const | Read accessor | Write accessor |").unwrap();
+            writeln!(out, "|-------|----------|-----------|-------|---------------|----------------|").unwrap();
+            for f in &class.fields {
+                let write_acc = if f.is_const {
+                    "—".to_string()
+                } else {
+                    format!("`get_{}_mut(&mut self)`", f.rust_name)
+                };
+                writeln!(
+                    out,
+                    "| `{}` | `{}` | `{}` | {} | `get_{}(&self)` | {} |",
+                    f.name, f.cpp_type, f.rust_type, f.is_const, f.rust_name, write_acc
+                )
+                .unwrap();
+            }
+            writeln!(out).unwrap();
+        }
+
         // Pure-virtual methods (companion interface) for mixed classes.
         if !class.pure_virtual_methods.is_empty() {
             writeln!(out, "### Companion Interface (`{}Interface`)\n", class.name).unwrap();
@@ -952,6 +993,23 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             writeln!(out).unwrap();
         }
 
+        // Shim suggestions for std::string / std::function skips.
+        let shim_suggestions: Vec<&SkippedDecl> = decls
+            .skipped
+            .iter()
+            .filter(|s| s.suggested_shim.is_some())
+            .collect();
+        if !shim_suggestions.is_empty() {
+            writeln!(out, "## Shim Suggestions for Skipped Functions\n").unwrap();
+            writeln!(out, "_The following functions were skipped because they use `std::string` or `std::function` parameter/return types that hicc cannot pass through the ABI boundary directly. Copy the suggested shim prototypes into your C++ header or a `hicc::cpp!` block, then add `#[cpp(func = \"...\")]` bindings in `import_lib!`._\n").unwrap();
+            for item in &shim_suggestions {
+                writeln!(out, "**`{}`** (`{}`):\n", item.name, item.reason).unwrap();
+                if let Some(ref shim) = item.suggested_shim {
+                    writeln!(out, "```cpp\n{}\n```\n", shim).unwrap();
+                }
+            }
+        }
+
         // Dedicated section for operator overloads: guide users on how to
         // expose them manually via a hicc::cpp! wrapper.
         let operators: Vec<&SkippedDecl> = decls
@@ -987,17 +1045,27 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     out
 }
 
-/// Render the C++ shim header for operator overloads (主线四).
+/// Render the C++ shim header for operator overloads (主线四) and
+/// std::string / std::function shim suggestions (P2).
 ///
 /// Each operator that was skipped during extraction gets a named wrapper
 /// function written into `operator_shims.hpp`.  Users can `#include` this
 /// file in their `hicc::cpp!` block and then bind the wrappers via
 /// `#[cpp(func = "...")]` in `import_lib!`.
+///
+/// Additionally, any `suggested_shim` text from skipped declarations is
+/// appended to the file as commented-out prototype suggestions.
 pub fn render_operator_shims_hpp(
     shims: &[OperatorShimIR],
+    skipped: &[SkippedDecl],
     middleware_basename: &str,
 ) -> String {
-    if shims.is_empty() {
+    let string_shims: Vec<&SkippedDecl> = skipped
+        .iter()
+        .filter(|s| s.suggested_shim.is_some())
+        .collect();
+
+    if shims.is_empty() && string_shims.is_empty() {
         return String::new();
     }
 
@@ -1095,6 +1163,20 @@ pub fn render_operator_shims_hpp(
         )
         .unwrap();
         writeln!(out).unwrap();
+    }
+
+    // Append std::string / std::function shim suggestions as commented-out starters.
+    if !string_shims.is_empty() {
+        writeln!(out, "// ---------------------------------------------------------------------------").unwrap();
+        writeln!(out, "// std::string / std::function shim suggestions (copy-paste starters)").unwrap();
+        writeln!(out, "// ---------------------------------------------------------------------------").unwrap();
+        writeln!(out).unwrap();
+        for item in &string_shims {
+            if let Some(ref shim_text) = item.suggested_shim {
+                writeln!(out, "// Skipped function: `{}`", item.name).unwrap();
+                writeln!(out, "{}", shim_text).unwrap();
+            }
+        }
     }
 
     writeln!(out, "#endif // {}", guard).unwrap();

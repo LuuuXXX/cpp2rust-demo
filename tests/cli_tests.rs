@@ -3200,3 +3200,352 @@ fn init_virtual_base_skipped_and_reported() {
         "Derived should appear somewhere in output: method_rs={method_rs}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// P2: instance field extraction (#[cpp(field = "...")])
+// ---------------------------------------------------------------------------
+
+/// Public non-static instance fields (FieldDecl) should be extracted from
+/// C++ classes and generate paired `get_<name>` / `get_<name>_mut` accessor
+/// bindings via `#[cpp(field = "...")]` in `import_class!`.
+#[test]
+fn init_instance_fields_generate_field_bindings() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "sensor.hpp",
+        r#"
+        class Sensor {
+        public:
+            int id;
+            double value;
+            int read() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "sensor.cpp", "sensor.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_sensor/method/mtd_sensor.rs"),
+    )
+    .unwrap();
+
+    // Read accessor for `id` field.
+    assert!(
+        method_src.contains(r#"#[cpp(field = "Sensor::id")]"#),
+        "expected #[cpp(field = \"Sensor::id\")] in:\n{method_src}"
+    );
+    assert!(
+        method_src.contains("fn get_id(&self) -> &i32"),
+        "expected read accessor fn get_id(&self) -> &i32 in:\n{method_src}"
+    );
+    // Mutable write accessor for non-const field.
+    assert!(
+        method_src.contains("fn get_id_mut(&mut self) -> &mut i32"),
+        "expected mutable accessor fn get_id_mut(&mut self) -> &mut i32 in:\n{method_src}"
+    );
+
+    // Read accessor for `value` (f64).
+    assert!(
+        method_src.contains(r#"#[cpp(field = "Sensor::value")]"#),
+        "expected #[cpp(field = \"Sensor::value\")] in:\n{method_src}"
+    );
+    assert!(
+        method_src.contains("fn get_value(&self) -> &f64"),
+        "expected fn get_value in:\n{method_src}"
+    );
+
+    // Regular method should still be present.
+    assert!(
+        method_src.contains("fn read(&self) -> i32"),
+        "expected fn read in:\n{method_src}"
+    );
+
+    // Interface report should list the fields.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+    assert!(
+        report.contains("Instance Fields"),
+        "report should contain 'Instance Fields' section"
+    );
+    assert!(report.contains("`id`"), "report should list field 'id'");
+    assert!(report.contains("`value`"), "report should list field 'value'");
+}
+
+/// A class that exposes only public fields (no methods) should still get an
+/// `import_class!` block with `#[cpp(field = "...")]` accessor bindings.
+/// Previously, the early-return guard skipped such classes entirely.
+#[test]
+fn init_field_only_class_generates_bindings() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "point.hpp",
+        r#"
+        class Point {
+        public:
+            float x;
+            float y;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "point.cpp", "point.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_point/method/mtd_point.rs"),
+    )
+    .unwrap();
+
+    // Field-only class must produce an import_class! block with field accessors.
+    assert!(
+        method_src.contains("hicc::import_class!"),
+        "field-only class should produce import_class! block:\n{method_src}"
+    );
+    assert!(
+        method_src.contains(r#"#[cpp(field = "Point::x")]"#),
+        "expected #[cpp(field = \"Point::x\")] in:\n{method_src}"
+    );
+    assert!(
+        method_src.contains("fn get_x(&self) -> &f32"),
+        "expected get_x read accessor in:\n{method_src}"
+    );
+    assert!(
+        method_src.contains("fn get_x_mut(&mut self) -> &mut f32"),
+        "expected get_x_mut write accessor in:\n{method_src}"
+    );
+    assert!(
+        method_src.contains(r#"#[cpp(field = "Point::y")]"#),
+        "expected #[cpp(field = \"Point::y\")] in:\n{method_src}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P2: std::string shim suggestions
+// ---------------------------------------------------------------------------
+
+/// When a function is skipped because it has `std::string` parameters or
+/// return type, a shim suggestion should appear in the interface report.
+#[test]
+fn init_std_string_function_generates_shim_suggestion() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "stringer.hpp",
+        r#"
+        #include <string>
+        void print_name(std::string name);
+        std::string get_label();
+        int count_words(const std::string& text);
+        int add(int a, int b);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "stringer.cpp", "stringer.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-std=c++17",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+
+    // The shim suggestions section should be present.
+    assert!(
+        report.contains("Shim Suggestions"),
+        "report should contain shim suggestions section:\n{report}"
+    );
+    // At least one of the std::string functions should generate a shim hint.
+    assert!(
+        report.contains("_shim") || report.contains("const char*"),
+        "report should contain shim prototype with const char*:\n{report}"
+    );
+
+    // The non-string function `add` should be extracted normally.
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_stringer/free/fn_stringer.rs"),
+    )
+    .unwrap();
+    assert!(
+        free_src.contains("fn add(a: i32, b: i32) -> i32"),
+        "fn add should be extracted normally"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P2: std::function shim suggestions
+// ---------------------------------------------------------------------------
+
+/// When a function is skipped because it has `std::function<>` parameters,
+/// a virtual interface suggestion should appear in the interface report.
+#[test]
+fn init_std_function_generates_interface_suggestion() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "callbacks.hpp",
+        r#"
+        #include <functional>
+        void register_handler(std::function<void(int)> handler);
+        int add(int a, int b);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "callbacks.cpp", "callbacks.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-std=c++17",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+
+    // The shim suggestions section should contain the interface skeleton.
+    assert!(
+        report.contains("Shim Suggestions") || report.contains("std::function"),
+        "report should mention std::function situation:\n{report}"
+    );
+    // The suggestion should mention @make_proxy or virtual interface.
+    assert!(
+        report.contains("@make_proxy") || report.contains("virtual")
+            || report.contains("Callback") || report.contains("interface"),
+        "report should suggest a virtual interface approach:\n{report}"
+    );
+
+    // `add` should still be extracted normally.
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_callbacks/free/fn_callbacks.rs"),
+    )
+    .unwrap();
+    assert!(
+        free_src.contains("fn add(a: i32, b: i32) -> i32"),
+        "fn add should be extracted normally"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P2: --dry-run mode
+// ---------------------------------------------------------------------------
+
+/// With `--dry-run`, the init command should print the interface report to
+/// stdout but NOT write any files to `rust/src/`.
+#[test]
+fn init_dry_run_prints_report_without_writing_rust_src() {
+    let tmp = TempDir::new().unwrap();
+    write_header(&tmp, "dry.hpp", "int add(int a, int b);");
+    let tu = write_translation_unit(&tmp, "dry.cpp", "dry.hpp");
+
+    let output = bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--dry-run",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+
+    // The interface report content should be in stdout.
+    assert!(
+        stdout.contains("FFI Interface Report"),
+        "dry-run should print interface report to stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("DRY-RUN"),
+        "dry-run should indicate dry-run mode:\n{stdout}"
+    );
+
+    // rust/src/ directory should NOT exist.
+    let rust_src = tmp.path().join(".cpp2rust/default/rust/src");
+    assert!(
+        !rust_src.exists(),
+        "dry-run should not create rust/src directory"
+    );
+
+    // Cargo.toml should NOT exist either.
+    let cargo_toml = tmp.path().join(".cpp2rust/default/rust/Cargo.toml");
+    assert!(
+        !cargo_toml.exists(),
+        "dry-run should not create Cargo.toml"
+    );
+}

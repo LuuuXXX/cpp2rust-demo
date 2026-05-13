@@ -82,6 +82,14 @@ struct InitArgs {
     #[arg(long = "no-link", alias = "header-only")]
     no_link: bool,
 
+    /// Dry-run mode: execute build capture and AST dump but do not write any
+    /// files to `rust/src/`.  The interface report is printed to stdout.
+    ///
+    /// Useful for previewing what cpp2rust-demo would extract without
+    /// modifying the project layout.
+    #[arg(long = "dry-run")]
+    dry_run: bool,
+
     /// Extra arguments forwarded to clang (e.g. `-std=c++17 -I./include`).
     #[arg(long = "extra-clang-args", value_name = "ARGS")]
     extra_clang_args: Option<String>,
@@ -128,6 +136,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     let feature = &args.feature;
     let link_name = &args.link;
     let no_link = args.no_link;
+    let dry_run = args.dry_run;
     let build_cmd = &args.build_cmd;
 
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
@@ -145,6 +154,9 @@ fn run_init(args: InitArgs) -> Result<()> {
             "normal"
         }
     );
+    if dry_run {
+        println!("Mode         : DRY-RUN (no files written to rust/src/)");
+    }
     println!("Build command: {}", build_cmd.join(" "));
     println!();
 
@@ -197,10 +209,14 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     lo.save_meta(&files_to_process, link_name, no_link)?;
 
-    // Create the Rust project skeleton.
+    // In dry-run mode, skip creating the Rust project skeleton and all file writes.
+    // We still process the AST and generate the report.
     let rust_src_dir = lo.rust_dir.join("src");
-    std::fs::create_dir_all(&rust_src_dir)
-        .map_err(|e| anyhow!("create {}: {}", rust_src_dir.display(), e))?;
+    if !dry_run {
+        // Create the Rust project skeleton.
+        std::fs::create_dir_all(&rust_src_dir)
+            .map_err(|e| anyhow!("create {}: {}", rust_src_dir.display(), e))?;
+    }
 
     // Compute deterministic names for middleware files and grouped module directories.
     let stems: Vec<String> = middleware_stems(&files_to_process);
@@ -208,18 +224,20 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     // Write Cargo.toml, build.rs, lib.rs for the generated crate.
     let crate_name = format!("cpp2rust-{}-ffi", feature.replace('_', "-"));
-    let cargo_toml_path = lo.rust_dir.join("Cargo.toml");
-    if !cargo_toml_path.exists() {
-        std::fs::write(
-            &cargo_toml_path,
-            codegen::render_cargo_toml(&crate_name, link_name),
-        )
-        .map_err(|e| anyhow!("write Cargo.toml: {}", e))?;
-        println!("Created {}", cargo_toml_path.display());
-    }
+    if !dry_run {
+        let cargo_toml_path = lo.rust_dir.join("Cargo.toml");
+        if !cargo_toml_path.exists() {
+            std::fs::write(
+                &cargo_toml_path,
+                codegen::render_cargo_toml(&crate_name, link_name),
+            )
+            .map_err(|e| anyhow!("write Cargo.toml: {}", e))?;
+            println!("Created {}", cargo_toml_path.display());
+        }
 
-    // Prepare shared/common module scaffolding.
-    write_common_modules(&rust_src_dir, "", "")?;
+        // Prepare shared/common module scaffolding.
+        write_common_modules(&rust_src_dir, "", "")?;
+    }
 
     // Process each selected middleware file.
     let mut all_decls = ast::ExtractedDecls::default();
@@ -237,7 +255,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         // Step 1: dump AST via clang.
         let ast_root = ast::dump_ast(selected_file, &extra_args, &args.clang)?;
 
-        // Save the AST JSON for debugging.
+        // Save the AST JSON for debugging (even in dry-run so the user can inspect).
         let ast_json_path = lo.ast_dir.join(format!("{}.ast.json", stem));
         let ast_json =
             serde_json::to_string(&ast_root).map_err(|e| anyhow!("serialize AST: {}", e))?;
@@ -258,158 +276,173 @@ fn run_init(args: InitArgs) -> Result<()> {
             println!("  Warning: no declarations found from this file.");
         }
 
-        // Step 3: generate grouped semantic module source.
-        let group_dir = rust_src_dir.join(group_module);
-        write_group_scaffold(&group_dir, stem)?;
-
-        let include_mod_path = group_dir.join("include").join("mod.rs");
-        let include_src = codegen::render_include_module(&selected_file.display().to_string());
-        std::fs::write(&include_mod_path, include_src)
-            .map_err(|e| anyhow!("write {}: {}", include_mod_path.display(), e))?;
-
-        // `class/` is the class-level semantic structure layer in v1.
-        // Binding macros for instance methods are emitted under `method/`.
-        let class_mod_name = format!("cls_{}", stem);
-        let class_file_path = group_dir.join("class").join(format!("{class_mod_name}.rs"));
-        let class_src = codegen::render_class_module(&decls);
-        let has_class = !class_src.trim().is_empty();
-        if has_class {
-            std::fs::write(&class_file_path, class_src)
-                .map_err(|e| anyhow!("write {}: {}", class_file_path.display(), e))?;
-            std::fs::write(
-                group_dir.join("class").join("mod.rs"),
-                codegen::render_lib_rs(&[&class_mod_name]),
-            )
-            .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
-        }
-
-        // `method/` is the sole layer that carries `hicc::import_class!` blocks in v1.
-        let method_mod_name = format!("mtd_{}", stem);
-        let method_file_path = group_dir
-            .join("method")
-            .join(format!("{method_mod_name}.rs"));
-        let method_src = codegen::render_method_module(&decls);
-        let has_method = !method_src.trim().is_empty();
-        if has_method {
-            std::fs::write(&method_file_path, method_src)
-                .map_err(|e| anyhow!("write {}: {}", method_file_path.display(), e))?;
-            std::fs::write(
-                group_dir.join("method").join("mod.rs"),
-                codegen::render_lib_rs(&[&method_mod_name]),
-            )
-            .map_err(|e| anyhow!("write method/mod.rs: {}", e))?;
-        }
-
-        let free_mod_name = format!("fn_{}", stem);
-        let free_file_path = group_dir.join("free").join(format!("{free_mod_name}.rs"));
         let has_free = has_free_bindings(&decls);
-        let has_shims = !decls.operator_shims.is_empty();
-        if has_free {
-            let free_src = codegen::render_free_module(&decls, link_name);
-            std::fs::write(&free_file_path, free_src)
-                .map_err(|e| anyhow!("write {}: {}", free_file_path.display(), e))?;
-        }
+        let has_shims = !decls.operator_shims.is_empty()
+            || decls.skipped.iter().any(|s| s.suggested_shim.is_some());
+        let mut has_class = false;
+        let mut has_method = false;
+        let class_mod_name = format!("cls_{}", stem);
+        let method_mod_name = format!("mtd_{}", stem);
+        let free_mod_name = format!("fn_{}", stem);
 
-        // `types/` is generated as per-group type semantics (inventory + mappings).
-        let types_src = codegen::render_types_module(&decls);
-        std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
-            .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
+        if !dry_run {
+            // Step 3: generate grouped semantic module source.
+            let group_dir = rust_src_dir.join(group_module);
+            write_group_scaffold(&group_dir, stem)?;
 
-        // Operator shims: write C++ shim header to meta/ and Rust stubs to free/.
-        if has_shims {
-            let middleware_basename = selected_file
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("middleware.hpp");
-            let shims_hpp = codegen::render_operator_shims_hpp(&decls.operator_shims, middleware_basename);
-            let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
-            std::fs::write(&shims_hpp_path, &shims_hpp)
-                .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
-            let shims_rs = codegen::render_operator_shims_rs(&decls.operator_shims, link_name);
-            let shims_rs_path = group_dir.join("free").join("shim_ops.rs");
-            std::fs::write(&shims_rs_path, &shims_rs)
-                .map_err(|e| anyhow!("write shim_ops.rs: {}", e))?;
-            println!("  Operator shims → {}", shims_hpp_path.display());
-        }
+            let include_mod_path = group_dir.join("include").join("mod.rs");
+            let include_src = codegen::render_include_module(&selected_file.display().to_string());
+            std::fs::write(&include_mod_path, include_src)
+                .map_err(|e| anyhow!("write {}: {}", include_mod_path.display(), e))?;
 
-        // Write free/mod.rs registering all submodules in the free/ directory.
-        // This must happen after both fn_<stem>.rs and shim_ops.rs are written so
-        // that all produced files are exported from the module tree.
-        if has_free || has_shims {
-            let free_submodules: Vec<&str> = [
-                has_free.then(|| free_mod_name.as_str()),
-                has_shims.then_some("shim_ops"),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
+            // `class/` is the class-level semantic structure layer in v1.
+            // Binding macros for instance methods are emitted under `method/`.
+            let class_file_path = group_dir.join("class").join(format!("{class_mod_name}.rs"));
+            let class_src = codegen::render_class_module(&decls);
+            has_class = !class_src.trim().is_empty();
+            if has_class {
+                std::fs::write(&class_file_path, class_src)
+                    .map_err(|e| anyhow!("write {}: {}", class_file_path.display(), e))?;
+                std::fs::write(
+                    group_dir.join("class").join("mod.rs"),
+                    codegen::render_lib_rs(&[&class_mod_name]),
+                )
+                .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
+            }
+
+            // `method/` is the sole layer that carries `hicc::import_class!` blocks in v1.
+            let method_file_path = group_dir
+                .join("method")
+                .join(format!("{method_mod_name}.rs"));
+            let method_src = codegen::render_method_module(&decls);
+            has_method = !method_src.trim().is_empty();
+            if has_method {
+                std::fs::write(&method_file_path, method_src)
+                    .map_err(|e| anyhow!("write {}: {}", method_file_path.display(), e))?;
+                std::fs::write(
+                    group_dir.join("method").join("mod.rs"),
+                    codegen::render_lib_rs(&[&method_mod_name]),
+                )
+                .map_err(|e| anyhow!("write method/mod.rs: {}", e))?;
+            }
+
+            let free_file_path = group_dir.join("free").join(format!("{free_mod_name}.rs"));
+            if has_free {
+                let free_src = codegen::render_free_module(&decls, link_name);
+                std::fs::write(&free_file_path, free_src)
+                    .map_err(|e| anyhow!("write {}: {}", free_file_path.display(), e))?;
+            }
+
+            // `types/` is generated as per-group type semantics (inventory + mappings).
+            let types_src = codegen::render_types_module(&decls);
+            std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
+                .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
+
+            // Operator shims: write C++ shim header to meta/ and Rust stubs to free/.
+            if has_shims {
+                let middleware_basename = selected_file
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("middleware.hpp");
+                let shims_hpp = codegen::render_operator_shims_hpp(
+                    &decls.operator_shims,
+                    &decls.skipped,
+                    middleware_basename,
+                );
+                if !shims_hpp.is_empty() {
+                    let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
+                    std::fs::write(&shims_hpp_path, &shims_hpp)
+                        .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
+                    println!("  Operator/string shims → {}", shims_hpp_path.display());
+                }
+                if !decls.operator_shims.is_empty() {
+                    let shims_rs = codegen::render_operator_shims_rs(&decls.operator_shims, link_name);
+                    let shims_rs_path = group_dir.join("free").join("shim_ops.rs");
+                    std::fs::write(&shims_rs_path, &shims_rs)
+                        .map_err(|e| anyhow!("write shim_ops.rs: {}", e))?;
+                }
+            }
+
+            // Write free/mod.rs registering all submodules in the free/ directory.
+            let has_op_shims = !decls.operator_shims.is_empty();
+            if has_free || has_op_shims {
+                let free_submodules: Vec<&str> = [
+                    has_free.then(|| free_mod_name.as_str()),
+                    has_op_shims.then_some("shim_ops"),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                std::fs::write(
+                    group_dir.join("free").join("mod.rs"),
+                    codegen::render_lib_rs(&free_submodules),
+                )
+                .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
+            }
+
+            let group_mod_path = group_dir.join("mod.rs");
             std::fs::write(
-                group_dir.join("free").join("mod.rs"),
-                codegen::render_lib_rs(&free_submodules),
+                &group_mod_path,
+                render_group_mod_rs(has_free || has_op_shims, has_class, has_method),
             )
-            .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
-        }
+            .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
 
-        let group_mod_path = group_dir.join("mod.rs");
-        std::fs::write(
-            &group_mod_path,
-            render_group_mod_rs(has_free || has_shims, has_class, has_method),
-        )
-        .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
+            let group_meta = GroupMeta {
+                group: group_module.to_string(),
+                middleware: selected_file.display().to_string(),
+                ast: ast_json_path.display().to_string(),
+                free_functions: decls
+                    .functions
+                    .iter()
+                    .map(|f| f.qualified_name.clone())
+                    .collect(),
+                classes: decls
+                    .classes
+                    .iter()
+                    .map(|c| c.qualified_name.clone())
+                    .collect(),
+                methods: decls
+                    .classes
+                    .iter()
+                    .flat_map(|c| c.methods.iter().map(|m| m.qualified_name.clone()))
+                    .collect(),
+                globals: decls
+                    .globals
+                    .iter()
+                    .map(|g| g.qualified_name.clone())
+                    .collect(),
+            };
+            let meta_path = group_dir.join("meta.json");
+            std::fs::write(
+                &meta_path,
+                serde_json::to_string_pretty(&group_meta)
+                    .map_err(|e| anyhow!("serialize meta: {}", e))?,
+            )
+            .map_err(|e| anyhow!("write {}: {}", meta_path.display(), e))?;
 
-        let group_meta = GroupMeta {
-            group: group_module.to_string(),
-            middleware: selected_file.display().to_string(),
-            ast: ast_json_path.display().to_string(),
-            free_functions: decls
-                .functions
-                .iter()
-                .map(|f| f.qualified_name.clone())
-                .collect(),
-            classes: decls
-                .classes
-                .iter()
-                .map(|c| c.qualified_name.clone())
-                .collect(),
-            methods: decls
-                .classes
-                .iter()
-                .flat_map(|c| c.methods.iter().map(|m| m.qualified_name.clone()))
-                .collect(),
-            globals: decls
-                .globals
-                .iter()
-                .map(|g| g.qualified_name.clone())
-                .collect(),
-        };
-        let meta_path = group_dir.join("meta.json");
-        std::fs::write(
-            &meta_path,
-            serde_json::to_string_pretty(&group_meta)
-                .map_err(|e| anyhow!("serialize meta: {}", e))?,
-        )
-        .map_err(|e| anyhow!("write {}: {}", meta_path.display(), e))?;
+            build_rs_sources.push(format!("src/{}/include/mod.rs", group_module));
+            if has_free {
+                build_rs_sources.push(format!("src/{}/free/{}.rs", group_module, free_mod_name));
+            }
+            if has_op_shims {
+                build_rs_sources.push(format!("src/{}/free/shim_ops.rs", group_module));
+            }
+            if has_class {
+                build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));
+            }
+            if has_method {
+                build_rs_sources.push(format!(
+                    "src/{}/method/{}.rs",
+                    group_module, method_mod_name
+                ));
+            }
+            build_rs_sources.push(format!("src/{}/types/mod.rs", group_module));
+            lib_modules.push(group_module.to_string());
 
-        build_rs_sources.push(format!("src/{}/include/mod.rs", group_module));
-        if has_free {
-            build_rs_sources.push(format!("src/{}/free/{}.rs", group_module, free_mod_name));
+            println!("  Grouped module → {}", rust_src_dir.join(group_module).display());
+        } else {
+            // dry-run: no file writes; has_class / has_method remain false.
         }
-        if has_shims {
-            build_rs_sources.push(format!("src/{}/free/shim_ops.rs", group_module));
-        }
-        if has_class {
-            build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));
-        }
-        if has_method {
-            build_rs_sources.push(format!(
-                "src/{}/method/{}.rs",
-                group_module, method_mod_name
-            ));
-        }
-        build_rs_sources.push(format!("src/{}/types/mod.rs", group_module));
-        lib_modules.push(group_module.to_string());
-
-        println!("  Grouped module → {}", group_dir.display());
 
         // Accumulate for the consolidated report.
         let report_section = codegen::render_interface_report(
@@ -428,58 +461,65 @@ fn run_init(args: InitArgs) -> Result<()> {
     }
 
     // Write interface report.
-    let report_path = lo.meta_dir.join("init-interface-report.md");
     let report = report_sections.join("\n---\n\n");
-    std::fs::write(&report_path, &report).map_err(|e| anyhow!("write report: {}", e))?;
-    println!("\nInterface report → {}", report_path.display());
+    if dry_run {
+        // In dry-run mode, print the interface report to stdout instead of saving files.
+        println!("\n=== DRY-RUN: Interface Report (stdout only) ===\n");
+        println!("{}", report);
+        println!("\n✓ cpp2rust-demo init --dry-run completed (no files written to rust/src/).");
+    } else {
+        let report_path = lo.meta_dir.join("init-interface-report.md");
+        std::fs::write(&report_path, &report).map_err(|e| anyhow!("write report: {}", e))?;
+        println!("\nInterface report → {}", report_path.display());
 
-    // build.rs: point hicc-build to grouped semantic files.
-    {
-        let build_rs_path = lo.rust_dir.join("build.rs");
-        let source_refs: Vec<&str> = build_rs_sources.iter().map(|s| s.as_str()).collect();
-        let include_dirs = middleware_include_dirs(&files_to_process);
-        let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
-        std::fs::write(
-            &build_rs_path,
-            codegen::render_build_rs(link_name, no_link, &source_refs, &inc_refs),
-        )
-        .map_err(|e| anyhow!("write build.rs: {}", e))?;
-        println!("Created {}", build_rs_path.display());
+        // build.rs: point hicc-build to grouped semantic files.
+        {
+            let build_rs_path = lo.rust_dir.join("build.rs");
+            let source_refs: Vec<&str> = build_rs_sources.iter().map(|s| s.as_str()).collect();
+            let include_dirs = middleware_include_dirs(&files_to_process);
+            let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
+            std::fs::write(
+                &build_rs_path,
+                codegen::render_build_rs(link_name, no_link, &source_refs, &inc_refs),
+            )
+            .map_err(|e| anyhow!("write build.rs: {}", e))?;
+            println!("Created {}", build_rs_path.display());
 
-        // `common/*` carries shared include/type semantics derived from selected
-        // middleware and is propagated into global merged output for reuse.
-        let common_includes = render_common_includes_module(&files_to_process, &include_dirs);
-        let common_types = codegen::render_types_module(&all_decls);
-        write_common_modules(&rust_src_dir, &common_includes, &common_types)?;
+            // `common/*` carries shared include/type semantics derived from selected
+            // middleware and is propagated into global merged output for reuse.
+            let common_includes = render_common_includes_module(&files_to_process, &include_dirs);
+            let common_types = codegen::render_types_module(&all_decls);
+            write_common_modules(&rust_src_dir, &common_includes, &common_types)?;
+        }
+
+        // lib.rs: expose common + grouped modules.
+        {
+            let lib_rs_path = rust_src_dir.join("lib.rs");
+            let module_refs: Vec<&str> = lib_modules.iter().map(|s| s.as_str()).collect();
+            std::fs::write(&lib_rs_path, codegen::render_lib_rs(&module_refs))
+                .map_err(|e| anyhow!("write lib.rs: {}", e))?;
+            println!("Created {}", lib_rs_path.display());
+        }
+
+        println!("\n✓ cpp2rust-demo init completed successfully!");
+        println!("\nOutput structure:");
+        println!("  .cpp2rust/{}/", feature);
+        println!("    ├── cpp/        (captured preprocessed middleware: *.cpp2rust)");
+        println!("    ├── ast/        (clang AST JSON per selected file)");
+        println!("    ├── meta/       (build_cmd.txt, selected_files.json, headers.json, init-interface-report.md)");
+        println!("    └── rust/       (generated Rust project)");
+        println!("        ├── Cargo.toml");
+        println!("        ├── build.rs");
+        println!("        └── src/");
+        println!("            ├── lib.rs");
+        println!("            ├── common/...");
+        println!("            └── mod_<group>/include|types|free|class|method + meta.json");
+        println!();
+        println!("Next steps:");
+        println!("  1. Review .cpp2rust/{}/rust/src/mod_<group>/", feature);
+        println!("  2. Run `cpp2rust-demo merge` to consolidate into src.2");
+        println!("  3. Copy the Rust project to your workspace and add the C++ library");
     }
-
-    // lib.rs: expose common + grouped modules.
-    {
-        let lib_rs_path = rust_src_dir.join("lib.rs");
-        let module_refs: Vec<&str> = lib_modules.iter().map(|s| s.as_str()).collect();
-        std::fs::write(&lib_rs_path, codegen::render_lib_rs(&module_refs))
-            .map_err(|e| anyhow!("write lib.rs: {}", e))?;
-        println!("Created {}", lib_rs_path.display());
-    }
-
-    println!("\n✓ cpp2rust-demo init completed successfully!");
-    println!("\nOutput structure:");
-    println!("  .cpp2rust/{}/", feature);
-    println!("    ├── cpp/        (captured preprocessed middleware: *.cpp2rust)");
-    println!("    ├── ast/        (clang AST JSON per selected file)");
-    println!("    ├── meta/       (build_cmd.txt, selected_files.json, headers.json, init-interface-report.md)");
-    println!("    └── rust/       (generated Rust project)");
-    println!("        ├── Cargo.toml");
-    println!("        ├── build.rs");
-    println!("        └── src/");
-    println!("            ├── lib.rs");
-    println!("            ├── common/...");
-    println!("            └── mod_<group>/include|types|free|class|method + meta.json");
-    println!();
-    println!("Next steps:");
-    println!("  1. Review .cpp2rust/{}/rust/src/mod_<group>/", feature);
-    println!("  2. Run `cpp2rust-demo merge` to consolidate into src.2");
-    println!("  3. Copy the Rust project to your workspace and add the C++ library");
 
     Ok(())
 }
