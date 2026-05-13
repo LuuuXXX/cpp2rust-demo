@@ -279,8 +279,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         let has_free = has_free_bindings(&decls);
         let has_shims = !decls.operator_shims.is_empty()
             || decls.skipped.iter().any(|s| s.suggested_shim.is_some());
-        let has_class;
-        let has_method;
+        let mut has_class = false;
+        let mut has_method = false;
         let class_mod_name = format!("cls_{}", stem);
         let method_mod_name = format!("mtd_{}", stem);
         let free_mod_name = format!("fn_{}", stem);
@@ -441,10 +441,7 @@ fn run_init(args: InitArgs) -> Result<()> {
 
             println!("  Grouped module → {}", rust_src_dir.join(group_module).display());
         } else {
-            // dry-run: no file writes needed; set unused vars to satisfy the compiler.
-            has_class = false;
-            has_method = false;
-            let _ = (has_class, has_method);
+            // dry-run: no file writes; has_class / has_method remain false.
         }
 
         // Accumulate for the consolidated report.

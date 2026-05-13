@@ -2745,9 +2745,11 @@ fn generate_unsupported_type_shim(
             })
             .collect();
         // Determine class prefix for the qualified call.
-        let call_prefix = class_name
-            .map(|c| format!("obj.{}(", c))
-            .unwrap_or_else(|| format!("{}(", fn_name));
+        let call_prefix = if class_name.is_some() {
+            format!("obj.{}(", fn_name)
+        } else {
+            format!("{}(", fn_name)
+        };
         let call_args: Vec<String> = params
             .iter()
             .map(|(pname, ptype)| {
@@ -2768,13 +2770,13 @@ fn generate_unsupported_type_shim(
         } else {
             ""
         };
-        let class_self = class_name.map(|c| format!(", {} &obj", c)).unwrap_or_default();
+        let class_self = class_name.map(|c| format!("{} &obj", c)).unwrap_or_default();
         let all_params = if shim_params.is_empty() {
-            class_self.trim_start_matches(", ").to_string()
+            class_self.clone()
         } else if class_self.is_empty() {
             shim_params.join(", ")
         } else {
-            format!("{}{}", class_self.trim_start_matches(", "), format!(", {}", shim_params.join(", ")))
+            format!("{}, {}", class_self, shim_params.join(", "))
         };
         let shim_name = format!("{}_shim", fn_name);
         out.push_str(&format!(
@@ -2785,9 +2787,8 @@ fn generate_unsupported_type_shim(
         ));
         if is_std_string_type(return_type) {
             out.push_str(&format!(
-                "//   static std::string _ret = {call_prefix}{}{});\n",
-                call_args.join(", "),
-                if class_name.is_some() { "" } else { "" }
+                "//   static std::string _ret = {call_prefix}{});\n",
+                call_args.join(", ")
             ));
             out.push_str(&format!(
                 "//   {ret_prefix}_ret{ret_suffix};\n// }}\n"

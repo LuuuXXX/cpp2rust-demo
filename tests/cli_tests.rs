@@ -3463,11 +3463,11 @@ fn init_dry_run_prints_report_without_writing_rust_src() {
 
     // The interface report content should be in stdout.
     assert!(
-        stdout.contains("FFI Interface Report") || stdout.contains("Interface Report"),
+        stdout.contains("FFI Interface Report"),
         "dry-run should print interface report to stdout:\n{stdout}"
     );
     assert!(
-        stdout.contains("DRY-RUN") || stdout.contains("dry-run"),
+        stdout.contains("DRY-RUN"),
         "dry-run should indicate dry-run mode:\n{stdout}"
     );
 
