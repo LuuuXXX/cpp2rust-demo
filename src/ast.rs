@@ -466,6 +466,28 @@ pub struct ParamIR {
     pub rust_type: String,
 }
 
+/// A public instance field (non-static data member) of a C++ class.
+///
+/// Extracted from `FieldDecl` nodes inside a `CXXRecordDecl`.
+/// Generates `#[cpp(field = "...")]` read/write accessor bindings in `import_class!`.
+#[derive(Debug, Clone)]
+pub struct FieldIR {
+    /// Bare C++ field name, e.g. `"count"`.
+    pub name: String,
+    /// Rust-idiomatic snake_case name derived from `name`.
+    pub rust_name: String,
+    /// Fully-qualified accessor form: `"ClassName::field_name"`.
+    ///
+    /// Used in `#[cpp(field = "...")]` to identify the field.
+    pub qualified_name: String,
+    /// C++ type string as emitted by clang (e.g. `"int"`, `"double"`).
+    pub cpp_type: String,
+    /// Mapped Rust type (e.g. `"i32"`, `"f64"`).
+    pub rust_type: String,
+    /// Whether the field is `const`-qualified (only a read accessor is emitted).
+    pub is_const: bool,
+}
+
 /// A public constructor extracted from a C++ class.
 ///
 /// hicc uses this via `#[cpp(class = "...", ctor = "...")]` to let Rust
@@ -607,6 +629,13 @@ pub struct ClassIR {
     /// Populated for diagnostic / reporting purposes; these bases are **not**
     /// emitted in `import_class!`.
     pub skipped_virtual_bases: Vec<String>,
+    /// Public non-static instance fields (data members) extracted from this class.
+    ///
+    /// Each field generates a pair of `#[cpp(field = "...")]` accessor functions
+    /// in `import_class!`: a read accessor (`fn get_<name>(&self) -> &T`) and,
+    /// for non-const fields, a mutable write accessor
+    /// (`fn get_<name>_mut(&mut self) -> &mut T`).
+    pub fields: Vec<FieldIR>,
 }
 
 /// A declaration that is intentionally skipped during extraction.
@@ -626,6 +655,14 @@ pub struct SkippedDecl {
     ///
     /// Example: `"using MyDoc = rapidjson::GenericDocument<rapidjson::UTF8<char>>;"`
     pub suggested_alias: Option<String>,
+    /// For functions skipped due to `std::string` or `std::function` parameters /
+    /// return types: a ready-to-copy C++ shim function prototype that replaces
+    /// the unsupported type with a hicc-compatible equivalent.
+    ///
+    /// For `std::string` this is a `static inline` wrapper that accepts / returns
+    /// `const char*` instead.  For `std::function` this is a pure-virtual
+    /// interface class skeleton with an `@make_proxy` usage hint.
+    pub suggested_shim: Option<String>,
 }
 
 /// All declarations extracted from a set of header files.
@@ -1429,6 +1466,18 @@ fn extract_class_body(
                     }
                 }
             }
+            // Non-static instance fields.
+            "FieldDecl" => {
+                if let Some(field) = extract_field(
+                    child,
+                    class_name,
+                    qualified_name,
+                    class_map,
+                    alias_registry,
+                ) {
+                    class_ir.fields.push(field);
+                }
+            }
             // Nested class / struct definitions.
             "CXXRecordDecl" => {
                 if child.complete_definition.unwrap_or(false) {
@@ -1675,6 +1724,7 @@ fn extract_function(
             reason: "destructor".to_string(),
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
+            suggested_shim: None,
         });
         return None;
     }
@@ -1686,6 +1736,7 @@ fn extract_function(
             reason: "operator_overload".to_string(),
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
+            suggested_shim: None,
         });
         return None;
     }
@@ -1697,6 +1748,7 @@ fn extract_function(
             reason: "unsupported_type".to_string(),
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
+            suggested_shim: None,
         });
         return None;
     };
@@ -1707,16 +1759,42 @@ fn extract_function(
             reason: "unsupported_type".to_string(),
             category: SkipCategory::HiccLimitation,
             suggested_alias: None,
+            suggested_shim: None,
         });
         return None;
     };
     if !is_supported_cpp_type(&return_type, class_map, alias_registry) {
+        // Collect all ParmVarDecl types for shim generation even when we skip
+        // due to the return type being unsupported.
+        let all_param_types: Vec<(String, String)> = node
+            .inner
+            .iter()
+            .flatten()
+            .filter(|c| c.kind == "ParmVarDecl")
+            .enumerate()
+            .map(|(i, p)| {
+                let pname = p
+                    .name
+                    .as_deref()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or(&format!("arg{}", i))
+                    .to_string();
+                let cpp_type = p
+                    .type_info
+                    .as_ref()
+                    .map(|t| t.qual_type.clone())
+                    .unwrap_or_default();
+                (pname, cpp_type)
+            })
+            .collect();
+        let shim = generate_unsupported_type_shim(name, class_name, &return_type, &all_param_types);
         skipped.push(SkippedDecl {
             kind: node.kind.clone(),
             name: qualified_name.clone(),
             reason: "unsupported_type".to_string(),
             category: categorize_unsupported_type(&return_type),
             suggested_alias: None,
+            suggested_shim: shim,
         });
         return None;
     }
@@ -1743,16 +1821,41 @@ fn extract_function(
                 reason: "unsupported_type".to_string(),
                 category: SkipCategory::HiccLimitation,
                 suggested_alias: None,
+                suggested_shim: None,
             });
             return None;
         };
         if !is_supported_cpp_type(&cpp_type, class_map, alias_registry) {
+            // Collect all param types (including this one) for shim generation.
+            let all_param_types: Vec<(String, String)> = node
+                .inner
+                .iter()
+                .flatten()
+                .filter(|c| c.kind == "ParmVarDecl")
+                .enumerate()
+                .map(|(j, q)| {
+                    let qname = q
+                        .name
+                        .as_deref()
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or(&format!("arg{}", j))
+                        .to_string();
+                    let qt = q
+                        .type_info
+                        .as_ref()
+                        .map(|t| t.qual_type.clone())
+                        .unwrap_or_default();
+                    (qname, qt)
+                })
+                .collect();
+            let shim = generate_unsupported_type_shim(name, class_name, &return_type, &all_param_types);
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
                 reason: "unsupported_type".to_string(),
                 category: categorize_unsupported_type(&cpp_type),
                 suggested_alias: None,
+                suggested_shim: shim,
             });
             return None;
         }
@@ -2297,6 +2400,7 @@ fn record_skipped_with_hint(
         reason: reason.to_string(),
         category,
         suggested_alias,
+        suggested_shim: None,
     });
 }
 
@@ -2537,6 +2641,205 @@ fn extract_static_member(
         is_const,
         class_name: Some(class_name.to_string()),
     })
+}
+
+/// Extract a `FieldIR` from a `FieldDecl` node inside a class body.
+///
+/// Returns `None` when the field's type is unsupported or the field is anonymous.
+fn extract_field(
+    node: &AstNode,
+    _class_name: &str,
+    class_qualified: &str,
+    class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
+) -> Option<FieldIR> {
+    let name = node.name.as_deref()?.to_string();
+    if name.is_empty() || name == "<anonymous>" {
+        return None;
+    }
+
+    let cpp_type = node.type_info.as_ref().map(|t| t.qual_type.clone())?;
+    if !is_supported_cpp_type(&cpp_type, class_map, alias_registry) {
+        return None;
+    }
+
+    let is_const = has_top_level_const(&cpp_type);
+    let base_cpp = strip_top_level_const(&cpp_type);
+    let rust_type = cpp_to_rust_type_with_aliases(base_cpp, alias_registry);
+    let rust_name = to_snake_case(&name);
+    let qualified_name = format!("{}::{}", class_qualified, name);
+
+    Some(FieldIR {
+        name,
+        rust_name,
+        qualified_name,
+        cpp_type,
+        rust_type,
+        is_const,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Shim-suggestion helpers (P2: std::string / std::function)
+// ---------------------------------------------------------------------------
+
+/// True when `t` contains `std::string` or any `basic_string` variant.
+///
+/// Used to identify `std::string` parameter / return types that cannot be
+/// passed through hicc directly (ABI mismatch) but can be shimmed via a
+/// wrapper that accepts / returns `const char*` instead.
+///
+/// Matches both the canonical form (`std::string`, `std::basic_string<…>`) and
+/// the GCC C++11 ABI form (`std::__cxx11::basic_string<…>`).
+fn is_std_string_type(t: &str) -> bool {
+    t.contains("std::string") || t.contains("basic_string")
+}
+
+/// True when `t` is a `std::function<…>` type.
+///
+/// These are callable wrappers that hicc does not support directly.  The
+/// recommended pattern is to replace them with a pure-virtual interface class
+/// and use `@make_proxy` to implement the interface from Rust.
+fn is_std_function_type(t: &str) -> bool {
+    let bare = t.trim();
+    bare.starts_with("std::function<") || bare.contains(" std::function<")
+}
+
+/// Generate a `suggested_shim` string for a function that was skipped because
+/// one of its types is `std::string` or `std::function`.
+///
+/// Returns `None` when neither `std::string` nor `std::function` is involved
+/// (i.e. the skip is due to some other unsupported type).
+fn generate_unsupported_type_shim(
+    fn_name: &str,
+    class_name: Option<&str>,
+    return_type: &str,
+    params: &[(String, String)],
+) -> Option<String> {
+    let has_string = is_std_string_type(return_type)
+        || params.iter().any(|(_, t)| is_std_string_type(t));
+    let has_function = is_std_function_type(return_type)
+        || params.iter().any(|(_, t)| is_std_function_type(t));
+
+    if !has_string && !has_function {
+        return None;
+    }
+
+    let mut out = String::new();
+
+    if has_string {
+        // Generate a C++ shim that replaces std::string with const char*.
+        let shim_ret = if is_std_string_type(return_type) {
+            "const char*".to_string()
+        } else {
+            return_type.to_string()
+        };
+        let shim_params: Vec<String> = params
+            .iter()
+            .map(|(pname, ptype)| {
+                if is_std_string_type(ptype) {
+                    format!("const char* {}", pname)
+                } else {
+                    format!("{} {}", ptype, pname)
+                }
+            })
+            .collect();
+        // Determine class prefix for the qualified call.
+        let call_prefix = class_name
+            .map(|c| format!("obj.{}(", c))
+            .unwrap_or_else(|| format!("{}(", fn_name));
+        let call_args: Vec<String> = params
+            .iter()
+            .map(|(pname, ptype)| {
+                if is_std_string_type(ptype) {
+                    format!("std::string({})", pname)
+                } else {
+                    pname.clone()
+                }
+            })
+            .collect();
+        let ret_prefix = if is_std_string_type(return_type) {
+            "return "
+        } else {
+            ""
+        };
+        let ret_suffix = if is_std_string_type(return_type) {
+            ".c_str()"
+        } else {
+            ""
+        };
+        let class_self = class_name.map(|c| format!(", {} &obj", c)).unwrap_or_default();
+        let all_params = if shim_params.is_empty() {
+            class_self.trim_start_matches(", ").to_string()
+        } else if class_self.is_empty() {
+            shim_params.join(", ")
+        } else {
+            format!("{}{}", class_self.trim_start_matches(", "), format!(", {}", shim_params.join(", ")))
+        };
+        let shim_name = format!("{}_shim", fn_name);
+        out.push_str(&format!(
+            "// std::string shim for `{fn_name}` — replace std::string args/return with const char*\n"
+        ));
+        out.push_str(&format!(
+            "// static inline {shim_ret} {shim_name}({all_params}) {{\n"
+        ));
+        if is_std_string_type(return_type) {
+            out.push_str(&format!(
+                "//   static std::string _ret = {call_prefix}{}{});\n",
+                call_args.join(", "),
+                if class_name.is_some() { "" } else { "" }
+            ));
+            out.push_str(&format!(
+                "//   {ret_prefix}_ret{ret_suffix};\n// }}\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "//   {ret_prefix}{call_prefix}{}){ret_suffix};\n// }}\n",
+                call_args.join(", ")
+            ));
+        }
+    }
+
+    if has_function {
+        // Generate a pure-virtual interface class suggestion.
+        // Find the first std::function param type to extract its signature.
+        let fn_type = if is_std_function_type(return_type) {
+            return_type
+        } else {
+            params
+                .iter()
+                .find(|(_, t)| is_std_function_type(t))
+                .map(|(_, t)| t.as_str())
+                .unwrap_or("")
+        };
+        let interface_name = format!(
+            "{}Callback",
+            fn_name
+                .split("::")
+                .last()
+                .unwrap_or(fn_name)
+                .chars()
+                .enumerate()
+                .map(|(i, c)| if i == 0 { c.to_ascii_uppercase() } else { c })
+                .collect::<String>()
+        );
+        out.push_str(&format!(
+            "// std::function detected in `{fn_name}` — suggest virtual interface + @make_proxy:\n"
+        ));
+        out.push_str(&format!("// struct {interface_name} {{\n"));
+        out.push_str(&format!(
+            "//   // Underlying type: {fn_type}\n"
+        ));
+        out.push_str(
+            "//   virtual /* return_type */ operator()(/* args */) = 0;\n",
+        );
+        out.push_str(&format!("//   virtual ~{interface_name}() = default;\n"));
+        out.push_str("// };\n");
+        out.push_str("// Then pass `&proxy_instance` instead of the std::function.\n");
+        out.push_str("// Use hicc @make_proxy to implement the interface from Rust.\n");
+    }
+
+    if out.is_empty() { None } else { Some(out) }
 }
 
 /// Extract an `EnumIR` from an `EnumDecl` AST node.
