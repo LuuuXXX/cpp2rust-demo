@@ -612,7 +612,7 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
 
     if output_canon.starts_with(&rust_dir_canon) {
         if created_output_dir {
-            let _ = std::fs::remove_dir(&output_abs);
+            let _ = std::fs::remove_dir_all(&output_abs);
         }
         return Err(anyhow!(
             "output dir {} must not be inside rust dir {}",
@@ -1299,6 +1299,27 @@ mod tests {
         assert!(
             !rust_dir.join("out").exists(),
             "created output dir under rust should be cleaned up on rejection"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_merge_output_rejects_existing_symlinked_output_without_deleting_it() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(rust_dir.join("out")).unwrap();
+        let link_dir = tmp.path().join("link-to-rust");
+        std::os::unix::fs::symlink(&rust_dir, &link_dir).unwrap();
+        let output_dir = link_dir.join("out");
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            rust_dir.join("out").exists(),
+            "existing output dir should not be deleted on rejection"
         );
     }
 
