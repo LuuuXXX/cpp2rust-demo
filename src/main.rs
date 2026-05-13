@@ -581,16 +581,8 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
             .map_err(|e| anyhow!("current_dir: {}", e))?
             .join(output_dir)
     };
-    let output_abs = normalize_lexical_path(&output_abs);
 
-    if output_abs.starts_with(&rust_dir_canon) {
-        return Err(anyhow!(
-            "output dir {} must not be inside rust dir {}",
-            output_abs.display(),
-            rust_dir_canon.display()
-        ));
-    }
-
+    let mut created_output_dir = false;
     if output_abs.exists() {
         if !output_abs.is_dir() {
             return Err(anyhow!(
@@ -611,6 +603,22 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
     } else {
         std::fs::create_dir_all(&output_abs)
             .map_err(|e| anyhow!("create output dir {}: {}", output_abs.display(), e))?;
+        created_output_dir = true;
+    }
+
+    let output_canon = output_abs
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", output_abs.display(), e))?;
+
+    if output_canon.starts_with(&rust_dir_canon) {
+        if created_output_dir {
+            let _ = std::fs::remove_dir(&output_abs);
+        }
+        return Err(anyhow!(
+            "output dir {} must not be inside rust dir {}",
+            output_canon.display(),
+            rust_dir_canon.display()
+        ));
     }
 
     let skip = ["src.1", "src.2"];
@@ -627,7 +635,7 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
         }
 
         let src_path = entry.path();
-        let dst_path = output_abs.join(&name);
+        let dst_path = output_canon.join(&name);
 
         // Follow symlinks (e.g. `src` → `src.2`)
         let actual_path = if src_path.is_symlink() {
@@ -966,20 +974,6 @@ fn stable_short_path_hash(path: &Path) -> String {
     format!("{:08x}", (hash & 0xffff_ffff) as u32)
 }
 
-fn normalize_lexical_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            _ => normalized.push(component.as_os_str()),
-        }
-    }
-    normalized
-}
-
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -1284,6 +1278,27 @@ mod tests {
         assert!(
             err.to_string().contains("must not be inside rust dir"),
             "unexpected error: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_merge_output_rejects_output_inside_rust_dir_via_symlink() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(&rust_dir).unwrap();
+        let link_dir = tmp.path().join("link-to-rust");
+        std::os::unix::fs::symlink(&rust_dir, &link_dir).unwrap();
+        let output_dir = link_dir.join("out");
+
+        let err = copy_merge_output(&rust_dir, &output_dir).unwrap_err();
+        assert!(
+            err.to_string().contains("must not be inside rust dir"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            !rust_dir.join("out").exists(),
+            "created output dir under rust should be cleaned up on rejection"
         );
     }
 
