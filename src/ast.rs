@@ -2366,7 +2366,9 @@ fn collect_template_alias_suggestions(node: &AstNode, namespace: &[String]) -> O
         "// Concrete instantiation(s) found – add a `using` alias to your header to unlock extraction:\n",
     );
     for (i, qt) in seen.iter().enumerate() {
-        let alias_name = format!("Alias{}_{}", template_name, i + 1);
+        // Use the same My{bare}_{n} pattern as the suggest-aliases subcommand output.
+        let bare = bare_template_name(qt);
+        let alias_name = format!("My{}_{}", bare, i + 1);
         lines.push_str(&format!("// using {} = {};\n", alias_name, qt));
     }
     Some(lines.trim_end().to_string())
