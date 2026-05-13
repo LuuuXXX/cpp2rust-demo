@@ -3549,3 +3549,280 @@ fn init_dry_run_prints_report_without_writing_rust_src() {
         "dry-run should not create Cargo.toml"
     );
 }
+
+// ---------------------------------------------------------------------------
+// P3: Function pointer parameter interface suggestions
+// ---------------------------------------------------------------------------
+
+/// A function with a function pointer parameter should be skipped with a
+/// ToolConservative skip and a suggested virtual interface + @make_proxy hint.
+#[test]
+fn init_function_pointer_param_generates_interface_suggestion() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "fnptr.hpp",
+        r#"
+        // A function whose second parameter is a function pointer.
+        void register_handler(int id, void (*callback)(int));
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "fnptr.cpp", "fnptr.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // The interface report should mention the function and an interface suggestion.
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+
+    assert!(
+        report.contains("register_handler"),
+        "skipped function pointer function should appear in report: {}",
+        report
+    );
+    assert!(
+        report.contains("Handler"),
+        "report should suggest a virtual interface wrapper ending in 'Handler': {}",
+        report
+    );
+    assert!(
+        report.contains("@make_proxy"),
+        "report should suggest @make_proxy for the interface: {}",
+        report
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P3: va_list / variadic functions
+// ---------------------------------------------------------------------------
+
+/// A function whose last parameter is `va_list` should be extracted as a
+/// variadic `unsafe fn` binding rather than being skipped.
+#[test]
+fn init_va_list_last_param_generates_unsafe_variadic_binding() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "variadic.hpp",
+        r#"
+        #include <stdarg.h>
+        // A function whose last parameter is va_list.
+        void log_message(int level, va_list args);
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "variadic.cpp", "variadic.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let free_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_variadic/free/fn_variadic.rs"),
+    )
+    .unwrap();
+
+    // The function should be extracted (not skipped) and marked unsafe with `...`.
+    assert!(
+        free_src.contains("unsafe fn log_message"),
+        "va_list function should generate unsafe fn binding: {}",
+        free_src
+    );
+    assert!(
+        free_src.contains("..."),
+        "va_list last param should produce variadic `...` in Rust binding: {}",
+        free_src
+    );
+    // The fixed parameters should still be present and `...` should come after them.
+    assert!(
+        free_src.contains("level: i32, ..."),
+        "fixed params should precede `...` in the variadic binding: {}",
+        free_src
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P3: @dynamic_cast binding skeletons
+// ---------------------------------------------------------------------------
+
+/// When a class has a public base class, a `dynamic_casts.rs` skeleton file
+/// should be generated inside `free/` with commented-out `@dynamic_cast` bindings.
+#[test]
+fn init_inherited_class_generates_dynamic_cast_skeleton() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "shapes.hpp",
+        r#"
+        class Shape {
+        public:
+            virtual double area() const = 0;
+        };
+
+        class Circle : public Shape {
+        public:
+            explicit Circle(double radius);
+            double area() const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "shapes.cpp", "shapes.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let dc_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_shapes/free/dynamic_casts.rs"),
+    )
+    .unwrap();
+
+    // Should contain a @dynamic_cast skeleton for Circle from Shape.
+    assert!(
+        dc_src.contains("@dynamic_cast"),
+        "dynamic_casts.rs should contain @dynamic_cast skeleton: {}",
+        dc_src
+    );
+    assert!(
+        dc_src.contains("Circle"),
+        "dynamic_casts.rs should mention the derived class: {}",
+        dc_src
+    );
+    assert!(
+        dc_src.contains("Shape"),
+        "dynamic_casts.rs should mention the base class: {}",
+        dc_src
+    );
+
+    // dynamic_casts module should be registered in free/mod.rs.
+    let mod_rs = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_shapes/free/mod.rs"),
+    )
+    .unwrap();
+    assert!(
+        mod_rs.contains("dynamic_casts"),
+        "free/mod.rs should include the dynamic_casts module: {}",
+        mod_rs
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P3: Multiple inheritance — all public bases extracted
+// ---------------------------------------------------------------------------
+
+/// When a class has multiple public base classes, all of them should appear
+/// in the generated `import_class!` block (not just the first one).
+#[test]
+fn init_multiple_inheritance_all_bases_extracted() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "multi.hpp",
+        r#"
+        class Printable {
+        public:
+            virtual void print() const = 0;
+        };
+
+        class Serializable {
+        public:
+            virtual void serialize() const = 0;
+        };
+
+        class Document : public Printable, public Serializable {
+        public:
+            Document();
+            void save(const char *path) const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "multi.cpp", "multi.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "mylib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let method_src = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/mod_multi/method/mtd_multi.rs"),
+    )
+    .unwrap();
+
+    // Document should inherit from both Printable and Serializable.
+    assert!(
+        method_src.contains("Printable"),
+        "Document should include Printable base class: {}",
+        method_src
+    );
+    assert!(
+        method_src.contains("Serializable"),
+        "Document should include Serializable base class: {}",
+        method_src
+    );
+
+    // Both base classes should appear in a single `class Document: ...` declaration.
+    let doc_line = method_src
+        .lines()
+        .find(|l| l.contains("class Document:"))
+        .unwrap_or("");
+    assert!(
+        doc_line.contains("Printable") && doc_line.contains("Serializable"),
+        "Both bases should appear on the class Document: line: {}",
+        doc_line
+    );
+}

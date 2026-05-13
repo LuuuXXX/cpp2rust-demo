@@ -90,17 +90,17 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | 函数模板（无显式特化） | ⚠️ 跳过 | — | ⚠️（需实例化） | AST 中需有 concrete specialization；`ToolConservative` |
 | 运算符重载 | ⚠️ 半自动 | `free/shim_ops.rs` | ❌ | 生成 `operator_shims.hpp` starter；需手写 C++ shim 再绑定 |
 | 析构函数 | ❌ 跳过 | — | ❌ | `HiccLimitation`；由 RAII 管理 |
-| 多重继承 | ❌ 仅首个基类 | `method/mtd_*.rs`（部分） | ❌ | `ToolLimit`；hicc 亦不支持 |
+| 多重继承 | ✅ 全部 public 基类提取 | `method/mtd_*.rs` | ❌ | 所有 public 基类均提取至 `ClassIR.bases`，`render_import_class()` 以 `, ` 分隔列出（P3 已实现） |
 | 虚继承（菱形继承） | ⚠️ 跳过并报告 | 接口报告 | ❌ | 虚基类被跳过，接口报告列出警告（P3 已实现） |
 | 友元函数 | ❌ 跳过 | — | ❌ | AST 不可靠提取；`HiccLimitation` |
-| 函数指针参数 | ❌ 跳过 | — | ❌ | `HiccLimitation`；建议封装为虚函数接口 |
+| 函数指针参数 | ⚠️ 跳过并生成接口建议 | 接口报告 | ❌ | `ToolConservative`；接口报告自动生成虚函数接口骨架 + `@make_proxy` 使用提示（P3 已实现） |
 | `std::string` 参数/返回值 | ⚠️ 跳过并生成 shim 建议 | 接口报告 / `operator_shims.hpp` | ❌ | 跳过；接口报告和 `operator_shims.hpp` 自动生成 `const char*` shim 原型（P2 已实现） |
 | `std::function` / lambda 参数 | ⚠️ 跳过并生成接口建议 | 接口报告 | ✅（hicc 支持） | 跳过；接口报告自动生成虚函数接口 + `@make_proxy` 使用骨架（P2 已实现） |
 | `auto` / `decltype` 返回类型 | ❌ 跳过 | — | ❌ | `HiccLimitation`；需手写包装函数 |
-| `va_list` / variadic `...` | ❌ 跳过 | — | ⚠️（hicc 部分支持） | 工具层未处理；`HiccLimitation` |
+| `va_list` / variadic `...` | ✅ 自动提取（`va_list` 最后参数） | `free/fn_*.rs` | ⚠️（hicc 部分支持） | `va_list` 作为最后参数时提取为 `unsafe fn`，Rust 绑定追加 `...`（P3 已实现） |
 | 链式类型别名（`using B = A; using A = T<...>`） | ✅ 已支持 | — | ✅（hicc 支持） | AliasRegistry 传递性闭合解析（P1 已实现） |
 | 方法模板（类内函数模板） | ❌ 跳过 | — | ❌ | `HiccLimitation` |
-| `dynamic_cast` | ❌ 未生成 | — | ✅（hicc 支持） | 工具未处理，需手写 |
+| `dynamic_cast` | ✅ 骨架自动生成 | `free/dynamic_casts.rs` | ✅（hicc 支持） | 识别继承关系，在 `free/dynamic_casts.rs` 输出注释掉的 `@dynamic_cast` 绑定骨架供用户解注释使用（P3 已实现） |
 | 类成员变量 / 静态变量 | ✅ 自动提取（非静态字段） | `method/mtd_*.rs` | ✅ | `#[cpp(field=...)]` 生成 `get_<name>` / `get_<name>_mut` 访问器（P2 已实现） |
 | placement new（Rust 内存构造 C++ 对象） | ❌ 未生成 | — | ✅（hicc 支持） | 工具未处理 |
 | C++ 容器存储 Rust 数据（RustAny） | ❌ 未生成 | — | ✅（hicc 支持） | 工具未处理 |
@@ -119,11 +119,11 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | **`std::function` / lambda 参数** | 跳过（无生成） | ToolLimit | AST 中识别 `std::function<R(Args)>` 类型，生成对应虚函数接口 + `@make_proxy` 绑定骨架建议到接口报告 | `ast.rs` 类型识别 + `codegen.rs` 报告输出 | P2 ✅ |
 | **类成员变量 / 静态变量** | 未提取 | ToolLimit | AST 中提取 `FieldDecl` / `VarDecl`（static），生成 `#[cpp(field)]` / `#[cpp(data)]` 绑定到 `free/` 或 `method/` | `ast.rs` 新增 `FieldIR` + `codegen.rs` render | P2 ✅ |
 | **`std::string` 参数/返回（shim 建议）** | 跳过（`hicc_limitation`） | ToolConservative | 在接口报告和 `operator_shims.hpp` 中自动生成可复制的 C++ shim 函数原型（`static inline const char* foo_shim(...)`） | `ast.rs` `SkippedDecl.suggested_shim` + `codegen.rs` | P2 ✅ |
-| **多重继承（全部 public 基类）** | 仅提取首个基类 | ToolLimit | `ClassIR.bases` 改为 `Vec<String>` 存全部 public 基类，`render_import_class()` 生成 `class C: A + B`（需确认 hicc 语法） | `ast.rs` `ClassIR` + `codegen.rs` | P3 |
+| **多重继承（全部 public 基类）** | ✅ 已实现：`ClassIR.bases` 为 `Vec<String>`，所有 public 基类均提取，`render_import_class()` 以 `, ` 分隔列出 | ToolLimit | `ClassIR.bases` 改为 `Vec<String>` 存全部 public 基类，`render_import_class()` 生成 `class C: A, B`（hicc 多重继承不支持，骨架仍有参考价值） | `ast.rs` `ClassIR` + `codegen.rs` | P3 ✅ |
 | **虚继承检测与提示** | ✅ 已实现：`BaseSpecifier.is_virtual` 跳过虚基类，接口报告列出警告 | ToolLimit | `BaseSpecifier` 增加 `is_virtual: bool`，跳过虚基类并在接口报告中列出 `Virtual bases (skipped)` | `ast.rs` `BaseSpecifier` + `codegen.rs` | P3 ✅ |
-| **函数指针参数（接口建议）** | 跳过无提示 | ToolConservative | 识别含 `(*)` 的类型，在接口报告中生成对应纯虚接口类模板 + `@make_proxy` 调用示例 | `ast.rs` skip 分支 + `codegen.rs` | P3 |
-| **`dynamic_cast` 绑定** | 未生成 | ToolLimit | 识别继承关系中可做 downcast 的类对，在 `free/` 生成 `@dynamic_cast` 绑定骨架 | `ast.rs` 继承链分析 + `codegen.rs` | P3 |
-| **`va_list` / variadic 函数** | 跳过 | ToolConservative | 识别 `va_list` 最后参数，生成对应 `unsafe fn foo(name: &T, ...)` 绑定（hicc 支持，参数/返回无类类型限制需校验） | `ast.rs` 参数类型识别 + `codegen.rs` | P3 |
+| **函数指针参数（接口建议）** | ✅ 已实现：识别含 `(*)` 的类型，分类为 `ToolConservative`，在接口报告中生成虚函数接口骨架 + `@make_proxy` 调用示例 | ToolConservative | 识别含 `(*)` 的类型，在接口报告中生成对应纯虚接口类模板 + `@make_proxy` 调用示例 | `ast.rs` skip 分支 + `codegen.rs` | P3 ✅ |
+| **`dynamic_cast` 绑定** | ✅ 已实现：识别继承关系中可做 downcast 的类对，在 `free/dynamic_casts.rs` 生成注释掉的 `@dynamic_cast` 绑定骨架 | ToolLimit | 识别继承关系中可做 downcast 的类对，在 `free/` 生成 `@dynamic_cast` 绑定骨架 | `ast.rs` 继承链分析 + `codegen.rs` | P3 ✅ |
+| **`va_list` / variadic 函数** | ✅ 已实现：识别 `va_list` 最后参数，提取为 `unsafe fn foo(fixed_params, ...) -> T` 绑定；`is_variadic = true` 标记在 `FunctionIR` | ToolConservative | 识别 `va_list` 最后参数，生成对应 `unsafe fn foo(name: &T, ...)` 绑定（hicc 支持，参数/返回无类类型限制需校验） | `ast.rs` 参数类型识别 + `codegen.rs` | P3 ✅ |
 | **`--dry-run` 模式** | 不支持 | ToolLimit | `init` 子命令增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，仅打印接口报告到 stdout | `main.rs` CLI + init 主流程 | P2 ✅ |
 | **placement new 绑定** | 未生成 | ToolLimit | 识别构造函数签名，在 codegen 阶段对需要 placement new 场景生成对应 Rust 接口骨架 | `ast.rs` + `codegen.rs` | P4 |
 | **C++ 容器存储 Rust 数据（RustAny 模板）** | 未生成 | ToolLimit | 识别 STL 容器实例化类型，在 `types/` 中生成 `hicc::RustAny<T>` 类型映射建议 | `ast.rs` + `codegen.rs` | P4 |
@@ -152,3 +152,12 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | P2 `std::string` shim 建议 | ✅ 已实现 | 新增 `SkippedDecl.suggested_shim`；`generate_unsupported_type_shim()` 对 `std::string` 参数/返回生成 `const char*` shim 原型；接口报告显示 `Shim Suggestions` 章节；同步写入 `operator_shims.hpp` |
 | P2 `std::function` 接口建议 | ✅ 已实现 | 同 `suggested_shim` 机制；`is_std_function_type()` 检测；接口报告生成虚函数接口骨架 + `@make_proxy` 使用提示 |
 | P2 `--dry-run` 模式 | ✅ 已实现 | `InitArgs` 新增 `--dry-run` 标志；启用时跳过所有 `rust/src/` 写入，接口报告打印到 stdout；AST JSON 仍保存供调试 |
+
+**批次三改进状态（P3，已完成）：**
+
+| 改进项 | 状态 | 说明 |
+|-------|:----:|------|
+| P3 多重继承（全部 public 基类） | ✅ 已实现 | `ClassIR.bases: Vec<String>` 存储所有 public 基类；`render_import_class()` 以 `, ` 分隔列出（hicc 不支持多重继承，骨架仅作参考） |
+| P3 函数指针参数（接口建议） | ✅ 已实现 | `is_function_pointer_type()` 检测含 `(*)` 类型；`categorize_unsupported_type()` 分类为 `ToolConservative`；`generate_unsupported_type_shim()` 生成虚函数接口骨架（`FooHandler`）+ `@make_proxy` 使用提示；接口报告显示 `Shim Suggestions` |
+| P3 `@dynamic_cast` 绑定骨架 | ✅ 已实现 | `render_dynamic_casts_module()` 遍历有基类的类，在 `free/dynamic_casts.rs` 输出注释掉的 `@dynamic_cast<Derived>(Base *)` 绑定供用户按需解注释；`free/mod.rs` 自动注册 `dynamic_casts` 子模块 |
+| P3 `va_list` / variadic 函数 | ✅ 已实现 | `is_va_list_type()` 检测 `va_list` / `__va_list_tag *` 等变体；`FunctionIR.is_variadic: bool` 标记；`extract_function()` 检测最后参数为 `va_list` 时跳过该参数并置 `is_variadic = true`；`render_free_function_with_name()` / `render_method()` 生成 `unsafe fn foo(fixed_params, ...) -> T` 绑定；接口报告增加 `Variadic Functions` 和 `@dynamic_cast Skeletons` 章节 |
