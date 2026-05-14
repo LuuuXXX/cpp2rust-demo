@@ -1906,7 +1906,11 @@ fn extract_function(
     }
 
     let is_const = qual_type.ends_with(") const") || qual_type.ends_with("() const");
-    let is_rvalue = qual_type.ends_with(") &&") || qual_type.ends_with("() &&");
+    // Clang emits `"T () &&"` for rvalue-ref qualified methods.  We also
+    // trim trailing whitespace defensively in case of minor formatting
+    // variations across clang versions.
+    let rval_qt = qual_type.trim_end();
+    let is_rvalue = rval_qt.ends_with(") &&") || rval_qt.ends_with("() &&");
     let is_static = node.storage_class.as_deref() == Some("static");
     let is_virtual = node.is_virtual.unwrap_or(false);
     let is_pure = node.is_pure.unwrap_or(false);
