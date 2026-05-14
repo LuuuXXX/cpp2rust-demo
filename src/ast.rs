@@ -3471,6 +3471,281 @@ mod tests {
         assert!(!reasons.contains(&"pure_virtual"));
     }
 
+    // -----------------------------------------------------------------------
+    // AliasRegistry unit tests (1:N mapping, precise type lookup, transitive)
+    // -----------------------------------------------------------------------
+
+    /// Basic single-alias insertion and all lookup paths.
+    #[test]
+    fn test_alias_registry_insert_and_lookup() {
+        let mut reg = AliasRegistry::default();
+        reg.insert("Doc", "rapidjson::GenericDoc<rapidjson::UTF8<char>>");
+
+        // alias_for_template returns the (sole) alias for the bare name.
+        assert_eq!(
+            reg.alias_for_template("GenericDoc"),
+            Some("Doc"),
+            "alias_for_template should find 'Doc' for bare name 'GenericDoc'"
+        );
+        // alias_for_type matches the full qualified type.
+        assert_eq!(
+            reg.alias_for_type("rapidjson::GenericDoc<rapidjson::UTF8<char>>"),
+            Some("Doc"),
+            "alias_for_type should find 'Doc' for the full type"
+        );
+        // full_type_for_alias rounds back.
+        assert_eq!(
+            reg.full_type_for_alias("Doc"),
+            Some("rapidjson::GenericDoc<rapidjson::UTF8<char>>")
+        );
+        // has_template_alias and is_alias_of_template helpers.
+        assert!(reg.has_template_alias("GenericDoc"));
+        assert!(reg.is_alias_of_template("Doc"));
+        // Unknown names return None / false.
+        assert!(reg.alias_for_template("Other").is_none());
+        assert!(reg.alias_for_type("Other<int>").is_none());
+    }
+
+    /// Two aliases for different specialisations of the same template are both
+    /// stored; `alias_for_type` picks the correct one per specialisation while
+    /// `alias_for_template` returns the first registered alias as a fallback.
+    #[test]
+    fn test_alias_registry_multiple_aliases_same_template() {
+        let mut reg = AliasRegistry::default();
+        // using IntBox  = Box<int>;
+        // using StrBox  = Box<std::string>;
+        reg.insert("IntBox", "Box<int>");
+        reg.insert("StrBox", "Box<std::string>");
+
+        // Both aliases are registered under the same bare template name.
+        let aliases = reg
+            .template_to_alias
+            .get("Box")
+            .expect("Box must be present");
+        assert!(
+            aliases.contains(&"IntBox".to_string()),
+            "IntBox should be in the alias list"
+        );
+        assert!(
+            aliases.contains(&"StrBox".to_string()),
+            "StrBox should be in the alias list"
+        );
+
+        // Precise per-type lookup returns the matching alias.
+        assert_eq!(
+            reg.alias_for_type("Box<int>"),
+            Some("IntBox"),
+            "alias_for_type should return IntBox for Box<int>"
+        );
+        assert_eq!(
+            reg.alias_for_type("Box<std::string>"),
+            Some("StrBox"),
+            "alias_for_type should return StrBox for Box<std::string>"
+        );
+
+        // alias_for_template falls back to the first registered alias.
+        assert_eq!(
+            reg.alias_for_template("Box"),
+            Some("IntBox"),
+            "alias_for_template should return the first alias (IntBox)"
+        );
+
+        // Both aliases resolve correctly through full_type_for_alias.
+        assert_eq!(reg.full_type_for_alias("IntBox"), Some("Box<int>"));
+        assert_eq!(reg.full_type_for_alias("StrBox"), Some("Box<std::string>"));
+    }
+
+    /// `alias_for_type` must strip a leading `class ` or `struct ` keyword
+    /// before matching, since clang sometimes emits those prefixes in
+    /// `type_info.qual_type`.
+    #[test]
+    fn test_alias_registry_alias_for_type_strips_prefix() {
+        let mut reg = AliasRegistry::default();
+        reg.insert("MyAlias", "Tmpl<int>");
+
+        // Exact match (no prefix).
+        assert_eq!(reg.alias_for_type("Tmpl<int>"), Some("MyAlias"));
+        // With 'class ' prefix.
+        assert_eq!(reg.alias_for_type("class Tmpl<int>"), Some("MyAlias"));
+        // With 'struct ' prefix.
+        assert_eq!(reg.alias_for_type("struct Tmpl<int>"), Some("MyAlias"));
+        // Whitespace around the type.
+        assert_eq!(reg.alias_for_type("  Tmpl<int>  "), Some("MyAlias"));
+    }
+
+    /// Inserting the same alias name twice (idempotent) must not duplicate the
+    /// entry in the `template_to_alias` Vec.
+    #[test]
+    fn test_alias_registry_duplicate_insert_noop() {
+        let mut reg = AliasRegistry::default();
+        reg.insert("Alias", "Tmpl<int>");
+        reg.insert("Alias", "Tmpl<int>");
+
+        let aliases = reg
+            .template_to_alias
+            .get("Tmpl")
+            .expect("Tmpl must be present");
+        assert_eq!(
+            aliases.iter().filter(|a| a.as_str() == "Alias").count(),
+            1,
+            "Alias should appear exactly once even after duplicate insertion"
+        );
+    }
+
+    /// Transitive alias chains (`using B = A; using A = Tmpl<int>;`) must
+    /// resolve: B ends up in `alias_to_type`, the Vec in `template_to_alias`,
+    /// and `type_to_alias` so that `alias_for_type` / `alias_for_template`
+    /// both find either alias.
+    #[test]
+    fn test_alias_registry_transitive_1n() {
+        let mut reg = AliasRegistry::default();
+        // Direct alias: A → Tmpl<int>
+        reg.insert("A", "Tmpl<int>");
+        // Indirect alias: B → A (not yet a template type).
+        // Simulate what collect_alias_nodes does: insert B with val "A" (no '<').
+        reg.alias_to_type.insert("B".to_string(), "A".to_string());
+
+        reg.resolve_transitive();
+
+        // After transitive resolution B should point directly to Tmpl<int>.
+        assert_eq!(
+            reg.full_type_for_alias("B"),
+            Some("Tmpl<int>"),
+            "B should transitively resolve to Tmpl<int>"
+        );
+        // B should also be in the template_to_alias Vec for "Tmpl".
+        let aliases = reg
+            .template_to_alias
+            .get("Tmpl")
+            .expect("Tmpl must be present");
+        assert!(
+            aliases.contains(&"B".to_string()),
+            "B should appear in the alias Vec after transitive resolution"
+        );
+        // alias_for_type should find at least one of A or B for the type.
+        let found = reg.alias_for_type("Tmpl<int>");
+        assert!(
+            found == Some("A") || found == Some("B"),
+            "alias_for_type should return A or B for Tmpl<int>, got {:?}",
+            found
+        );
+    }
+
+    /// End-to-end: when a `ClassTemplateDecl` contains two
+    /// `ClassTemplateSpecializationDecl` children, each with a distinct
+    /// `type_info.qual_type` that maps to its own alias, `extract_declarations`
+    /// must produce **two** separate `ClassIR` entries, each using its own
+    /// alias as the Rust struct name (via `canonical_name`).
+    #[test]
+    fn test_extract_two_specialisations_use_distinct_aliases() {
+        let target = Path::new("/tmp/two_specs.cpp");
+        let loc = Location {
+            file: Some(target.display().to_string()),
+            line: None,
+            col: None,
+            offset: None,
+            spelling_loc: None,
+            expansion_loc: None,
+            included_from: None,
+        };
+
+        // Build an AST that looks like:
+        //   using IntBox = Box<int>;
+        //   using StrBox = Box<std::string>;
+        //   template<typename T> class Box { public: T value(); };
+        //   // specialisations
+        //   class Box<int> (complete)
+        //   class Box<std::string> (complete)
+        let alias_int = AstNode {
+            kind: "TypeAliasDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("IntBox".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "Box<int>".to_string(),
+            }),
+            ..AstNode::default()
+        };
+        let alias_str = AstNode {
+            kind: "TypeAliasDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("StrBox".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "Box<std::string>".to_string(),
+            }),
+            ..AstNode::default()
+        };
+
+        let make_spec = |qt: &str| AstNode {
+            kind: "ClassTemplateSpecializationDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("Box".to_string()),
+            complete_definition: Some(true),
+            tag_used: Some("class".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: qt.to_string(),
+            }),
+            inner: Some(vec![]),
+            ..AstNode::default()
+        };
+
+        let template_decl = AstNode {
+            kind: "ClassTemplateDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("Box".to_string()),
+            inner: Some(vec![make_spec("Box<int>"), make_spec("Box<std::string>")]),
+            ..AstNode::default()
+        };
+
+        let ast = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            loc: Some(loc.clone()),
+            inner: Some(vec![alias_int, alias_str, template_decl]),
+            ..AstNode::default()
+        };
+
+        let decls = extract_declarations(&ast, &[target]);
+
+        // Exactly two classes should be extracted (one per specialisation).
+        assert_eq!(
+            decls.classes.len(),
+            2,
+            "expected two ClassIR entries, one per specialisation alias; got {}: {:?}",
+            decls.classes.len(),
+            decls
+                .classes
+                .iter()
+                .map(|c| c.canonical_name.as_deref().unwrap_or(&c.name))
+                .collect::<Vec<_>>()
+        );
+
+        // Collect the Rust struct names (canonical_name when set, else name).
+        let rust_names: Vec<&str> = decls
+            .classes
+            .iter()
+            .map(|c| c.canonical_name.as_deref().unwrap_or(c.name.as_str()))
+            .collect();
+
+        assert!(
+            rust_names.contains(&"IntBox"),
+            "IntBox should be extracted; got {:?}",
+            rust_names
+        );
+        assert!(
+            rust_names.contains(&"StrBox"),
+            "StrBox should be extracted; got {:?}",
+            rust_names
+        );
+
+        // Both are flagged as template specialisations.
+        for class in &decls.classes {
+            assert!(
+                class.is_template_specialization,
+                "class {} should have is_template_specialization = true",
+                class.name
+            );
+        }
+    }
+
     /// Verify that a class with MIXED concrete + pure-virtual methods:
     /// - extracts the concrete methods normally (including non-pure virtual),
     /// - moves the pure-virtual methods to `pure_virtual_methods` (companion interface),
