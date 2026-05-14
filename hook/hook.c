@@ -298,7 +298,6 @@ static void preprocess_file(const char *cc, int argc, char *argv[], const char *
     new_argv[pos++] = file;
     new_argv[pos++] = "-o";
     new_argv[pos++] = full_path;
-    new_argv[pos++] = "-P";
     for (int i = 0; i < argc; ++i) {
       new_argv[pos++] = argv[i];
     }
