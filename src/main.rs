@@ -702,7 +702,14 @@ fn create_original_name_symlink(mw_file: &Path) {
         if !symlink_path.exists() {
             // Target is a relative name so the symlink stays valid if the
             // capture directory is moved.
-            let _ = std::os::unix::fs::symlink(file_name, &symlink_path);
+            if let Err(e) = std::os::unix::fs::symlink(file_name, &symlink_path) {
+                eprintln!(
+                    "  Warning: could not create symlink {} → {}: {}",
+                    symlink_path.display(),
+                    file_name,
+                    e
+                );
+            }
         }
     }
 }
