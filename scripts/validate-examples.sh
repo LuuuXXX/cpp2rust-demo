@@ -488,7 +488,6 @@ check_any_rs  "${OUT}" 'Store_i32\|Store<int>\|store_i32'
 # At least the put() method must be extracted
 check_any_rs  "${OUT}" 'fn put'
 
-
 echo ""
 echo "══════════════════════════════════════════════════════"
 echo "  Generated .cpp2rust feature summary"
