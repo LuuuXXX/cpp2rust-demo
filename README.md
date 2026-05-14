@@ -74,6 +74,7 @@ cpp2rust-demo init --link mylib -- make -j4
 - `--clang <bin>`：指定 clang 可执行文件（默认 `clang`，也可用 `CPP2RUST_CLANG` 环境变量）
 - `--extra-clang-args "<args>"`：附加 AST 阶段 clang 参数（例如 `-std=c++17 -Iinclude`）
 - `--no-link` / `--header-only`：header-only/no-link 模式；生成的 `build.rs` 不再输出目标库 `cargo::rustc-link-lib=<link_name>`
+- `--dry-run`：仅执行构建捕获和 AST dump，不写入 `rust/src/`；接口报告输出到 stdout（适合快速验证 entry.cpp 配置）
 - `-- <BUILD_CMD...>`：真实构建命令（必填）
 
 也可用单个翻译单元触发流程（如 header-only 库）：
@@ -106,6 +107,17 @@ cpp2rust-demo merge --feature myfeature --output /tmp/merged-rust
   - 导出会跳过顶层 `src.1` / `src.2`
   - 导出后的 `src` 会是实体目录（跟随 `src -> src.2` 符号链接复制）
   - 目标目录必须为空目录（或不存在）
+
+### 3) 查看模板别名建议（`suggest-aliases`）
+
+当 `init` 后接口报告中出现 `tool_conservative` 的模板跳过项时，可运行：
+
+```bash
+cpp2rust-demo suggest-aliases
+cpp2rust-demo suggest-aliases --feature myfeature
+```
+
+工具会从已保存的 AST JSON 中提取所有跳过的模板特化，输出可直接复制到 entry.cpp 的 `using Alias = FullType<...>;` 建议列表，帮助解锁对应的 FFI 提取。
 
 ## 产物目录说明
 

@@ -161,13 +161,15 @@ examples/
 | `std::` 容器参数（无别名） | 跳过 | 为容器类型添加 `using` 别名 |
 | 函数模板（无显式特化） | 跳过 | 见 `conditional/02-function-template/` |
 
-### ⛔ 工具层面限制（ToolLimit，可改进）
+### ✅ 已解决的工具层面限制（原 ToolLimit）
 
-| C++ 特性 | 当前行为 | 计划改进 |
-|---------|---------|---------|
-| 多重继承 | 只处理首个 public 基类 | `docs/future-plan.md §2` |
-| 链式类型别名 | AliasRegistry 不追踪两层别名 | `docs/future-plan.md §3` |
-| 虚继承（菱形继承） | Virtual 基类被跳过 | `docs/future-plan.md §4` |
+以下限制已在工具层面解决，无需用户操作：
+
+| C++ 特性 | 当前行为 | 备注 |
+|---------|---------|------|
+| 多重继承 | 所有 public 基类均提取，生成 `class C: A, B` 骨架 | hicc 本身不支持多重继承运行时语义，骨架仅供参考；需手写 C++ 委托包装后单继承绑定 |
+| 链式类型别名 | AliasRegistry 传递性闭合解析已实现，`using B = A; using A = T<…>` 能正确解锁 `B` 对应的模板提取 | 完全自动，无需用户操作 |
+| 虚继承（菱形继承） | 虚基类自动检测并跳过，接口报告列出 `⚠️ Virtual bases (skipped)` 警告 | hicc 不支持虚继承，工具已给出明确提示 |
 
 ---
 
