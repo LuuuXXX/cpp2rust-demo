@@ -41,10 +41,7 @@ where
             Ok(None)
         }
 
-        fn visit_some<D2: serde::Deserializer<'de>>(
-            self,
-            d: D2,
-        ) -> Result<Self::Value, D2::Error> {
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<Self::Value, D2::Error> {
             d.deserialize_any(ValueVisitor)
         }
 
@@ -451,8 +448,10 @@ pub struct FunctionIR {
     /// Whether this is a `static` method.
     pub is_static: bool,
     /// Whether this is a virtual method.
+    #[allow(dead_code)]
     pub is_virtual: bool,
     /// Whether this is a pure-virtual method.
+    #[allow(dead_code)]
     pub is_pure: bool,
     /// Class name, if this is a method.
     pub class_name: Option<String>,
@@ -581,6 +580,7 @@ pub struct AliasIR {
     /// The alias name as declared in C++ (e.g. `"MyInt"`).
     pub name: String,
     /// Fully namespace-qualified alias name (e.g. `"myns::MyInt"`).
+    #[allow(dead_code)]
     pub qualified_name: String,
     /// The C++ type being aliased (e.g. `"unsigned int"`).
     pub aliased_cpp_type: String,
@@ -741,8 +741,13 @@ pub fn dump_ast(
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|e| anyhow!("parse clang AST JSON for {}: {}", header.display(), e))?;
-    serde_json::from_value(v)
-        .map_err(|e| anyhow!("deserialize AstNode from clang AST JSON for {}: {}", header.display(), e))
+    serde_json::from_value(v).map_err(|e| {
+        anyhow!(
+            "deserialize AstNode from clang AST JSON for {}: {}",
+            header.display(),
+            e
+        )
+    })
 }
 
 /// Extract `FunctionIR` / `ClassIR` from the AST root, keeping only declarations
@@ -894,8 +899,8 @@ fn qualify_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>) -> Stri
     };
 
     // Strip optional `const` prefix.
-    let (is_const, bare) = if core.starts_with("const ") {
-        (true, core["const ".len()..].trim())
+    let (is_const, bare) = if let Some(rest) = core.strip_prefix("const ") {
+        (true, rest.trim())
     } else {
         (false, core)
     };
@@ -944,6 +949,7 @@ fn is_target(file: &str, targets: &[&Path]) -> bool {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk_node(
     node: &AstNode,
     current_file: &mut String,
@@ -992,7 +998,14 @@ fn walk_node(
             }
             if is_operator_name(node.name.as_deref()) {
                 collect_operator_shim(node, namespace, None, None, result);
-                record_skipped(result, node, namespace, None, "operator_overload", SkipCategory::HiccLimitation);
+                record_skipped(
+                    result,
+                    node,
+                    namespace,
+                    None,
+                    "operator_overload",
+                    SkipCategory::HiccLimitation,
+                );
                 return;
             }
             if let Some(ir) = extract_function(
@@ -1486,13 +1499,9 @@ fn extract_class_body(
             }
             // Non-static instance fields.
             "FieldDecl" => {
-                if let Some(field) = extract_field(
-                    child,
-                    class_name,
-                    qualified_name,
-                    class_map,
-                    alias_registry,
-                ) {
+                if let Some(field) =
+                    extract_field(child, class_name, qualified_name, class_map, alias_registry)
+                {
                     class_ir.fields.push(field);
                 }
             }
@@ -1543,7 +1552,13 @@ fn extract_class_body(
         // Fully abstract class → extract PVMs into `methods` (#[interface]).
         for pvm in &pure_virtual_nodes {
             if is_operator_name(pvm.name.as_deref()) {
-                collect_operator_shim(pvm, namespace, Some(class_name), Some(qualified_name), result);
+                collect_operator_shim(
+                    pvm,
+                    namespace,
+                    Some(class_name),
+                    Some(qualified_name),
+                    result,
+                );
                 record_skipped(
                     result,
                     pvm,
@@ -1572,7 +1587,13 @@ fn extract_class_body(
         // Mixed class: extract pure-virtual methods into a companion interface.
         for pvm in &pure_virtual_nodes {
             if is_operator_name(pvm.name.as_deref()) {
-                collect_operator_shim(pvm, namespace, Some(class_name), Some(qualified_name), result);
+                collect_operator_shim(
+                    pvm,
+                    namespace,
+                    Some(class_name),
+                    Some(qualified_name),
+                    result,
+                );
                 record_skipped(
                     result,
                     pvm,
@@ -1630,9 +1651,7 @@ fn collect_operator_shim(
     let (return_cpp_type, is_const) = if let Some(ref ti) = node.type_info {
         let qt = ti.qual_type.as_str();
         let is_c = qt.ends_with(") const");
-        let ret = parse_fn_qual_type(qt)
-            .map(|(r, _)| r)
-            .unwrap_or_default();
+        let ret = parse_fn_qual_type(qt).map(|(r, _)| r).unwrap_or_default();
         (ret, is_c)
     } else {
         (String::new(), false)
@@ -1658,7 +1677,11 @@ fn collect_operator_shim(
                 .map(|t| t.qual_type.clone())
                 .unwrap_or_else(|| format!("/* unknown_type_{} */", i));
             let rust_type = cpp_to_rust_type(&cpp_type);
-            ParamIR { name: pname, cpp_type, rust_type }
+            ParamIR {
+                name: pname,
+                cpp_type,
+                rust_type,
+            }
         })
         .collect();
 
@@ -1721,6 +1744,7 @@ fn operator_shim_fn_name(op: &str, class_name: Option<&str>) -> String {
 }
 
 /// Extract a `FunctionIR` from a `FunctionDecl`, `CXXMethodDecl`, etc.
+#[allow(clippy::too_many_arguments)]
 fn extract_function(
     node: &AstNode,
     namespace: &[String],
@@ -1884,7 +1908,8 @@ fn extract_function(
                     (qname, qt)
                 })
                 .collect();
-            let shim = generate_unsupported_type_shim(name, class_name, &return_type, &all_param_types);
+            let shim =
+                generate_unsupported_type_shim(name, class_name, &return_type, &all_param_types);
             let stl_container = find_stl_container_type(&return_type, &all_param_types);
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
@@ -2035,7 +2060,10 @@ pub fn to_snake_case(s: &str) -> String {
 /// This is the alias-aware version used internally.  When a type is a
 /// template specialisation that has a known alias (e.g. `Document`), the
 /// alias name is returned instead of the bare template name.
-pub(crate) fn cpp_to_rust_type_with_aliases(cpp_type: &str, alias_registry: &AliasRegistry) -> String {
+pub(crate) fn cpp_to_rust_type_with_aliases(
+    cpp_type: &str,
+    alias_registry: &AliasRegistry,
+) -> String {
     let t = cpp_type.trim();
 
     // Pointer chain.
@@ -2088,20 +2116,49 @@ pub(crate) fn cpp_to_rust_type_with_aliases(cpp_type: &str, alias_registry: &Ali
 
     // Primitive mappings (delegate to the alias-free version for these).
     match t {
-        "void" | "bool" | "char" | "signed char" | "unsigned char"
-        | "short" | "short int" | "signed short" | "signed short int"
-        | "unsigned short" | "unsigned short int"
-        | "int" | "signed" | "signed int"
-        | "unsigned" | "unsigned int"
-        | "long" | "long int" | "signed long" | "signed long int"
-        | "unsigned long" | "unsigned long int"
-        | "long long" | "long long int" | "signed long long"
-        | "unsigned long long" | "unsigned long long int"
-        | "float" | "double" | "long double"
-        | "size_t" | "ssize_t" | "ptrdiff_t"
-        | "int8_t" | "int16_t" | "int32_t" | "int64_t"
-        | "uint8_t" | "uint16_t" | "uint32_t" | "uint64_t"
-        | "intptr_t" | "uintptr_t" => cpp_to_rust_type(t),
+        "void"
+        | "bool"
+        | "char"
+        | "signed char"
+        | "unsigned char"
+        | "short"
+        | "short int"
+        | "signed short"
+        | "signed short int"
+        | "unsigned short"
+        | "unsigned short int"
+        | "int"
+        | "signed"
+        | "signed int"
+        | "unsigned"
+        | "unsigned int"
+        | "long"
+        | "long int"
+        | "signed long"
+        | "signed long int"
+        | "unsigned long"
+        | "unsigned long int"
+        | "long long"
+        | "long long int"
+        | "signed long long"
+        | "unsigned long long"
+        | "unsigned long long int"
+        | "float"
+        | "double"
+        | "long double"
+        | "size_t"
+        | "ssize_t"
+        | "ptrdiff_t"
+        | "int8_t"
+        | "int16_t"
+        | "int32_t"
+        | "int64_t"
+        | "uint8_t"
+        | "uint16_t"
+        | "uint32_t"
+        | "uint64_t"
+        | "intptr_t"
+        | "uintptr_t" => cpp_to_rust_type(t),
         _ => {
             // For user-defined / template types: first check for a template alias.
             let bare = bare_class_name(t);
@@ -2220,8 +2277,8 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
 /// Strip a trailing `&` (with optional surrounding spaces) from a type string.
 fn strip_trailing_ref(t: &str) -> Option<&str> {
     let trimmed = t.trim_end();
-    if trimmed.ends_with('&') {
-        Some(trimmed[..trimmed.len() - 1].trim_end())
+    if let Some(rest) = trimmed.strip_suffix('&') {
+        Some(rest.trim_end())
     } else {
         None
     }
@@ -2270,12 +2327,24 @@ fn is_operator_name(name: Option<&str>) -> bool {
 ///   `"int"` → `"int"`
 pub(crate) fn bare_template_name(full_qual_type: &str) -> &str {
     // Step 1: everything before the first '<' (isolates outer class + namespace).
-    let before_angle = full_qual_type.split('<').next().unwrap_or(full_qual_type).trim();
+    let before_angle = full_qual_type
+        .split('<')
+        .next()
+        .unwrap_or(full_qual_type)
+        .trim();
     // Step 2: last '::' segment strips the namespace qualifier.
-    before_angle.rsplit("::").next().unwrap_or(before_angle).trim()
+    before_angle
+        .rsplit("::")
+        .next()
+        .unwrap_or(before_angle)
+        .trim()
 }
 
-fn is_supported_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>, alias_registry: &AliasRegistry) -> bool {
+fn is_supported_cpp_type(
+    cpp_type: &str,
+    class_map: &HashMap<String, String>,
+    alias_registry: &AliasRegistry,
+) -> bool {
     let t = cpp_type.trim();
     if t.is_empty() {
         return false;
@@ -2561,11 +2630,10 @@ fn extract_ctor(
             let qt = ti.qual_type.trim();
             let bare = bare_class_name(class_name);
             // Copy: `const ClassName &`
-            let is_copy = qt == format!("const {} &", bare)
-                || qt == format!("const {} &", class_name);
+            let is_copy =
+                qt == format!("const {} &", bare) || qt == format!("const {} &", class_name);
             // Move: `ClassName &&`
-            let is_move =
-                qt == format!("{} &&", bare) || qt == format!("{} &&", class_name);
+            let is_move = qt == format!("{} &&", bare) || qt == format!("{} &&", class_name);
             if is_copy || is_move {
                 return None;
             }
@@ -2580,16 +2648,14 @@ fn extract_ctor(
             .filter(|n| !n.is_empty())
             .unwrap_or(&format!("arg{}", i))
             .to_string();
-        let Some(ref cpp_type_str) = p.type_info.as_ref().map(|t| t.qual_type.clone()) else {
-            return None;
-        };
+        let cpp_type_str = p.type_info.as_ref().map(|t| t.qual_type.as_str())?;
         if !is_supported_cpp_type(cpp_type_str, class_map, alias_registry) {
             return None;
         }
         let rust_type = cpp_to_rust_type_with_aliases(cpp_type_str, alias_registry);
         params.push(ParamIR {
             name: pname,
-            cpp_type: cpp_type_str.clone(),
+            cpp_type: cpp_type_str.to_string(),
             rust_type,
         });
     }
@@ -2631,9 +2697,15 @@ fn extract_global_var(
 
     let is_const = has_top_level_const(&cpp_type);
     let rust_type = if is_const {
-        format!("&'static {}", cpp_to_rust_type_with_aliases(strip_top_level_const(&cpp_type), alias_registry))
+        format!(
+            "&'static {}",
+            cpp_to_rust_type_with_aliases(strip_top_level_const(&cpp_type), alias_registry)
+        )
     } else {
-        format!("&'static mut {}", cpp_to_rust_type_with_aliases(&cpp_type, alias_registry))
+        format!(
+            "&'static mut {}",
+            cpp_to_rust_type_with_aliases(&cpp_type, alias_registry)
+        )
     };
 
     let rust_name = to_snake_case(&name);
@@ -2822,10 +2894,7 @@ pub(crate) fn is_stl_container_type(t: &str) -> bool {
 /// skipped function / method.
 ///
 /// Returns `Some(container_type_string)` if any is found, otherwise `None`.
-fn find_stl_container_type(
-    return_type: &str,
-    params: &[(String, String)],
-) -> Option<String> {
+fn find_stl_container_type(return_type: &str, params: &[(String, String)]) -> Option<String> {
     if is_stl_container_type(return_type) {
         return Some(return_type.to_string());
     }
@@ -2846,10 +2915,10 @@ fn generate_unsupported_type_shim(
     return_type: &str,
     params: &[(String, String)],
 ) -> Option<String> {
-    let has_string = is_std_string_type(return_type)
-        || params.iter().any(|(_, t)| is_std_string_type(t));
-    let has_function = is_std_function_type(return_type)
-        || params.iter().any(|(_, t)| is_std_function_type(t));
+    let has_string =
+        is_std_string_type(return_type) || params.iter().any(|(_, t)| is_std_string_type(t));
+    let has_function =
+        is_std_function_type(return_type) || params.iter().any(|(_, t)| is_std_function_type(t));
     let has_fn_ptr = is_function_pointer_type(return_type)
         || params.iter().any(|(_, t)| is_function_pointer_type(t));
 
@@ -2902,7 +2971,9 @@ fn generate_unsupported_type_shim(
         } else {
             ""
         };
-        let class_self = class_name.map(|c| format!("{} &obj", c)).unwrap_or_default();
+        let class_self = class_name
+            .map(|c| format!("{} &obj", c))
+            .unwrap_or_default();
         let all_params = if shim_params.is_empty() {
             class_self.clone()
         } else if class_self.is_empty() {
@@ -2922,9 +2993,7 @@ fn generate_unsupported_type_shim(
                 "//   static std::string _ret = {call_prefix}{});\n",
                 call_args.join(", ")
             ));
-            out.push_str(&format!(
-                "//   {ret_prefix}_ret{ret_suffix};\n// }}\n"
-            ));
+            out.push_str(&format!("//   {ret_prefix}_ret{ret_suffix};\n// }}\n"));
         } else {
             out.push_str(&format!(
                 "//   {ret_prefix}{call_prefix}{}){ret_suffix};\n// }}\n",
@@ -2960,12 +3029,8 @@ fn generate_unsupported_type_shim(
             "// std::function detected in `{fn_name}` — suggest virtual interface + @make_proxy:\n"
         ));
         out.push_str(&format!("// struct {interface_name} {{\n"));
-        out.push_str(&format!(
-            "//   // Underlying type: {fn_type}\n"
-        ));
-        out.push_str(
-            "//   virtual /* return_type */ operator()(/* args */) = 0;\n",
-        );
+        out.push_str(&format!("//   // Underlying type: {fn_type}\n"));
+        out.push_str("//   virtual /* return_type */ operator()(/* args */) = 0;\n");
         out.push_str(&format!("//   virtual ~{interface_name}() = default;\n"));
         out.push_str("// };\n");
         out.push_str("// Then pass `&proxy_instance` instead of the std::function.\n");
@@ -3000,9 +3065,7 @@ fn generate_unsupported_type_shim(
             "// Function pointer `{fp_param_name}` in `{fn_name}` — suggest virtual interface + @make_proxy:\n"
         ));
         out.push_str(&format!("// struct {interface_name} {{\n"));
-        out.push_str(&format!(
-            "//   // Underlying type: {fp_type}\n"
-        ));
+        out.push_str(&format!("//   // Underlying type: {fp_type}\n"));
         out.push_str("//   virtual /* return_type */ call(/* args */) = 0;\n");
         out.push_str(&format!("//   virtual ~{interface_name}() = default;\n"));
         out.push_str("// };\n");
@@ -3012,7 +3075,11 @@ fn generate_unsupported_type_shim(
         out.push_str("// Use hicc @make_proxy to implement the interface from Rust.\n");
     }
 
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// Extract an `EnumIR` from an `EnumDecl` AST node.
@@ -3332,12 +3399,19 @@ mod tests {
         assert_eq!(decls.classes[0].methods.len(), 1);
         assert_eq!(decls.classes[0].methods[0].name, "virt");
         // The default constructor (0 params) is now extracted as a CtorIR, not skipped.
-        assert_eq!(decls.classes[0].ctors.len(), 1, "Widget() should be extracted as a CtorIR");
+        assert_eq!(
+            decls.classes[0].ctors.len(),
+            1,
+            "Widget() should be extracted as a CtorIR"
+        );
         let reasons: Vec<&str> = decls.skipped.iter().map(|s| s.reason.as_str()).collect();
         assert!(reasons.contains(&"template_decl"));
         assert!(reasons.contains(&"operator_overload"));
         // constructor is NOT in skipped – it was extracted as CtorIR.
-        assert!(!reasons.contains(&"constructor"), "extracted ctors should not appear in skipped list");
+        assert!(
+            !reasons.contains(&"constructor"),
+            "extracted ctors should not appear in skipped list"
+        );
         // pure_virtual is NOT in skipped for fully-abstract classes (it was extracted).
         assert!(!reasons.contains(&"pure_virtual"));
     }
@@ -3368,7 +3442,9 @@ mod tests {
             kind: "CXXMethodDecl".to_string(),
             loc: Some(loc.clone()),
             name: Some(name.to_string()),
-            type_info: Some(TypeInfo { qual_type: "int ()".to_string() }),
+            type_info: Some(TypeInfo {
+                qual_type: "int ()".to_string(),
+            }),
             is_virtual: Some(is_virtual),
             is_pure: Some(is_pure),
             inner: Some(vec![]),
@@ -3401,18 +3477,47 @@ mod tests {
 
         let decls = extract_declarations(&ast, &[target]);
         assert_eq!(decls.classes.len(), 1);
-        assert!(!decls.classes[0].is_abstract, "mixed class should not be abstract");
-        assert!(decls.classes[0].has_pure_virtual, "mixed class should have has_pure_virtual = true");
-        let method_names: Vec<&str> = decls.classes[0].methods.iter().map(|m| m.name.as_str()).collect();
+        assert!(
+            !decls.classes[0].is_abstract,
+            "mixed class should not be abstract"
+        );
+        assert!(
+            decls.classes[0].has_pure_virtual,
+            "mixed class should have has_pure_virtual = true"
+        );
+        let method_names: Vec<&str> = decls.classes[0]
+            .methods
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect();
         // Non-pure virtual and regular methods are extracted into `methods`.
-        assert!(method_names.contains(&"virt_concrete"), "non-pure virtual should be extracted");
-        assert!(method_names.contains(&"regular"), "regular method should be extracted");
+        assert!(
+            method_names.contains(&"virt_concrete"),
+            "non-pure virtual should be extracted"
+        );
+        assert!(
+            method_names.contains(&"regular"),
+            "regular method should be extracted"
+        );
         // Pure-virtual method in a mixed class goes to `pure_virtual_methods`.
-        assert!(!method_names.contains(&"pure_one"), "pure-virtual should not be in methods");
-        let pv_names: Vec<&str> = decls.classes[0].pure_virtual_methods.iter().map(|m| m.name.as_str()).collect();
-        assert!(pv_names.contains(&"pure_one"), "pure-virtual should be in pure_virtual_methods");
+        assert!(
+            !method_names.contains(&"pure_one"),
+            "pure-virtual should not be in methods"
+        );
+        let pv_names: Vec<&str> = decls.classes[0]
+            .pure_virtual_methods
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect();
+        assert!(
+            pv_names.contains(&"pure_one"),
+            "pure-virtual should be in pure_virtual_methods"
+        );
         // pure_virtual is NOT in the skipped list any more.
         let reasons: Vec<&str> = decls.skipped.iter().map(|s| s.reason.as_str()).collect();
-        assert!(!reasons.contains(&"pure_virtual"), "pure-virtual in mixed class should be extracted, not skipped");
+        assert!(
+            !reasons.contains(&"pure_virtual"),
+            "pure-virtual in mixed class should be extracted, not skipped"
+        );
     }
 }

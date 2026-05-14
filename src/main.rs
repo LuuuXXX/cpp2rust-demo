@@ -279,8 +279,6 @@ fn run_init(args: InitArgs) -> Result<()> {
         let has_free = has_free_bindings(&decls);
         let has_shims = !decls.operator_shims.is_empty()
             || decls.skipped.iter().any(|s| s.suggested_shim.is_some());
-        let mut has_class = false;
-        let mut has_method = false;
         let class_mod_name = format!("cls_{}", stem);
         let method_mod_name = format!("mtd_{}", stem);
         let free_mod_name = format!("fn_{}", stem);
@@ -307,7 +305,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             // Binding macros for instance methods are emitted under `method/`.
             let class_file_path = group_dir.join("class").join(format!("{class_mod_name}.rs"));
             let class_src = codegen::render_class_module(&decls);
-            has_class = !class_src.trim().is_empty();
+            let has_class = !class_src.trim().is_empty();
             if has_class {
                 std::fs::write(&class_file_path, class_src)
                     .map_err(|e| anyhow!("write {}: {}", class_file_path.display(), e))?;
@@ -323,7 +321,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                 .join("method")
                 .join(format!("{method_mod_name}.rs"));
             let method_src = codegen::render_method_module(&decls);
-            has_method = !method_src.trim().is_empty();
+            let has_method = !method_src.trim().is_empty();
             if has_method {
                 std::fs::write(&method_file_path, method_src)
                     .map_err(|e| anyhow!("write {}: {}", method_file_path.display(), e))?;
@@ -364,7 +362,8 @@ fn run_init(args: InitArgs) -> Result<()> {
                     println!("  Operator/string shims → {}", shims_hpp_path.display());
                 }
                 if !decls.operator_shims.is_empty() {
-                    let shims_rs = codegen::render_operator_shims_rs(&decls.operator_shims, link_name);
+                    let shims_rs =
+                        codegen::render_operator_shims_rs(&decls.operator_shims, link_name);
                     let shims_rs_path = group_dir.join("free").join("shim_ops.rs");
                     std::fs::write(&shims_rs_path, &shims_rs)
                         .map_err(|e| anyhow!("write shim_ops.rs: {}", e))?;
@@ -393,7 +392,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             let has_op_shims = !decls.operator_shims.is_empty();
             if has_free || has_op_shims || has_dynamic_casts || has_placement_new {
                 let free_submodules: Vec<&str> = [
-                    has_free.then(|| free_mod_name.as_str()),
+                    has_free.then_some(free_mod_name.as_str()),
                     has_op_shims.then_some("shim_ops"),
                     has_dynamic_casts.then_some("dynamic_casts"),
                     has_placement_new.then_some("placement_new"),
@@ -411,7 +410,11 @@ fn run_init(args: InitArgs) -> Result<()> {
             let group_mod_path = group_dir.join("mod.rs");
             std::fs::write(
                 &group_mod_path,
-                render_group_mod_rs(has_free || has_op_shims || has_dynamic_casts || has_placement_new, has_class, has_method),
+                render_group_mod_rs(
+                    has_free || has_op_shims || has_dynamic_casts || has_placement_new,
+                    has_class,
+                    has_method,
+                ),
             )
             .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
 
@@ -473,7 +476,10 @@ fn run_init(args: InitArgs) -> Result<()> {
             build_rs_sources.push(format!("src/{}/types/mod.rs", group_module));
             lib_modules.push(group_module.to_string());
 
-            println!("  Grouped module → {}", rust_src_dir.join(group_module).display());
+            println!(
+                "  Grouped module → {}",
+                rust_src_dir.join(group_module).display()
+            );
         } else {
             // dry-run: no file writes; has_class / has_method remain false.
         }
@@ -719,8 +725,8 @@ fn copy_merge_output(rust_dir: &Path, output_dir: &Path) -> Result<()> {
 
     let skip = ["src.1", "src.2"];
 
-    for entry in
-        std::fs::read_dir(rust_dir).map_err(|e| anyhow!("read dir {}: {}", rust_dir.display(), e))?
+    for entry in std::fs::read_dir(rust_dir)
+        .map_err(|e| anyhow!("read dir {}: {}", rust_dir.display(), e))?
     {
         let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
         let name = entry.file_name();
@@ -1216,7 +1222,11 @@ fn collect_alias_suggestions_from_ast(
                 let mut ns = namespace.to_vec();
                 ns.push(ns_name.clone());
                 for child in node.inner.iter().flatten() {
-                    results.extend(collect_alias_suggestions_from_ast(child, alias_registry, &ns));
+                    results.extend(collect_alias_suggestions_from_ast(
+                        child,
+                        alias_registry,
+                        &ns,
+                    ));
                 }
             }
         }
@@ -1258,7 +1268,11 @@ fn collect_alias_suggestions_from_ast(
 
         _ => {
             for child in node.inner.iter().flatten() {
-                results.extend(collect_alias_suggestions_from_ast(child, alias_registry, namespace));
+                results.extend(collect_alias_suggestions_from_ast(
+                    child,
+                    alias_registry,
+                    namespace,
+                ));
             }
         }
     }
@@ -1460,6 +1474,7 @@ mod tests {
             is_pure: false,
             class_name: None,
             is_variadic: false,
+            is_rvalue: false,
         }
     }
 
