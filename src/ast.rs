@@ -307,7 +307,7 @@ impl AliasRegistry {
                         if !bare.is_empty() {
                             let aliases =
                                 self.template_to_alias.entry(bare.to_string()).or_default();
-                            if !aliases.contains(key) {
+                            if !aliases.iter().any(|a| a == key) {
                                 aliases.push(key.clone());
                             }
                         }
@@ -390,7 +390,7 @@ impl AliasRegistry {
                     .template_to_alias
                     .entry(bare_template.to_string())
                     .or_default();
-                if !aliases.contains(&alias_name.to_string()) {
+                if !aliases.iter().any(|a| a == alias_name) {
                     aliases.push(alias_name.to_string());
                 }
             }
