@@ -13,7 +13,7 @@
 //
 // The free function declarations force clang to emit a concrete
 // ClassTemplateSpecializationDecl for Store<int>, which is required for
-// cpp2rust-demo to extract the specialised class body and its methods.
+// cpp2rust-demo to extract the specialized class body and its methods.
 //
 // Expected outputs:
 //   types/mod.rs  : pub type MyStore = IntStore;
