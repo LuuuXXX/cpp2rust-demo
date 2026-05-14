@@ -97,18 +97,18 @@ cpp2rust-demo merge --feature $FEATURE
 │   └── types.rs
 ├── mod_entry_document/
 │   ├── mod.rs
-│   ├── include/mod.rs       # hicc::cpp! { #include "entry-document.cpp.cpp2rust" }
+│   ├── include/mod.rs       # hicc::cpp! { #include "entry-document.cpp" }
 │   ├── types/mod.rs         # Value, Document 类型映射
 │   ├── class/mod.rs         # 类元信息
 │   └── method/
 │       └── mtd_entry_document.rs   # Value, Document import_class!
 ├── mod_entry_writer/
-│   ├── include/mod.rs       # hicc::cpp! { #include "entry-writer.cpp.cpp2rust" }
+│   ├── include/mod.rs       # hicc::cpp! { #include "entry-writer.cpp" }
 │   ├── types/mod.rs
 │   └── method/
 │       └── mtd_entry_writer.rs     # StringBuffer, Writer import_class!
 └── mod_entry_errors/
-    ├── include/mod.rs       # hicc::cpp! { #include "entry-errors.cpp.cpp2rust" }
+    ├── include/mod.rs       # hicc::cpp! { #include "entry-errors.cpp" }
     └── types/mod.rs         # ParseErrorCode enum
 ```
 
@@ -133,9 +133,9 @@ cpp2rust-demo merge --feature $FEATURE
 
 // Common includes / types across all groups
 hicc::cpp! {
-    #include "entry-document.cpp.cpp2rust"
-    #include "entry-writer.cpp.cpp2rust"
-    #include "entry-errors.cpp.cpp2rust"
+    #include "entry-document.cpp"
+    #include "entry-writer.cpp"
+    #include "entry-errors.cpp"
 }
 
 // ------- mod_entry_document -------

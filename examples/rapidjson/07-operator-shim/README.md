@@ -85,9 +85,7 @@ cpp2rust-demo merge --feature rj07
 #ifndef OPERATOR_SHIMS_HPP
 #define OPERATOR_SHIMS_HPP
 
-#include "entry.cpp.cpp2rust"
-
-/// Shim for `operator=`
+#include "entry.cpp"
 static inline JsonValue& json_value_assign(JsonValue& self, const JsonValue& rhs) {
     return self = rhs;
 }
@@ -228,7 +226,7 @@ hicc_build::Build::new()
 
 // include/ 中的 hicc::cpp! 块（自动生成，但需要用户引入 shims）：
 hicc::cpp! {
-    #include "entry.cpp.cpp2rust"
+    #include "entry.cpp"
     #include "operator_shims.hpp"       // ← 手动添加此行
 }
 

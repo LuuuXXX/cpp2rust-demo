@@ -107,6 +107,7 @@ cpp2rust-demo merge --feature myfeature --output /tmp/merged-rust
   - 导出会跳过顶层 `src.1` / `src.2`
   - 导出后的 `src` 会是实体目录（跟随 `src -> src.2` 符号链接复制）
   - 目标目录必须为空目录（或不存在）
+  - 同时将 `operator_shims.hpp` 与 `init-interface-report.md` 复制到 `<output>/meta/`
 
 ### 3) 查看模板别名建议（`suggest-aliases`）
 
@@ -125,7 +126,7 @@ cpp2rust-demo suggest-aliases --feature myfeature
 
 ```text
 .cpp2rust/<feature>/
-├── cpp/                    # 预处理中间件（*.cpp2rust）与对应 .opts
+├── cpp/                    # 预处理中间件（*.cpp2rust）与对应 .opts；同时含 *.cpp 符号链接
 ├── ast/                    # 每个选中文件的 clang AST JSON
 ├── meta/
 │   ├── build_cmd.txt
@@ -167,19 +168,20 @@ cpp2rust-demo suggest-aliases --feature myfeature
 
 ## C++ 与 Rust 代码关系
 
-- **C++ 侧输入**：`hook/hook.c` 拦截编译器调用，生成 `*.cpp2rust` 中间件。
+- **C++ 侧输入**：`hook/hook.c` 拦截编译器调用，生成 `*.cpp2rust` 中间件；`init` 同时在 capture 目录下创建同名符号链接（`entry.cpp → entry.cpp.cpp2rust`）。
 - **中间表示**：`*.cpp2rust` + clang AST JSON（`ast.rs` 解析）。
-- **Rust 侧输出**：`codegen.rs` 生成 `hicc::cpp!`、`hicc::import_lib!`、`hicc::import_class!` 及语义清单模块。
-- **合并阶段**：`merge.rs` 将 `mod_<group>` 的 include/types/free/class/method 与 common 整合为 `merged_ffi.rs`。
+- **Rust 侧输出**：`codegen.rs` 生成 `hicc::cpp!`、`hicc::import_lib!`、`hicc::import_class!` 及语义清单模块；include/mod.rs 中 `#include` 使用原始源文件名（如 `"entry.cpp"`）而非 `.cpp2rust` 后缀名。
+- **合并阶段**：`merge.rs` 将 `mod_<group>` 的 include/free/method/types（per-group 块）与 `common/types.rs` 整合为 `merged_ffi.rs`；`class/` 元信息常量和 `common/includes.rs` 路径元数据**不**写入合并输出，仍可在 `rust/src.1/` 原始产物中查阅。
 
 语义边界（v1）：
 
-- `include/`：`hicc::cpp!` include 上下文
+- `include/`：`hicc::cpp!` include 上下文（引用原始 `.cpp` 文件名，配合 capture 目录中的同名符号链接）
 - `free/`：自由函数与静态方法（`import_lib!`）
 - `method/`：实例方法绑定（`import_class!`）
-- `class/`：类级语义结构（类名、关系、计数等）
+- `class/`：类级语义结构（类名、关系、计数等）；仅存在于 per-group 产物，不进入合并输出
 - `types/`：类型清单、C++→Rust 映射与查询函数
-- `common/*`：跨 group 共享 include/type 语义
+- `common/types.rs`：跨 group 聚合类型块（写入全局 `merged_ffi.rs`）
+- `common/includes.rs`：路径元数据（**不**写入合并输出）
 
 跳过规则（记录在 `init-interface-report.md`）：
 
