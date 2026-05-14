@@ -4089,3 +4089,394 @@ fn init_report_contains_rust_any_section_for_stl() {
         &report[report.len().saturating_sub(500)..]
     );
 }
+
+// ---------------------------------------------------------------------------
+// Feature examples end-to-end tests
+//
+// Each test below runs the actual example file from examples/features/ through
+// the full init → merge pipeline and verifies the generated Rust output.
+// These tests serve as CI gates that confirm the tool handles each documented
+// ✅ feature correctly.
+//
+// Because the LD_PRELOAD hook only captures files under the project root
+// (the current working directory passed to `init`), each test copies the
+// example source files into the TempDir before invoking the binary.
+// ---------------------------------------------------------------------------
+
+/// Helper: returns the absolute repo root (where `examples/` lives).
+fn repo_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// Copy all files from `src_dir` into `dest_dir` (flat, no subdirectories).
+fn copy_example_dir(src_dir: &std::path::Path, dest: &TempDir) {
+    for entry in std::fs::read_dir(src_dir).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_file() {
+            let dest_path = dest.path().join(entry.file_name());
+            std::fs::copy(entry.path(), &dest_path).unwrap();
+        }
+    }
+}
+
+/// features/01-inline-functions/ — inline functions are extracted identically to non-inline
+#[test]
+fn example_inline_functions_extracted_like_non_inline() {
+    let tmp = TempDir::new().unwrap();
+    copy_example_dir(
+        &repo_root().join("examples/features/01-inline-functions"),
+        &tmp,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "math",
+            "--no-link",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "entry.cpp",
+        ])
+        .assert()
+        .success();
+
+    // Merge to produce merged_ffi.rs
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // Both inline and non-inline functions must be extracted as plain bindings
+    assert!(merged.contains("fn add"), "inline fn add must be extracted: {merged}");
+    assert!(merged.contains("fn mul"), "inline fn mul must be extracted: {merged}");
+    assert!(merged.contains("fn subtract"), "non-inline fn subtract must be extracted: {merged}");
+    // Overloaded clamp: first and second overload
+    assert!(merged.contains("fn clamp"), "fn clamp must be extracted: {merged}");
+    assert!(merged.contains("fn clamp_2"), "overloaded fn clamp_2 must be extracted: {merged}");
+}
+
+/// features/02-default-params/ — functions with default parameter values are extracted
+/// with the full parameter list (default values are dropped/ignored).
+#[test]
+fn example_default_params_extracted_with_full_signature() {
+    let tmp = TempDir::new().unwrap();
+    copy_example_dir(
+        &repo_root().join("examples/features/02-default-params"),
+        &tmp,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "config",
+            "--no-link",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "entry.cpp",
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // Functions with default params must be extracted (default values discarded)
+    assert!(merged.contains("fn set_timeout"), "set_timeout must be extracted: {merged}");
+    assert!(merged.contains("fn lerp"), "lerp must be extracted: {merged}");
+    assert!(merged.contains("fn log"), "log must be extracted: {merged}");
+    // All parameters must appear (not just the non-default ones)
+    assert!(
+        merged.contains("notify") || merged.contains("bool"),
+        "default bool param of set_timeout must appear: {merged}"
+    );
+}
+
+/// features/03-rvalue-ref/ — `&&`-qualified methods map to `fn foo(self)` (consuming).
+#[test]
+fn example_rvalue_ref_method_maps_to_consuming_self() {
+    let tmp = TempDir::new().unwrap();
+    copy_example_dir(
+        &repo_root().join("examples/features/03-rvalue-ref"),
+        &tmp,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "builder",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "entry.cpp",
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // const method → &self
+    assert!(merged.contains("fn get(&self)"), "const method must use &self: {merged}");
+    // mutable method → &mut self
+    assert!(
+        merged.contains("fn set(&mut self"),
+        "mutable method must use &mut self: {merged}"
+    );
+    // rvalue-ref method → self (consuming, no reference)
+    assert!(
+        merged.contains("fn build(self)"),
+        "&&-qualified method must use consuming self: {merged}"
+    );
+    // The cpp(method) attribute must carry the && qualifier
+    assert!(
+        merged.contains(r#"method = "int build() &&""#),
+        "#[cpp(method)] attribute must include && qualifier: {merged}"
+    );
+}
+
+/// features/04-va-list/ — functions whose last parameter is `va_list` are extracted
+/// as `unsafe fn` bindings with a trailing `...` variadic marker.
+#[test]
+fn example_va_list_last_param_generates_unsafe_variadic() {
+    let tmp = TempDir::new().unwrap();
+    copy_example_dir(
+        &repo_root().join("examples/features/04-va-list"),
+        &tmp,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "logger",
+            "--no-link",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "entry.cpp",
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // va_list functions must become unsafe fn with trailing ...
+    assert!(
+        merged.contains("unsafe fn log_message"),
+        "va_list function must be unsafe: {merged}"
+    );
+    assert!(
+        merged.contains("unsafe fn format_string"),
+        "va_list function must be unsafe: {merged}"
+    );
+    assert!(
+        merged.contains("..."),
+        "variadic marker ... must appear in binding: {merged}"
+    );
+    // Normal function must still be extracted as safe fn
+    assert!(merged.contains("fn flush"), "normal fn flush must be extracted: {merged}");
+}
+
+/// features/05-global-vars/ — global variables generate `#[cpp(data)]` bindings
+/// returning `&'static mut T` or `&'static T` depending on constness.
+#[test]
+fn example_global_vars_generate_static_bindings() {
+    let tmp = TempDir::new().unwrap();
+    copy_example_dir(
+        &repo_root().join("examples/features/05-global-vars"),
+        &tmp,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "metrics",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "entry.cpp",
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // Mutable global → &'static mut accessor
+    assert!(
+        merged.contains("g_request_count"),
+        "mutable global must be extracted: {merged}"
+    );
+    assert!(
+        merged.contains("&'static mut"),
+        "mutable global must return &'static mut: {merged}"
+    );
+    // Const global → &'static (no mut)
+    assert!(
+        merged.contains("g_max_latency_ms"),
+        "const global must be extracted: {merged}"
+    );
+    assert!(
+        merged.contains("&'static f64"),
+        "const global must return &'static T (no mut): {merged}"
+    );
+}
+
+/// features/06-static-members/ — static class data members generate
+/// `#[cpp(data = "Class::member")]` bindings.
+#[test]
+fn example_static_members_generate_data_bindings() {
+    let tmp = TempDir::new().unwrap();
+    copy_example_dir(
+        &repo_root().join("examples/features/06-static-members"),
+        &tmp,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "counter",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "entry.cpp",
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // Static members must use fully-qualified Class::member form
+    assert!(
+        merged.contains("Counter::instance_count"),
+        "static member must use qualified name: {merged}"
+    );
+    assert!(
+        merged.contains("Counter::max_count"),
+        "const static member must use qualified name: {merged}"
+    );
+    assert!(merged.contains("cpp(data"), "#[cpp(data)] attribute must appear: {merged}");
+}
+
+/// features/07-instance-fields/ — public instance fields generate
+/// `#[cpp(field = "Class::field")]` read + write accessor bindings.
+#[test]
+fn example_instance_fields_generate_field_accessors() {
+    let tmp = TempDir::new().unwrap();
+    copy_example_dir(
+        &repo_root().join("examples/features/07-instance-fields"),
+        &tmp,
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "point",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "entry.cpp",
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // Mutable fields must get getter + mut accessor
+    assert!(merged.contains("fn get_x"), "getter fn get_x must appear: {merged}");
+    assert!(merged.contains("fn get_x_mut"), "mutable accessor fn get_x_mut must appear: {merged}");
+    assert!(merged.contains("fn get_y"), "getter fn get_y must appear: {merged}");
+    // const field → getter only
+    assert!(merged.contains("fn get_id"), "getter fn get_id must appear: {merged}");
+    assert!(
+        !merged.contains("fn get_id_mut"),
+        "const field must NOT have a mutable accessor: {merged}"
+    );
+    assert!(merged.contains("cpp(field"), "#[cpp(field)] attribute must appear: {merged}");
+}

@@ -489,6 +489,151 @@ check_any_rs  "${OUT}" 'class IntStore'
 check_any_rs  "${OUT}" 'fn has_entry'
 check_any_rs  "${OUT}" 'fn count_entries'
 
+# ---------------------------------------------------------------------------
+# Step 20: features/01-inline-functions/ — inline functions are transparent
+# ---------------------------------------------------------------------------
+run_case "features/01-inline-functions/ (inline functions extracted like non-inline)"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature feat01 \
+    --link math \
+    --no-link \
+    -- clang -x c++ -fsyntax-only examples/features/01-inline-functions/entry.cpp < /dev/null)
+merge_and_export feat01 examples/features/01-inline-functions
+
+OUT="${REPO_ROOT}/.cpp2rust/feat01"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "math"'
+# Both inline and non-inline functions must be extracted identically
+check_any_rs  "${OUT}" 'fn add'
+check_any_rs  "${OUT}" 'fn mul'
+check_any_rs  "${OUT}" 'fn subtract'
+# Overloaded clamp → clamp + clamp_2
+check_any_rs  "${OUT}" 'fn clamp'
+check_any_rs  "${OUT}" 'fn clamp_2'
+
+# ---------------------------------------------------------------------------
+# Step 21: features/02-default-params/ — default parameter values are ignored
+# ---------------------------------------------------------------------------
+run_case "features/02-default-params/ (default params extracted with full signature, defaults dropped)"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature feat02 \
+    --link config \
+    --no-link \
+    -- clang -x c++ -fsyntax-only examples/features/02-default-params/entry.cpp < /dev/null)
+merge_and_export feat02 examples/features/02-default-params
+
+OUT="${REPO_ROOT}/.cpp2rust/feat02"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "config"'
+# Functions with default params must be extracted with full param list
+check_any_rs  "${OUT}" 'fn set_timeout'
+check_any_rs  "${OUT}" 'fn lerp'
+check_any_rs  "${OUT}" 'fn log'
+
+# ---------------------------------------------------------------------------
+# Step 22: features/03-rvalue-ref/ — && methods map to fn foo(self)
+# ---------------------------------------------------------------------------
+run_case "features/03-rvalue-ref/ (rvalue-ref method && → fn build(self))"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature feat03 \
+    --link builder \
+    -- clang -x c++ -fsyntax-only examples/features/03-rvalue-ref/entry.cpp < /dev/null)
+merge_and_export feat03 examples/features/03-rvalue-ref
+
+OUT="${REPO_ROOT}/.cpp2rust/feat03"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "builder"'
+# const method → &self
+check_any_rs  "${OUT}" 'fn get(&self)'
+# mutable lvalue method → &mut self
+check_any_rs  "${OUT}" 'fn set(&mut self'
+# rvalue-ref method → self (consuming)
+check_any_rs  "${OUT}" 'fn build(self)'
+# The #[cpp(method = "...")] attribute must include && qualifier
+check_any_rs  "${OUT}" 'method = "int build() &&"'
+
+# ---------------------------------------------------------------------------
+# Step 23: features/04-va-list/ — va_list last param → unsafe fn with ...
+# ---------------------------------------------------------------------------
+run_case "features/04-va-list/ (va_list last param → unsafe fn + trailing ...)"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature feat04 \
+    --link logger \
+    --no-link \
+    -- clang -x c++ -fsyntax-only examples/features/04-va-list/entry.cpp < /dev/null)
+merge_and_export feat04 examples/features/04-va-list
+
+OUT="${REPO_ROOT}/.cpp2rust/feat04"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "logger"'
+# va_list functions must be emitted as unsafe fn with trailing ...
+check_any_rs  "${OUT}" 'unsafe fn log_message'
+check_any_rs  "${OUT}" 'unsafe fn format_string'
+# Trailing ... must appear
+check_any_rs  "${OUT}" '\.\.\.'
+# Normal function must also be extracted
+check_any_rs  "${OUT}" 'fn flush'
+
+# ---------------------------------------------------------------------------
+# Step 24: features/05-global-vars/ — global variables → #[cpp(data)]
+# ---------------------------------------------------------------------------
+run_case "features/05-global-vars/ (global variables → #[cpp(data = ...)] + &'static bindings)"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature feat05 \
+    --link metrics \
+    -- clang -x c++ -fsyntax-only examples/features/05-global-vars/entry.cpp < /dev/null)
+merge_and_export feat05 examples/features/05-global-vars
+
+OUT="${REPO_ROOT}/.cpp2rust/feat05"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "metrics"'
+# Mutable global → &'static mut
+check_any_rs  "${OUT}" 'g_request_count'
+check_any_rs  "${OUT}" "'static mut"
+# Const global → &'static (without mut)
+check_any_rs  "${OUT}" 'g_max_latency_ms'
+check_any_rs  "${OUT}" "'static f64"
+
+# ---------------------------------------------------------------------------
+# Step 25: features/06-static-members/ — static class data members → #[cpp(data)]
+# ---------------------------------------------------------------------------
+run_case "features/06-static-members/ (static class members → #[cpp(data = \"Class::member\")])"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature feat06 \
+    --link counter \
+    -- clang -x c++ -fsyntax-only examples/features/06-static-members/entry.cpp < /dev/null)
+merge_and_export feat06 examples/features/06-static-members
+
+OUT="${REPO_ROOT}/.cpp2rust/feat06"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "counter"'
+# Static members must use fully-qualified class::member form
+check_any_rs  "${OUT}" 'Counter::instance_count'
+check_any_rs  "${OUT}" 'Counter::max_count'
+check_any_rs  "${OUT}" 'cpp(data'
+
+# ---------------------------------------------------------------------------
+# Step 26: features/07-instance-fields/ — instance fields → #[cpp(field)]
+# ---------------------------------------------------------------------------
+run_case "features/07-instance-fields/ (public instance fields → #[cpp(field = \"Class::field\")] accessors)"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature feat07 \
+    --link point \
+    -- clang -x c++ -fsyntax-only examples/features/07-instance-fields/entry.cpp < /dev/null)
+merge_and_export feat07 examples/features/07-instance-fields
+
+OUT="${REPO_ROOT}/.cpp2rust/feat07"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "point"'
+# Field accessors must be generated for x and y
+check_any_rs  "${OUT}" 'fn get_x'
+check_any_rs  "${OUT}" 'fn get_y'
+# Mutable fields also get a _mut variant
+check_any_rs  "${OUT}" 'fn get_x_mut'
+# const field id must have only a getter (no _mut)
+check_any_rs  "${OUT}" 'fn get_id'
+check_any_rs  "${OUT}" 'cpp(field'
+
 echo ""
 echo "══════════════════════════════════════════════════════"
 echo "  Generated .cpp2rust feature summary"

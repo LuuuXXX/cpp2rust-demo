@@ -15,6 +15,8 @@
 4. 语义层职责：`method` 承接 `import_class!` 实例方法绑定；`free` 承接自由函数/静态方法/make_proxy/全局变量；`types` 负责类型语义（含 C++→Rust 映射与查询函数）；`class` 负责类级语义结构（含关系访问函数）；`common/*` 进入全局 merged 共享语义层；`global` 当前不生成
 5. `init --no-link`（`--header-only`）用于 header-only/no-link 场景：生成的 `build.rs` 不会输出 `cargo::rustc-link-lib=<link_name>`
 6. destructor、operator overload、template declarations 当前会被跳过，并在 `init-interface-report.md` 中显示 skipped 原因；virtual/pure virtual 方法按以下规则处理：非纯 virtual 直接提取、全纯虚类生成 `#[interface]` trait、混合类的纯虚方法提取为 companion `#[interface]` 并加入继承链
+7. `inline` 函数对工具透明，与普通函数生成完全相同的绑定（见 [`examples/features/01-inline-functions/`](../examples/features/01-inline-functions/README.md)）
+8. 方法 `self` 类型映射规则：`const` 方法 → `&self`；普通方法 → `&mut self`；`&&` 右值引用方法 → `self`（消耗对象，见 [`examples/features/03-rvalue-ref/`](../examples/features/03-rvalue-ref/README.md)）
 
 ## 新特性：充分利用 hicc 能力
 
