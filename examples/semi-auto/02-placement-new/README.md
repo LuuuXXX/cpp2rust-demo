@@ -102,18 +102,9 @@ hicc::import_class! {
 
 ## 解锁方式
 
-### 方式一：手动解注释
+### 手动解注释
 
 打开 `.cpp2rust/sa02/rust/src/free/placement_new.rs`，去掉目标类的注释符即可。
-
-### 方式二：`--enable-placement-new` flag（推荐）
-
-```bash
-cpp2rust-demo init --feature sa02 --link fixed_buffer --enable-placement-new \
-    -- clang -x c++ -fsyntax-only examples/semi-auto/02-placement-new/entry.cpp
-```
-
-加上该 flag 后直接生成可编译的绑定，无需解注释。
 
 ---
 
@@ -149,7 +140,7 @@ unsafe { FixedBuffer::placement_new(&mut storage, 1024) }
 |------|---------|---------|
 | `init` | 检测含构造函数的 ClassIR | 无 |
 | codegen | 在 `free/placement_new.rs` 生成**注释**的 `@placement_new` 骨架 | 无 |
-| 解锁 | — | 解注释或加 `--enable-placement-new` flag |
+| 解锁 | — | 解注释 `free/placement_new.rs` |
 | 使用 | Rust 侧调用 `placement_new()`，传入对齐内存 | 提供 `AlignedStorage<T>` 内存 |
 
 ---

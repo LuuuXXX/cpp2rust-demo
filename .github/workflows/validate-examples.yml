@@ -7,7 +7,7 @@
 #   ✅ fully automatic  → simple/, class/, rapidjson/01-06, rapidjson/08
 #   🔧 guided           → rapidjson/07, guided/01-03
 #   ⚙️ semi-auto        → semi-auto/01-02
-#   ⚠️ conditional      → conditional/01-02
+#   ⚠️ conditional      → conditional/01-03 (03 validated in two passes: STEP A skipped, STEP B2 chained alias resolved)
 #
 # CI mirrors scripts/validate-examples.sh; reproduce locally with:
 #   bash scripts/validate-examples.sh --release

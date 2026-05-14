@@ -108,23 +108,23 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 
 ---
 
-# 三、cpp2rust-demo 可支持但现阶段未支持的特性 —— 改进方案
+# 三、cpp2rust-demo 工具层已实现特性一览
 
-> 以下为 **hicc 本身支持** 但 **cpp2rust-demo 工具层尚未处理** 的特性（可在工具侧落地，无需改动 hicc）。
+> 以下为 **hicc 本身支持** 且 **cpp2rust-demo 工具层已全部落地** 的特性（无待实现项）。
 
-| C++ 特性 | 当前状态 | 分类 | 改进方案 | 实现入口 | 优先级 |
+| C++ 特性 | 当前状态 | 分类 | 说明 | 实现入口 | 优先级 |
 |---------|---------|:----:|---------|---------|:------:|
 | **模板类（无别名）** | 跳过（`tool_conservative`）；接口报告和 `suggest-aliases` 子命令自动输出 `using` 别名建议 ✅ 已实现 | ToolConservative | 新增 `suggest-aliases` 子命令；在接口报告中自动输出 `using Alias = FullType<...>;` 建议；用户补充后重跑解锁 | `ast.rs` `SkippedDecl.suggested_alias` + `codegen.rs` 报告渲染 + `main.rs` 新子命令 | P1 ✅ |
-| **链式类型别名** (`using B = A`) | ✅ 已支持；AliasRegistry 传递性闭合解析 | ToolLimit | AliasRegistry 增加传递性解析（transitive closure），收集完毕后迭代闭合直到稳定 | `ast.rs` `AliasRegistry::resolve_transitive()` + `is_alias_of_template()` + `is_supported_cpp_type()` | P1 ✅ |
-| **`std::function` / lambda 参数** | 跳过（无生成） | ToolLimit | AST 中识别 `std::function<R(Args)>` 类型，生成对应虚函数接口 + `@make_proxy` 绑定骨架建议到接口报告 | `ast.rs` 类型识别 + `codegen.rs` 报告输出 | P2 ✅ |
-| **类成员变量 / 静态变量** | 未提取 | ToolLimit | AST 中提取 `FieldDecl` / `VarDecl`（static），生成 `#[cpp(field)]` / `#[cpp(data)]` 绑定到 `free/` 或 `method/` | `ast.rs` 新增 `FieldIR` + `codegen.rs` render | P2 ✅ |
-| **`std::string` 参数/返回（shim 建议）** | 跳过（`hicc_limitation`） | ToolConservative | 在接口报告和 `operator_shims.hpp` 中自动生成可复制的 C++ shim 函数原型（`static inline const char* foo_shim(...)`） | `ast.rs` `SkippedDecl.suggested_shim` + `codegen.rs` | P2 ✅ |
+| **链式类型别名** (`using B = A`) | ✅ 已支持；AliasRegistry 传递性闭合解析 | ToolLimit | AliasRegistry 传递性解析（transitive closure），收集完毕后迭代闭合直到稳定 | `ast.rs` `AliasRegistry::resolve_transitive()` + `is_alias_of_template()` + `is_supported_cpp_type()` | P1 ✅ |
+| **`std::function` / lambda 参数** | ✅ 已实现：跳过并自动生成虚函数接口骨架 + `@make_proxy` 使用提示写入接口报告 | ToolLimit | AST 中识别 `std::function<R(Args)>` 类型，生成对应虚函数接口 + `@make_proxy` 绑定骨架建议到接口报告 | `ast.rs` 类型识别 + `codegen.rs` 报告输出 | P2 ✅ |
+| **类成员变量 / 静态变量** | ✅ 已实现：非静态字段提取为 `FieldIR`，生成 `#[cpp(field)]` 读写访问器 | ToolLimit | AST 中提取 `FieldDecl` / `VarDecl`（static），生成 `#[cpp(field)]` / `#[cpp(data)]` 绑定到 `free/` 或 `method/` | `ast.rs` 新增 `FieldIR` + `codegen.rs` render | P2 ✅ |
+| **`std::string` 参数/返回（shim 建议）** | ✅ 已实现：跳过并自动生成 `const char*` shim 原型写入接口报告和 `operator_shims.hpp` | ToolConservative | 在接口报告和 `operator_shims.hpp` 中自动生成可复制的 C++ shim 函数原型 | `ast.rs` `SkippedDecl.suggested_shim` + `codegen.rs` | P2 ✅ |
 | **多重继承（全部 public 基类）** | ✅ 已实现：`ClassIR.bases` 为 `Vec<String>`，所有 public 基类均提取，`render_import_class()` 以 `, ` 分隔列出 | ToolLimit | `ClassIR.bases` 改为 `Vec<String>` 存全部 public 基类，`render_import_class()` 生成 `class C: A, B`（hicc 多重继承不支持，骨架仍有参考价值） | `ast.rs` `ClassIR` + `codegen.rs` | P3 ✅ |
 | **虚继承检测与提示** | ✅ 已实现：`BaseSpecifier.is_virtual` 跳过虚基类，接口报告列出警告 | ToolLimit | `BaseSpecifier` 增加 `is_virtual: bool`，跳过虚基类并在接口报告中列出 `Virtual bases (skipped)` | `ast.rs` `BaseSpecifier` + `codegen.rs` | P3 ✅ |
 | **函数指针参数（接口建议）** | ✅ 已实现：识别含 `(*)` 的类型，分类为 `ToolConservative`，在接口报告中生成虚函数接口骨架 + `@make_proxy` 调用示例 | ToolConservative | 识别含 `(*)` 的类型，在接口报告中生成对应纯虚接口类模板 + `@make_proxy` 调用示例 | `ast.rs` skip 分支 + `codegen.rs` | P3 ✅ |
 | **`dynamic_cast` 绑定** | ✅ 已实现：识别继承关系中可做 downcast 的类对，在 `free/dynamic_casts.rs` 生成注释掉的 `@dynamic_cast` 绑定骨架 | ToolLimit | 识别继承关系中可做 downcast 的类对，在 `free/` 生成 `@dynamic_cast` 绑定骨架 | `ast.rs` 继承链分析 + `codegen.rs` | P3 ✅ |
 | **`va_list` / variadic 函数** | ✅ 已实现：识别 `va_list` 最后参数，提取为 `unsafe fn foo(fixed_params, ...) -> T` 绑定；`is_variadic = true` 标记在 `FunctionIR` | ToolConservative | 识别 `va_list` 最后参数，生成对应 `unsafe fn foo(name: &T, ...)` 绑定（hicc 支持，参数/返回无类类型限制需校验） | `ast.rs` 参数类型识别 + `codegen.rs` | P3 ✅ |
-| **`--dry-run` 模式** | 不支持 | ToolLimit | `init` 子命令增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，仅打印接口报告到 stdout | `main.rs` CLI + init 主流程 | P2 ✅ |
+| **`--dry-run` 模式** | ✅ 已实现：`init` 增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，接口报告打印到 stdout | ToolLimit | `init` 子命令增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，仅打印接口报告到 stdout | `main.rs` CLI + init 主流程 | P2 ✅ |
 | **placement new 绑定** | ✅ 已实现：识别有构造函数的非抽象类，在 `free/placement_new.rs` 生成注释掉的 `@placement_new` 绑定骨架 | ToolLimit | 识别构造函数签名，在 codegen 阶段对需要 placement new 场景生成对应 Rust 接口骨架 | `ast.rs` + `codegen.rs` | P4 ✅ |
 | **C++ 容器存储 Rust 数据（RustAny 模板）** | ✅ 已实现：识别 STL 容器类型，在 `types/mod.rs` 末尾和接口报告中生成 `hicc::RustAny<T>` 使用建议 | ToolLimit | 识别 STL 容器实例化类型，在 `types/` 中生成 `hicc::RustAny<T>` 类型映射建议 | `ast.rs` + `codegen.rs` | P4 ✅ |
 
@@ -132,9 +132,9 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 
 **总结关键结论：**
 
-- **hicc** 功能完整的 C++ FFI 框架，几乎覆盖所有常见 C++ 特性（含模板类、虚函数、STL 容器、RustAny 等），核心不支持项仅有：多重继承、虚继承、运算符重、析构函数显式绑定、函数指针参数、纯 `...` variadic（含类类型时）
-- **cpp2rust-demo** 是 hicc 的 AST 驱动脚手架生成器，当前已覆盖最主要的使用场景（自由函数、类方法、虚函数、继承、枚举、别名解锁模板），大量"不支持"项是**工具层面未实现**（hicc 本身支持），改进空间充足且明确
-- 优先级最高的改进是 **模板别名建议（§1）** 和 **链式别名传递性解析（§3）**，因为这两项直接影响模板密集型 C++ 库（如 RapidJSON）的提取覆盖率
+- **hicc** 功能完整的 C++ FFI 框架，几乎覆盖所有常见 C++ 特性（含模板类、虚函数、STL 容器、RustAny 等），核心不支持项仅有：多重继承运行时语义、虚继承、运算符重载、析构函数显式绑定、函数指针参数、纯 `...` variadic（含类类型时）
+- **cpp2rust-demo** 是 hicc 的 AST 驱动脚手架生成器，当前已覆盖所有主要使用场景（自由函数、类方法、虚函数、继承、枚举、别名解锁模板、字段提取、shim 建议、dynamic_cast、placement new、RustAny 建议等），原有工具层面的"未实现"项已全部落地
+- 当前真正的用户介入边界是**语义无法推断**的内容：运算符的具体逻辑、`std::string` 的缓冲区管理策略、`std::function` 回调的具体实现；工具已做到"给出签名正确的骨架，用户只需填充业务逻辑"
 
 **批次一改进状态（已完成）：**
 

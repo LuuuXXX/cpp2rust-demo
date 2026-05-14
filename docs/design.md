@@ -138,7 +138,7 @@ Rust 侧项目搭建统一使用：
 | 运算符重载 | ⚠️ | `free/shim_ops.rs` | 生成 `operator_shims.hpp` starter；需用户补全实现后使用 |
 | 析构函数 | ❌ | — | hicc 不支持显式析构；跳过并标记 `hicc_limitation` |
 | 友元函数 | ❌ | — | AST 不可靠提取；跳过 |
-| 多重继承 | ❌ | — | 仅处理首个 public 基类；其余跳过 |
+| 多重继承 | ✅（骨架）/ ❌（运行时） | `method/mtd_*.rs` | 所有 public 基类均提取，生成 `class C: A, B`；hicc 不支持多重继承运行时语义，骨架无法直接使用 |
 | 函数指针参数 | ❌ | — | 含 `(*)` 的类型跳过，标记 `hicc_limitation` |
 | `std::` 容器参数 | ⚠️ | — | 无别名时跳过；为容器类型添加 `using` 别名可解锁 |
 | variadic 函数 (`...`) | ❌ | — | 跳过，标记 `hicc_limitation` |

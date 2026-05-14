@@ -57,9 +57,9 @@
 |----------|------|---------|------|
 | 单层 public 继承 | ✅ | `method/mtd_*.rs` | `class Derived: Base` 语法；支持 upcast |
 | public 继承链（多层） | ✅ | `method/mtd_*.rs` | 每一层单独生成 `class X: Y`；链式 upcast 需用户手工处理 |
-| 多重继承 | ⛔ | — | 当前仅处理首个 public 基类；其余忽略（工具层面限制，见 future-plan.md） |
+| 多重继承 | ✅（骨架生成） | `method/mtd_*.rs` | 所有 public 基类均提取，生成 `class C: A, B` 骨架；但 hicc 本身不支持多重继承运行时语义，骨架无法编译，需手写 C++ 委托包装后单继承绑定 |
 | `protected` 继承 | ✅（自动跳过） | — | 仅处理 `public` 基类，`protected`/`private` 继承忽略 |
-| `virtual` 继承（菱形继承） | ⛔ | — | AST 中 `virtual` 基类不在首个基类时会被忽略 |
+| `virtual` 继承（菱形继承） | ⚠️（跳过并报告） | 接口报告 | 工具自动检测虚基类，跳过并在接口报告中列出 `⚠️ Virtual bases (skipped)` 警告；hicc 不支持虚继承 |
 
 ---
 
@@ -70,7 +70,7 @@
 | 模板类特化（有 `typedef`/`using` 别名） | ⚠️ | `method/mtd_*.rs` | AliasRegistry 解锁：裸模板名 → 别名 → 完整限定类型 |
 | 模板类（无任何别名） | ⚠️ | — | 跳过，标记 `tool_conservative`；在 entry.cpp 添加别名后可解锁 |
 | 多参数模板特化 | ⚠️ | `method/mtd_*.rs` | 仅 typedef 覆盖的特化被提取；其他参数组合的特化仍跳过 |
-| 链式别名（`using A = B<T>; using C = A;`） | ⛔ | — | AliasRegistry 不追踪链式别名；`C` 不会映射回原始模板（工具层面限制） |
+| 链式别名（`using A = B<T>; using C = A;`） | ✅ | `types/mod.rs` | AliasRegistry 传递性闭合解析已实现；`C` 正确映射回原始模板并解锁模板提取 |
 | 函数模板（自由函数/方法级）| ⚠️ | — | 需 AST 中有 concrete specialization 可见（如显式特化 `template<> void foo<int>()`）；否则跳过 |
 | 类模板部分特化（`template<typename T> class Foo<T, int>`） | ⚠️ | — | 需 typedef 配合完整特化提取；无别名则跳过；纯部分特化无法独立生成绑定 |
 | `std::` 容器参数（无别名） | ⚠️ | — | 无别名时跳过；为容器类型添加 `using` 别名可解锁 |
@@ -141,15 +141,15 @@
 | 方法模板 | 无法在 hicc 中表达泛型方法 | 针对具体实例化写 shim 函数 |
 | 友元函数 | AST `FriendDecl` 提取受限 | 将友元函数以普通自由函数形式重写为 shim |
 
-### 8.2 工具层面限制（ToolLimit）
+### 8.2 工具层面已解决的历史限制
 
-以下特性是 cpp2rust-demo 当前实现层面的限制，与 hicc 无关；原则上可在工具侧实现（详见 `docs/future-plan.md`）：
+以下特性曾是 cpp2rust-demo 的工具实现限制，现已全部解决：
 
-| 特性 | 跳过原因 | 潜在解锁路径 |
-|------|---------|------------|
-| 多重继承 | 工具仅处理首个 public 基类 | 解析所有 public 基类，生成多 trait 继承（见 future-plan.md §2） |
-| 链式类型别名 | AliasRegistry 不追踪两级别名 | 扩展 AliasRegistry 支持传递性解析（见 future-plan.md §3） |
-| Virtual 继承（菱形继承） | 仅取首个 base，virtual base 被跳过 | 检测 virtual 基类标记，生成菱形合并语义（见 future-plan.md §4） |
+| 特性 | 解决方案 |
+|------|---------|
+| 多重继承 | `ClassIR.bases: Vec<String>` 存储所有 public 基类；`render_import_class()` 生成 `class C: A, B`（hicc 不支持多重继承运行时语义，骨架仅作参考） |
+| 链式类型别名 | `AliasRegistry::resolve_transitive()` 实现传递性闭合解析，`using B = A; using A = T<...>` 可正确解锁模板提取 |
+| Virtual 继承（菱形继承）检测 | `BaseSpecifier.is_virtual` 自动检测虚基类，跳过后在接口报告中列出 `⚠️ Virtual bases (skipped)` 警告 |
 
 ---
 

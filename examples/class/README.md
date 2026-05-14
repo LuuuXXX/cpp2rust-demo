@@ -137,4 +137,4 @@ hicc::import_lib! {
 | 析构函数 | ❌ 跳过（hicc 限制） | hicc 不支持显式析构，交由对象生命周期管理 |
 | private/protected 成员 | ✅ 自动跳过 | 不进入输出 |
 | 模板类（无别名） | ⚠️ 跳过（ToolConservative） | 添加 `typedef`/`using` 别名后可解锁 |
-| 多重继承 | ❌ 暂不支持 | 仅处理首个 public 基类 |
+| 多重继承 | ⚠️ 骨架生成 | 所有 public 基类均提取，生成 `class C: A, B` 骨架；hicc 不支持多重继承运行时语义，骨架无法直接编译，需手写 C++ 委托包装后单继承绑定 |

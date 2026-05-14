@@ -449,8 +449,46 @@ check_any_rs  "${OUT}" 'fn reset'
 check_file    "${OUT}/meta/init-interface-report.md"
 
 # ---------------------------------------------------------------------------
-# Summary
+# Step 19a: conditional/03-chained-alias/ (STEP A) — no alias, Store<T> skipped
 # ---------------------------------------------------------------------------
+run_case "conditional/03-chained-alias/ STEP A (no alias → Store<T> skipped, tool_conservative)"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature cond03a \
+    --link store \
+    --no-link \
+    -- clang -x c++ -fsyntax-only examples/conditional/03-chained-alias/entry.cpp < /dev/null)
+merge_and_export cond03a examples/conditional/03-chained-alias
+
+OUT="${REPO_ROOT}/.cpp2rust/cond03a"
+check_file    "${OUT}/meta/init-interface-report.md"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "store"'
+# Store<T> has no alias here → must appear in the skipped section of the report
+check_contains "${OUT}/meta/init-interface-report.md" 'Store'
+
+# ---------------------------------------------------------------------------
+# Step 19b: conditional/03-chained-alias/ (STEP B2) — chained alias, transitive resolve
+# ---------------------------------------------------------------------------
+run_case "conditional/03-chained-alias/ STEP B2 (chained alias → Store_i32 + IntStore + MyStore extracted)"
+(cd "${REPO_ROOT}" && "${BIN}" init \
+    --feature cond03b \
+    --link store \
+    --no-link \
+    -- clang -x c++ -fsyntax-only examples/conditional/03-chained-alias/entry-chained.cpp < /dev/null)
+merge_and_export cond03b examples/conditional/03-chained-alias
+
+OUT="${REPO_ROOT}/.cpp2rust/cond03b"
+check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_any_rs  "${OUT}" 'link_name = "store"'
+# AliasRegistry::resolve_transitive() must produce both alias type entries
+check_any_rs  "${OUT}" 'IntStore'
+check_any_rs  "${OUT}" 'MyStore'
+# The concrete template specialization must be extracted with the alias name
+check_any_rs  "${OUT}" 'class IntStore'
+# Free functions using the aliased types must be extracted
+check_any_rs  "${OUT}" 'fn has_entry'
+check_any_rs  "${OUT}" 'fn count_entries'
+
 echo ""
 echo "══════════════════════════════════════════════════════"
 echo "  Generated .cpp2rust feature summary"
