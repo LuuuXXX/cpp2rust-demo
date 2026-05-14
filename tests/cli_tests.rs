@@ -136,8 +136,10 @@ fn init_simple_free_functions() {
     let include_content = std::fs::read_to_string(&include).unwrap();
     // The generated file must include the header via hicc::cpp! so that
     // namespace-qualified signatures compile with hicc-build.
+    // The include uses the original source filename (without the .cpp2rust
+    // capture suffix) to match idiomatic hicc usage.
     assert!(include_content.contains("hicc::cpp!"));
-    assert!(include_content.contains("#include \"mylib.cpp.cpp2rust\""));
+    assert!(include_content.contains("#include \"mylib.cpp\""));
 
     // LD_PRELOAD hook should capture middleware file.
     let captured = tmp.path().join(".cpp2rust/default/cpp/mylib.cpp.cpp2rust");
@@ -821,13 +823,16 @@ fn merge_produces_merged_ffi() {
     // Should contain items from both headers.
     assert!(content.contains("fn add("));
     assert!(content.contains("fn log("));
-    assert!(content.contains("MIDDLEWARE_FILES"));
-    assert!(content.contains("INCLUDE_DIRS"));
+    // Metadata constants (MIDDLEWARE_FILES etc.) belong only in the per-group
+    // non-merged sources, not in the final merged FFI file.
+    assert!(!content.contains("MIDDLEWARE_FILES"));
+    assert!(!content.contains("INCLUDE_DIRS"));
+    assert!(!content.contains("CPP_INCLUDE_LINES"));
+    assert!(!content.contains("pub fn include_line_for"));
+    // Type-mapping helpers may still appear (from per-group type_blocks).
     assert!(content.contains("CPP_TYPES"));
     assert!(content.contains("CPP_RUST_TYPE_MAPPINGS"));
-    assert!(content.contains("CPP_INCLUDE_LINES"));
     assert!(content.contains("pub fn rust_type_for"));
-    assert!(content.contains("pub fn include_line_for"));
     // Should have exactly one import_lib! block.
     assert_eq!(
         content.matches("import_lib!").count(),
@@ -881,17 +886,20 @@ fn merge_deduplicates_class_forward_decls() {
         "Widget forward decl should appear once, got {}",
         count
     );
+    // Class metadata constants (CLASS_NAMES etc.) are internal bookkeeping
+    // kept in the per-group non-merged sources only; they must not appear in
+    // the final merged FFI output.
     assert!(
-        content.contains("CLASS_NAMES"),
-        "merged output should carry class semantic metadata"
+        !content.contains("CLASS_NAMES"),
+        "merged output should not carry class metadata constants"
     );
     assert!(
-        content.contains("CLASS_METHODS"),
-        "merged output should carry class-method semantic relationships"
+        !content.contains("CLASS_METHODS"),
+        "merged output should not carry class metadata constants"
     );
     assert!(
-        content.contains("pub fn class_method_count"),
-        "merged output should carry class semantic access helpers"
+        !content.contains("pub fn class_method_count"),
+        "merged output should not carry class metadata helpers"
     );
 }
 
@@ -1007,8 +1015,8 @@ fn merge_consolidates_cpp_includes() {
         merged.contains("hicc::cpp!"),
         "merged file should have hicc::cpp! block"
     );
-    assert!(merged.contains("#include \"lib1.cpp.cpp2rust\""));
-    assert!(merged.contains("#include \"lib2.cpp.cpp2rust\""));
+    assert!(merged.contains("#include \"lib1.cpp\""));
+    assert!(merged.contains("#include \"lib2.cpp\""));
     // Should have exactly one hicc::cpp! block (consolidated).
     assert_eq!(
         merged.matches("hicc::cpp!").count(),

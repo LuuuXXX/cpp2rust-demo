@@ -209,6 +209,16 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     lo.save_meta(&files_to_process, link_name, no_link)?;
 
+    // Create convenience symlinks in the capture directory so that
+    // `hicc::cpp! { #include "entry.cpp" }` resolves correctly.
+    // Each `entry.cpp.cpp2rust` file gets a sibling symlink `entry.cpp` →
+    // `entry.cpp.cpp2rust` so the generated `#include "entry.cpp"` is found
+    // when hicc-build uses the capture directory as an include path.
+    // Unix-only; silently skipped on other platforms.
+    for mw_file in &files_to_process {
+        create_original_name_symlink(mw_file);
+    }
+
     // In dry-run mode, skip creating the Rust project skeleton and all file writes.
     // We still process the AST and generate the report.
     let rust_src_dir = lo.rust_dir.join("src");
@@ -641,6 +651,10 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     if let Some(output_dir) = &args.output {
         copy_merge_output(&lo.rust_dir, output_dir)?;
         println!("\nMerge output copied to: {}", output_dir.display());
+
+        // Also copy relevant meta files (operator_shims.hpp, init-interface-report.md)
+        // into <output>/meta/ so users have everything they need in one place.
+        copy_meta_files(&lo.meta_dir, output_dir)?;
     }
 
     Ok(())
@@ -662,6 +676,63 @@ fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
         .collect();
     dirs.sort();
     dirs
+}
+
+/// Create a symlink `<basename_without_cpp2rust>` → `<basename>` in the same
+/// directory as `mw_file`, so that `hicc::cpp! { #include "entry.cpp" }` resolves
+/// correctly when the capture directory is on the include path.
+///
+/// On non-Unix platforms this is a no-op (silently skipped).
+fn create_original_name_symlink(mw_file: &Path) {
+    #[cfg(unix)]
+    {
+        let file_name = match mw_file.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => return,
+        };
+        let original_name = match file_name.strip_suffix(".cpp2rust") {
+            Some(n) => n,
+            None => return,
+        };
+        let parent = match mw_file.parent() {
+            Some(p) => p,
+            None => return,
+        };
+        let symlink_path = parent.join(original_name);
+        if !symlink_path.exists() {
+            // Target is a relative name so the symlink stays valid if the
+            // capture directory is moved.
+            let _ = std::os::unix::fs::symlink(file_name, &symlink_path);
+        }
+    }
+}
+
+/// Copy relevant meta files (`operator_shims.hpp`, `init-interface-report.md`)
+/// from `meta_dir` into `<output_dir>/meta/` so users get a self-contained
+/// export that includes the C++ shim header they need to compile against.
+fn copy_meta_files(meta_dir: &Path, output_dir: &Path) -> Result<()> {
+    const RELEVANT: &[&str] = &["operator_shims.hpp", "init-interface-report.md"];
+
+    let out_meta = output_dir.join("meta");
+    let mut copied_any = false;
+
+    for name in RELEVANT {
+        let src = meta_dir.join(name);
+        if !src.exists() {
+            continue;
+        }
+        if !copied_any {
+            std::fs::create_dir_all(&out_meta)
+                .map_err(|e| anyhow!("create {}: {}", out_meta.display(), e))?;
+            copied_any = true;
+        }
+        let dst = out_meta.join(name);
+        std::fs::copy(&src, &dst)
+            .map_err(|e| anyhow!("copy {} to {}: {}", src.display(), dst.display(), e))?;
+        println!("  Copied meta/{} → {}", name, dst.display());
+    }
+
+    Ok(())
 }
 
 /// Copy the merged Rust project from `rust_dir` to `output_dir`.
