@@ -12,7 +12,7 @@
 //!    compile the C++ adapter code.
 //! 4. A minimal **`Cargo.toml`** for the generated crate.
 
-use crate::ast::{ClassIR, ExtractedDecls, FunctionIR, OperatorShimIR, SkippedDecl, SkipCategory};
+use crate::ast::{ClassIR, ExtractedDecls, FunctionIR, OperatorShimIR, SkipCategory, SkippedDecl};
 use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------
@@ -171,7 +171,11 @@ pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
     let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
     let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
     if has_abstract || has_mixed {
-        writeln!(out, "// @make_proxy support: required for wrapping Rust structs as C++ interfaces.").unwrap();
+        writeln!(
+            out,
+            "// @make_proxy support: required for wrapping Rust structs as C++ interfaces."
+        )
+        .unwrap();
         writeln!(out, "hicc::cpp! {{").unwrap();
         writeln!(out, "    #include <hicc/std/memory.hpp>").unwrap();
         writeln!(out, "}}").unwrap();
@@ -431,7 +435,12 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
         for field in &class.fields {
             let rust_type = &field.rust_type;
             writeln!(out, "        #[cpp(field = \"{}\")]", field.qualified_name).unwrap();
-            writeln!(out, "        fn get_{}(&self) -> &{};", field.rust_name, rust_type).unwrap();
+            writeln!(
+                out,
+                "        fn get_{}(&self) -> &{};",
+                field.rust_name, rust_type
+            )
+            .unwrap();
             if !field.is_const {
                 writeln!(out, "        #[cpp(field = \"{}\")]", field.qualified_name).unwrap();
                 writeln!(
@@ -552,7 +561,12 @@ fn render_method(out: &mut String, func: &FunctionIR) {
                 format!("{}, {}, ...", self_str, fixed.join(", "))
             }
         };
-        writeln!(out, "        unsafe fn {}({}){};", func.rust_name, variadic_params, ret).unwrap();
+        writeln!(
+            out,
+            "        unsafe fn {}({}){};",
+            func.rust_name, variadic_params, ret
+        )
+        .unwrap();
     } else {
         let rust_params = render_rust_params(&func.params, &self_arg);
         writeln!(out, "        fn {}{}{};", func.rust_name, rust_params, ret).unwrap();
@@ -577,7 +591,10 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
     // Forward-declare every concrete class used so hicc knows they are C++ types.
     for class in &decls.classes {
         if !class.is_abstract {
-            let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+            let rust_name = class
+                .canonical_name
+                .as_deref()
+                .unwrap_or(class.name.as_str());
             writeln!(out, "    class {};", rust_name).unwrap();
         }
     }
@@ -627,7 +644,10 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         if class.is_abstract {
             continue;
         }
-        let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+        let rust_name = class
+            .canonical_name
+            .as_deref()
+            .unwrap_or(class.name.as_str());
         for (i, ctor) in class.ctors.iter().enumerate().skip(1) {
             let method_name = format!("new_{}", i + 1);
             let rust_params = render_rust_params(&ctor.params, "");
@@ -662,18 +682,23 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         if !class.is_abstract {
             continue;
         }
-        let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+        let rust_name = class
+            .canonical_name
+            .as_deref()
+            .unwrap_or(class.name.as_str());
         let snake = crate::ast::to_snake_case(rust_name);
         let proxy_fn = format!("new_{}_proxy", snake);
-        writeln!(out, "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]", name = rust_name)
-            .unwrap();
+        writeln!(
+            out,
+            "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]",
+            name = rust_name
+        )
+        .unwrap();
         writeln!(out, "    #[interface(name = \"{}\")]", rust_name).unwrap();
         writeln!(
             out,
-            "    fn {}(intf: hicc::Interface<{}>){};",
-            proxy_fn,
-            rust_name,
-            format!(" -> {}", rust_name)
+            "    fn {}(intf: hicc::Interface<{}>) -> {};",
+            proxy_fn, rust_name, rust_name
         )
         .unwrap();
         writeln!(out).unwrap();
@@ -687,15 +712,17 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         let interface_name = format!("{}Interface", class.name);
         let snake = crate::ast::to_snake_case(&interface_name);
         let proxy_fn = format!("new_{}_proxy", snake);
-        writeln!(out, "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]", name = interface_name)
-            .unwrap();
+        writeln!(
+            out,
+            "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]",
+            name = interface_name
+        )
+        .unwrap();
         writeln!(out, "    #[interface(name = \"{}\")]", interface_name).unwrap();
         writeln!(
             out,
-            "    fn {}(intf: hicc::Interface<{}>){};",
-            proxy_fn,
-            interface_name,
-            format!(" -> {}", interface_name)
+            "    fn {}(intf: hicc::Interface<{}>) -> {};",
+            proxy_fn, interface_name, interface_name
         )
         .unwrap();
         writeln!(out).unwrap();
@@ -796,13 +823,41 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     writeln!(out, "| Link name | `{}` |", link_name).unwrap();
     writeln!(out, "| Free functions | {} |", decls.functions.len()).unwrap();
     writeln!(out, "| Classes | {} |", decls.classes.len()).unwrap();
-    writeln!(out, "| Abstract classes (interfaces) | {} |", abstract_classes).unwrap();
+    writeln!(
+        out,
+        "| Abstract classes (interfaces) | {} |",
+        abstract_classes
+    )
+    .unwrap();
     if mixed_classes > 0 {
-        writeln!(out, "| Mixed classes (companion interface) | {} |", mixed_classes).unwrap();
+        writeln!(
+            out,
+            "| Mixed classes (companion interface) | {} |",
+            mixed_classes
+        )
+        .unwrap();
     }
     writeln!(out, "| Extracted constructors | {} |", total_ctors).unwrap();
-    writeln!(out, "| Global variables | {} |", decls.globals.iter().filter(|g| g.class_name.is_none()).count()).unwrap();
-    writeln!(out, "| Static data members | {} |", decls.globals.iter().filter(|g| g.class_name.is_some()).count()).unwrap();
+    writeln!(
+        out,
+        "| Global variables | {} |",
+        decls
+            .globals
+            .iter()
+            .filter(|g| g.class_name.is_none())
+            .count()
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "| Static data members | {} |",
+        decls
+            .globals
+            .iter()
+            .filter(|g| g.class_name.is_some())
+            .count()
+    )
+    .unwrap();
     writeln!(out, "| Enums | {} |", decls.enums.len()).unwrap();
     writeln!(out, "| Type aliases | {} |", decls.aliases.len()).unwrap();
     writeln!(out, "| Skipped | {} |", decls.skipped.len()).unwrap();
@@ -825,16 +880,29 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 
     for class in &decls.classes {
         // Header: show canonical name (alias) for template specialisations.
-        let display_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+        let display_name = class
+            .canonical_name
+            .as_deref()
+            .unwrap_or(class.name.as_str());
         if class.is_abstract {
             writeln!(out, "## Class `{}` `[interface]`\n", display_name).unwrap();
         } else if class.has_pure_virtual {
-            writeln!(out, "## Class `{}` (mixed; companion interface `{}Interface`)\n", display_name, class.name).unwrap();
+            writeln!(
+                out,
+                "## Class `{}` (mixed; companion interface `{}Interface`)\n",
+                display_name, class.name
+            )
+            .unwrap();
         } else {
             writeln!(out, "## Class `{}`\n", display_name).unwrap();
         }
         if class.is_template_specialization {
-            writeln!(out, "_Template specialisation of `{}`._\n", class.qualified_name).unwrap();
+            writeln!(
+                out,
+                "_Template specialisation of `{}`._\n",
+                class.qualified_name
+            )
+            .unwrap();
         }
 
         // Constructors
@@ -900,8 +968,16 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
         // Instance fields.
         if !class.fields.is_empty() {
             writeln!(out, "### Instance Fields\n").unwrap();
-            writeln!(out, "| Field | C++ type | Rust type | Const | Read accessor | Write accessor |").unwrap();
-            writeln!(out, "|-------|----------|-----------|-------|---------------|----------------|").unwrap();
+            writeln!(
+                out,
+                "| Field | C++ type | Rust type | Const | Read accessor | Write accessor |"
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "|-------|----------|-----------|-------|---------------|----------------|"
+            )
+            .unwrap();
             for f in &class.fields {
                 let write_acc = if f.is_const {
                     "—".to_string()
@@ -931,7 +1007,10 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 
         // @make_proxy hint for abstract classes
         if class.is_abstract {
-            let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+            let rust_name = class
+                .canonical_name
+                .as_deref()
+                .unwrap_or(class.name.as_str());
             let snake = crate::ast::to_snake_case(rust_name);
             writeln!(out, "### @make_proxy Binding\n").unwrap();
             writeln!(
@@ -946,14 +1025,28 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     // Global variables section
     if !decls.globals.is_empty() {
         writeln!(out, "## Global Variables\n").unwrap();
-        writeln!(out, "| C++ name | Rust fn name | Qualified name | C++ type | Rust type | Const | Owner |").unwrap();
-        writeln!(out, "|----------|--------------|----------------|----------|-----------|-------|-------|").unwrap();
+        writeln!(
+            out,
+            "| C++ name | Rust fn name | Qualified name | C++ type | Rust type | Const | Owner |"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "|----------|--------------|----------------|----------|-----------|-------|-------|"
+        )
+        .unwrap();
         for gv in &decls.globals {
             let owner = gv.class_name.as_deref().unwrap_or("(global)");
             writeln!(
                 out,
                 "| `{}` | `{}` | `{}` | `{}` | `{}` | {} | `{}` |",
-                gv.name, gv.rust_name, gv.qualified_name, gv.cpp_type, gv.rust_type, gv.is_const, owner
+                gv.name,
+                gv.rust_name,
+                gv.qualified_name,
+                gv.cpp_type,
+                gv.rust_type,
+                gv.is_const,
+                owner
             )
             .unwrap();
         }
@@ -964,12 +1057,24 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     if !decls.enums.is_empty() {
         writeln!(out, "## Enums\n").unwrap();
         for enum_ir in &decls.enums {
-            let kind = if enum_ir.is_class { "enum class" } else { "enum" };
-            writeln!(out, "### `{} {}` (`{}`)\n", kind, enum_ir.name, enum_ir.qualified_name).unwrap();
+            let kind = if enum_ir.is_class {
+                "enum class"
+            } else {
+                "enum"
+            };
+            writeln!(
+                out,
+                "### `{} {}` (`{}`)\n",
+                kind, enum_ir.name, enum_ir.qualified_name
+            )
+            .unwrap();
             writeln!(out, "| Variant | Value |").unwrap();
             writeln!(out, "|---------|-------|").unwrap();
             for v in &enum_ir.variants {
-                let val = v.value.map(|n| n.to_string()).unwrap_or_else(|| "(implicit)".to_string());
+                let val = v
+                    .value
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "(implicit)".to_string());
                 writeln!(out, "| `{}` | `{}` |", v.name, val).unwrap();
             }
             writeln!(out).unwrap();
@@ -1013,7 +1118,12 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             writeln!(out, "| AST kind | Name | Reason |").unwrap();
             writeln!(out, "|----------|------|--------|").unwrap();
             for item in &tool_conservative {
-                writeln!(out, "| `{}` | `{}` | `{}` |", item.kind, item.name, item.reason).unwrap();
+                writeln!(
+                    out,
+                    "| `{}` | `{}` | `{}` |",
+                    item.kind, item.name, item.reason
+                )
+                .unwrap();
             }
             writeln!(out).unwrap();
 
@@ -1024,7 +1134,11 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
                 .filter(|s| s.reason == "template_decl" && s.suggested_alias.is_some())
                 .collect();
             if !template_skips.is_empty() {
-                writeln!(out, "#### Alias suggestions to unlock template extraction\n").unwrap();
+                writeln!(
+                    out,
+                    "#### Alias suggestions to unlock template extraction\n"
+                )
+                .unwrap();
                 writeln!(out, "Add the following `using` declarations to your C++ header and re-run `cpp2rust-demo init` to unlock extraction:\n").unwrap();
                 writeln!(out, "```cpp").unwrap();
                 for item in &template_skips {
@@ -1040,11 +1154,20 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 
         if !hicc_limitation.is_empty() {
             writeln!(out, "### hicc limitations (`hicc_limitation`)\n").unwrap();
-            writeln!(out, "_These require a hand-written C++ shim or are not supported by hicc._\n").unwrap();
+            writeln!(
+                out,
+                "_These require a hand-written C++ shim or are not supported by hicc._\n"
+            )
+            .unwrap();
             writeln!(out, "| AST kind | Name | Reason |").unwrap();
             writeln!(out, "|----------|------|--------|").unwrap();
             for item in &hicc_limitation {
-                writeln!(out, "| `{}` | `{}` | `{}` |", item.kind, item.name, item.reason).unwrap();
+                writeln!(
+                    out,
+                    "| `{}` | `{}` | `{}` |",
+                    item.kind, item.name, item.reason
+                )
+                .unwrap();
             }
             writeln!(out).unwrap();
         }
@@ -1067,24 +1190,36 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
         }
 
         // Variadic functions that were extracted with a `...` parameter.
-        let variadic_fns: Vec<&crate::ast::FunctionIR> = decls
-            .functions
-            .iter()
-            .filter(|f| f.is_variadic)
-            .collect();
+        let variadic_fns: Vec<&crate::ast::FunctionIR> =
+            decls.functions.iter().filter(|f| f.is_variadic).collect();
         let variadic_methods: Vec<(&crate::ast::ClassIR, &crate::ast::FunctionIR)> = decls
             .classes
             .iter()
-            .flat_map(|c| c.methods.iter().filter(|m| m.is_variadic).map(move |m| (c, m)))
+            .flat_map(|c| {
+                c.methods
+                    .iter()
+                    .filter(|m| m.is_variadic)
+                    .map(move |m| (c, m))
+            })
             .collect();
         if !variadic_fns.is_empty() || !variadic_methods.is_empty() {
             writeln!(out, "## Variadic Functions (`va_list` last-param)\n").unwrap();
             writeln!(out, "_These functions have a `va_list` last parameter and are bound as `unsafe fn ... (fixed_params, ...) -> T`. Call them with a Rust format macro or pass a `VaList` obtained from another variadic function._\n").unwrap();
             for f in &variadic_fns {
-                writeln!(out, "- `{}` → `unsafe fn {}(...)`", f.qualified_name, f.rust_name).unwrap();
+                writeln!(
+                    out,
+                    "- `{}` → `unsafe fn {}(...)`",
+                    f.qualified_name, f.rust_name
+                )
+                .unwrap();
             }
             for (cls, m) in &variadic_methods {
-                writeln!(out, "- `{}::{}` → `unsafe fn {}(...)`", cls.qualified_name, m.name, m.rust_name).unwrap();
+                writeln!(
+                    out,
+                    "- `{}::{}` → `unsafe fn {}(...)`",
+                    cls.qualified_name, m.name, m.rust_name
+                )
+                .unwrap();
             }
             writeln!(out).unwrap();
         }
@@ -1100,9 +1235,17 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             writeln!(out, "_The following classes have public base classes. `@dynamic_cast` binding skeletons have been written to `free/dynamic_casts.rs`. Uncomment the pairs you need._\n").unwrap();
             for cls in &inherited_classes {
                 let rust_name = cls.canonical_name.as_deref().unwrap_or(cls.name.as_str());
-                writeln!(out, "- **`{}`** inherits from: {}", rust_name,
-                    cls.bases.iter().map(|b| format!("`{}`", b)).collect::<Vec<_>>().join(", ")
-                ).unwrap();
+                writeln!(
+                    out,
+                    "- **`{}`** inherits from: {}",
+                    rust_name,
+                    cls.bases
+                        .iter()
+                        .map(|b| format!("`{}`", b))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+                .unwrap();
             }
             writeln!(out).unwrap();
         }
@@ -1128,14 +1271,18 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
                 let shim = decls
                     .operator_shims
                     .iter()
-                    .find(|s| s.operator_name == op.name.rsplit("::").next().unwrap_or(&op.name)
-                        || op.name.contains(&s.operator_name))
+                    .find(|s| {
+                        s.operator_name == op.name.rsplit("::").next().unwrap_or(&op.name)
+                            || op.name.contains(&s.operator_name)
+                    })
                     .map(|s| s.shim_name.as_str())
                     .unwrap_or("(see operator_shims.hpp)");
                 writeln!(out, "| `{}` | `{}` |", op.name, shim).unwrap();
             }
             writeln!(out).unwrap();
-            out.push_str("See `meta/<group>/operator_shims.hpp` for the generated shim signatures.\n\n");
+            out.push_str(
+                "See `meta/<group>/operator_shims.hpp` for the generated shim signatures.\n\n",
+            );
         }
     }
 
@@ -1156,7 +1303,12 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
                     .iter()
                     .map(|c| format!("`{}`", c.cpp_signature))
                     .collect();
-                writeln!(out, "- **`{rust_name}`** — constructors: {}", ctor_sigs.join(", ")).unwrap();
+                writeln!(
+                    out,
+                    "- **`{rust_name}`** — constructors: {}",
+                    ctor_sigs.join(", ")
+                )
+                .unwrap();
             }
             writeln!(out).unwrap();
         }
@@ -1170,7 +1322,11 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .filter_map(|s| s.stl_container_type.clone())
             .collect();
         if !stl_types.is_empty() {
-            writeln!(out, "## `hicc::RustAny` Suggestions for STL Containers (P4)\n").unwrap();
+            writeln!(
+                out,
+                "## `hicc::RustAny` Suggestions for STL Containers (P4)\n"
+            )
+            .unwrap();
             writeln!(out, "_The following STL container types were encountered in skipped declarations. See `types/mod.rs` for detailed suggestions on using `hicc::RustAny<T>` / `hicc-std` to store Rust data in these containers._\n").unwrap();
             for ct in &stl_types {
                 writeln!(out, "- `{ct}`").unwrap();
@@ -1209,8 +1365,16 @@ pub fn render_operator_shims_hpp(
     let guard = "OPERATOR_SHIMS_HPP";
     let mut out = String::new();
     writeln!(out, "// Auto-generated operator shims by cpp2rust-demo.").unwrap();
-    writeln!(out, "// Include this file in your hicc::cpp! block, then bind").unwrap();
-    writeln!(out, "// the functions below via #[cpp(func = \"...\")] in import_lib!.").unwrap();
+    writeln!(
+        out,
+        "// Include this file in your hicc::cpp! block, then bind"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// the functions below via #[cpp(func = \"...\")] in import_lib!."
+    )
+    .unwrap();
     writeln!(out, "#pragma once").unwrap();
     writeln!(out, "#ifndef {}", guard).unwrap();
     writeln!(out, "#define {}", guard).unwrap();
@@ -1249,7 +1413,11 @@ pub fn render_operator_shims_hpp(
             shim.return_cpp_type.clone()
         };
 
-        let call_self = if shim.class_name.is_some() { "self" } else { "" };
+        let call_self = if shim.class_name.is_some() {
+            "self"
+        } else {
+            ""
+        };
         let call_extra: Vec<&str> = shim.params.iter().map(|p| p.name.as_str()).collect();
         let call_args = call_extra.join(", ");
 
@@ -1278,7 +1446,8 @@ pub fn render_operator_shims_hpp(
         } else {
             // Free-standing operator.
             let all_args: Vec<&str> = shim.params.iter().map(|p| p.name.as_str()).collect();
-            let op_token = shim.operator_name
+            let op_token = shim
+                .operator_name
                 .strip_prefix("operator")
                 .unwrap_or(&shim.operator_name)
                 .trim();
@@ -1304,9 +1473,21 @@ pub fn render_operator_shims_hpp(
 
     // Append std::string / std::function shim suggestions as commented-out starters.
     if !string_shims.is_empty() {
-        writeln!(out, "// ---------------------------------------------------------------------------").unwrap();
-        writeln!(out, "// std::string / std::function shim suggestions (copy-paste starters)").unwrap();
-        writeln!(out, "// ---------------------------------------------------------------------------").unwrap();
+        writeln!(
+            out,
+            "// ---------------------------------------------------------------------------"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "// std::string / std::function shim suggestions (copy-paste starters)"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "// ---------------------------------------------------------------------------"
+        )
+        .unwrap();
         writeln!(out).unwrap();
         for item in &string_shims {
             if let Some(ref shim_text) = item.suggested_shim {
@@ -1331,8 +1512,16 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
     }
 
     let mut out = String::new();
-    writeln!(out, "// Auto-generated operator shim Rust bindings by cpp2rust-demo.").unwrap();
-    writeln!(out, "// Add the shim functions from operator_shims.hpp to your hicc::cpp! block,").unwrap();
+    writeln!(
+        out,
+        "// Auto-generated operator shim Rust bindings by cpp2rust-demo."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// Add the shim functions from operator_shims.hpp to your hicc::cpp! block,"
+    )
+    .unwrap();
     writeln!(out, "// then uncomment the bindings below.").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "hicc::import_lib! {{").unwrap();
@@ -1356,11 +1545,7 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
             }
         }
         for p in &shim.params {
-            rust_params.push(format!(
-                "{}: {}",
-                sanitize_ident(&p.name),
-                p.rust_type
-            ));
+            rust_params.push(format!("{}: {}", sanitize_ident(&p.name), p.rust_type));
         }
         let param_str = rust_params.join(", ");
 
@@ -1388,7 +1573,12 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
 
         writeln!(out, "    // Shim for `{}`", shim.operator_name).unwrap();
         writeln!(out, "    #[cpp(func = \"{}\")]", cpp_sig).unwrap();
-        writeln!(out, "    fn {}({}){};\n", shim.shim_name, param_str, ret_str).unwrap();
+        writeln!(
+            out,
+            "    fn {}({}){};\n",
+            shim.shim_name, param_str, ret_str
+        )
+        .unwrap();
     }
 
     writeln!(out, "}}").unwrap();
@@ -1432,19 +1622,43 @@ pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> S
     }
 
     let mut out = String::new();
-    writeln!(out, "// Auto-generated @dynamic_cast binding skeletons by cpp2rust-demo.").unwrap();
-    writeln!(out, "// Uncomment the casts you need and add this file to your hicc build.").unwrap();
-    writeln!(out, "// Each binding allows downcasting a Base* pointer to a Derived* at runtime.").unwrap();
+    writeln!(
+        out,
+        "// Auto-generated @dynamic_cast binding skeletons by cpp2rust-demo."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// Uncomment the casts you need and add this file to your hicc build."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// Each binding allows downcasting a Base* pointer to a Derived* at runtime."
+    )
+    .unwrap();
     writeln!(out).unwrap();
     writeln!(out, "hicc::import_lib! {{").unwrap();
     writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "    // Dynamic cast bindings — downcast Base* → Derived*.").unwrap();
+    writeln!(
+        out,
+        "    // Dynamic cast bindings — downcast Base* → Derived*."
+    )
+    .unwrap();
     for (base_name, derived_name) in &cast_pairs {
         let snake_derived = crate::ast::to_snake_case(derived_name);
         writeln!(out).unwrap();
-        writeln!(out, "    // Cast {base_name}* → {derived_name}* (returns null if types don't match).").unwrap();
-        writeln!(out, "    // #[cpp(func = \"{derived_name} @dynamic_cast<{derived_name}>({base_name} *)\")]").unwrap();
+        writeln!(
+            out,
+            "    // Cast {base_name}* → {derived_name}* (returns null if types don't match)."
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "    // #[cpp(func = \"{derived_name} @dynamic_cast<{derived_name}>({base_name} *)\")]"
+        )
+        .unwrap();
         writeln!(out, "    // fn dynamic_cast_to_{snake_derived}(ptr: *mut {base_name}) -> *mut {derived_name};").unwrap();
     }
     writeln!(out, "}}").unwrap();
@@ -1470,26 +1684,61 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
     }
 
     let mut out = String::new();
-    writeln!(out, "// Auto-generated placement-new binding skeletons by cpp2rust-demo.").unwrap();
-    writeln!(out, "// hicc supports constructing C++ objects in Rust-managed memory.").unwrap();
-    writeln!(out, "// Uncomment the constructors you need and add this file to your hicc build.").unwrap();
+    writeln!(
+        out,
+        "// Auto-generated placement-new binding skeletons by cpp2rust-demo."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// hicc supports constructing C++ objects in Rust-managed memory."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// Uncomment the constructors you need and add this file to your hicc build."
+    )
+    .unwrap();
     writeln!(out, "//").unwrap();
     writeln!(out, "// Usage pattern:").unwrap();
-    writeln!(out, "//   let mut storage = hicc::AlignedStorage::<Foo>::new();").unwrap();
-    writeln!(out, "//   let foo_ref = new_foo_inplace(&mut storage, ...);").unwrap();
-    writeln!(out, "//   // `foo_ref` borrows `storage`; it is destroyed when `storage` drops.").unwrap();
+    writeln!(
+        out,
+        "//   let mut storage = hicc::AlignedStorage::<Foo>::new();"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "//   let foo_ref = new_foo_inplace(&mut storage, ...);"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "//   // `foo_ref` borrows `storage`; it is destroyed when `storage` drops."
+    )
+    .unwrap();
     writeln!(out, "//").unwrap();
-    writeln!(out, "// See https://docs.rs/hicc for placement-new semantics.").unwrap();
+    writeln!(
+        out,
+        "// See https://docs.rs/hicc for placement-new semantics."
+    )
+    .unwrap();
     writeln!(out).unwrap();
     writeln!(out, "hicc::import_lib! {{").unwrap();
     writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
 
     for class in &classes_with_ctors {
-        let rust_name = class.canonical_name.as_deref().unwrap_or(class.name.as_str());
+        let rust_name = class
+            .canonical_name
+            .as_deref()
+            .unwrap_or(class.name.as_str());
         let snake = crate::ast::to_snake_case(rust_name);
 
         writeln!(out).unwrap();
-        writeln!(out, "    // Placement-new binding(s) for `{rust_name}` — uncomment and adapt.").unwrap();
+        writeln!(
+            out,
+            "    // Placement-new binding(s) for `{rust_name}` — uncomment and adapt."
+        )
+        .unwrap();
         for (i, ctor) in class.ctors.iter().enumerate() {
             // Build rust param list (no self; first param is the storage).
             let rust_params: Vec<String> = ctor
@@ -1504,11 +1753,8 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
             };
 
             // Build the C++ param type list for @placement_new.
-            let cpp_param_types: Vec<String> = ctor
-                .params
-                .iter()
-                .map(|p| p.cpp_type.clone())
-                .collect();
+            let cpp_param_types: Vec<String> =
+                ctor.params.iter().map(|p| p.cpp_type.clone()).collect();
             let cpp_params_str = cpp_param_types.join(", ");
 
             let fn_name = if i == 0 {
@@ -1551,19 +1797,55 @@ pub fn render_rust_any_suggestions(decls: &ExtractedDecls) -> String {
     }
 
     let mut out = String::new();
-    writeln!(out, "// ---------------------------------------------------------------------------").unwrap();
-    writeln!(out, "// hicc::RustAny suggestions for STL container types (P4)").unwrap();
+    writeln!(
+        out,
+        "// ---------------------------------------------------------------------------"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// hicc::RustAny suggestions for STL container types (P4)"
+    )
+    .unwrap();
     writeln!(out, "//").unwrap();
-    writeln!(out, "// The following STL container types were encountered as parameter or return").unwrap();
-    writeln!(out, "// types in skipped declarations. They cannot be passed through the ABI").unwrap();
-    writeln!(out, "// boundary directly, but hicc supports storing Rust data inside C++").unwrap();
+    writeln!(
+        out,
+        "// The following STL container types were encountered as parameter or return"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// types in skipped declarations. They cannot be passed through the ABI"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// boundary directly, but hicc supports storing Rust data inside C++"
+    )
+    .unwrap();
     writeln!(out, "// containers via `hicc::RustAny<T>`.").unwrap();
     writeln!(out, "//").unwrap();
-    writeln!(out, "// Pattern: replace `std::vector<Foo>` with `std::vector<hicc::RustAny<Foo>>`").unwrap();
-    writeln!(out, "// on the C++ side, then use `hicc_std::Vector<Foo>` on the Rust side.").unwrap();
+    writeln!(
+        out,
+        "// Pattern: replace `std::vector<Foo>` with `std::vector<hicc::RustAny<Foo>>`"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// on the C++ side, then use `hicc_std::Vector<Foo>` on the Rust side."
+    )
+    .unwrap();
     writeln!(out, "//").unwrap();
-    writeln!(out, "// See https://docs.rs/hicc for RustAny / hicc-std container semantics.").unwrap();
-    writeln!(out, "// ---------------------------------------------------------------------------").unwrap();
+    writeln!(
+        out,
+        "// See https://docs.rs/hicc for RustAny / hicc-std container semantics."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// ---------------------------------------------------------------------------"
+    )
+    .unwrap();
     writeln!(out).unwrap();
     for ct in &seen {
         // Derive a friendly suggestion based on the container type.
@@ -1603,9 +1885,8 @@ fn rust_any_suggestion_for(ct: &str) -> String {
         }
     }
     if trimmed.contains("std::set<") || trimmed.contains("std::unordered_set<") {
-        return format!(
-            "→ store Rust keys via `hicc::RustKey<T>` / `hicc::RustHashKey<T>` in the set"
-        );
+        return "→ store Rust keys via `hicc::RustKey<T>` / `hicc::RustHashKey<T>` in the set"
+            .to_string();
     }
     format!("→ consider wrapping values with `hicc::RustAny<T>` to store Rust data in `{trimmed}`")
 }
@@ -1635,27 +1916,31 @@ fn extract_template_arg(full: &str) -> Option<&str> {
 fn operator_shim_suggestion(operator_name: &str) -> String {
     // Extract the operator token from the qualified name, e.g.
     // "rapidjson::Value::operator[]" → "operator[]"
-    let op_token = operator_name
-        .rsplit("::")
-        .next()
-        .unwrap_or(operator_name);
+    let op_token = operator_name.rsplit("::").next().unwrap_or(operator_name);
     match op_token {
         "operator[]" => "Wrap as `get_at(obj, idx)` / `set_at(obj, idx, val)`".to_string(),
         "operator=" => "Wrap as `assign(obj, other)`".to_string(),
         "operator==" | "operator!=" | "operator<" | "operator<=" | "operator>" | "operator>=" => {
-            format!("Wrap as a named comparison fn, e.g. `{}(a, b)`", operator_abbreviation(op_token))
+            format!(
+                "Wrap as a named comparison fn, e.g. `{}(a, b)`",
+                operator_abbreviation(op_token)
+            )
         }
         "operator+" | "operator-" | "operator*" | "operator/" => {
-            format!("Wrap as a named arithmetic fn, e.g. `{}(a, b)`", operator_abbreviation(op_token))
+            format!(
+                "Wrap as a named arithmetic fn, e.g. `{}(a, b)`",
+                operator_abbreviation(op_token)
+            )
         }
-        "operator++" | "operator--" => {
-            "Wrap as `increment(obj)` / `decrement(obj)`".to_string()
-        }
+        "operator++" | "operator--" => "Wrap as `increment(obj)` / `decrement(obj)`".to_string(),
         "operator()" => "Wrap as `call(obj, ...)` – expose as a named function".to_string(),
         "operator bool" | "operator int" | "operator double" => {
             "Wrap as a named conversion fn, e.g. `to_bool(obj)`".to_string()
         }
-        _ => format!("Wrap `{}` as a named static function via `hicc::cpp!`", op_token),
+        _ => format!(
+            "Wrap `{}` as a named static function via `hicc::cpp!`",
+            op_token
+        ),
     }
 }
 
@@ -1698,6 +1983,7 @@ mod tests {
             is_pure: false,
             class_name: None,
             is_variadic: false,
+            is_rvalue: false,
         }
     }
 
@@ -1775,6 +2061,7 @@ mod tests {
             is_pure: false,
             class_name: Some("Widget".to_string()),
             is_variadic: false,
+            is_rvalue: false,
         };
         let class = ClassIR {
             name: "Widget".to_string(),
@@ -1855,6 +2142,7 @@ mod tests {
             is_pure: true,
             class_name: Some("IFoo".to_string()),
             is_variadic: false,
+            is_rvalue: false,
         };
         let class = ClassIR {
             name: "IFoo".to_string(),
@@ -1897,6 +2185,7 @@ mod tests {
             is_pure: false,
             class_name: Some("Base".to_string()),
             is_variadic: false,
+            is_rvalue: false,
         };
         let class = ClassIR {
             name: "Base".to_string(),
@@ -1956,6 +2245,7 @@ mod tests {
             is_pure: true,
             class_name: Some("ITask".to_string()),
             is_variadic: false,
+            is_rvalue: false,
         };
         let decls = ExtractedDecls {
             classes: vec![ClassIR {
@@ -2005,7 +2295,10 @@ mod tests {
     fn render_placement_new_module_empty_when_no_ctors() {
         let decls = ExtractedDecls::default();
         let src = render_placement_new_module(&decls, "mylib");
-        assert!(src.is_empty(), "expected empty output when no classes have ctors, got: {src}");
+        assert!(
+            src.is_empty(),
+            "expected empty output when no classes have ctors, got: {src}"
+        );
     }
 
     #[test]
@@ -2038,14 +2331,14 @@ mod tests {
         let class = ClassIR {
             name: "Foo".to_string(),
             qualified_name: "Foo".to_string(),
-            ctors: vec![
-                CtorIR {
-                    params: vec![
-                        ParamIR { name: "x".to_string(), cpp_type: "int".to_string(), rust_type: "i32".to_string() },
-                    ],
-                    cpp_signature: "Foo(int)".to_string(),
-                },
-            ],
+            ctors: vec![CtorIR {
+                params: vec![ParamIR {
+                    name: "x".to_string(),
+                    cpp_type: "int".to_string(),
+                    rust_type: "i32".to_string(),
+                }],
+                cpp_signature: "Foo(int)".to_string(),
+            }],
             ..ClassIR::default()
         };
         let decls = ExtractedDecls {
@@ -2055,10 +2348,22 @@ mod tests {
         let src = render_placement_new_module(&decls, "mylib");
         // Must be commented-out (all binding lines start with //).
         assert!(src.contains("import_lib!"), "missing import_lib! macro");
-        assert!(src.contains("@placement_new<Foo>"), "missing @placement_new annotation");
-        assert!(src.contains("new_foo_inplace"), "missing generated function name");
-        assert!(src.contains("AlignedStorage"), "missing AlignedStorage param");
-        assert!(src.contains("// #[cpp"), "binding lines should be commented out");
+        assert!(
+            src.contains("@placement_new<Foo>"),
+            "missing @placement_new annotation"
+        );
+        assert!(
+            src.contains("new_foo_inplace"),
+            "missing generated function name"
+        );
+        assert!(
+            src.contains("AlignedStorage"),
+            "missing AlignedStorage param"
+        );
+        assert!(
+            src.contains("// #[cpp"),
+            "binding lines should be commented out"
+        );
         assert!(src.contains("link_name = \"mylib\""), "missing link_name");
     }
 
@@ -2069,9 +2374,16 @@ mod tests {
             name: "Bar".to_string(),
             qualified_name: "Bar".to_string(),
             ctors: vec![
-                CtorIR { params: vec![], cpp_signature: "Bar()".to_string() },
                 CtorIR {
-                    params: vec![ParamIR { name: "n".to_string(), cpp_type: "int".to_string(), rust_type: "i32".to_string() }],
+                    params: vec![],
+                    cpp_signature: "Bar()".to_string(),
+                },
+                CtorIR {
+                    params: vec![ParamIR {
+                        name: "n".to_string(),
+                        cpp_type: "int".to_string(),
+                        rust_type: "i32".to_string(),
+                    }],
                     cpp_signature: "Bar(int)".to_string(),
                 },
             ],
@@ -2091,7 +2403,10 @@ mod tests {
     fn render_rust_any_suggestions_empty_when_no_stl() {
         let decls = ExtractedDecls::default();
         let src = render_rust_any_suggestions(&decls);
-        assert!(src.is_empty(), "expected empty when no STL containers, got: {src}");
+        assert!(
+            src.is_empty(),
+            "expected empty when no STL containers, got: {src}"
+        );
     }
 
     #[test]
@@ -2108,7 +2423,10 @@ mod tests {
         };
         let src = render_rust_any_suggestions(&decls);
         assert!(src.contains("std::vector<Foo>"), "missing container type");
-        assert!(src.contains("hicc_std::Vector"), "missing hicc_std suggestion");
+        assert!(
+            src.contains("hicc_std::Vector"),
+            "missing hicc_std suggestion"
+        );
         assert!(src.contains("RustAny"), "missing RustAny suggestion");
     }
 
@@ -2138,7 +2456,10 @@ mod tests {
         let src = render_rust_any_suggestions(&decls);
         // "std::vector<int>" should appear exactly once (deduplication).
         let count = src.matches("std::vector<int>").count();
-        assert_eq!(count, 1, "expected deduplicated container type, found {count} times");
+        assert_eq!(
+            count, 1,
+            "expected deduplicated container type, found {count} times"
+        );
     }
 
     #[test]
@@ -2158,7 +2479,10 @@ mod tests {
             types_src.contains("RustAny"),
             "types module should contain RustAny suggestions when STL containers detected"
         );
-        assert!(types_src.contains("std::list<Bar>"), "missing container type in types module");
+        assert!(
+            types_src.contains("std::list<Bar>"),
+            "missing container type in types module"
+        );
     }
 
     #[test]
@@ -2167,7 +2491,10 @@ mod tests {
         let class = ClassIR {
             name: "Widget".to_string(),
             qualified_name: "Widget".to_string(),
-            ctors: vec![CtorIR { params: vec![], cpp_signature: "Widget()".to_string() }],
+            ctors: vec![CtorIR {
+                params: vec![],
+                cpp_signature: "Widget()".to_string(),
+            }],
             ..ClassIR::default()
         };
         let decls = ExtractedDecls {
@@ -2202,7 +2529,10 @@ mod tests {
             report.contains("RustAny"),
             "report should contain RustAny section when STL containers detected"
         );
-        assert!(report.contains("std::vector<Item>"), "report should list the container type");
+        assert!(
+            report.contains("std::vector<Item>"),
+            "report should list the container type"
+        );
     }
 
     #[test]
@@ -2232,6 +2562,9 @@ mod tests {
         );
         // Both alias and suggestion must still appear.
         assert!(src.contains("pub type MyInt = i32;"), "alias must appear");
-        assert!(src.contains("std::vector<MyInt>"), "STL suggestion must appear");
+        assert!(
+            src.contains("std::vector<MyInt>"),
+            "STL suggestion must appear"
+        );
     }
 }

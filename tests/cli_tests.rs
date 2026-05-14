@@ -1671,7 +1671,6 @@ fn init_class_ctors_sorted_by_param_count() {
     );
 }
 
-
 /// When a class publicly inherits from another, the generated `import_class!`
 /// block should use `class Foo: Base { ... }` syntax.
 #[test]
@@ -2233,9 +2232,7 @@ fn init_operator_overload_generates_shim_files() {
         .success();
 
     // operator_shims.hpp must exist in the meta directory.
-    let shims_hpp_path = tmp
-        .path()
-        .join(".cpp2rust/default/meta/operator_shims.hpp");
+    let shims_hpp_path = tmp.path().join(".cpp2rust/default/meta/operator_shims.hpp");
     assert!(
         shims_hpp_path.exists(),
         "operator_shims.hpp should be generated in meta/"
@@ -2434,7 +2431,10 @@ fn init_enum_extraction_generates_repr_c_enum() {
         report.contains("Enums"),
         "report should have an Enums section: {report}"
     );
-    assert!(report.contains("Color"), "report should mention Color: {report}");
+    assert!(
+        report.contains("Color"),
+        "report should mention Color: {report}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2819,7 +2819,9 @@ fn alias_registry_handles_namespaced_template_type() {
     )
     .or_else(|_| {
         // Walk looking for any mtd_ file under mod_doclib.
-        let base = tmp.path().join(".cpp2rust/default/rust/src/mod_doclib/method");
+        let base = tmp
+            .path()
+            .join(".cpp2rust/default/rust/src/mod_doclib/method");
         std::fs::read_dir(&base)
             .ok()
             .and_then(|mut rd| {
@@ -3289,7 +3291,10 @@ fn init_instance_fields_generate_field_bindings() {
         "report should contain 'Instance Fields' section"
     );
     assert!(report.contains("`id`"), "report should list field 'id'");
-    assert!(report.contains("`value`"), "report should list field 'value'");
+    assert!(
+        report.contains("`value`"),
+        "report should list field 'value'"
+    );
 }
 
 /// A class that exposes only public fields (no methods) should still get an
@@ -3474,8 +3479,10 @@ fn init_std_function_generates_interface_suggestion() {
     );
     // The suggestion should mention @make_proxy or virtual interface.
     assert!(
-        report.contains("@make_proxy") || report.contains("virtual")
-            || report.contains("Callback") || report.contains("interface"),
+        report.contains("@make_proxy")
+            || report.contains("virtual")
+            || report.contains("Callback")
+            || report.contains("interface"),
         "report should suggest a virtual interface approach:\n{report}"
     );
 
@@ -3544,10 +3551,7 @@ fn init_dry_run_prints_report_without_writing_rust_src() {
 
     // Cargo.toml should NOT exist either.
     let cargo_toml = tmp.path().join(".cpp2rust/default/rust/Cargo.toml");
-    assert!(
-        !cargo_toml.exists(),
-        "dry-run should not create Cargo.toml"
-    );
+    assert!(!cargo_toml.exists(), "dry-run should not create Cargo.toml");
 }
 
 // ---------------------------------------------------------------------------
@@ -4152,18 +4156,32 @@ fn example_inline_functions_extracted_like_non_inline() {
         .assert()
         .success();
 
-    let merged = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let merged =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // Both inline and non-inline functions must be extracted as plain bindings
-    assert!(merged.contains("fn add"), "inline fn add must be extracted: {merged}");
-    assert!(merged.contains("fn mul"), "inline fn mul must be extracted: {merged}");
-    assert!(merged.contains("fn subtract"), "non-inline fn subtract must be extracted: {merged}");
+    assert!(
+        merged.contains("fn add"),
+        "inline fn add must be extracted: {merged}"
+    );
+    assert!(
+        merged.contains("fn mul"),
+        "inline fn mul must be extracted: {merged}"
+    );
+    assert!(
+        merged.contains("fn subtract"),
+        "non-inline fn subtract must be extracted: {merged}"
+    );
     // Overloaded clamp: first and second overload
-    assert!(merged.contains("fn clamp"), "fn clamp must be extracted: {merged}");
-    assert!(merged.contains("fn clamp_2"), "overloaded fn clamp_2 must be extracted: {merged}");
+    assert!(
+        merged.contains("fn clamp"),
+        "fn clamp must be extracted: {merged}"
+    );
+    assert!(
+        merged.contains("fn clamp_2"),
+        "overloaded fn clamp_2 must be extracted: {merged}"
+    );
 }
 
 /// features/02-default-params/ — functions with default parameter values are extracted
@@ -4199,14 +4217,19 @@ fn example_default_params_extracted_with_full_signature() {
         .assert()
         .success();
 
-    let merged = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let merged =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // Functions with default params must be extracted (default values discarded)
-    assert!(merged.contains("fn set_timeout"), "set_timeout must be extracted: {merged}");
-    assert!(merged.contains("fn lerp"), "lerp must be extracted: {merged}");
+    assert!(
+        merged.contains("fn set_timeout"),
+        "set_timeout must be extracted: {merged}"
+    );
+    assert!(
+        merged.contains("fn lerp"),
+        "lerp must be extracted: {merged}"
+    );
     assert!(merged.contains("fn log"), "log must be extracted: {merged}");
     // All parameters must appear (not just the non-default ones)
     assert!(
@@ -4219,10 +4242,7 @@ fn example_default_params_extracted_with_full_signature() {
 #[test]
 fn example_rvalue_ref_method_maps_to_consuming_self() {
     let tmp = TempDir::new().unwrap();
-    copy_example_dir(
-        &repo_root().join("examples/features/03-rvalue-ref"),
-        &tmp,
-    );
+    copy_example_dir(&repo_root().join("examples/features/03-rvalue-ref"), &tmp);
 
     bin()
         .current_dir(tmp.path())
@@ -4246,13 +4266,15 @@ fn example_rvalue_ref_method_maps_to_consuming_self() {
         .assert()
         .success();
 
-    let merged = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let merged =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // const method → &self
-    assert!(merged.contains("fn get(&self)"), "const method must use &self: {merged}");
+    assert!(
+        merged.contains("fn get(&self)"),
+        "const method must use &self: {merged}"
+    );
     // mutable method → &mut self
     assert!(
         merged.contains("fn set(&mut self"),
@@ -4275,10 +4297,7 @@ fn example_rvalue_ref_method_maps_to_consuming_self() {
 #[test]
 fn example_va_list_last_param_generates_unsafe_variadic() {
     let tmp = TempDir::new().unwrap();
-    copy_example_dir(
-        &repo_root().join("examples/features/04-va-list"),
-        &tmp,
-    );
+    copy_example_dir(&repo_root().join("examples/features/04-va-list"), &tmp);
 
     bin()
         .current_dir(tmp.path())
@@ -4303,10 +4322,9 @@ fn example_va_list_last_param_generates_unsafe_variadic() {
         .assert()
         .success();
 
-    let merged = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let merged =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // va_list functions must become unsafe fn with trailing ...
     assert!(
@@ -4322,7 +4340,10 @@ fn example_va_list_last_param_generates_unsafe_variadic() {
         "variadic marker ... must appear in binding: {merged}"
     );
     // Normal function must still be extracted as safe fn
-    assert!(merged.contains("fn flush"), "normal fn flush must be extracted: {merged}");
+    assert!(
+        merged.contains("fn flush"),
+        "normal fn flush must be extracted: {merged}"
+    );
 }
 
 /// features/05-global-vars/ — global variables generate `#[cpp(data)]` bindings
@@ -4330,10 +4351,7 @@ fn example_va_list_last_param_generates_unsafe_variadic() {
 #[test]
 fn example_global_vars_generate_static_bindings() {
     let tmp = TempDir::new().unwrap();
-    copy_example_dir(
-        &repo_root().join("examples/features/05-global-vars"),
-        &tmp,
-    );
+    copy_example_dir(&repo_root().join("examples/features/05-global-vars"), &tmp);
 
     bin()
         .current_dir(tmp.path())
@@ -4357,10 +4375,9 @@ fn example_global_vars_generate_static_bindings() {
         .assert()
         .success();
 
-    let merged = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let merged =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // Mutable global → &'static mut accessor
     assert!(
@@ -4414,10 +4431,9 @@ fn example_static_members_generate_data_bindings() {
         .assert()
         .success();
 
-    let merged = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let merged =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // Static members must use fully-qualified Class::member form
     assert!(
@@ -4428,7 +4444,10 @@ fn example_static_members_generate_data_bindings() {
         merged.contains("Counter::max_count"),
         "const static member must use qualified name: {merged}"
     );
-    assert!(merged.contains("cpp(data"), "#[cpp(data)] attribute must appear: {merged}");
+    assert!(
+        merged.contains("cpp(data"),
+        "#[cpp(data)] attribute must appear: {merged}"
+    );
 }
 
 /// features/07-instance-fields/ — public instance fields generate
@@ -4463,20 +4482,34 @@ fn example_instance_fields_generate_field_accessors() {
         .assert()
         .success();
 
-    let merged = std::fs::read_to_string(
-        tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"),
-    )
-    .unwrap();
+    let merged =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+            .unwrap();
 
     // Mutable fields must get getter + mut accessor
-    assert!(merged.contains("fn get_x"), "getter fn get_x must appear: {merged}");
-    assert!(merged.contains("fn get_x_mut"), "mutable accessor fn get_x_mut must appear: {merged}");
-    assert!(merged.contains("fn get_y"), "getter fn get_y must appear: {merged}");
+    assert!(
+        merged.contains("fn get_x"),
+        "getter fn get_x must appear: {merged}"
+    );
+    assert!(
+        merged.contains("fn get_x_mut"),
+        "mutable accessor fn get_x_mut must appear: {merged}"
+    );
+    assert!(
+        merged.contains("fn get_y"),
+        "getter fn get_y must appear: {merged}"
+    );
     // const field → getter only
-    assert!(merged.contains("fn get_id"), "getter fn get_id must appear: {merged}");
+    assert!(
+        merged.contains("fn get_id"),
+        "getter fn get_id must appear: {merged}"
+    );
     assert!(
         !merged.contains("fn get_id_mut"),
         "const field must NOT have a mutable accessor: {merged}"
     );
-    assert!(merged.contains("cpp(field"), "#[cpp(field)] attribute must appear: {merged}");
+    assert!(
+        merged.contains("cpp(field"),
+        "#[cpp(field)] attribute must appear: {merged}"
+    );
 }
