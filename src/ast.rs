@@ -1484,17 +1484,15 @@ fn extract_class_body(
                 }
             }
             // Static data members.
-            "VarDecl" => {
-                if child.storage_class.as_deref() == Some("static") {
-                    if let Some(gv) = extract_static_member(
-                        child,
-                        class_name,
-                        qualified_name,
-                        class_map,
-                        alias_registry,
-                    ) {
-                        result.globals.push(gv);
-                    }
+            "VarDecl" if child.storage_class.as_deref() == Some("static") => {
+                if let Some(gv) = extract_static_member(
+                    child,
+                    class_name,
+                    qualified_name,
+                    class_map,
+                    alias_registry,
+                ) {
+                    result.globals.push(gv);
                 }
             }
             // Non-static instance fields.
@@ -1506,32 +1504,30 @@ fn extract_class_body(
                 }
             }
             // Nested class / struct definitions.
-            "CXXRecordDecl" => {
-                if child.complete_definition.unwrap_or(false) {
-                    if let Some(nested_name) = child.name.as_deref().filter(|n| !n.is_empty()) {
-                        // Nested class lives in a "namespace" that includes the
-                        // outer class name so qualified_name is correct.
-                        let nested_ns: Vec<String> = namespace
-                            .iter()
-                            .cloned()
-                            .chain(std::iter::once(class_name.to_string()))
-                            .collect();
-                        let nested_qualified = make_qualified(&nested_ns, nested_name);
-                        if let Some(nested_class) = extract_class_body(
-                            child,
-                            nested_name,
-                            &nested_qualified,
-                            false,
-                            None,
-                            &nested_ns,
-                            current_file,
-                            result,
-                            strategy,
-                            class_map,
-                            alias_registry,
-                        ) {
-                            result.classes.push(nested_class);
-                        }
+            "CXXRecordDecl" if child.complete_definition.unwrap_or(false) => {
+                if let Some(nested_name) = child.name.as_deref().filter(|n| !n.is_empty()) {
+                    // Nested class lives in a "namespace" that includes the
+                    // outer class name so qualified_name is correct.
+                    let nested_ns: Vec<String> = namespace
+                        .iter()
+                        .cloned()
+                        .chain(std::iter::once(class_name.to_string()))
+                        .collect();
+                    let nested_qualified = make_qualified(&nested_ns, nested_name);
+                    if let Some(nested_class) = extract_class_body(
+                        child,
+                        nested_name,
+                        &nested_qualified,
+                        false,
+                        None,
+                        &nested_ns,
+                        current_file,
+                        result,
+                        strategy,
+                        class_map,
+                        alias_registry,
+                    ) {
+                        result.classes.push(nested_class);
                     }
                 }
             }
