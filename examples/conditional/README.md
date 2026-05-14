@@ -13,6 +13,7 @@
 |------|---------|------------|
 | [`01-template-no-alias/`](01-template-no-alias/README.md) | 模板类（无 `typedef`/`using` 别名） | 在 `entry.cpp` 中添加 `using Alias = Template<Args>;` |
 | [`02-function-template/`](02-function-template/README.md) | 函数模板（无显式特化） | 在 `entry.cpp` 中添加 `template int foo<int>(...);` 显式实例化 |
+| [`03-chained-alias/`](03-chained-alias/README.md) | 链式类型别名（`using B = A; using A = T<...>`） | 直接添加任意层级的别名链；AliasRegistry 传递性闭合解析全自动处理 |
 
 ---
 

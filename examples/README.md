@@ -54,13 +54,13 @@ examples/
 
 ## ⚙️ 半自动示例
 
-工具生成注释骨架，用户解注释或加 flag 后即可完全自动化。
+工具生成注释骨架，用户解注释后即可完全自动化。
 详见 [`semi-auto/README.md`](semi-auto/README.md)。
 
 | 示例 | C++ 特性 | 解锁方式 |
 |------|---------|---------|
-| [`semi-auto/01-dynamic-cast/`](semi-auto/01-dynamic-cast/README.md) | `dynamic_cast` 向下转型 | 解注释或加 `--enable-dynamic-cast` |
-| [`semi-auto/02-placement-new/`](semi-auto/02-placement-new/README.md) | Placement New | 解注释或加 `--enable-placement-new` |
+| [`semi-auto/01-dynamic-cast/`](semi-auto/01-dynamic-cast/README.md) | `dynamic_cast` 向下转型 | 解注释 `free/dynamic_casts.rs` |
+| [`semi-auto/02-placement-new/`](semi-auto/02-placement-new/README.md) | Placement New | 解注释 `free/placement_new.rs` |
 
 ---
 
@@ -73,6 +73,7 @@ examples/
 |------|---------|------------|
 | [`conditional/01-template-no-alias/`](conditional/01-template-no-alias/README.md) | 模板类（无别名） | 添加 `using Alias = Template<Args>;` |
 | [`conditional/02-function-template/`](conditional/02-function-template/README.md) | 函数模板（无显式特化） | 添加 `template int foo<int>(...);` |
+| [`conditional/03-chained-alias/`](conditional/03-chained-alias/README.md) | 链式类型别名（`using B = A; using A = T<...>`） | 直接添加别名链；工具传递性解析全自动处理 |
 
 ---
 
@@ -95,7 +96,7 @@ examples/
 > `simple/` → `class/`
 
 **只想了解模板类绑定**：
-> `rapidjson/02-typedef-alias/` → `rapidjson/03-template-class/` → `conditional/01-template-no-alias/`
+> `rapidjson/02-typedef-alias/` → `rapidjson/03-template-class/` → `conditional/01-template-no-alias/` → `conditional/03-chained-alias/`
 
 **只想了解虚函数/接口/继承**：
 > `rapidjson/05-virtual-methods/` → `rapidjson/04-abstract-interface/` → `rapidjson/06-inheritance/`
@@ -123,6 +124,7 @@ examples/
 | `@make_proxy` 反向绑定 | `rapidjson/04-abstract-interface/`, `guided/02-std-function/` |
 | `#[repr(C)] enum` 枚举 | `rapidjson/01-enum/` |
 | AliasRegistry 模板别名 | `rapidjson/02-typedef-alias/`, `rapidjson/03-template-class/` |
+| AliasRegistry 链式别名传递性解析 | `conditional/03-chained-alias/` |
 | `operator_shims.hpp` shim | `rapidjson/07-operator-shim/`, `guided/01-std-string/` |
 | `--no-link` header-only | `rapidjson/08-multi-tu/` |
 | `merge` 多 TU 合并 | `rapidjson/08-multi-tu/` |
@@ -165,11 +167,11 @@ examples/
 
 以下限制已在工具层面解决，无需用户操作：
 
-| C++ 特性 | 当前行为 | 备注 |
-|---------|---------|------|
-| 多重继承 | 所有 public 基类均提取，生成 `class C: A, B` 骨架 | hicc 本身不支持多重继承运行时语义，骨架仅供参考；需手写 C++ 委托包装后单继承绑定 |
-| 链式类型别名 | AliasRegistry 传递性闭合解析已实现，`using B = A; using A = T<…>` 能正确解锁 `B` 对应的模板提取 | 完全自动，无需用户操作 |
-| 虚继承（菱形继承） | 虚基类自动检测并跳过，接口报告列出 `⚠️ Virtual bases (skipped)` 警告 | hicc 不支持虚继承，工具已给出明确提示 |
+| C++ 特性 | 当前行为 | 示例 | 备注 |
+|---------|---------|------|------|
+| 多重继承 | 所有 public 基类均提取，生成 `class C: A, B` 骨架 | — | hicc 本身不支持多重继承运行时语义，骨架仅供参考；需手写 C++ 委托包装后单继承绑定 |
+| 链式类型别名 | AliasRegistry 传递性闭合解析已实现，`using B = A; using A = T<…>` 能正确解锁 `B` 对应的模板提取 | [`conditional/03-chained-alias/`](conditional/03-chained-alias/README.md) | 完全自动，无需用户操作 |
+| 虚继承（菱形继承） | 虚基类自动检测并跳过，接口报告列出 `⚠️ Virtual bases (skipped)` 警告 | — | hicc 不支持虚继承，工具已给出明确提示 |
 
 ---
 
