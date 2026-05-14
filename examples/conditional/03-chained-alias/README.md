@@ -19,7 +19,7 @@ using MyStore  = IntStore;     // 链式别名：MyStore → IntStore → Store<
 
 ---
 
-## C++ 源码（`store.hpp` / `entry.cpp`）
+## C++ 源码（`store.hpp` / `entry.cpp` / `entry-chained.cpp`）
 
 ```cpp
 // store.hpp — 无别名时默认被跳过
@@ -36,7 +36,7 @@ public:
 ```
 
 ```cpp
-// entry.cpp — 三种状态对比
+// entry.cpp — STEP A/B1/B2 基础文件（别名注释待解开）
 // STEP A: 无别名（Store<T> 被跳过）
 // #include "store.hpp"
 
@@ -46,6 +46,12 @@ public:
 // STEP B2: 链式别名（传递性解析，AliasRegistry 已支持）
 // using IntStore = Store<int>;
 // using MyStore  = IntStore;    ← 链式，MyStore 也会被解锁
+```
+
+```cpp
+// entry-chained.cpp — STEP B2 预解注释版本（供 CI 直接使用）
+using IntStore = Store<int>;   // 直接别名
+using MyStore  = IntStore;     // 链式别名 → resolve_transitive() 完成传递性闭合
 ```
 
 ---
@@ -96,6 +102,16 @@ cat .cpp2rust/cond03/rust/src/merged_ffi.rs
 ### STEP B2：链式别名（解锁 IntStore + MyStore）
 
 编辑 `entry.cpp`，同时解注释两行 `using`，再重跑（同上命令）。
+也可以直接使用预解注释版本 `entry-chained.cpp`（CI 也使用此文件）：
+
+```bash
+cpp2rust-demo init --feature cond03 --link store \
+    -- clang -x c++ -fsyntax-only examples/conditional/03-chained-alias/entry-chained.cpp
+
+cpp2rust-demo merge --feature cond03
+
+cat .cpp2rust/cond03/rust/src/merged_ffi.rs
+```
 
 ---
 
