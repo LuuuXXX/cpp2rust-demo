@@ -244,12 +244,20 @@ pub enum SkipCategory {
 ///   specialisations.
 #[derive(Debug, Default)]
 pub struct AliasRegistry {
-    /// Bare template name → first matching alias name.
-    /// e.g. `"GenericDocument"` → `"Document"`
-    template_to_alias: HashMap<String, String>,
+    /// Bare template name → all alias names for that template.
+    /// e.g. `"GenericDocument"` → `["Document"]`
+    ///
+    /// A single template can have multiple aliases (e.g.
+    /// `using A = T<int>; using B = T<double>;`), so we keep a Vec
+    /// instead of a single String.
+    template_to_alias: HashMap<String, Vec<String>>,
     /// Alias name → fully-qualified C++ type string.
     /// e.g. `"Document"` → `"rapidjson::GenericDocument<rapidjson::UTF8<char>, rapidjson::CrtAllocator>"`
     alias_to_type: HashMap<String, String>,
+    /// Full qualified C++ type → first alias name (reverse of `alias_to_type`).
+    /// Used for precise per-specialisation lookups in
+    /// `try_extract_template_spec`.
+    type_to_alias: HashMap<String, String>,
 }
 
 impl AliasRegistry {
@@ -272,8 +280,9 @@ impl AliasRegistry {
     /// using B = A;                   // initially:   B → "A"  (no '<')
     /// ```
     /// After this call `B` resolves to `"SomeTemplate<int>"` in
-    /// `alias_to_type`, and `template_to_alias` gains `"SomeTemplate" → "A"`
-    /// (first alias wins; `B` is a second-level alias and is not preferred).
+    /// `alias_to_type`, `type_to_alias` gains the reverse entry, and
+    /// `template_to_alias` gains `"SomeTemplate" → ["A", "B"]`
+    /// (`A` is the direct alias and is preferred; `B` is second-level).
     ///
     /// The algorithm iterates until no further resolutions are possible
     /// (fixed-point / transitive closure).
@@ -293,14 +302,19 @@ impl AliasRegistry {
                         // Found a template through the chain – update the entry
                         // to point directly to the template type.
                         *self.alias_to_type.get_mut(key).unwrap() = resolved.clone();
-                        // Also register this alias in template_to_alias if the
-                        // template doesn't already have a preferred alias.
+                        // Also register this alias in template_to_alias.
                         let bare = bare_template_name(&resolved);
                         if !bare.is_empty() {
-                            self.template_to_alias
-                                .entry(bare.to_string())
-                                .or_insert_with(|| key.clone());
+                            let aliases =
+                                self.template_to_alias.entry(bare.to_string()).or_default();
+                            if !aliases.contains(key) {
+                                aliases.push(key.clone());
+                            }
                         }
+                        // Populate reverse map (first alias wins).
+                        self.type_to_alias
+                            .entry(resolved.clone())
+                            .or_insert_with(|| key.clone());
                         changed = true;
                     }
                 }
@@ -320,11 +334,37 @@ impl AliasRegistry {
             .is_some_and(|t| t.contains('<'))
     }
 
-    /// Return the alias Rust name for a bare template class name, if any.
+    /// Return the first alias Rust name for a bare template class name, if any.
     ///
     /// e.g. `alias_for_template("GenericDocument")` → `Some("Document")`
+    ///
+    /// When the same template has multiple aliases (e.g. two `using`
+    /// declarations for different specialisations), the first registered alias
+    /// is returned.  Use [`alias_for_type`] for a precise per-specialisation
+    /// lookup.
     pub fn alias_for_template(&self, bare_name: &str) -> Option<&str> {
-        self.template_to_alias.get(bare_name).map(|s| s.as_str())
+        self.template_to_alias
+            .get(bare_name)
+            .and_then(|v| v.first())
+            .map(|s| s.as_str())
+    }
+
+    /// Return the alias name for a specific fully-qualified C++ type, if any.
+    ///
+    /// Unlike [`alias_for_template`], this performs an exact match on the
+    /// fully-qualified type string (after stripping a leading `class ` or
+    /// `struct ` keyword) so each distinct template specialisation maps to
+    /// its own alias.
+    ///
+    /// e.g. `alias_for_type("rapidjson::GenericDocument<rapidjson::UTF8<char>>")` → `Some("Document")`
+    pub fn alias_for_type(&self, full_qual_type: &str) -> Option<&str> {
+        let t = full_qual_type.trim();
+        let t = t
+            .strip_prefix("class ")
+            .or_else(|| t.strip_prefix("struct "))
+            .unwrap_or(t)
+            .trim();
+        self.type_to_alias.get(t).map(|s| s.as_str())
     }
 
     /// Return the full qualified C++ type for an alias name, if registered.
@@ -339,16 +379,25 @@ impl AliasRegistry {
         self.template_to_alias.contains_key(bare_name)
     }
 
-    /// Insert one alias entry.  First registration wins for both maps.
+    /// Insert one alias entry.  For `template_to_alias`, all aliases are kept
+    /// (first registration still wins for the reverse `type_to_alias` map).
     fn insert(&mut self, alias_name: &str, full_qual_type: &str) {
         // Only register when the aliased type is a template specialisation.
         if full_qual_type.contains('<') {
             let bare_template = bare_template_name(full_qual_type);
             if !bare_template.is_empty() {
-                self.template_to_alias
+                let aliases = self
+                    .template_to_alias
                     .entry(bare_template.to_string())
-                    .or_insert_with(|| alias_name.to_string());
+                    .or_default();
+                if !aliases.contains(&alias_name.to_string()) {
+                    aliases.push(alias_name.to_string());
+                }
             }
+            // First alias wins for the precise reverse lookup.
+            self.type_to_alias
+                .entry(full_qual_type.to_string())
+                .or_insert_with(|| alias_name.to_string());
         }
         self.alias_to_type
             .entry(alias_name.to_string())
@@ -1300,8 +1349,18 @@ fn try_extract_template_spec(
 ) -> Option<ClassIR> {
     let template_name = node.name.as_deref()?;
 
-    // Only extract specialisations that have a typedef alias.
-    let alias = alias_registry.alias_for_template(template_name)?;
+    // Prefer a precise match on the node's full specialisation type so that
+    // two aliases for different specialisations of the same template
+    // (e.g. `using A = T<int>; using B = T<double>;`) are handled correctly.
+    // Fall back to the first registered alias for the bare template name when
+    // no type_info is available.
+    let alias = if let Some(ref ti) = node.type_info {
+        alias_registry
+            .alias_for_type(&ti.qual_type)
+            .or_else(|| alias_registry.alias_for_template(template_name))
+    } else {
+        alias_registry.alias_for_template(template_name)
+    }?;
 
     // Determine the full C++ type to use in `#[cpp(class = "…")]`.
     let qualified_name = alias_registry
