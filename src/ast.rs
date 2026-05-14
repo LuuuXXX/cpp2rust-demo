@@ -461,6 +461,12 @@ pub struct FunctionIR {
     /// When `true`, the `va_list` parameter is dropped from `params` and an
     /// `unsafe fn` binding with a trailing `...` marker is generated instead.
     pub is_variadic: bool,
+    /// Whether the method is rvalue-ref qualified (`&&`).
+    ///
+    /// When `true`, the Rust binding uses `self` (by value / consuming) instead of
+    /// `&mut self`.  This mirrors the C++ `&&`-qualified method semantic where
+    /// the call requires an rvalue object and conceptually consumes it.
+    pub is_rvalue: bool,
 }
 
 /// A single function parameter.
@@ -1900,6 +1906,11 @@ fn extract_function(
     }
 
     let is_const = qual_type.ends_with(") const") || qual_type.ends_with("() const");
+    // Clang emits `"T () &&"` for rvalue-ref qualified methods.  We also
+    // trim trailing whitespace defensively in case of minor formatting
+    // variations across clang versions.
+    let rval_qt = qual_type.trim_end();
+    let is_rvalue = rval_qt.ends_with(") &&") || rval_qt.ends_with("() &&");
     let is_static = node.storage_class.as_deref() == Some("static");
     let is_virtual = node.is_virtual.unwrap_or(false);
     let is_pure = node.is_pure.unwrap_or(false);
@@ -1910,13 +1921,19 @@ fn extract_function(
         .iter()
         .map(|p| qualify_cpp_type(&p.cpp_type, class_map))
         .collect();
-    let const_suffix = if is_const { " const" } else { "" };
+    let method_suffix = if is_const {
+        " const"
+    } else if is_rvalue {
+        " &&"
+    } else {
+        ""
+    };
     let cpp_signature = format!(
         "{} {}({}){}",
         qualified_return,
         qualified_name,
         param_types.join(", "),
-        const_suffix
+        method_suffix
     );
 
     // Overload resolution via the configured strategy.
@@ -1941,6 +1958,7 @@ fn extract_function(
         is_pure,
         class_name: class_name.map(|s| s.to_string()),
         is_variadic,
+        is_rvalue,
     })
 }
 

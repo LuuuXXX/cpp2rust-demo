@@ -15,6 +15,7 @@
 examples/
 ├── simple/           ✅ 基础：自由函数、命名空间、函数重载
 ├── class/            ✅ 基础：类与方法、构造函数、virtual/纯虚、继承
+├── features/         ✅ 特性粒度：每个 ✅ 特性一个最小化示例（inline、默认参数、&&方法、va_list、全局变量、静态成员、实例字段）
 ├── rapidjson/        ✅ RapidJSON 场景：枚举、别名、模板类、接口、虚方法、继承、运算符 shim、多 TU
 ├── semi-auto/        ⚙️ 半自动：dynamic_cast、placement new
 ├── conditional/      ⚠️ 条件支持：模板类无别名、函数模板无显式特化
@@ -31,6 +32,24 @@ examples/
 |------|---------|------|
 | [`simple/`](simple/README.md) | 自由函数、命名空间、函数重载 | [simple/README.md](simple/README.md) |
 | [`class/`](class/README.md) | 类与方法、构造函数、virtual/纯虚、public 继承 | [class/README.md](class/README.md) |
+
+---
+
+## ✅ 特性粒度示例（完全自动）
+
+`features/` 目录包含每个单一 C++ 特性的最小化示例，方便快速查阅某个特性的提取效果。
+所有示例均经过 CI 门禁验证，确保工具输出与预期一致。
+详见 [`features/README.md`](features/README.md)。
+
+| 示例 | C++ 特性 | 关键输出 |
+|------|---------|---------|
+| [`features/01-inline-functions/`](features/01-inline-functions/README.md) | `inline` 函数（与非 inline 完全相同） | 普通 `fn` 绑定 |
+| [`features/02-default-params/`](features/02-default-params/README.md) | 默认参数（全参数提取，默认值忽略） | 完整参数签名 |
+| [`features/03-rvalue-ref/`](features/03-rvalue-ref/README.md) | `&&` 右值引用方法（消耗对象） | `fn build(self)` |
+| [`features/04-va-list/`](features/04-va-list/README.md) | `va_list` 最后参数 | `unsafe fn foo(args, ...)` |
+| [`features/05-global-vars/`](features/05-global-vars/README.md) | 全局变量 | `#[cpp(data)]` + `&'static` |
+| [`features/06-static-members/`](features/06-static-members/README.md) | 静态类数据成员 | `#[cpp(data = "Class::member")]` |
+| [`features/07-instance-fields/`](features/07-instance-fields/README.md) | 公有实例字段（FieldDecl） | `#[cpp(field)]` 读写访问器 |
 
 ---
 
@@ -56,6 +75,7 @@ examples/
 
 工具生成注释骨架，用户解注释后即可完全自动化。
 详见 [`semi-auto/README.md`](semi-auto/README.md)。
+
 
 | 示例 | C++ 特性 | 解锁方式 |
 |------|---------|---------|

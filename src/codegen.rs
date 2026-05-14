@@ -499,13 +499,19 @@ fn render_method(out: &mut String, func: &FunctionIR) {
     // The signature is relative to the class, so we use the bare method
     // signature without the class name prefix.
     let param_types: Vec<&str> = func.params.iter().map(|p| p.cpp_type.as_str()).collect();
-    let const_suffix = if func.is_const { " const" } else { "" };
+    let method_suffix = if func.is_const {
+        " const"
+    } else if func.is_rvalue {
+        " &&"
+    } else {
+        ""
+    };
     let method_sig = format!(
         "{} {}({}){}",
         func.return_type,
         func.name,
         param_types.join(", "),
-        const_suffix
+        method_suffix
     );
 
     writeln!(out, "        #[cpp(method = \"{method_sig}\")]").unwrap();
@@ -516,6 +522,9 @@ fn render_method(out: &mut String, func: &FunctionIR) {
         String::new()
     } else if func.is_const {
         "&self, ".to_string()
+    } else if func.is_rvalue {
+        // Rvalue-ref (&&) qualified methods consume the object → `self`.
+        "self, ".to_string()
     } else {
         "&mut self, ".to_string()
     };
