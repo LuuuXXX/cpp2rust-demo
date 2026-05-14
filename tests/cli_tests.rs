@@ -112,7 +112,7 @@ fn init_simple_free_functions() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("✓ cpp2rust-demo init completed"));
+        .stdout(predicate::str::contains("✓  init completed"));
 
     // Check that grouped semantic files exist.
     let ffi = tmp
@@ -795,7 +795,7 @@ fn merge_produces_merged_ffi() {
         .args(["merge"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("✓ cpp2rust-demo merge completed"));
+        .stdout(predicate::str::contains("✓  merge completed"));
 
     let merged = tmp
         .path()
