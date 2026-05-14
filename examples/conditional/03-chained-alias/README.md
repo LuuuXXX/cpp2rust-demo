@@ -50,8 +50,21 @@ public:
 
 ```cpp
 // entry-chained.cpp — STEP B2 预解注释版本（供 CI 直接使用）
+//
+// 与 entry.cpp 不同：模板类定义内联在文件中（不使用 #include），
+// 并额外声明了使用 IntStore/MyStore 的自由函数。
+// 这两点是必须的：
+//   1. 内联定义 → ClassTemplateDecl 的 loc 位于本文件，is_target() 通过
+//   2. 自由函数声明 → 强制 clang 生成 ClassTemplateSpecializationDecl
+
+template<typename T> class Store { /* ... */ };
+
 using IntStore = Store<int>;   // 直接别名
 using MyStore  = IntStore;     // 链式别名 → resolve_transitive() 完成传递性闭合
+
+bool has_entry(const IntStore& store, const char* key);
+bool has_entry_v2(const MyStore& store, const char* key);
+int  count_entries(const IntStore& store);
 ```
 
 ---
@@ -121,32 +134,35 @@ cat .cpp2rust/cond03/rust/src/merged_ffi.rs
 
 ```rust
 // AliasRegistry 传递性解析：MyStore → IntStore → Store<int>
-pub type IntStore = Store_i32;
-pub type MyStore  = Store_i32;  // 链式别名，映射到同一底层类型
+// IntStore 作为首选别名（第一个注册），用作 Rust struct 名
+pub type MyStore = IntStore;  // 链式别名，映射到 IntStore（首选别名名称）
 ```
 
-### `method/mtd_entry.rs`（具体特化类绑定）
+### `method/mtd_entry-chained.rs`（具体特化类绑定）
 
 ```rust
-// Store<int> 由 IntStore / MyStore 任一别名解锁
+// Store<int> 由 IntStore 别名解锁（首选别名，template_to_alias 中优先注册）
 hicc::import_class! {
-    #[cpp(class = "Store<int>", ctor = "Store<int>()")]
-    class Store_i32 {
+    #[cpp(class = "Store<int>", ctor = "Store()")]
+    class IntStore {
         #[cpp(method = "void put(const char *, int)")]
         fn put(&mut self, key: *const i8, value: i32);
 
-        #[cpp(method = "int get(const char *) const")]
-        fn get(&self, key: *const i8) -> i32;
-
-        #[cpp(method = "bool has(const char *) const")]
-        fn has(&self, key: *const i8) -> bool;
-
-        #[cpp(method = "int count() const")]
-        fn count(&self) -> i32;
-
-        #[cpp(method = "void clear()")]
-        fn clear(&mut self);
+        // ... 其他方法
     }
+}
+```
+
+### `free/`（自由函数绑定）
+
+```rust
+// 使用 IntStore/MyStore 为参数的自由函数
+extern "C" {
+    #[link_name = "has_entry"]
+    fn has_entry(store: &IntStore, key: *const i8) -> bool;
+
+    #[link_name = "count_entries"]
+    fn count_entries(store: &IntStore) -> i32;
 }
 ```
 
@@ -166,26 +182,27 @@ alias_to_type: { IntStore → Store<int>, MyStore → IntStore }
     │  AliasRegistry::resolve_transitive()（传递性闭合）
     ▼
 alias_to_type: { IntStore → Store<int>, MyStore → Store<int> }  ← 传递性补全
-template_to_alias: { Store → IntStore (or MyStore) }
-    │  is_supported_cpp_type() / extract_class_body()
+template_to_alias: { Store → IntStore }  ← 首选别名（注册顺序优先）
+    │  is_target() 通过（Store<T> 内联定义于 entry-chained.cpp）
+    │  自由函数声明强制 clang 生成 ClassTemplateSpecializationDecl
     ▼
-ClassIR { name: "Store_i32", canonical_name: Some("IntStore"), ... }
+ClassIR { name: "IntStore", is_template_specialization: true, ... }
     │  codegen
     ▼
-types/mod.rs    ─── pub type IntStore = Store_i32;
-                    pub type MyStore  = Store_i32;
-method/mtd_*.rs ─── import_class! { class Store_i32 { ... } }
+types/mod.rs    ─── pub type MyStore = IntStore;
+method/mtd_*.rs ─── import_class! { class IntStore { ... } }
+free/           ─── fn has_entry(...); fn count_entries(...);
 ```
 
 ---
 
 ## 场景解析
 
-| 状态 | entry.cpp 内容 | AliasRegistry 状态 | 结果 |
-|------|--------------|-------------------|------|
-| STEP A | 无别名 | 空 | Store 跳过，tool_conservative |
-| STEP B1 | `using IntStore = Store<int>` | IntStore → Store<int> | Store_i32 提取，IntStore 别名生成 |
-| STEP B2 | + `using MyStore = IntStore` | 传递性闭合后 MyStore → Store<int> | Store_i32 提取，IntStore + MyStore 别名均生成 |
+| 状态 | 文件 | AliasRegistry 状态 | 结果 |
+|------|------|-------------------|------|
+| STEP A | `entry.cpp`（无别名） | 空 | Store 跳过，tool_conservative |
+| STEP B1 | `entry.cpp`（解注释 IntStore） | IntStore → Store<int> | IntStore 类提取，直接别名生成 |
+| STEP B2 | `entry-chained.cpp` | 传递性闭合后 MyStore → Store<int> | IntStore 类提取，`pub type MyStore = IntStore` 生成 |
 
 ---
 

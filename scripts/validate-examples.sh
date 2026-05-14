@@ -483,10 +483,11 @@ check_any_rs  "${OUT}" 'link_name = "store"'
 # AliasRegistry::resolve_transitive() must produce both alias type entries
 check_any_rs  "${OUT}" 'IntStore'
 check_any_rs  "${OUT}" 'MyStore'
-# The concrete template specialization class must be extracted
-check_any_rs  "${OUT}" 'Store_i32\|Store<int>\|store_i32'
-# At least the put() method must be extracted
-check_any_rs  "${OUT}" 'fn put'
+# The concrete template specialization must be extracted with the alias name
+check_any_rs  "${OUT}" 'class IntStore'
+# Free functions using the aliased types must be extracted
+check_any_rs  "${OUT}" 'fn has_entry'
+check_any_rs  "${OUT}" 'fn count_entries'
 
 echo ""
 echo "══════════════════════════════════════════════════════"

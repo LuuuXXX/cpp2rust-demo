@@ -6,15 +6,50 @@
 //   IntStore → Store<int>   (direct alias)
 //   MyStore  → Store<int>   (resolved transitively via IntStore)
 //
+// The template class is defined INLINE here (not via #include) so that the
+// ClassTemplateDecl appears in this translation unit — the target file.
+// Without that, is_target() would fail on the included-header location and
+// no class would be extracted.
+//
+// The free function declarations force clang to emit a concrete
+// ClassTemplateSpecializationDecl for Store<int>, which is required for
+// cpp2rust-demo to extract the specialised class body and its methods.
+//
 // Expected outputs:
-//   types/mod.rs  : pub type IntStore = Store_i32;
-//                   pub type MyStore  = Store_i32;
-//   method/       : import_class! { class Store_i32 { ... } }
+//   types/mod.rs  : pub type MyStore = IntStore;
+//   method/       : import_class! { class IntStore { fn put(...); ... } }
+//   free/         : fn has_entry(...); fn count_entries(...);
 
-#include "store.hpp"
+// ── Template class definition (inline, not via header include) ─────────────
+template<typename T>
+class Store {
+public:
+    Store();
+    ~Store();
+
+    void        put(const char* key, T value);
+    T           get(const char* key) const;
+    bool        has(const char* key) const;
+    int         count() const;
+    void        clear();
+
+private:
+    struct Entry { const char* key; T value; };
+    Entry* entries_;
+    int    count_;
+    int    capacity_;
+};
+// ───────────────────────────────────────────────────────────────────────────
 
 using IntStore = Store<int>;   // direct alias
 using MyStore  = IntStore;     // chained alias
+
+// Free function declarations that USE the aliased types.
+// These force clang to instantiate Store<int> in the AST so that
+// cpp2rust-demo can extract the template specialisation as class IntStore.
+bool   has_entry(const IntStore& store, const char* key);
+bool   has_entry_v2(const MyStore& store, const char* key);
+int    count_entries(const IntStore& store);
 
 // Stub implementations (only declarations matter for AST extraction)
 template<typename T> Store<T>::Store()  : entries_(nullptr), count_(0), capacity_(0) {}
