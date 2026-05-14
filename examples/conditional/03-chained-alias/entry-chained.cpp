@@ -12,8 +12,10 @@
 // no class would be extracted.
 //
 // The free function declarations force clang to emit a concrete
-// ClassTemplateSpecializationDecl for Store<int>, which is required for
-// cpp2rust-demo to extract the specialized class body and its methods.
+// ClassTemplateSpecializationDecl for Store<int>.  The explicit
+// instantiation `template class Store<int>` is also required so that the
+// specialization has complete_definition=true and all methods are visible
+// (without it, clang only emits a partial/incomplete specialization).
 //
 // Expected outputs:
 //   types/mod.rs  : pub type MyStore = IntStore;
@@ -43,6 +45,12 @@ private:
 
 using IntStore = Store<int>;   // direct alias
 using MyStore  = IntStore;     // chained alias
+
+// Explicit instantiation definition: forces clang to emit a complete
+// ClassTemplateSpecializationDecl for Store<int> (complete_definition=true,
+// all methods non-implicit).  Without this, the specialization has
+// complete_definition=false and no methods are extracted.
+template class Store<int>;
 
 // Free function declarations that USE the aliased types.
 // These force clang to instantiate Store<int> in the AST so that
