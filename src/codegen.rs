@@ -55,10 +55,16 @@ pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &st
 
 pub fn render_include_module(source_file_path: &str) -> String {
     let mut out = String::new();
-    let include_basename = std::path::Path::new(source_file_path)
+    let raw_basename = std::path::Path::new(source_file_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(source_file_path);
+    // Strip the ".cpp2rust" capture suffix so the generated include references
+    // the original source file name (e.g. "entry.cpp" instead of
+    // "entry.cpp.cpp2rust"), matching idiomatic hicc usage.
+    let include_basename = raw_basename
+        .strip_suffix(".cpp2rust")
+        .unwrap_or(raw_basename);
     writeln!(out, "hicc::cpp! {{").unwrap();
     writeln!(out, "    #include \"{}\"", include_basename).unwrap();
     writeln!(out, "}}").unwrap();

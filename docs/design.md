@@ -11,7 +11,7 @@
 1. 执行 `init -- <BUILD_CMD...>` 并保存 `build_cmd.txt`
 2. 编译 `hook/libhook.so`
 3. 通过 `LD_PRELOAD` 注入构建，拦截编译器调用
-4. 为项目内参与编译的 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`）生成 `.cpp2rust` 预处理中间件与 `.opts`（例如 `a.cpp -> a.cpp.cpp2rust`）
+4. 为项目内参与编译的 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`）生成 `.cpp2rust` 预处理中间件与 `.opts`（例如 `a.cpp -> a.cpp.cpp2rust`）；同时在 capture 目录下创建同名符号链接（`a.cpp → a.cpp.cpp2rust`），使生成的 `hicc::cpp! { #include "a.cpp" }` 可由 hicc-build 解析
 5. 扫描 `.cpp2rust/<feature>/cpp/**/*.cpp2rust`
 6. 交互式选择参与转换的中间件文件（非交互自动全选）
 7. 对选中文件执行 `clang -ast-dump=json`
@@ -28,7 +28,7 @@
 
 ```text
 .cpp2rust/<feature>/
-├── cpp/      # *.cpp2rust + *.cpp2rust.opts
+├── cpp/      # *.cpp2rust + *.cpp2rust.opts + *.cpp symlinks (指向对应 .cpp2rust)
 ├── ast/      # *.ast.json
 ├── meta/
 │   ├── build_cmd.txt
@@ -66,10 +66,11 @@
 `merge` 会读取 `rust/src/mod_<group>/` 并合并：
 
 - 按 group 生成 `rust/src.2/mod_<group>.rs`
-- 额外生成全局 `rust/src.2/merged_ffi.rs`
+- 额外生成全局 `rust/src.2/merged_ffi.rs`（仅含 include/free/method 及 `common/types.rs` 类型块；`class/` 元信息与 `common/includes.rs` 路径元数据不写入合并输出）
 - 同时生成 `rust/src.2/lib.rs`
 - 完成后将 init 原始 `rust/src` 备份为 `rust/src.1`，并将 `rust/src` 切换为指向 `src.2` 的符号链接
 - `build.rs` 持续引用 `src/...` 路径，依赖该活跃视图机制在 merge 后自动指向 `src.2` 产物
+- 使用 `merge --output <dir>` 导出时，同时将 `meta/operator_shims.hpp` 与 `meta/init-interface-report.md` 复制到 `<output>/meta/`
 
 ## v1 能力边界（当前实现）
 
@@ -77,9 +78,9 @@
   - `include/`：`hicc::cpp!` include 上下文
   - `free/`：自由函数与静态方法
   - `method/`：类实例方法（包含 virtual 与 abstract 两种路径）
-- `class/`：类级语义结构层（类名、方法计数、类-方法关系 + 访问函数），不是方法绑定层。
-- `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），参与 merge 语义组织。
-- `common/*`：共享语义层（共享 include/type 索引 + 查询函数），参与全局 merge 语义组织。
+- `class/`：类级语义结构层（类名、方法计数、类-方法关系 + 访问函数），不是方法绑定层；仅保留于 per-group 产物供检阅，不参与 merge 输出。
+- `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），per-group 块参与 merge 语义组织。
+- `common/*`：共享语义层；`types.rs`（聚合类型块）参与全局 merged_ffi 输出；`includes.rs`（路径元数据）不参与 merge 输出。
 - `global/`：当前版本不生成，保留为预留扩展点。
 
 **虚函数与抽象类支持**：
@@ -94,10 +95,10 @@
 抽取阶段会跳过并报告：constructor、destructor、operator overload、无法解锁的 template declarations、部分 unsupported_type。
 
 merge 语义边界（当前）：
-- 参与 merged 输出的目录：`include/`、`types/`、`method/`、`free/`、`class/`。
+- 参与 merged 输出的目录：`include/`、`types/`（per-group）、`method/`、`free/`。
 - `method/` 贡献 `import_class!`（包括 `#[interface]`）；`free/` 贡献 `import_lib!`。
-- `class/` 贡献类级语义结构块（class 维度统计、类-方法关系）。
-- `common/*` 贡献共享语义块到全局 merged_ffi 输出。
+- `class/` 仅生成在 per-group `src.1/mod_<group>/class/` 中供检阅，**不**进入 merged 输出（CLASS_NAMES、CLASS_METHOD_COUNTS 等元信息常量对 FFI 绑定无意义）。
+- `common/types.rs`（CPP_TYPES、enum 定义等聚合类型块）会写入全局 `merged_ffi.rs`；`common/includes.rs`（MIDDLEWARE_FILES、MIDDLEWARE_BASENAMES 等路径元数据）**不**进入 merged 输出。
 - `global/` 当前不参与 merge 产物，为预留扩展点。
 
 ## hicc 约束

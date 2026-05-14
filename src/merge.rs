@@ -12,8 +12,8 @@
 //! - `types/` contributes type semantic blocks (inventory + C++/Rust mappings)
 //! - `method/` contributes `hicc::import_class!` method-binding blocks
 //! - `free/` contributes `hicc::import_lib!` fn items and class forward declarations
-//! - `class/` contributes class-level semantic structure blocks to merged outputs
-//! - `common/*` contributes shared semantic blocks to global merged output
+//! - `class/` metadata constants are intentionally excluded from merged output
+//!   (they remain available in the non-merged per-group sources for inspection)
 //! - `global/` is explicitly deferred outside the current v1 closure scope
 
 use crate::error::Result;
@@ -36,13 +36,6 @@ struct ModuleFragments {
     forward_decls: indexmap::IndexSet<String>,
     fn_items: Vec<String>,
     type_blocks: indexmap::IndexSet<String>,
-    class_blocks: indexmap::IndexSet<String>,
-}
-
-#[derive(Default)]
-struct CommonFragments {
-    includes_block: Option<String>,
-    types_block: Option<String>,
 }
 
 pub fn merge_grouped_modules(
@@ -78,8 +71,25 @@ pub fn merge_grouped_modules(
         .map_err(|e| anyhow!("create {}: {}", out_src2_dir.display(), e))?;
 
     let mut merged_all = ModuleFragments::default();
-    let common = load_common_fragments(init_src_dir)?;
     let mut group_modules = Vec::new();
+
+    // Load the aggregate type block from common/types.rs so that the global
+    // merged_ffi.rs can include type-mapping helpers (CPP_TYPES, enum defs,
+    // etc.) without duplicating per-group blocks.  The includes_block
+    // (common/includes.rs) is intentionally omitted because it contains only
+    // internal path metadata (MIDDLEWARE_FILES, MIDDLEWARE_BASENAMES, …) that
+    // has no role in the FFI bindings.
+    let common_types_block = {
+        let common_types_path = init_src_dir.join("common").join("types.rs");
+        if common_types_path.exists() {
+            Some(
+                fs::read_to_string(&common_types_path)
+                    .map_err(|e| anyhow!("read {}: {}", common_types_path.display(), e))?,
+            )
+        } else {
+            None
+        }
+    };
 
     for group_dir in &group_dirs {
         let group_name = group_dir
@@ -102,9 +112,6 @@ pub fn merge_grouped_modules(
         merged_all
             .fn_items
             .extend(fragments.fn_items.iter().cloned());
-        for class_block in fragments.class_blocks.iter() {
-            merged_all.class_blocks.insert(class_block.clone());
-        }
 
         group_modules.push(group_name);
     }
@@ -116,7 +123,7 @@ pub fn merge_grouped_modules(
     )
     .map_err(|e| anyhow!("write {}/lib.rs: {}", out_src2_dir.display(), e))?;
 
-    let merged_src = render_merged_module(&merged_all, &common, link_name, true);
+    let merged_src = render_merged_module(&merged_all, common_types_block.as_deref(), link_name);
     let merged_path = out_src2_dir.join("merged_ffi.rs");
     fs::write(&merged_path, merged_src)
         .map_err(|e| anyhow!("write {}: {}", merged_path.display(), e))?;
@@ -157,14 +164,10 @@ fn merge_group_module(
                     fragments.type_blocks.insert(trimmed.to_string());
                 }
             }
-            if semantic_dir == crate::SEMANTIC_CLASS_DIR
-                && file.file_name().and_then(|n| n.to_str()) != Some("mod.rs")
-            {
-                let trimmed = src.trim();
-                if !trimmed.is_empty() {
-                    fragments.class_blocks.insert(trimmed.to_string());
-                }
-            }
+            // class/ semantic files contain CLASS_NAMES / CLASS_METHOD_COUNTS
+            // metadata constants.  These are useful for inspecting the
+            // non-merged per-group sources but do not belong in the merged FFI
+            // output, so we intentionally skip them here.
 
             for include in extract_cpp_includes(&src) {
                 fragments.includes.insert(include);
@@ -182,39 +185,38 @@ fn merge_group_module(
         }
     }
 
-    let rendered = render_merged_module(&fragments, &CommonFragments::default(), link_name, false);
+    let rendered = render_merged_module(&fragments, None, link_name);
     fs::write(output_file, rendered)
         .map_err(|e| anyhow!("write {}: {}", output_file.display(), e))?;
 
     Ok(fragments)
 }
 
+/// Render the merged module content.
+///
+/// `common_types_block` — when `Some`, the content of `common/types.rs` is
+/// emitted after the per-group include lines.  Pass `None` for per-group
+/// merged files; pass `Some(...)` for the global `merged_ffi.rs`.
+///
+/// The `common/includes.rs` block (MIDDLEWARE_FILES, MIDDLEWARE_BASENAMES, …)
+/// is intentionally excluded from both per-group and global merged outputs
+/// because those constants are internal path bookkeeping that has no role in
+/// the actual FFI bindings.  Likewise, `class/` metadata constants
+/// (CLASS_NAMES, CLASS_METHOD_COUNTS, …) are excluded.  All of that
+/// information remains available in the non-merged per-group sources under
+/// `rust/src.1/` for inspection purposes.
 fn render_merged_module(
     fragments: &ModuleFragments,
-    common: &CommonFragments,
+    common_types_block: Option<&str>,
     link_name: &str,
-    is_global: bool,
 ) -> String {
     let mut out = String::new();
-    if is_global {
+    if common_types_block.is_some() {
         out.push_str("// Merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
     } else {
         out.push_str("// Group-merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
     }
     out.push_str("#![allow(non_snake_case, dead_code)]\n\n");
-
-    if is_global {
-        if let Some(includes_block) = &common.includes_block {
-            out.push_str("// Shared include semantics from init common/includes.rs\n");
-            out.push_str(includes_block.trim());
-            out.push_str("\n\n");
-        }
-        if let Some(types_block) = &common.types_block {
-            out.push_str("// Shared type semantics from init common/types.rs\n");
-            out.push_str(types_block.trim());
-            out.push_str("\n\n");
-        }
-    }
 
     if !fragments.includes.is_empty() {
         out.push_str("hicc::cpp! {\n");
@@ -224,12 +226,17 @@ fn render_merged_module(
         out.push_str("}\n\n");
     }
 
-    for block in fragments.type_blocks.iter() {
-        out.push_str(block.trim());
-        out.push_str("\n\n");
+    // Emit the aggregate type block (CPP_TYPES, enum defs, type aliases, …)
+    // for the global merged output.
+    if let Some(block) = common_types_block {
+        let trimmed = block.trim();
+        if !trimmed.is_empty() {
+            out.push_str(trimmed);
+            out.push_str("\n\n");
+        }
     }
 
-    for block in fragments.class_blocks.iter() {
+    for block in fragments.type_blocks.iter() {
         out.push_str(block.trim());
         out.push_str("\n\n");
     }
@@ -257,39 +264,6 @@ fn render_merged_module(
     }
     out.push_str("}\n");
     out
-}
-
-fn load_common_fragments(init_src_dir: &Path) -> Result<CommonFragments> {
-    let common_dir = init_src_dir.join("common");
-    if !common_dir.exists() {
-        return Ok(CommonFragments::default());
-    }
-
-    let includes_path = common_dir.join("includes.rs");
-    let types_path = common_dir.join("types.rs");
-
-    let includes_block = if includes_path.exists() {
-        Some(
-            fs::read_to_string(&includes_path)
-                .map_err(|e| anyhow!("read {}: {}", includes_path.display(), e))?,
-        )
-    } else {
-        None
-    };
-
-    let types_block = if types_path.exists() {
-        Some(
-            fs::read_to_string(&types_path)
-                .map_err(|e| anyhow!("read {}: {}", types_path.display(), e))?,
-        )
-    } else {
-        None
-    };
-
-    Ok(CommonFragments {
-        includes_block,
-        types_block,
-    })
 }
 
 // ---------------------------------------------------------------------------

@@ -242,9 +242,9 @@ OUT=".cpp2rust/default"
 grep -q "import_lib!"         "${OUT}/rust/src/merged_ffi.rs" && echo "[OK] import_lib!"
 grep -q 'link_name = "rapidjson"' "${OUT}/rust/src/merged_ffi.rs" && echo "[OK] link_name"
 
-# merged_ffi.rs 应包含六个中间件的 include
+# merged_ffi.rs 应包含六个中间件的 include（使用原始源文件名，不含 .cpp2rust 后缀）
 for case in document reader writer prettywriter pointer schema; do
-    grep -q "#include \"${case}.cpp.cpp2rust\"" "${OUT}/rust/src/merged_ffi.rs" \
+    grep -q "#include \"${case}.cpp\"" "${OUT}/rust/src/merged_ffi.rs" \
         && echo "[OK] include ${case}"
 done
 
@@ -290,12 +290,12 @@ done
 
 // ===== Common includes =====
 hicc::cpp! {
-    #include "document.cpp.cpp2rust"
-    #include "reader.cpp.cpp2rust"
-    #include "writer.cpp.cpp2rust"
-    #include "prettywriter.cpp.cpp2rust"
-    #include "pointer.cpp.cpp2rust"
-    #include "schema.cpp.cpp2rust"
+    #include "document.cpp"
+    #include "reader.cpp"
+    #include "writer.cpp"
+    #include "prettywriter.cpp"
+    #include "pointer.cpp"
+    #include "schema.cpp"
 }
 
 // ===== mod_document =====

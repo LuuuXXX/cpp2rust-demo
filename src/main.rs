@@ -142,22 +142,17 @@ fn run_init(args: InitArgs) -> Result<()> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
 
-    println!("=== cpp2rust-demo init ===");
-    println!("Project root : {}", project_root.display());
-    println!("Feature      : {}", feature);
-    println!("Link name    : {}", link_name);
-    println!(
-        "Link mode    : {}",
-        if no_link {
-            "header-only/no-link"
-        } else {
-            "normal"
-        }
-    );
-    if dry_run {
-        println!("Mode         : DRY-RUN (no files written to rust/src/)");
+    println!("cpp2rust-demo init");
+    println!("  Project   : {}", project_root.display());
+    println!("  Feature   : {}", feature);
+    println!("  Link name : {}", link_name);
+    if no_link {
+        println!("  Link mode : header-only (no-link)");
     }
-    println!("Build command: {}", build_cmd.join(" "));
+    if dry_run {
+        println!("  Mode      : dry-run");
+    }
+    println!("  Command   : {}", build_cmd.join(" "));
     println!();
 
     // Create layout directories.
@@ -186,7 +181,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         ));
     }
     println!(
-        "Captured {} middleware file(s) via LD_PRELOAD hook.",
+        "[init] Captured {} middleware file(s).",
         captured_files.len()
     );
 
@@ -196,7 +191,10 @@ fn run_init(args: InitArgs) -> Result<()> {
     // ----------------------------------------------------------------
     let sel = InteractiveSelector;
     let selected_files = sel.select(&captured_files)?;
-    println!("{} file(s) selected for this feature", selected_files.len());
+    println!(
+        "[init] Selected {} file(s) for processing.",
+        selected_files.len()
+    );
 
     lo.save_selected_files(&selected_files)?;
 
@@ -208,6 +206,16 @@ fn run_init(args: InitArgs) -> Result<()> {
     let files_to_process = selected_files;
 
     lo.save_meta(&files_to_process, link_name, no_link)?;
+
+    // Create convenience symlinks in the capture directory so that
+    // `hicc::cpp! { #include "entry.cpp" }` resolves correctly.
+    // Each `entry.cpp.cpp2rust` file gets a sibling symlink `entry.cpp` →
+    // `entry.cpp.cpp2rust` so the generated `#include "entry.cpp"` is found
+    // when hicc-build uses the capture directory as an include path.
+    // Unix-only; silently skipped on other platforms.
+    for mw_file in &files_to_process {
+        create_original_name_symlink(mw_file);
+    }
 
     // In dry-run mode, skip creating the Rust project skeleton and all file writes.
     // We still process the AST and generate the report.
@@ -232,7 +240,6 @@ fn run_init(args: InitArgs) -> Result<()> {
                 codegen::render_cargo_toml(&crate_name, link_name),
             )
             .map_err(|e| anyhow!("write Cargo.toml: {}", e))?;
-            println!("Created {}", cargo_toml_path.display());
         }
 
         // Prepare shared/common module scaffolding.
@@ -244,13 +251,21 @@ fn run_init(args: InitArgs) -> Result<()> {
     let mut report_sections: Vec<String> = Vec::new();
     let mut build_rs_sources: Vec<String> = Vec::new();
     let mut lib_modules: Vec<String> = vec!["common".to_string()];
+    let mut had_any_shims = false;
+    let mut had_any_dynamic_casts = false;
+    let mut had_any_placement_new = false;
 
     for ((selected_file, stem), group_module) in files_to_process
         .iter()
         .zip(stems.iter())
         .zip(group_modules.iter())
     {
-        println!("Processing {}...", selected_file.display());
+        let file_basename = selected_file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| selected_file.display().to_string());
+        println!("\n[{}]", file_basename);
 
         // Step 1: dump AST via clang.
         let ast_root = ast::dump_ast(selected_file, &extra_args, &args.clang)?;
@@ -260,20 +275,20 @@ fn run_init(args: InitArgs) -> Result<()> {
         let ast_json =
             serde_json::to_string(&ast_root).map_err(|e| anyhow!("serialize AST: {}", e))?;
         std::fs::write(&ast_json_path, &ast_json).map_err(|e| anyhow!("write AST JSON: {}", e))?;
-        println!("  AST saved → {}", ast_json_path.display());
 
         // Step 2: extract declarations.
         let file_paths: Vec<&Path> = vec![selected_file.as_path()];
         let decls = ast::extract_declarations(&ast_root, &file_paths);
 
         println!(
-            "  Found {} free function(s), {} class(es)",
+            "  {} function(s), {} class(es), {} global(s)",
             decls.functions.len(),
-            decls.classes.len()
+            decls.classes.len(),
+            decls.globals.len()
         );
 
         if decls.functions.is_empty() && decls.classes.is_empty() {
-            println!("  Warning: no declarations found from this file.");
+            println!("  ⚠ No declarations found – check include paths or C++ source.");
         }
 
         let has_free = has_free_bindings(&decls);
@@ -359,7 +374,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                     let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
                     std::fs::write(&shims_hpp_path, &shims_hpp)
                         .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
-                    println!("  Operator/string shims → {}", shims_hpp_path.display());
+                    println!("  → operator_shims.hpp + shim_ops.rs");
                 }
                 if !decls.operator_shims.is_empty() {
                     let shims_rs =
@@ -376,7 +391,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                 let dc_path = group_dir.join("free").join("dynamic_casts.rs");
                 std::fs::write(&dc_path, &dynamic_casts_src)
                     .map_err(|e| anyhow!("write dynamic_casts.rs: {}", e))?;
-                println!("  Dynamic cast skeletons → {}", dc_path.display());
+                println!("  → dynamic_casts.rs (commented-out @dynamic_cast starters)");
             }
 
             // Placement-new skeletons (P4): write free/placement_new.rs when any concrete
@@ -385,7 +400,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                 let pn_path = group_dir.join("free").join("placement_new.rs");
                 std::fs::write(&pn_path, &placement_new_src)
                     .map_err(|e| anyhow!("write placement_new.rs: {}", e))?;
-                println!("  Placement-new skeletons → {}", pn_path.display());
+                println!("  → placement_new.rs (commented-out @placement_new starters)");
             }
 
             // Write free/mod.rs registering all submodules in the free/ directory.
@@ -475,11 +490,15 @@ fn run_init(args: InitArgs) -> Result<()> {
             }
             build_rs_sources.push(format!("src/{}/types/mod.rs", group_module));
             lib_modules.push(group_module.to_string());
-
-            println!(
-                "  Grouped module → {}",
-                rust_src_dir.join(group_module).display()
-            );
+            if has_shims {
+                had_any_shims = true;
+            }
+            if has_dynamic_casts {
+                had_any_dynamic_casts = true;
+            }
+            if has_placement_new {
+                had_any_placement_new = true;
+            }
         } else {
             // dry-run: no file writes; has_class / has_method remain false.
         }
@@ -504,13 +523,12 @@ fn run_init(args: InitArgs) -> Result<()> {
     let report = report_sections.join("\n---\n\n");
     if dry_run {
         // In dry-run mode, print the interface report to stdout instead of saving files.
-        println!("\n=== DRY-RUN: Interface Report (stdout only) ===\n");
+        println!("\n── DRY-RUN: Interface Report ──────────────────────────\n");
         println!("{}", report);
-        println!("\n✓ cpp2rust-demo init --dry-run completed (no files written to rust/src/).");
+        println!("\n✓ init --dry-run done (no files written to rust/src/).");
     } else {
         let report_path = lo.meta_dir.join("init-interface-report.md");
         std::fs::write(&report_path, &report).map_err(|e| anyhow!("write report: {}", e))?;
-        println!("\nInterface report → {}", report_path.display());
 
         // build.rs: point hicc-build to grouped semantic files.
         {
@@ -523,7 +541,6 @@ fn run_init(args: InitArgs) -> Result<()> {
                 codegen::render_build_rs(link_name, no_link, &source_refs, &inc_refs),
             )
             .map_err(|e| anyhow!("write build.rs: {}", e))?;
-            println!("Created {}", build_rs_path.display());
 
             // `common/*` carries shared include/type semantics derived from selected
             // middleware and is propagated into global merged output for reuse.
@@ -538,27 +555,65 @@ fn run_init(args: InitArgs) -> Result<()> {
             let module_refs: Vec<&str> = lib_modules.iter().map(|s| s.as_str()).collect();
             std::fs::write(&lib_rs_path, codegen::render_lib_rs(&module_refs))
                 .map_err(|e| anyhow!("write lib.rs: {}", e))?;
-            println!("Created {}", lib_rs_path.display());
         }
 
-        println!("\n✓ cpp2rust-demo init completed successfully!");
-        println!("\nOutput structure:");
+        // Print success summary.
+        let group_count = lib_modules.len().saturating_sub(1); // exclude "common"
+        let total_fns = all_decls.functions.len();
+        let total_classes = all_decls.classes.len();
+        let total_globals = all_decls.globals.len();
+        let total_methods: usize = all_decls.classes.iter().map(|c| c.methods.len()).sum();
+        let total_skipped = all_decls.skipped.len();
+
+        println!("\n──────────────────────────────────────────────────────");
+        println!("  ✓  init completed  (feature: {})", feature);
+        println!("──────────────────────────────────────────────────────");
+        println!("\nProcessed {} group(s):", group_count);
+        for m in lib_modules.iter().filter(|m| m.as_str() != "common") {
+            println!("  • {}", m);
+        }
+        println!("\nExtracted:");
+        if total_fns > 0 {
+            println!("  {} free function(s)  →  import_lib! bindings", total_fns);
+        }
+        if total_classes > 0 {
+            println!(
+                "  {} class(es) / {} method(s)  →  import_class! bindings",
+                total_classes, total_methods
+            );
+        }
+        if total_globals > 0 {
+            println!(
+                "  {} global variable(s)  →  #[cpp(data=...)] bindings",
+                total_globals
+            );
+        }
+        if had_any_shims {
+            println!("  operator shims  →  meta/operator_shims.hpp + free/shim_ops.rs");
+        }
+        if had_any_dynamic_casts {
+            println!("  dynamic cast starters  →  free/dynamic_casts.rs");
+        }
+        if had_any_placement_new {
+            println!("  placement-new starters  →  free/placement_new.rs");
+        }
+        if total_skipped > 0 {
+            println!(
+                "  {} declaration(s) skipped  (see interface report)",
+                total_skipped
+            );
+        }
+        println!("\nOutput:");
         println!("  .cpp2rust/{}/", feature);
-        println!("    ├── cpp/        (captured preprocessed middleware: *.cpp2rust)");
-        println!("    ├── ast/        (clang AST JSON per selected file)");
-        println!("    ├── meta/       (build_cmd.txt, selected_files.json, headers.json, init-interface-report.md)");
-        println!("    └── rust/       (generated Rust project)");
-        println!("        ├── Cargo.toml");
-        println!("        ├── build.rs");
-        println!("        └── src/");
-        println!("            ├── lib.rs");
-        println!("            ├── common/...");
-        println!("            └── mod_<group>/include|types|free|class|method + meta.json");
-        println!();
-        println!("Next steps:");
-        println!("  1. Review .cpp2rust/{}/rust/src/mod_<group>/", feature);
-        println!("  2. Run `cpp2rust-demo merge` to consolidate into src.2");
-        println!("  3. Copy the Rust project to your workspace and add the C++ library");
+        println!("    ├── cpp/    captured middleware (*.cpp2rust + *.cpp symlinks)");
+        println!("    ├── ast/    clang AST JSON per file");
+        println!("    ├── meta/   init-interface-report.md  build metadata");
+        println!("    └── rust/   Rust project (Cargo.toml  build.rs  src/)");
+        println!("\nNext steps:");
+        println!("  1. Review the interface report:");
+        println!("       .cpp2rust/{}/meta/init-interface-report.md", feature);
+        println!("  2. Run `cpp2rust-demo merge` to produce a single merged_ffi.rs");
+        println!("  3. Or use `cpp2rust-demo merge --output <dir>` to export");
     }
 
     Ok(())
@@ -570,9 +625,9 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
 
-    println!("=== cpp2rust-demo merge ===");
-    println!("Project root : {}", project_root.display());
-    println!("Feature      : {}", feature);
+    println!("cpp2rust-demo merge");
+    println!("  Project : {}", project_root.display());
+    println!("  Feature : {}", feature);
     println!();
 
     let lo = layout::FeatureLayout::new(project_root.clone(), feature);
@@ -611,7 +666,6 @@ fn run_merge(args: MergeArgs) -> Result<()> {
         codegen::render_build_rs(&link_name, no_link, &["src/merged_ffi.rs"], &inc_refs),
     )
     .map_err(|e| anyhow!("update build.rs: {}", e))?;
-    println!("  Updated {}", build_rs_path.display());
 
     link_src_to_src2(&lo.rust_dir)?;
 
@@ -624,23 +678,40 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     );
     std::fs::write(&report_path, &report).map_err(|e| anyhow!("write merge report: {}", e))?;
 
-    println!("\n✓ cpp2rust-demo merge completed successfully!");
-    println!("\nMerged output:");
-    println!("  {}", merged.merged_path.display());
-    println!("\nThe merged output now lives under rust/src.2 (with rust/src -> src.2).");
-    println!("build.rs keeps using src/... paths so it always targets the active source view.");
+    println!("\n──────────────────────────────────────────────────────");
+    println!("  ✓  merge completed  (feature: {})", feature);
+    println!("──────────────────────────────────────────────────────");
+    println!("\nMerged {} group(s):", merged.group_modules.len());
+    for g in &merged.group_modules {
+        println!("  • {}", g);
+    }
+    println!("\nOutput layout:");
+    println!("  rust/src     → src.2   (build.rs uses this active view)");
+    println!("  rust/src.1/  per-group init modules (backup)");
+    println!("  rust/src.2/");
+    println!("    ├── lib.rs");
+    for g in &merged.group_modules {
+        println!("    ├── {}.rs", g);
+    }
+    println!("    └── merged_ffi.rs   ← main FFI entry point");
+    println!("  meta/merge-report.md");
+    println!("\nNext steps:");
+    println!("  1. Use merged_ffi.rs as your FFI entry point:");
+    println!("       .cpp2rust/{}/rust/src/merged_ffi.rs", feature);
+    println!("  2. Copy the Rust project to your workspace:");
     println!(
-        "It combines grouped include/method/free binding content plus types/class/common semantic inventories."
+        "       cp -r .cpp2rust/{}/rust/ /path/to/my-project/",
+        feature
     );
-    println!();
-    println!("To use in your project:");
-    println!("  1. Copy .cpp2rust/{}/rust/ to your workspace", feature);
-    println!("  2. Add it as a Cargo dependency or inline the merged_ffi.rs");
     println!("  3. Adjust build.rs to point to your C++ library");
 
     if let Some(output_dir) = &args.output {
         copy_merge_output(&lo.rust_dir, output_dir)?;
-        println!("\nMerge output copied to: {}", output_dir.display());
+
+        // Also copy relevant meta files (operator_shims.hpp, init-interface-report.md)
+        // into <output>/meta/ so users have everything they need in one place.
+        copy_meta_files(&lo.meta_dir, output_dir)?;
+        println!("\n  Exported to: {}", output_dir.display());
     }
 
     Ok(())
@@ -662,6 +733,69 @@ fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
         .collect();
     dirs.sort();
     dirs
+}
+
+/// Create a symlink `<basename_without_cpp2rust>` → `<basename>` in the same
+/// directory as `mw_file`, so that `hicc::cpp! { #include "entry.cpp" }` resolves
+/// correctly when the capture directory is on the include path.
+///
+/// On non-Unix platforms this is a no-op (silently skipped).
+fn create_original_name_symlink(mw_file: &Path) {
+    #[cfg(unix)]
+    {
+        let file_name = match mw_file.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => return,
+        };
+        let original_name = match file_name.strip_suffix(".cpp2rust") {
+            Some(n) => n,
+            None => return,
+        };
+        let parent = match mw_file.parent() {
+            Some(p) => p,
+            None => return,
+        };
+        let symlink_path = parent.join(original_name);
+        if !symlink_path.exists() {
+            // Target is a relative name so the symlink stays valid if the
+            // capture directory is moved.
+            if let Err(e) = std::os::unix::fs::symlink(file_name, &symlink_path) {
+                eprintln!(
+                    "  Warning: could not create symlink {} → {}: {}",
+                    symlink_path.display(),
+                    file_name,
+                    e
+                );
+            }
+        }
+    }
+}
+
+/// Copy relevant meta files (`operator_shims.hpp`, `init-interface-report.md`)
+/// from `meta_dir` into `<output_dir>/meta/` so users get a self-contained
+/// export that includes the C++ shim header they need to compile against.
+fn copy_meta_files(meta_dir: &Path, output_dir: &Path) -> Result<()> {
+    const RELEVANT: &[&str] = &["operator_shims.hpp", "init-interface-report.md"];
+
+    let out_meta = output_dir.join("meta");
+    let mut copied_any = false;
+
+    for name in RELEVANT {
+        let src = meta_dir.join(name);
+        if !src.exists() {
+            continue;
+        }
+        if !copied_any {
+            std::fs::create_dir_all(&out_meta)
+                .map_err(|e| anyhow!("create {}: {}", out_meta.display(), e))?;
+            copied_any = true;
+        }
+        let dst = out_meta.join(name);
+        std::fs::copy(&src, &dst)
+            .map_err(|e| anyhow!("copy {} to {}: {}", src.display(), dst.display(), e))?;
+    }
+
+    Ok(())
 }
 
 /// Copy the merged Rust project from `rust_dir` to `output_dir`.
@@ -1129,9 +1263,9 @@ fn run_suggest_aliases(args: SuggestAliasesArgs) -> Result<()> {
         ));
     }
 
-    println!("=== cpp2rust-demo suggest-aliases ===");
-    println!("Project root : {}", project_root.display());
-    println!("Feature      : {}", args.feature);
+    println!("cpp2rust-demo suggest-aliases");
+    println!("  Project : {}", project_root.display());
+    println!("  Feature : {}", args.feature);
     println!();
 
     // Collect AST JSON files.
