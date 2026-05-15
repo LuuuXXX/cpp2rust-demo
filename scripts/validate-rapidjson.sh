@@ -150,22 +150,22 @@ check_contains "${OUT}/rust/src/merged_ffi.rs" 'link_name = "rapidjson"'
 
 # --- Per-file artefacts (dynamically discovered from captured .cpp2rust files) ---
 # Each .cpp compiled by cmake produces one .cpp2rust capture -> one flat .rs file.
+# cmake places captured files in subdirectories mirroring the source tree, so use
+# find for recursive discovery rather than a flat glob.
 captured_count=0
-for mw_file in "${OUT}/cpp/"*.cpp2rust; do
+while IFS= read -r mw_file; do
     # Skip .opts companion files.
     [[ "${mw_file}" == *.opts ]] && continue
-    [ -f "${mw_file}" ] || continue
 
-    # Derive the stem: strip directory and .cpp.cpp2rust (or .cpp2rust) suffix.
+    # Derive the stem: strip directory and .cpp2rust suffix, then strip .cpp extension.
     mw_basename="$(basename "${mw_file}")"
-    # Remove .cpp2rust capture suffix to get original name, then strip extension.
     original_file="${mw_basename%.cpp2rust}"
     stem="${original_file%.*}"          # strip final extension (.cpp, .cc, ...)
 
     captured_count=$((captured_count + 1))
 
-    check_file     "${OUT}/cpp/${mw_basename}"
-    check_file     "${OUT}/cpp/${mw_basename}.opts"
+    check_file     "${mw_file}"
+    check_file     "${mw_file}.opts"
     check_file     "${OUT}/rust/src.1/${stem}.rs"
     check_file     "${OUT}/rust/src.1/${stem}.meta.json"
     check_contains "${OUT}/meta/selected_files.json" "${mw_basename}"
@@ -174,7 +174,7 @@ for mw_file in "${OUT}/cpp/"*.cpp2rust; do
     check_contains "${OUT}/rust/src.1/${stem}.rs" 'link_name = "rapidjson"'
     check_contains "${OUT}/rust/src.1/${stem}.meta.json" "\"group\": \"${stem}\""
     check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${original_file}\""
-done
+done < <(find "${OUT}/cpp/" -name "*.cpp2rust" -not -name "*.opts" 2>/dev/null | sort)
 
 if [ "${captured_count}" -eq 0 ]; then
     echo "  [FAIL] No .cpp2rust files captured -- cmake build may have failed or hook not active" >&2

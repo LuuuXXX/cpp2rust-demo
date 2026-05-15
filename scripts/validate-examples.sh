@@ -77,6 +77,21 @@ check_any_rs() {
     fi
 }
 
+# check_any_rs1 OUT_DIR PATTERN
+# Searches all *.rs files under OUT_DIR/rust/src.1/ (pre-merge flat files) for PATTERN.
+# Use this for patterns that exist only in the unmerged flat files (e.g. stripped comments
+# like "Shim for" and "@placement_new" which do not survive the merge step).
+check_any_rs1() {
+    local out="$1"
+    local pattern="$2"
+    if grep -rq "$pattern" "${out}/rust/src.1/" 2>/dev/null; then
+        echo "  [OK]  '$pattern' found in rust/src.1/"
+    else
+        echo "  [FAIL] '$pattern' NOT found anywhere under ${out}/rust/src.1/" >&2
+        FAIL=1
+    fi
+}
+
 # check_any_rs_file OUT_DIR GLOB_PATTERN
 # Checks at least one file matching GLOB_PATTERN exists under OUT_DIR/rust/.
 check_glob_rs() {
@@ -292,7 +307,8 @@ check_any_rs  "${OUT}" 'link_name = "jsonvalue"'
 check_file    "${OUT}/meta/operator_shims.hpp"
 check_contains "${OUT}/meta/operator_shims.hpp" 'Auto-generated operator shims'
 # The Rust shim bindings skeleton must be generated (now inlined in the flat .rs file)
-check_any_rs  "${OUT}" 'Shim for'
+# "Shim for" comments are stripped during merge, so check src.1/ (pre-merge flat files).
+check_any_rs1 "${OUT}" 'Shim for'
 
 # ---------------------------------------------------------------------------
 # Step 11: rapidjson/08-multi-tu/ — multiple translation units + merge
@@ -388,7 +404,8 @@ check_file    "${OUT}/rust/src/merged_ffi.rs"
 check_any_rs  "${OUT}" 'link_name = "fixed_buffer"'
 check_any_rs  "${OUT}" 'FixedBuffer'
 # The placement_new starters are now inlined in the flat .rs file
-check_any_rs  "${OUT}" '@placement_new'
+# "@placement_new" is in comments stripped during merge, so check src.1/.
+check_any_rs1 "${OUT}" '@placement_new'
 
 # ---------------------------------------------------------------------------
 # Step 16: guided/01-std-string/ — std::string skipped; POD method extracted
