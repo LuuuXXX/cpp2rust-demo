@@ -437,6 +437,16 @@ fn collect_alias_nodes(node: &AstNode, namespace: &[String], reg: &mut AliasRegi
                 collect_alias_nodes(child, namespace, reg);
             }
         }
+        // Do not descend into class bodies.  Typedefs / using-aliases defined
+        // at class scope (e.g. `typedef Alloc<U> other` inside an allocator
+        // `rebind` struct) are implementation details and must NOT be
+        // registered as top-level type aliases.  Doing so would cause names
+        // like `other` to be mistakenly used as Rust struct names when
+        // extracting template specialisations.
+        "CXXRecordDecl"
+        | "ClassTemplateDecl"
+        | "ClassTemplateSpecializationDecl"
+        | "ClassTemplatePartialSpecializationDecl" => {}
         _ => {
             for child in node.inner.iter().flatten() {
                 collect_alias_nodes(child, namespace, reg);
@@ -841,6 +851,21 @@ pub fn extract_declarations_with_strategy(
         &class_name_map,
         &alias_registry,
     );
+
+    // Deduplicate extracted classes by Rust struct name (first occurrence wins).
+    //
+    // The same `ClassTemplateSpecializationDecl` can appear in TWO places in
+    // the clang AST JSON:
+    //   (a) as a child of the `ClassTemplateDecl` that wraps the template, and
+    //   (b) as a standalone top-level node inside the enclosing namespace.
+    // Both (a) and (b) are processed by `walk_node`, so without deduplication
+    // the same class would appear twice in `result.classes`, producing two
+    // `import_class!` blocks with the same struct name in the generated source
+    // and ultimately the Rust `E0428` "defined multiple times" error.
+    {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        result.classes.retain(|c| seen.insert(c.name.clone()));
+    }
 
     result
 }
@@ -3631,6 +3656,91 @@ mod tests {
         );
     }
 
+    /// `collect_alias_nodes` must NOT register typedefs that live inside a
+    /// class body (e.g. the `typedef Alloc<U> other` found inside an
+    /// allocator's `rebind` helper struct).  Registering them would cause
+    /// generic names like `other` to be mistakenly used as Rust struct names
+    /// when extracting template specialisations.
+    #[test]
+    fn test_collect_alias_nodes_skips_class_scope_typedefs() {
+        // Simulate the clang AST for:
+        //
+        //   template<typename T>
+        //   struct StdAllocator {
+        //       template<typename U>
+        //       struct rebind {
+        //           typedef StdAllocator<U> other;  // ← must NOT be collected
+        //       };
+        //   };
+        //   using MyAlloc = StdAllocator<int>;      // ← must be collected
+        //
+        // The outer ClassTemplateDecl for StdAllocator wraps a CXXRecordDecl
+        // that itself contains another CXXRecordDecl (rebind) which owns the
+        // problematic TypedefDecl.
+
+        let other_typedef = AstNode {
+            kind: "TypedefDecl".to_string(),
+            name: Some("other".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "StdAllocator<U>".to_string(),
+            }),
+            ..AstNode::default()
+        };
+        let rebind_record = AstNode {
+            kind: "CXXRecordDecl".to_string(),
+            name: Some("rebind".to_string()),
+            complete_definition: Some(true),
+            inner: Some(vec![other_typedef]),
+            ..AstNode::default()
+        };
+        let alloc_record = AstNode {
+            kind: "CXXRecordDecl".to_string(),
+            name: Some("StdAllocator".to_string()),
+            complete_definition: Some(true),
+            inner: Some(vec![rebind_record]),
+            ..AstNode::default()
+        };
+        let alloc_tmpl = AstNode {
+            kind: "ClassTemplateDecl".to_string(),
+            name: Some("StdAllocator".to_string()),
+            inner: Some(vec![alloc_record]),
+            ..AstNode::default()
+        };
+        // Namespace-level `using MyAlloc = StdAllocator<int>` – should be collected.
+        let myalloc_alias = AstNode {
+            kind: "TypeAliasDecl".to_string(),
+            name: Some("MyAlloc".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "StdAllocator<int>".to_string(),
+            }),
+            ..AstNode::default()
+        };
+        let root = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            inner: Some(vec![alloc_tmpl, myalloc_alias]),
+            ..AstNode::default()
+        };
+
+        let reg = AliasRegistry::collect_from_ast(&root);
+
+        // The namespace-level alias must be collected.
+        assert_eq!(
+            reg.alias_for_template("StdAllocator"),
+            Some("MyAlloc"),
+            "MyAlloc should be registered as an alias for StdAllocator"
+        );
+
+        // The class-scope typedef `other` must NOT be registered.
+        assert!(
+            reg.full_type_for_alias("other").is_none(),
+            "`other` (class-scope typedef inside rebind) must not be registered in AliasRegistry"
+        );
+        assert!(
+            !reg.is_alias_of_template("other"),
+            "`other` must not appear as an alias of a template"
+        );
+    }
+
     /// End-to-end: when a `ClassTemplateDecl` contains two
     /// `ClassTemplateSpecializationDecl` children, each with a distinct
     /// `type_info.qual_type` that maps to its own alias, `extract_declarations`
@@ -3848,6 +3958,89 @@ mod tests {
         assert!(
             !reasons.contains(&"pure_virtual"),
             "pure-virtual in mixed class should be extracted, not skipped"
+        );
+    }
+
+    /// Regression test: when the same `ClassTemplateSpecializationDecl` appears
+    /// as BOTH a child of its `ClassTemplateDecl` AND as a standalone top-level
+    /// node in the same namespace (which clang regularly emits for implicit
+    /// instantiations), `extract_declarations` must produce only ONE `ClassIR`
+    /// entry for that specialisation — not two.
+    ///
+    /// Without the deduplication pass in `extract_declarations_with_strategy`,
+    /// both occurrences would be extracted, producing two `import_class!` blocks
+    /// with the same Rust struct name in the generated source and ultimately the
+    /// Rust `E0428` "defined multiple times" error after merging.
+    #[test]
+    fn test_extract_declarations_deduplicates_classes_by_name() {
+        let target = Path::new("/tmp/dedup_classes.cpp");
+        let loc = Location {
+            file: Some(target.display().to_string()),
+            line: None,
+            col: None,
+            offset: None,
+            spelling_loc: None,
+            expansion_loc: None,
+            included_from: None,
+        };
+
+        // Alias: using MyBox = Box<int>
+        let alias_node = AstNode {
+            kind: "TypeAliasDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("MyBox".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "Box<int>".to_string(),
+            }),
+            ..AstNode::default()
+        };
+
+        // A `Box<int>` ClassTemplateSpecializationDecl
+        let spec_node = AstNode {
+            kind: "ClassTemplateSpecializationDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("Box".to_string()),
+            complete_definition: Some(true),
+            tag_used: Some("class".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "Box<int>".to_string(),
+            }),
+            inner: Some(vec![]),
+            ..AstNode::default()
+        };
+
+        // ClassTemplateDecl that wraps the same specialisation as a child.
+        let tmpl_node = AstNode {
+            kind: "ClassTemplateDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("Box".to_string()),
+            inner: Some(vec![spec_node.clone()]),
+            ..AstNode::default()
+        };
+
+        // The root has: alias, template-decl (child spec), standalone spec.
+        // This mimics the real clang AST where specialisations appear in both
+        // positions.
+        let root = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            inner: Some(vec![alias_node, tmpl_node, spec_node]),
+            ..AstNode::default()
+        };
+
+        let decls = extract_declarations(&root, &[target]);
+
+        assert_eq!(
+            decls.classes.len(),
+            1,
+            "duplicate ClassTemplateSpecializationDecl nodes must produce only ONE ClassIR; \
+             got {}: {:?}",
+            decls.classes.len(),
+            decls.classes.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            decls.classes[0].name.as_str(),
+            "MyBox",
+            "class name should be the alias 'MyBox'"
         );
     }
 }

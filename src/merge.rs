@@ -32,7 +32,9 @@ pub struct MergeOutput {
 #[derive(Default)]
 struct ModuleFragments {
     includes: indexmap::IndexSet<String>,
-    import_class_blocks: Vec<String>,
+    /// `import_class!` blocks, deduplicated by Rust struct name (first-wins).
+    /// Key = Rust struct name; value = full block text.
+    import_class_blocks: indexmap::IndexMap<String, String>,
     forward_decls: indexmap::IndexSet<String>,
     fn_items: Vec<String>,
     type_blocks: indexmap::IndexSet<String>,
@@ -103,8 +105,10 @@ pub fn merge_grouped_modules(
         for inc in fragments.includes.iter() {
             merged_all.includes.insert(inc.clone());
         }
-        for block in &fragments.import_class_blocks {
-            merged_all.import_class_blocks.push(block.clone());
+        for (name, block) in fragments.import_class_blocks.iter() {
+            merged_all
+                .import_class_blocks
+                .insert(name.clone(), block.clone());
         }
         for decl in fragments.forward_decls.iter() {
             merged_all.forward_decls.insert(decl.clone());
@@ -173,7 +177,13 @@ fn merge_group_module(
                 fragments.includes.insert(include);
             }
             for block in extract_import_class_blocks(&src) {
-                fragments.import_class_blocks.push(block);
+                // Key on the Rust struct name so that two blocks defining the
+                // same class are deduplicated (first-wins).  When the block is
+                // malformed and has no `class <Name>` line, fall back to the
+                // full block text so the block is still emitted without being
+                // silently merged with an unrelated block.
+                let key = class_name_from_block(&block).unwrap_or_else(|| block.clone());
+                fragments.import_class_blocks.insert(key, block);
             }
             for block in extract_import_lib_blocks(&src) {
                 let (fwd, fns) = parse_lib_block_contents(&block);
@@ -241,7 +251,7 @@ fn render_merged_module(
         out.push_str("\n\n");
     }
 
-    for block in &fragments.import_class_blocks {
+    for block in fragments.import_class_blocks.values() {
         out.push_str(block.trim());
         out.push_str("\n\n");
     }
@@ -273,6 +283,33 @@ fn render_merged_module(
 /// Extract `hicc::import_class! { ... }` blocks from `src`.
 fn extract_import_class_blocks(src: &str) -> Vec<String> {
     extract_macro_blocks(src, "hicc::import_class!")
+}
+
+/// Extract the Rust struct name declared inside an `import_class!` block.
+///
+/// Looks for the first `class <Name>` line (possibly followed by `:` for
+/// inheritance or `{` for the opening brace).  Returns `None` when the block
+/// does not contain such a line.
+///
+/// Used as the deduplication key when merging blocks across multiple groups so
+/// that the same class emitted from two different AST nodes (e.g. once as a
+/// child of `ClassTemplateDecl` and once as a standalone specialisation) only
+/// appears once in `merged_ffi.rs`.
+fn class_name_from_block(block: &str) -> Option<String> {
+    for line in block.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("class ") {
+            // The name ends at the first whitespace, ':', or '{'.
+            let end = rest
+                .find(|c: char| c == '{' || c == ':' || c.is_ascii_whitespace())
+                .unwrap_or(rest.len());
+            let name = rest[..end].trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Extract `hicc::import_lib! { ... }` blocks from `src`.
@@ -424,6 +461,39 @@ mod indexmap {
             self.items.is_empty()
         }
     }
+
+    /// Insertion-ordered map that keeps the **first** value inserted for any
+    /// given key (subsequent inserts with the same key are silently ignored).
+    ///
+    /// Used to deduplicate `import_class!` blocks by Rust struct name so that
+    /// if the same class is extracted from multiple places in the AST, only
+    /// the first occurrence appears in the merged output.
+    #[derive(Default)]
+    pub struct IndexMap<K, V> {
+        items: Vec<(K, V)>,
+    }
+
+    impl<K: Eq + Clone, V: Clone> IndexMap<K, V> {
+        /// Insert `(key, value)` if `key` is not already present.
+        /// Returns `true` when the entry was newly inserted.
+        pub fn insert(&mut self, key: K, value: V) -> bool {
+            if self.items.iter().any(|(k, _)| k == &key) {
+                return false;
+            }
+            self.items.push((key, value));
+            true
+        }
+
+        /// Iterate over `(key, value)` pairs in insertion order.
+        pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+            self.items.iter().map(|(k, v)| (k, v))
+        }
+
+        /// Iterate over values in insertion order.
+        pub fn values(&self) -> impl Iterator<Item = &V> {
+            self.items.iter().map(|(_, v)| v)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -504,5 +574,81 @@ hicc::import_lib! {
         let fwd_vec: Vec<&String> = fwd.iter().collect();
         assert_eq!(fwd_vec.len(), 1, "Widget should appear only once");
         assert_eq!(fns.len(), 2);
+    }
+
+    /// Regression test: two `import_class!` blocks for the same Rust struct
+    /// name must be deduplicated in the merged output.
+    ///
+    /// This reproduces the `error[E0428]: the name 'other' is defined multiple times`
+    /// error that occurs when the same `ClassTemplateSpecializationDecl`
+    /// appears in both a `ClassTemplateDecl` child position and as a
+    /// standalone top-level node, causing the method codegen to emit two
+    /// identical `class other { ... }` blocks that the merge naively
+    /// concatenates.
+    #[test]
+    fn merge_deduplicates_import_class_blocks_by_class_name() {
+        let block1 = r#"hicc::import_class! {
+    #[cpp(class = "new_allocator<_Tp1>", ctor = "other()")]
+    class other {
+        #[cpp(method = "void deallocate(char *, unsigned long)")]
+        fn deallocate(&mut self, p: *mut i8, n: usize);
+    }
+}"#;
+        let block2 = r#"hicc::import_class! {
+    #[cpp(class = "new_allocator<_Tp1>", ctor = "other()")]
+    class other {
+        #[cpp(method = "void deallocate(char *, unsigned long)")]
+        fn deallocate(&mut self, p: *mut i8, n: usize);
+    }
+}"#;
+
+        let mut fragments = ModuleFragments::default();
+        for block in [block1, block2] {
+            let key = class_name_from_block(block)
+                .expect("test block must contain a `class <Name>` line");
+            fragments.import_class_blocks.insert(key, block.to_string());
+        }
+
+        let rendered = render_merged_module(&fragments, None, "mylib");
+
+        // Count occurrences of `class other` in the rendered output.
+        let count = rendered.matches("class other").count();
+        assert_eq!(
+            count, 1,
+            "`class other` must appear exactly once in merged output; \
+             rendered:\n{rendered}"
+        );
+    }
+
+    /// `class_name_from_block` must correctly extract the Rust struct name.
+    #[test]
+    fn test_class_name_from_block() {
+        let block = r#"hicc::import_class! {
+    #[cpp(class = "Widget")]
+    class Widget {
+        fn update(&mut self);
+    }
+}"#;
+        assert_eq!(class_name_from_block(block), Some("Widget".to_string()));
+
+        // Inheritance suffix.
+        let block_with_bases = r#"hicc::import_class! {
+    #[interface]
+    class IFoo: IBase {
+        fn method(&mut self);
+    }
+}"#;
+        assert_eq!(
+            class_name_from_block(block_with_bases),
+            Some("IFoo".to_string())
+        );
+
+        // Abstract block with opening brace on same line.
+        let block_brace = r#"hicc::import_class! {
+    #[interface]
+    class Bar {
+    }
+}"#;
+        assert_eq!(class_name_from_block(block_brace), Some("Bar".to_string()));
     }
 }

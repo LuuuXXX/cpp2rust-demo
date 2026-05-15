@@ -120,7 +120,7 @@
 | `--no-link`（header-only 库） | ✅ | `build.rs` | 不向 `build.rs` 注入 `cargo::rustc-link-lib=<name>` |
 | `merge` 合并多个分组 | ✅ | `src.2/merged_ffi.rs` | 合并所有 `mod_*/include/free/class/method/types`；生成全局视图 |
 | `src → src.2` 符号链接切换 | ✅ | `rust/src` | `build.rs` 引用 `src/...`，merge 后自动指向 `src.2` 产物 |
-| 跨 group 重复类型去重 | ✅ | `merged_ffi.rs` | merge 阶段合并相同 include/type 定义，避免重复 |
+| 跨 group 重复类型去重 | ✅ | `merged_ffi.rs` | merge 阶段合并相同 include/type/import_class! 定义，按结构体名去重，避免 E0428 |
 
 ---
 
@@ -151,6 +151,9 @@
 | 多重继承 | `ClassIR.bases: Vec<String>` 存储所有 public 基类；`render_import_class()` 生成 `class C: A, B`（hicc 不支持多重继承运行时语义，骨架仅作参考） |
 | 链式类型别名 | `AliasRegistry::resolve_transitive()` 实现传递性闭合解析，`using B = A; using A = T<...>` 可正确解锁模板提取 |
 | Virtual 继承（菱形继承）检测 | `BaseSpecifier.is_virtual` 自动检测虚基类，跳过后在接口报告中列出 `⚠️ Virtual bases (skipped)` 警告 |
+| 模板特化重复提取（E0428） | clang AST 会将同一 `ClassTemplateSpecializationDecl` 同时作为 `ClassTemplateDecl` 的子节点和命名空间顶层节点写入；`extract_declarations_with_strategy()` 现在在 `walk_node` 后按 Rust 结构体名去重（first-wins），防止生成两份同名 `ClassIR` |
+| merge 阶段 `import_class!` 重复定义（E0428） | `import_class_blocks` 由 `Vec<String>` 改为按 Rust 结构体名索引的有序 Map（first-wins）；`class_name_from_block()` 从块文本中提取结构体名作为去重键，确保同一类名在 `merged_ffi.rs` 中仅出现一次 |
+| allocator `rebind` 内嵌 typedef 误认为顶层别名 | `collect_alias_nodes()` 遇到 `CXXRecordDecl` / `ClassTemplateDecl` 等类节点时**不再递归**，防止 `typedef Alloc<U> other` 这类类内 typedef 被注册为顶层类型别名并污染模板特化的 Rust 结构体名 |
 
 ---
 
