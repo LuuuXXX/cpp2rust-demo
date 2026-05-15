@@ -88,23 +88,22 @@ pub fn render_flat_module(
     }
 
     // 3. Primary import_lib! block (free fns + globals + fwd decls + @make_proxy).
+    // Operator shim bindings are merged here to avoid a second import_lib! block
+    // (each import_lib! generates an ExportMethods struct; duplicate definitions
+    // cause C++ compilation errors when all per-source files share a link name).
     writeln!(out).unwrap();
-    out.push_str(&render_free_module(decls, link_name));
-
-    // 4. Operator shim bindings (active, requires operator_shims.hpp in cpp! block).
-    if let Some(shims) = shim_ops_src {
-        if !shims.trim().is_empty() {
-            writeln!(out).unwrap();
-            writeln!(
-                out,
-                "// Operator shim bindings – add operator_shims.hpp to the hicc::cpp! block above to activate."
-            )
-            .unwrap();
-            out.push_str(shims);
-        }
+    let shim_inner = shim_ops_src.unwrap_or("").trim();
+    if shim_inner.is_empty() {
+        out.push_str(&render_free_module(decls, link_name));
+    } else {
+        out.push_str(&render_free_module_with_extra(
+            decls,
+            link_name,
+            Some(shim_inner),
+        ));
     }
 
-    // 5. @dynamic_cast starters (commented-out inner bindings, uncomment as needed).
+    // 4. @dynamic_cast starters – all content is commented out, no import_lib! wrapper.
     if let Some(casts) = dynamic_casts_src {
         if !casts.trim().is_empty() {
             writeln!(out).unwrap();
@@ -117,7 +116,7 @@ pub fn render_flat_module(
         }
     }
 
-    // 6. @placement_new starters (commented-out inner bindings, uncomment as needed).
+    // 5. @placement_new starters – all content is commented out, no import_lib! wrapper.
     if let Some(pn) = placement_new_src {
         if !pn.trim().is_empty() {
             writeln!(out).unwrap();
@@ -251,6 +250,14 @@ pub fn render_method_module(decls: &ExtractedDecls) -> String {
 }
 
 pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
+    render_free_module_with_extra(decls, link_name, None)
+}
+
+pub fn render_free_module_with_extra(
+    decls: &ExtractedDecls,
+    link_name: &str,
+    extra_bindings: Option<&str>,
+) -> String {
     let mut out = String::new();
     // When abstract classes or mixed classes with companion interfaces are
     // present we need @make_proxy support.
@@ -267,7 +274,7 @@ pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
         writeln!(out, "}}").unwrap();
         writeln!(out).unwrap();
     }
-    render_import_lib(&mut out, decls, link_name);
+    render_import_lib_with_extra(&mut out, decls, link_name, extra_bindings);
     out
 }
 
@@ -678,7 +685,12 @@ fn render_method(out: &mut String, func: &FunctionIR) {
     }
 }
 
-fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) {
+fn render_import_lib_with_extra(
+    out: &mut String,
+    decls: &ExtractedDecls,
+    link_name: &str,
+    extra_bindings: Option<&str>,
+) {
     // Determine whether we need hicc/std/memory.hpp for @make_proxy.
     let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
     let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
@@ -755,7 +767,25 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
                 .as_deref()
                 .unwrap_or(class.name.as_str()),
         );
+        // Simple class name (last component of qualified_name) used to detect
+        // the constructor-as-function pattern.
+        let simple_class = class
+            .qualified_name
+            .rsplit("::")
+            .next()
+            .unwrap_or(class.qualified_name.as_str());
         for (i, ctor) in class.ctors.iter().enumerate().skip(1) {
+            // Skip constructors whose hicc cpp(func) annotation would look like
+            // "ClassName ClassName(args)" — hicc's C++ parser rejects that form
+            // because having the same identifier as return type and function name
+            // is invalid when expanded via the EXPORT_METHOD macro.
+            let ctor_sig_is_ctor = ctor
+                .cpp_signature
+                .trim_start()
+                .starts_with(&format!("{simple_class}("));
+            if ctor_sig_is_ctor {
+                continue;
+            }
             let method_name = format!("new_{}", i + 1);
             let rust_params = render_rust_params(&ctor.params, "");
             let ret = format!(" -> {}", rust_name);
@@ -849,6 +879,17 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
                 gv.rust_type
             )
             .unwrap();
+            writeln!(out).unwrap();
+        }
+    }
+
+    // Extra bindings to merge into this import_lib! block (e.g. operator shims).
+    if let Some(extra) = extra_bindings {
+        let trimmed = extra.trim();
+        if !trimmed.is_empty() {
+            writeln!(out).unwrap();
+            writeln!(out, "    // Operator shim bindings.").unwrap();
+            out.push_str(trimmed);
             writeln!(out).unwrap();
         }
     }
@@ -1651,32 +1692,16 @@ pub fn render_operator_shims_hpp(
     out
 }
 
-/// Render the Rust free-function stubs for operator shims (主线四).
+/// Render just the inner binding lines for operator shims (no `import_lib!` wrapper).
 ///
-/// These stubs go into `free/<group>/shim_ops.rs`.  They provide
-/// `#[cpp(func = "...")]` bindings for each operator shim so that
-/// Rust can call the wrapper functions.
-pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> String {
+/// Used to merge shim bindings into the primary `import_lib!` block in the flat
+/// per-source file, avoiding multiple-definition errors from duplicate wrappers.
+pub fn render_shim_bindings_inner(shims: &[OperatorShimIR]) -> String {
     if shims.is_empty() {
         return String::new();
     }
 
     let mut out = String::new();
-    writeln!(
-        out,
-        "// Auto-generated operator shim Rust bindings by cpp2rust-demo."
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "// Add the shim functions from operator_shims.hpp to your hicc::cpp! block,"
-    )
-    .unwrap();
-    writeln!(out, "// then uncomment the bindings below.").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "hicc::import_lib! {{").unwrap();
-    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
-    writeln!(out).unwrap();
 
     for shim in shims {
         let ret = if shim.return_cpp_type.is_empty() || shim.return_cpp_type == "()" {
@@ -1731,6 +1756,38 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         .unwrap();
     }
 
+    out
+}
+
+/// Render the Rust free-function stubs for operator shims (主线四).
+///
+/// These stubs go into `free/<group>/shim_ops.rs`.  They provide
+/// `#[cpp(func = "...")]` bindings for each operator shim so that
+/// Rust can call the wrapper functions.
+pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> String {
+    if shims.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    writeln!(
+        out,
+        "// Auto-generated operator shim Rust bindings by cpp2rust-demo."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// Add the shim functions from operator_shims.hpp to your hicc::cpp! block,"
+    )
+    .unwrap();
+    writeln!(out, "// then uncomment the bindings below.").unwrap();
+    writeln!(out).unwrap();
+    writeln!(out, "hicc::import_lib! {{").unwrap();
+    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
+    writeln!(out).unwrap();
+
+    out.push_str(&render_shim_bindings_inner(shims));
+
     writeln!(out, "}}").unwrap();
     out
 }
@@ -1743,7 +1800,7 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
 /// add the file to their build.
 ///
 /// Returns an empty string when no inheritance relationships exist.
-pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> String {
+pub fn render_dynamic_casts_module(decls: &ExtractedDecls, _link_name: &str) -> String {
     // Collect (base_name, derived_name) pairs from classes with non-virtual
     // public base classes.
     let cast_pairs: Vec<(String, String)> = decls
@@ -1788,30 +1845,33 @@ pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> S
     )
     .unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "hicc::import_lib! {{").unwrap();
-    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
-    writeln!(out).unwrap();
-    writeln!(
-        out,
-        "    // Dynamic cast bindings — downcast Base* → Derived*."
-    )
-    .unwrap();
+    // All content is commented out – no import_lib! wrapper needed here.
+    // A second import_lib! in the same file would redefine ExportMethods in C++.
+    writeln!(out, "// Dynamic cast bindings — downcast Base* → Derived*.").unwrap();
     for (base_name, derived_name) in &cast_pairs {
         let snake_derived = crate::ast::to_snake_case(derived_name);
         writeln!(out).unwrap();
         writeln!(
             out,
-            "    // Cast {base_name}* → {derived_name}* (returns null if types don't match)."
+            "// Cast {base_name}* → {derived_name}* (returns null if types don't match)."
         )
         .unwrap();
         writeln!(
             out,
-            "    // #[cpp(func = \"{derived_name} @dynamic_cast<{derived_name}>({base_name} *)\")]"
+            "// To activate: add to a hicc::import_lib! block with your link_name."
         )
         .unwrap();
-        writeln!(out, "    // fn dynamic_cast_to_{snake_derived}(ptr: *mut {base_name}) -> *mut {derived_name};").unwrap();
+        writeln!(
+            out,
+            "// #[cpp(func = \"{derived_name} @dynamic_cast<{derived_name}>({base_name} *)\")]"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "// fn dynamic_cast_to_{snake_derived}(ptr: *mut {base_name}) -> *mut {derived_name};"
+        )
+        .unwrap();
     }
-    writeln!(out, "}}").unwrap();
     out
 }
 
@@ -1822,7 +1882,7 @@ pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> S
 /// **commented-out** starters; users uncomment and adapt the ones they need.
 ///
 /// Returns an empty string when no concrete class has any extracted constructors.
-pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> String {
+pub fn render_placement_new_module(decls: &ExtractedDecls, _link_name: &str) -> String {
     let classes_with_ctors: Vec<&ClassIR> = decls
         .classes
         .iter()
@@ -1873,9 +1933,8 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
     )
     .unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "hicc::import_lib! {{").unwrap();
-    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
-
+    // All content is commented out – no import_lib! wrapper needed here.
+    // A second import_lib! in the same file would redefine ExportMethods in C++.
     for class in &classes_with_ctors {
         let rust_name = class
             .canonical_name
@@ -1886,7 +1945,12 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
         writeln!(out).unwrap();
         writeln!(
             out,
-            "    // Placement-new binding(s) for `{rust_name}` — uncomment and adapt."
+            "// Placement-new binding(s) for `{rust_name}` — uncomment and adapt."
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "// To activate: add to a hicc::import_lib! block with your link_name."
         )
         .unwrap();
         for (i, ctor) in class.ctors.iter().enumerate() {
@@ -1913,12 +1977,15 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
                 format!("new_{snake}_inplace_{}", i + 1)
             };
 
-            writeln!(out, "    // #[cpp(func = \"{rust_name} @placement_new<{rust_name}>({cpp_params_str})\")]").unwrap();
-            writeln!(out, "    // fn {fn_name}<'a>(mem: &'a mut hicc::AlignedStorage<{rust_name}>{param_str}) -> &'a mut {rust_name};").unwrap();
+            writeln!(
+                out,
+                "// #[cpp(func = \"{rust_name} @placement_new<{rust_name}>({cpp_params_str})\")]"
+            )
+            .unwrap();
+            writeln!(out, "// fn {fn_name}<'a>(mem: &'a mut hicc::AlignedStorage<{rust_name}>{param_str}) -> &'a mut {rust_name};").unwrap();
         }
     }
 
-    writeln!(out, "}}").unwrap();
     out
 }
 
@@ -2514,7 +2581,8 @@ mod tests {
             src.contains("// #[cpp"),
             "binding lines should be commented out"
         );
-        assert!(src.contains("link_name = \"mylib\""), "missing link_name");
+        // link_name is no longer emitted in this helper (no import_lib! wrapper);
+        // the bindings are pure comments to be pasted into a user import_lib! block.
     }
 
     #[test]

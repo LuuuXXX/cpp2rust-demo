@@ -1575,15 +1575,18 @@ fn init_class_multiple_ctors_generates_factory_functions() {
     let free_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/multi_ctor.rs"))
             .unwrap();
-    // Extra ctors should become factory functions in import_lib!.
+    // C++ constructors cannot be bound as free functions via #[cpp(func = "Counter Counter(int)")]
+    // because taking the address of a constructor is illegal in C++.
+    // Extra ctors should therefore NOT appear as active factory fns in import_lib!.
     assert!(
-        free_src.contains("new_2") || free_src.contains("new_3"),
-        "extra constructors should appear as factory fns in import_lib!: {}",
+        !free_src.contains("#[member(class"),
+        "extra ctor bindings (which generate invalid C++) must not appear: {}",
         free_src
     );
+    // Extra ctors SHOULD appear as commented-out @placement_new skeletons.
     assert!(
-        free_src.contains("#[member(class"),
-        "extra ctor factory should use #[member(...)] attribute: {}",
+        free_src.contains("@placement_new"),
+        "extra ctors should appear as commented-out @placement_new skeletons: {}",
         free_src
     );
 }
@@ -1636,10 +1639,18 @@ fn init_class_ctors_sorted_by_param_count() {
 
     let free_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/rev_ctor.rs")).unwrap();
-    // The 1-param and 2-param ctors should become factory fns, NOT the 0-param.
+    // C++ constructors cannot be bound as free functions (taking the address of a
+    // constructor is illegal in C++), so extra ctors must NOT appear as active
+    // factory bindings.  They should appear only as @placement_new skeletons.
     assert!(
-        free_src.contains("new_2"),
-        "non-primary ctors should be factory fns: {}",
+        !free_src.contains("#[member(class"),
+        "extra ctor bindings must not appear as active factory fns: {}",
+        free_src
+    );
+    // The @placement_new skeletons for the extra ctors should be present.
+    assert!(
+        free_src.contains("@placement_new"),
+        "extra ctors should appear as @placement_new skeletons: {}",
         free_src
     );
     // The 0-param ctor (primary) should appear as `ctor=` attribute, not as a factory fn.

@@ -3033,8 +3033,8 @@ fn extract_static_member(
 /// Returns `None` when the field's type is unsupported or the field is anonymous.
 fn extract_field(
     node: &AstNode,
-    _class_name: &str,
-    class_qualified: &str,
+    class_name: &str,
+    _class_qualified: &str,
     class_map: &HashMap<String, String>,
     alias_registry: &AliasRegistry,
 ) -> Option<FieldIR> {
@@ -3052,7 +3052,13 @@ fn extract_field(
     let base_cpp = strip_top_level_const(&cpp_type);
     let rust_type = cpp_to_rust_type_with_aliases(base_cpp, alias_registry);
     let rust_name = to_snake_case(&name);
-    let qualified_name = format!("{}::{}", class_qualified, name);
+    // Use the simple class name (without namespace prefix) so that hicc's
+    // EXPORT_DATA_IN macro sees e.g. "MemoryStream::size_" rather than
+    // "rapidjson::MemoryStream::size_".  Inside import_class!, hicc
+    // already knows the fully-qualified class via the #[cpp(class = ...)]
+    // attribute; repeating the namespace causes "Self::ns::Class" which is
+    // invalid C++.
+    let qualified_name = format!("{}::{}", class_name, name);
 
     Some(FieldIR {
         name,
