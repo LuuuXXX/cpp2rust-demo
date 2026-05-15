@@ -852,6 +852,23 @@ pub fn extract_declarations_with_strategy(
         &alias_registry,
     );
 
+    // Deduplicate extracted classes by Rust struct name (first occurrence wins).
+    //
+    // The same `ClassTemplateSpecializationDecl` can appear in TWO places in
+    // the clang AST JSON:
+    //   (a) as a child of the `ClassTemplateDecl` that wraps the template, and
+    //   (b) as a standalone top-level node inside the enclosing namespace.
+    // Both (a) and (b) are processed by `walk_node`, so without deduplication
+    // the same class would appear twice in `result.classes`, producing two
+    // `import_class!` blocks with the same struct name in the generated source
+    // and ultimately the Rust `E0428` "defined multiple times" error.
+    {
+        let mut seen: HashMap<String, bool> = HashMap::new();
+        result
+            .classes
+            .retain(|c| seen.insert(c.name.clone(), true).is_none());
+    }
+
     result
 }
 
@@ -3943,6 +3960,89 @@ mod tests {
         assert!(
             !reasons.contains(&"pure_virtual"),
             "pure-virtual in mixed class should be extracted, not skipped"
+        );
+    }
+
+    /// Regression test: when the same `ClassTemplateSpecializationDecl` appears
+    /// as BOTH a child of its `ClassTemplateDecl` AND as a standalone top-level
+    /// node in the same namespace (which clang regularly emits for implicit
+    /// instantiations), `extract_declarations` must produce only ONE `ClassIR`
+    /// entry for that specialisation — not two.
+    ///
+    /// Without the deduplication pass in `extract_declarations_with_strategy`,
+    /// both occurrences would be extracted, producing two `import_class!` blocks
+    /// with the same Rust struct name in the generated source and ultimately the
+    /// Rust `E0428` "defined multiple times" error after merging.
+    #[test]
+    fn test_extract_declarations_deduplicates_classes_by_name() {
+        let target = Path::new("/tmp/dedup_classes.cpp");
+        let loc = Location {
+            file: Some(target.display().to_string()),
+            line: None,
+            col: None,
+            offset: None,
+            spelling_loc: None,
+            expansion_loc: None,
+            included_from: None,
+        };
+
+        // Alias: using MyBox = Box<int>
+        let alias_node = AstNode {
+            kind: "TypeAliasDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("MyBox".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "Box<int>".to_string(),
+            }),
+            ..AstNode::default()
+        };
+
+        // A `Box<int>` ClassTemplateSpecializationDecl
+        let spec_node = AstNode {
+            kind: "ClassTemplateSpecializationDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("Box".to_string()),
+            complete_definition: Some(true),
+            tag_used: Some("class".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "Box<int>".to_string(),
+            }),
+            inner: Some(vec![]),
+            ..AstNode::default()
+        };
+
+        // ClassTemplateDecl that wraps the same specialisation as a child.
+        let tmpl_node = AstNode {
+            kind: "ClassTemplateDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("Box".to_string()),
+            inner: Some(vec![spec_node.clone()]),
+            ..AstNode::default()
+        };
+
+        // The root has: alias, template-decl (child spec), standalone spec.
+        // This mimics the real clang AST where specialisations appear in both
+        // positions.
+        let root = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            inner: Some(vec![alias_node, tmpl_node, spec_node]),
+            ..AstNode::default()
+        };
+
+        let decls = extract_declarations(&root, &[target]);
+
+        assert_eq!(
+            decls.classes.len(),
+            1,
+            "duplicate ClassTemplateSpecializationDecl nodes must produce only ONE ClassIR; \
+             got {}: {:?}",
+            decls.classes.len(),
+            decls.classes.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            decls.classes[0].name.as_str(),
+            "MyBox",
+            "class name should be the alias 'MyBox'"
         );
     }
 }
