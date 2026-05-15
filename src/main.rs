@@ -1329,7 +1329,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{ClassIR, ExtractedDecls, FunctionIR};
+    use crate::ast::{ExtractedDecls, FunctionIR};
     use clap::CommandFactory;
     use tempfile::TempDir;
 

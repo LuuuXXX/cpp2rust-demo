@@ -1502,6 +1502,24 @@ fn extract_class_body(
         ..ClassIR::default()
     };
 
+    // Build a class-local map that overrides the bare class name with its
+    // fully-qualified form (based on the current namespace context).  Clang
+    // emits self-referential parameter types using the bare name inside a
+    // class body (e.g. `DiyFp *` inside `rapidjson::internal::DiyFp`).  The
+    // override ensures `qualify_cpp_type` always resolves them correctly,
+    // regardless of "first-definition-wins" ordering in the global class_map.
+    // We build this once here so all method/ctor/field extractions share it.
+    let class_local_map: HashMap<String, String>;
+    let effective_class_map: &HashMap<String, String> = {
+        let qualified_cn = make_qualified(namespace, class_name);
+        let mut m = class_map.clone();
+        m.insert(class_name.to_string(), qualified_cn);
+        class_local_map = m;
+        &class_local_map
+    };
+    // Shadow `class_map` with the augmented version for the rest of this function.
+    let class_map = effective_class_map;
+
     // Extract public base classes.
     for base in &node.bases {
         if base.access == "public" {
@@ -2090,6 +2108,10 @@ fn extract_function(
     let is_pure = node.is_pure.unwrap_or(false);
 
     // Build the C++ signature for hicc attributes.
+    //
+    // `class_map` is already augmented with this class's own entry by
+    // `extract_class_body` (once per class, not once per method).  Free
+    // functions pass the unmodified global map.
     let qualified_return = qualify_cpp_type(&return_type, class_map);
     let mut param_types: Vec<String> = params
         .iter()
@@ -4247,6 +4269,114 @@ mod tests {
             decls.classes[0].name.as_str(),
             "MyBox",
             "class name should be the alias 'MyBox'"
+        );
+    }
+
+    /// Regression test for self-referential method parameter qualification.
+    ///
+    /// When a class lives in a deep namespace (e.g. `ns::inner::DiyFp`) and
+    /// has methods whose parameter types use the bare class name (as clang
+    /// emits inside a class body, e.g. `DiyFp *`), the generated
+    /// `cpp_signature` must contain the fully-qualified form
+    /// `ns::inner::DiyFp *`, not the bare `DiyFp *`.  Without the fix this
+    /// would cause C++ compiler errors when hicc expands the method binding.
+    #[test]
+    fn test_method_self_referential_param_is_qualified() {
+        let target = Path::new("/tmp/diyfp.cpp");
+        let loc = Location {
+            file: Some(target.display().to_string()),
+            line: None,
+            col: None,
+            offset: None,
+            spelling_loc: None,
+            expansion_loc: None,
+            included_from: None,
+        };
+
+        // Method: `void NormalizedBoundaries(DiyFp *, DiyFp *) const`
+        let minus_param = AstNode {
+            kind: "ParmVarDecl".to_string(),
+            name: Some("minus".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "DiyFp *".to_string(),
+            }),
+            ..AstNode::default()
+        };
+        let plus_param = AstNode {
+            kind: "ParmVarDecl".to_string(),
+            name: Some("plus".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "DiyFp *".to_string(),
+            }),
+            ..AstNode::default()
+        };
+        let method_node = AstNode {
+            kind: "CXXMethodDecl".to_string(),
+            name: Some("NormalizedBoundaries".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "void (DiyFp *, DiyFp *) const".to_string(),
+            }),
+            inner: Some(vec![minus_param, plus_param]),
+            ..AstNode::default()
+        };
+
+        // Class `DiyFp` in namespace `rapidjson::internal`.
+        let class_node = AstNode {
+            kind: "CXXRecordDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("DiyFp".to_string()),
+            complete_definition: Some(true),
+            tag_used: Some("struct".to_string()),
+            inner: Some(vec![method_node]),
+            ..AstNode::default()
+        };
+
+        // Namespace chain: rapidjson::internal
+        let ns_internal = AstNode {
+            kind: "NamespaceDecl".to_string(),
+            name: Some("internal".to_string()),
+            inner: Some(vec![class_node]),
+            ..AstNode::default()
+        };
+        let ns_rapidjson = AstNode {
+            kind: "NamespaceDecl".to_string(),
+            name: Some("rapidjson".to_string()),
+            inner: Some(vec![ns_internal]),
+            ..AstNode::default()
+        };
+        let root = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            inner: Some(vec![ns_rapidjson]),
+            ..AstNode::default()
+        };
+
+        let decls = extract_declarations(&root, &[target]);
+        assert_eq!(decls.classes.len(), 1);
+        let class = &decls.classes[0];
+        assert_eq!(class.name, "DiyFp");
+
+        // The method should have been extracted.
+        assert_eq!(
+            class.methods.len(),
+            1,
+            "NormalizedBoundaries should be extracted"
+        );
+        let method = &class.methods[0];
+
+        // The cpp_signature MUST use the fully-qualified class name for the
+        // self-referential pointer parameters.
+        assert!(
+            method
+                .cpp_signature
+                .contains("rapidjson::internal::DiyFp *"),
+            "parameter types in cpp_signature should be fully qualified; \
+             got: {}",
+            method.cpp_signature
+        );
+        assert!(
+            !method.cpp_signature.contains("void DiyFp *"),
+            "bare DiyFp must not remain in cpp_signature; got: {}",
+            method.cpp_signature
         );
     }
 }
