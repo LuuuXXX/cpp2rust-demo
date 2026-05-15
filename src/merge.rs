@@ -21,7 +21,6 @@ use anyhow::anyhow;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const _TYPES_PLACEHOLDER_COMMENT: &str = "// Type helpers";
 
 #[derive(Debug)]
 pub struct MergeOutput {

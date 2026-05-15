@@ -2802,9 +2802,9 @@ fn alias_registry_handles_namespaced_template_type() {
     // The flat file should be generated.
     let flat_file = tmp.path().join(".cpp2rust/default/rust/src/doclib.rs");
     assert!(flat_file.exists(), "doclib.rs should be generated");
-    let method_rs = std::fs::read_to_string(&flat_file).unwrap_or_default();
+    let flat_rs = std::fs::read_to_string(&flat_file).unwrap_or_default();
 
-    // Either the method file uses "Doc" as struct name, or the report
+    // Either the flat file uses "Doc" as struct name, or the report
     // confirms template class extraction (canonical_name in the report).
     let report = std::fs::read_to_string(
         tmp.path()
@@ -2829,14 +2829,14 @@ fn alias_registry_handles_namespaced_template_type() {
     //       report correctly names GenericDoc (not a malformed token like
     //       "CrtAllocator>"), confirming the name-parsing bug is fixed.
     let class_in_report = report.contains("## Class `Doc`") || report.contains("Class `Doc`");
-    let class_in_method = method_rs.contains("Doc");
+    let class_in_method = flat_rs.contains("Doc");
     let correct_tool_conservative_skip = report.contains("GenericDoc")
         && (report.contains("Tool-conservative") || report.contains("tool_conservative"));
     assert!(
         class_in_report || class_in_method || correct_tool_conservative_skip,
         "Doc/GenericDoc should appear as extracted class OR as a tool_conservative skip \
          with the correct template name (not a parse artifact like 'CrtAllocator>'); \
-         got report:\n{report}\n\nmethod:\n{method_rs}"
+         got report:\n{report}\n\nflat file:\n{flat_rs}"
     );
 }
 
