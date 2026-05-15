@@ -650,12 +650,21 @@ fn render_method(out: &mut String, func: &FunctionIR) {
         writeln!(
             out,
             "        unsafe fn {}({}){};",
-            func.rust_name, variadic_params, ret
+            sanitize_fn_name(&func.rust_name),
+            variadic_params,
+            ret
         )
         .unwrap();
     } else {
         let rust_params = render_rust_params(&func.params, &self_arg);
-        writeln!(out, "        fn {}{}{};", func.rust_name, rust_params, ret).unwrap();
+        writeln!(
+            out,
+            "        fn {}{}{};",
+            sanitize_fn_name(&func.rust_name),
+            rust_params,
+            ret
+        )
+        .unwrap();
     }
 }
 
@@ -819,7 +828,13 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         writeln!(out, "    // Global variable bindings.").unwrap();
         for gv in &decls.globals {
             writeln!(out, "    #[cpp(data = \"{}\")]", gv.qualified_name).unwrap();
-            writeln!(out, "    fn {}() -> {};", gv.rust_name, gv.rust_type).unwrap();
+            writeln!(
+                out,
+                "    fn {}() -> {};",
+                sanitize_fn_name(&gv.rust_name),
+                gv.rust_type
+            )
+            .unwrap();
             writeln!(out).unwrap();
         }
     }
@@ -833,6 +848,7 @@ fn render_free_function(out: &mut String, func: &FunctionIR) {
 
 fn render_free_function_with_name(out: &mut String, func: &FunctionIR, rust_name: &str) {
     writeln!(out, "    #[cpp(func = \"{}\")]", func.cpp_signature).unwrap();
+    let safe_name = sanitize_fn_name(rust_name);
     let rust_params = render_rust_params(&func.params, "");
     let ret = render_return_type(&func.rust_return_type);
     if func.is_variadic {
@@ -845,9 +861,9 @@ fn render_free_function_with_name(out: &mut String, func: &FunctionIR, rust_name
             let inner_str = fixed.trim_start_matches('(').trim_end_matches(')');
             format!("{}, ...", inner_str)
         };
-        writeln!(out, "    unsafe fn {}({}){};", rust_name, inner, ret).unwrap();
+        writeln!(out, "    unsafe fn {}({}){};", safe_name, inner, ret).unwrap();
     } else {
-        writeln!(out, "    fn {}{}{};", rust_name, rust_params, ret).unwrap();
+        writeln!(out, "    fn {}{}{};", safe_name, rust_params, ret).unwrap();
     }
 }
 
@@ -886,6 +902,23 @@ fn sanitize_ident(name: &str) -> &str {
         | "become" | "final" | "override" | "priv" | "typeof" | "unsized" | "virtual" | "yield"
         | "do" | "try" | "macro" => "value",
         other => other,
+    }
+}
+
+/// Ensure a function or method name is a valid Rust identifier (not a keyword).
+///
+/// `to_snake_case` can turn a C++ identifier like `Type` into `"type"`, which is
+/// a Rust reserved keyword.  Appending `_` produces a valid, readable identifier
+/// (`"type_"`) following the Rust convention for keyword-escape.
+fn sanitize_fn_name(name: &str) -> std::borrow::Cow<'_, str> {
+    match name {
+        "type" | "impl" | "mod" | "use" | "pub" | "fn" | "let" | "mut" | "ref" | "move"
+        | "loop" | "match" | "if" | "else" | "return" | "break" | "continue" | "where" | "for"
+        | "while" | "in" | "as" | "crate" | "self" | "super" | "trait" | "struct" | "enum"
+        | "union" | "extern" | "unsafe" | "async" | "await" | "dyn" | "box" | "abstract"
+        | "become" | "final" | "override" | "priv" | "typeof" | "unsized" | "virtual" | "yield"
+        | "do" | "try" | "macro" => std::borrow::Cow::Owned(format!("{}_", name)),
+        other => std::borrow::Cow::Borrowed(other),
     }
 }
 
