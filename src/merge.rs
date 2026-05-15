@@ -579,7 +579,7 @@ hicc::import_lib! {
     /// Regression test: two `import_class!` blocks for the same Rust struct
     /// name must be deduplicated in the merged output.
     ///
-    /// This reproduces the `E0428 the name 'other' is defined multiple times`
+    /// This reproduces the `error[E0428]: the name 'other' is defined multiple times`
     /// error that occurs when the same `ClassTemplateSpecializationDecl`
     /// appears in both a `ClassTemplateDecl` child position and as a
     /// standalone top-level node, causing the method codegen to emit two
