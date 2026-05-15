@@ -849,9 +849,12 @@ fn merge_updates_build_rs_to_merged_ffi() {
 
     let build_rs =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
+    // After merge, build.rs references the individual per-source src.1/<stem>.rs
+    // files (one rust_file() call per source) so each is compiled in its own
+    // C++ translation unit, avoiding multiple-main() / class-redefinition errors.
     assert!(
-        build_rs.contains("merged_ffi.rs"),
-        "build.rs should reference merged_ffi.rs after merge"
+        build_rs.contains("src.1/simple.rs"),
+        "build.rs should reference src.1/<stem>.rs files after merge"
     );
     let src2_lib =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src.2/lib.rs")).unwrap();
@@ -894,7 +897,7 @@ fn merge_preserves_no_link_build_rs() {
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
     assert!(!build_rs.contains("cargo::rustc-link-lib=mylib"));
     assert!(build_rs.contains("cargo::rustc-link-lib=cpp2rust_adapter"));
-    assert!(build_rs.contains("merged_ffi.rs"));
+    assert!(build_rs.contains("src.1/simple.rs"));
 }
 
 #[test]
@@ -1250,8 +1253,8 @@ namespace mathlib {
     );
     let build_rs = std::fs::read_to_string(rust_proj.join("build.rs")).unwrap();
     assert!(
-        build_rs.contains("src/merged_ffi.rs"),
-        "build.rs should target active src/ view"
+        build_rs.contains("src.1/mathlib.rs"),
+        "build.rs should reference individual src.1/<stem>.rs files after merge"
     );
     assert!(
         rust_proj.join("src/merged_ffi.rs").exists(),

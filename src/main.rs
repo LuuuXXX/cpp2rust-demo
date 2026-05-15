@@ -546,13 +546,25 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let include_dirs = middleware_include_dirs(&stored_files);
     let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
-    // Update build.rs to reference merged_ffi.rs through the active view path `src/`.
-    // After link_src_to_src2(), `rust/src` is a symlink to `rust/src.2`, so keeping
-    // this path stable means build.rs always targets the current active source view.
+    // Update build.rs to reference the individual per-source `src.1/<stem>.rs`
+    // files (one `rust_file()` call per file) instead of the combined
+    // `src/merged_ffi.rs`.  Compiling each source in its own C++ translation
+    // unit prevents multiple-definition errors when several standalone C++
+    // programs (each with their own `main()` or identically-named classes) are
+    // processed together – a common pattern when capturing multiple examples
+    // from a header-only library.  The merged Rust file is still used by
+    // `cargo check` for type-checking; the C++ symbols are supplied by the
+    // individual per-source compilations.
+    let init_rs_files: Vec<String> = merged
+        .group_modules
+        .iter()
+        .map(|stem| format!("src.1/{}.rs", stem))
+        .collect();
+    let init_rs_refs: Vec<&str> = init_rs_files.iter().map(|s| s.as_str()).collect();
     let build_rs_path = lo.rust_dir.join("build.rs");
     std::fs::write(
         &build_rs_path,
-        codegen::render_build_rs(&link_name, no_link, &["src/merged_ffi.rs"], &inc_refs),
+        codegen::render_build_rs(&link_name, no_link, &init_rs_refs, &inc_refs),
     )
     .map_err(|e| anyhow!("update build.rs: {}", e))?;
 
@@ -613,49 +625,167 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 /// Collect unique parent directories from a list of middleware file paths, sorted for
 /// deterministic output.  Used to populate `build.include(...)` calls in the
 /// generated `build.rs` so hicc-build can find the `#include`d middleware files.
-fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
-    let mut dirs: Vec<String> = middleware_files
-        .iter()
-        .filter_map(|file| file.parent().map(|p| p.display().to_string()))
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-    dirs.sort();
+/// Parse the original C++ source path from the first `# 0 "..."` linemarker
+/// in a preprocessed `.cpp2rust` file.
+///
+/// The `clang -E` output begins with a line like:
+/// ```text
+/// # 0 "/path/to/original.cpp"
+/// ```
+/// This returns the absolute path found there, or `None` if the file cannot
+/// be read or no suitable linemarker is found.
+fn parse_original_source_from_cpp2rust(mw_file: &Path) -> Option<PathBuf> {
+    let content = std::fs::read_to_string(mw_file).ok()?;
+    for line in content.lines().take(10) {
+        // Linemarker: # <linenum> "<path>" [flags...]
+        let rest = line
+            .strip_prefix("# 0 \"")
+            .or_else(|| line.strip_prefix("# 1 \""))?;
+        let path_str = rest.split('"').next()?;
+        // Skip virtual paths like <built-in> or <command-line>.
+        if path_str.starts_with('<') || path_str.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(path_str);
+        if path.is_absolute() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Parse `-I<dir>` include directories from a `.cpp2rust.opts` file.
+///
+/// The opts file stores one shell-quoted argument per whitespace-separated
+/// token, e.g.:
+/// ```text
+/// "-D__STDC_FORMAT_MACROS" "-I/usr/local/include" "-std=gnu++11"
+/// ```
+/// Returns the de-quoted directory paths for all `-I` arguments.
+fn parse_opts_include_dirs(opts_file: &Path) -> Vec<String> {
+    let content = match std::fs::read_to_string(opts_file) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let mut dirs = Vec::new();
+    let mut chars = content.chars().peekable();
+    while chars.peek().is_some() {
+        // Skip whitespace between tokens.
+        while chars.peek().map(|c| c.is_whitespace()).unwrap_or(false) {
+            chars.next();
+        }
+        // Consume a quoted or unquoted token.
+        let token: String = if chars.peek() == Some(&'"') {
+            chars.next(); // opening quote
+            let t: String = chars.by_ref().take_while(|&c| c != '"').collect();
+            t
+        } else {
+            chars.by_ref().take_while(|c| !c.is_whitespace()).collect()
+        };
+        if let Some(dir) = token.strip_prefix("-I") {
+            dirs.push(dir.to_string());
+        }
+    }
     dirs
 }
 
-/// Create a symlink `<basename_without_cpp2rust>` → `<basename>` in the same
-/// directory as `mw_file`, so that `hicc::cpp! { #include "entry.cpp" }` resolves
-/// correctly when the capture directory is on the include path.
+fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
+    let mut dirs: std::collections::HashSet<String> = middleware_files
+        .iter()
+        .filter_map(|file| file.parent().map(|p| p.display().to_string()))
+        .collect();
+
+    // Also add the `-I` include paths captured from the original build command
+    // (stored in the companion `.opts` files).  This lets hicc-build find the
+    // project's own headers (e.g. rapidjson's `include/` directory) when it
+    // compiles the generated C++ adapter.
+    for mw_file in middleware_files {
+        let opts_file = {
+            let mut p = mw_file.as_os_str().to_owned();
+            p.push(".opts");
+            PathBuf::from(p)
+        };
+        for raw_dir in parse_opts_include_dirs(&opts_file) {
+            // Normalize paths like `/foo/bar/../baz` → `/foo/baz`.
+            let p = PathBuf::from(&raw_dir);
+            let canonical = p.canonicalize().unwrap_or(p);
+            dirs.insert(canonical.display().to_string());
+        }
+    }
+
+    let mut result: Vec<String> = dirs.into_iter().collect();
+    result.sort();
+    result
+}
+
+/// Create a helper file named `<basename_without_cpp2rust>` in the same
+/// directory as `mw_file`, so that `hicc::cpp! { #include "entry.cpp" }`
+/// resolves correctly when the capture directory is on the include path.
 ///
-/// On non-Unix platforms this is a no-op (silently skipped).
+/// **Preferred**: if the original source file (whose path is recorded as the
+/// first linemarker in the `.cpp2rust` file) still exists on disk, a small
+/// stub file is written that `#include`s the original source.  Using the
+/// original source preserves its `#include` guard chain, preventing the
+/// duplicate-definition errors that arise when a fully preprocessed file
+/// (which has all headers inlined without guards) is compiled together with
+/// `hicc.hpp` in the same translation unit.
+///
+/// **Fallback**: if the original source is gone (e.g. the project was copied
+/// to a different machine), a symlink pointing to the `.cpp2rust` preprocessed
+/// file is created instead (Unix only).
 fn create_original_name_symlink(mw_file: &Path) {
+    let file_name = match mw_file.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n,
+        None => return,
+    };
+    let original_name = match file_name.strip_suffix(".cpp2rust") {
+        Some(n) => n,
+        None => return,
+    };
+    let parent = match mw_file.parent() {
+        Some(p) => p,
+        None => return,
+    };
+    let out_path = parent.join(original_name);
+    if out_path.exists() {
+        return;
+    }
+
+    // --- Preferred path: stub that includes the original source. ---
+    if let Some(orig_src) = parse_original_source_from_cpp2rust(mw_file) {
+        if orig_src.exists() {
+            // The stub just delegates to the real source file so that the
+            // compiler uses the original include-guard chain rather than the
+            // guard-free preprocessed content.
+            let stub = format!(
+                "// cpp2rust: delegates to the original source so that system\n\
+                 // header include guards prevent duplicate-definition errors.\n\
+                 #include \"{}\"\n",
+                orig_src.display()
+            );
+            match std::fs::write(&out_path, &stub) {
+                Ok(()) => return,
+                Err(e) => eprintln!(
+                    "  Warning: could not write stub {}: {}",
+                    out_path.display(),
+                    e
+                ),
+            }
+        }
+    }
+
+    // --- Fallback: symlink → preprocessed file (Unix only). ---
     #[cfg(unix)]
     {
-        let file_name = match mw_file.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n,
-            None => return,
-        };
-        let original_name = match file_name.strip_suffix(".cpp2rust") {
-            Some(n) => n,
-            None => return,
-        };
-        let parent = match mw_file.parent() {
-            Some(p) => p,
-            None => return,
-        };
-        let symlink_path = parent.join(original_name);
-        if !symlink_path.exists() {
-            // Target is a relative name so the symlink stays valid if the
-            // capture directory is moved.
-            if let Err(e) = std::os::unix::fs::symlink(file_name, &symlink_path) {
-                eprintln!(
-                    "  Warning: could not create symlink {} → {}: {}",
-                    symlink_path.display(),
-                    file_name,
-                    e
-                );
-            }
+        // Use a relative target so the symlink stays valid if the
+        // capture directory is moved.
+        if let Err(e) = std::os::unix::fs::symlink(file_name, &out_path) {
+            eprintln!(
+                "  Warning: could not create symlink {} → {}: {}",
+                out_path.display(),
+                file_name,
+                e
+            );
         }
     }
 }
