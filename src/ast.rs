@@ -863,10 +863,8 @@ pub fn extract_declarations_with_strategy(
     // `import_class!` blocks with the same struct name in the generated source
     // and ultimately the Rust `E0428` "defined multiple times" error.
     {
-        let mut seen: HashMap<String, bool> = HashMap::new();
-        result
-            .classes
-            .retain(|c| seen.insert(c.name.clone(), true).is_none());
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        result.classes.retain(|c| seen.insert(c.name.clone()));
     }
 
     result

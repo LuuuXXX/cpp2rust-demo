@@ -177,7 +177,12 @@ fn merge_group_module(
                 fragments.includes.insert(include);
             }
             for block in extract_import_class_blocks(&src) {
-                let key = class_name_from_block(&block).unwrap_or_else(|| block.len().to_string());
+                // Key on the Rust struct name so that two blocks defining the
+                // same class are deduplicated (first-wins).  When the block is
+                // malformed and has no `class <Name>` line, fall back to the
+                // full block text so the block is still emitted without being
+                // silently merged with an unrelated block.
+                let key = class_name_from_block(&block).unwrap_or_else(|| block.clone());
                 fragments.import_class_blocks.insert(key, block);
             }
             for block in extract_import_lib_blocks(&src) {
@@ -599,7 +604,8 @@ hicc::import_lib! {
 
         let mut fragments = ModuleFragments::default();
         for block in [block1, block2] {
-            let key = class_name_from_block(block).unwrap_or_else(|| block.len().to_string());
+            let key = class_name_from_block(block)
+                .expect("test block must contain a `class <Name>` line");
             fragments.import_class_blocks.insert(key, block.to_string());
         }
 
