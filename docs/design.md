@@ -149,11 +149,18 @@ Rust 侧项目搭建统一使用：
 
 cpp2rust-demo 通过 **AliasRegistry** 解锁模板特化的 FFI 提取。
 
-工作原理：当 clang 在 entry.cpp 中看到 `typedef`/`using` 别名声明时，工具自动注册两张映射：
-- 裸模板名 → 别名（如 `"GenericDocument"` → `"Document"`）
+工作原理：当 clang 在 entry.cpp 中看到 `typedef`/`using` 别名声明时，工具自动注册三张映射：
+- 裸模板名 → **所有**别名列表（如 `"GenericDocument"` → `["Document", "FastDocument"]`，1:N）
 - 别名 → 完整限定类型（如 `"Document"` → `"rapidjson::GenericDocument<...>"`）
+- 完整限定类型 → 首个别名（精确反向查找，供不同特化各取自己的别名）
 
-提取时，若方法参数类型含 `<`，则检查其裸模板名是否在 registry 中有别名；有则放行，无则跳过并标记 `tool_conservative`。
+同一模板的**不同特化可以各自拥有独立别名**，提取时精确匹配完整特化类型，两个特化各自生成独立 Rust struct：
+```cpp
+using IntBox = Box<int>;          // → struct IntBox
+using StrBox = Box<std::string>;  // → struct StrBox（独立提取，不会覆盖 IntBox）
+```
+
+提取时，若方法参数类型含 `<`，则优先按完整限定类型精确查找别名；若无完整类型信息则退而查裸模板名的首个别名；两者均无则跳过并标记 `tool_conservative`。
 
 **解锁方式**：在 entry.cpp 中 `#include` 包含 `typedef`/`using` 别名的头文件，或手动添加：
 ```cpp

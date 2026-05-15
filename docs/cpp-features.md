@@ -67,7 +67,8 @@
 
 | C++ 特性 | 状态 | 输出位置 | 说明 |
 |----------|------|---------|------|
-| 模板类特化（有 `typedef`/`using` 别名） | ⚠️ | `method/mtd_*.rs` | AliasRegistry 解锁：裸模板名 → 别名 → 完整限定类型 |
+| 模板类特化（有 `typedef`/`using` 别名） | ⚠️ | `method/mtd_*.rs` | AliasRegistry 解锁：裸模板名 → 别名列表（1:N）→ 完整限定类型 |
+| 同一模板的多个不同特化（各有独立别名） | ✅ | `method/mtd_*.rs` | `alias_for_type()` 精确匹配完整特化类型，每个特化生成独立 Rust struct（如 `using IntBox = Box<int>; using StrBox = Box<string>;` → `IntBox` 与 `StrBox` 各自独立提取） |
 | 模板类（无任何别名） | ⚠️ | — | 跳过，标记 `tool_conservative`；在 entry.cpp 添加别名后可解锁 |
 | 多参数模板特化 | ⚠️ | `method/mtd_*.rs` | 仅 typedef 覆盖的特化被提取；其他参数组合的特化仍跳过 |
 | 链式别名（`using A = B<T>; using C = A;`） | ✅ | `types/mod.rs` | AliasRegistry 传递性闭合解析已实现；`C` 正确映射回原始模板并解锁模板提取 |
