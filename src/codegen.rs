@@ -108,8 +108,11 @@ pub fn render_flat_module(
     if let Some(casts) = dynamic_casts_src {
         if !casts.trim().is_empty() {
             writeln!(out).unwrap();
-            writeln!(out, "// @dynamic_cast starters – uncomment bindings as needed.")
-                .unwrap();
+            writeln!(
+                out,
+                "// @dynamic_cast starters – uncomment bindings as needed."
+            )
+            .unwrap();
             out.push_str(casts);
         }
     }
@@ -118,8 +121,11 @@ pub fn render_flat_module(
     if let Some(pn) = placement_new_src {
         if !pn.trim().is_empty() {
             writeln!(out).unwrap();
-            writeln!(out, "// @placement_new starters – uncomment bindings as needed.")
-                .unwrap();
+            writeln!(
+                out,
+                "// @placement_new starters – uncomment bindings as needed."
+            )
+            .unwrap();
             out.push_str(pn);
         }
     }

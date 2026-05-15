@@ -8,11 +8,16 @@
 #
 # The script:
 #   1. Builds cpp2rust-demo (debug by default, --release for release build).
-#   2. Clones Tencent/rapidjson into /tmp/rapidjson (re-uses existing clone).
-#   3. Runs `cpp2rust-demo init` inside the rapidjson directory via multiple
-#      translation units to trigger the complete “compile→capture→middleware” flow.
+#   2. Clones Tencent/rapidjson into /tmp/rapidjson (re-uses existing clone)
+#      and configures it with cmake (examples enabled, tests disabled).
+#   3. Runs `cpp2rust-demo init` using `cmake --build` as the build command so
+#      that the LD_PRELOAD hook captures every real compilation (one per example
+#      .cpp source file).
 #   4. Runs `cpp2rust-demo merge`.
-#   5. Validates the expected output files exist and contain expected content.
+#   5. Validates expected output files exist and contain expected content.
+#      Uses dynamic discovery of captured .cpp2rust files (1:1 flat .rs layout).
+#   6. Runs `cargo check` inside the generated Rust project to verify the
+#      scaffold compiles (header-only library, --no-link mode).
 #
 # This script mirrors the CI workflow in .github/workflows/validate-rapidjson.yml
 # and can be run locally to reproduce CI results.
@@ -56,7 +61,7 @@ echo "Binary: ${BIN}"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 2: Clone Tencent/rapidjson (shallow, reuse existing clone)
+# Step 2: Clone Tencent/rapidjson and configure cmake build
 # ---------------------------------------------------------------------------
 echo "=== Step 2: Preparing Tencent/rapidjson ==="
 if [ -d "${RAPIDJSON_DIR}/.git" ]; then
@@ -65,56 +70,29 @@ else
     echo "Cloning Tencent/rapidjson into ${RAPIDJSON_DIR} ..."
     git clone --depth=1 https://github.com/Tencent/rapidjson.git "${RAPIDJSON_DIR}"
 fi
+
+echo "Configuring cmake build (examples ON, tests OFF) ..."
+cmake -S "${RAPIDJSON_DIR}" -B "${RAPIDJSON_DIR}/build" \
+    -DRAPIDJSON_BUILD_EXAMPLES=ON \
+    -DRAPIDJSON_BUILD_TESTS=OFF \
+    -DCMAKE_BUILD_TYPE=Debug
 echo ""
 
-# rapidjson validation cases by capability dimension:
-# - document     => DOM/document
-# - reader       => Reader/SAX
-# - writer       => Writer
-# - prettywriter => PrettyWriter
-# - pointer      => Pointer
-# - schema       => Schema/Error related
-CASE_NAMES=(document reader writer prettywriter pointer schema)
-CASE_INCLUDES=(
-    'rapidjson/document.h'
-    'rapidjson/reader.h'
-    'rapidjson/writer.h'
-    'rapidjson/prettywriter.h'
-    'rapidjson/pointer.h'
-    'rapidjson/schema.h'
-)
-
 # ---------------------------------------------------------------------------
-# Step 3: Run cpp2rust-demo init
+# Step 3: Run cpp2rust-demo init via cmake --build
 # ---------------------------------------------------------------------------
 echo "=== Step 3: Running cpp2rust-demo init ==="
 (
     cd "${RAPIDJSON_DIR}"
     # Remove previous output so this script is idempotent.
     rm -rf .cpp2rust
-    BUILD_STEPS=()
-    for i in "${!CASE_NAMES[@]}"; do
-        case_name="${CASE_NAMES[$i]}"
-        include_header="${CASE_INCLUDES[$i]}"
-        source_file="${case_name}.cpp"
-        cat > "${source_file}" <<CPP
-#include "${include_header}"
-CPP
-        # Keep one shared compile profile across cases for stable CI behavior:
-        # rapidjson is header-only and supports C++11 as a baseline.
-        BUILD_STEPS+=("clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude ${source_file}")
-    done
-    BUILD_CMD=""
-    for step in "${BUILD_STEPS[@]}"; do
-        if [ -n "${BUILD_CMD}" ]; then
-            BUILD_CMD="${BUILD_CMD} && "
-        fi
-        BUILD_CMD="${BUILD_CMD}${step}"
-    done
+    # Use --no-link so cargo check works without a rapidjson.a static library
+    # (rapidjson is header-only; all FFI content compiles from headers alone).
     "${BIN}" init \
         --feature "${FEATURE}" \
         --link rapidjson \
-        -- sh -c "${BUILD_CMD}" < /dev/null
+        --no-link \
+        -- cmake --build "${RAPIDJSON_DIR}/build" --parallel 2
 )
 echo ""
 
@@ -156,25 +134,7 @@ check_contains() {
 
 OUT="${RAPIDJSON_DIR}/.cpp2rust/${FEATURE}"
 
-for case_name in "${CASE_NAMES[@]}"; do
-    middleware_file="${case_name}.cpp.cpp2rust"
-    # The original source name (without the .cpp2rust capture suffix) is what
-    # render_include_module now emits inside hicc::cpp! blocks.
-    original_file="${case_name}.cpp"
-    check_file  "${OUT}/cpp/${middleware_file}"
-    check_file  "${OUT}/cpp/${middleware_file}.opts"
-    check_file  "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs"
-    check_file  "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs"
-    check_file  "${OUT}/rust/src.1/mod_${case_name}/meta.json"
-    check_contains "${OUT}/meta/selected_files.json" "${middleware_file}"
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs" "#include \"${original_file}\""
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs" "import_lib!"
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs" 'link_name = "rapidjson"'
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "\"group\": \"mod_${case_name}\""
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "${middleware_file}"
-    check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${original_file}\""
-done
-
+# --- Global artefacts ---
 check_file  "${OUT}/meta/build_cmd.txt"
 check_file  "${OUT}/meta/selected_files.json"
 check_file  "${OUT}/meta/headers.json"
@@ -188,15 +148,66 @@ check_file  "${OUT}/meta/merge-report.md"
 check_contains "${OUT}/rust/src/merged_ffi.rs" "import_lib!"
 check_contains "${OUT}/rust/src/merged_ffi.rs" 'link_name = "rapidjson"'
 
+# --- Per-file artefacts (dynamically discovered from captured .cpp2rust files) ---
+# Each .cpp compiled by cmake produces one .cpp2rust capture -> one flat .rs file.
+captured_count=0
+for mw_file in "${OUT}/cpp/"*.cpp2rust; do
+    # Skip .opts companion files.
+    [[ "${mw_file}" == *.opts ]] && continue
+    [ -f "${mw_file}" ] || continue
+
+    # Derive the stem: strip directory and .cpp.cpp2rust (or .cpp2rust) suffix.
+    mw_basename="$(basename "${mw_file}")"
+    # Remove .cpp2rust capture suffix to get original name, then strip extension.
+    original_file="${mw_basename%.cpp2rust}"
+    stem="${original_file%.*}"          # strip final extension (.cpp, .cc, ...)
+
+    captured_count=$((captured_count + 1))
+
+    check_file     "${OUT}/cpp/${mw_basename}"
+    check_file     "${OUT}/cpp/${mw_basename}.opts"
+    check_file     "${OUT}/rust/src.1/${stem}.rs"
+    check_file     "${OUT}/rust/src.1/${stem}.meta.json"
+    check_contains "${OUT}/meta/selected_files.json" "${mw_basename}"
+    check_contains "${OUT}/rust/src.1/${stem}.rs" "#include \"${original_file}\""
+    check_contains "${OUT}/rust/src.1/${stem}.rs" "import_lib!"
+    check_contains "${OUT}/rust/src.1/${stem}.rs" 'link_name = "rapidjson"'
+    check_contains "${OUT}/rust/src.1/${stem}.meta.json" "\"group\": \"${stem}\""
+    check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${original_file}\""
+done
+
+if [ "${captured_count}" -eq 0 ]; then
+    echo "  [FAIL] No .cpp2rust files captured -- cmake build may have failed or hook not active" >&2
+    FAIL=1
+else
+    echo ""
+    echo "  Captured ${captured_count} translation unit(s)."
+fi
+
 echo ""
 echo "=== Generated .cpp2rust directory tree ==="
 find "${RAPIDJSON_DIR}/.cpp2rust" -type f | sort
 
 if [ "${FAIL}" -ne 0 ]; then
     echo ""
-    echo "VALIDATION FAILED – see errors above." >&2
+    echo "VALIDATION FAILED -- see errors above." >&2
     exit 1
 fi
 
 echo ""
-echo "✓ All validation checks passed."
+echo "All file validation checks passed."
+
+# ---------------------------------------------------------------------------
+# Step 6: cargo check on the generated Rust project
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Step 6: cargo check on generated Rust project ==="
+(
+    cd "${OUT}/rust"
+    # --no-link was used during init so build.rs does not emit
+    # cargo::rustc-link-lib; the C++ adapter (rapidjson headers) compiles
+    # cleanly without a static library.
+    cargo check 2>&1
+)
+echo ""
+echo "cargo check passed -- scaffold is valid Rust."

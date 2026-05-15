@@ -21,7 +21,6 @@ use anyhow::anyhow;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-
 #[derive(Debug)]
 pub struct MergeOutput {
     pub merged_path: PathBuf,

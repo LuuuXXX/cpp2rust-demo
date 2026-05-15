@@ -13,7 +13,6 @@ use selector::{FileSelector, InteractiveSelector};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-
 // ---------------------------------------------------------------------------
 // CLI definition
 // ---------------------------------------------------------------------------
@@ -288,7 +287,10 @@ fn run_init(args: InitArgs) -> Result<()> {
         if !dry_run {
             // Render operator shim Rust stubs (active bindings for operator_shims.hpp).
             let shims_rs = if !decls.operator_shims.is_empty() {
-                Some(codegen::render_operator_shims_rs(&decls.operator_shims, link_name))
+                Some(codegen::render_operator_shims_rs(
+                    &decls.operator_shims,
+                    link_name,
+                ))
             } else {
                 None
             };
@@ -392,6 +394,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         all_decls.functions.extend(decls.functions);
         all_decls.classes.extend(decls.classes);
         all_decls.globals.extend(decls.globals);
+        all_decls.enums.extend(decls.enums);
+        all_decls.aliases.extend(decls.aliases);
         all_decls.skipped.extend(decls.skipped);
         all_decls.operator_shims.extend(decls.operator_shims);
     }
@@ -466,7 +470,9 @@ fn run_init(args: InitArgs) -> Result<()> {
             );
         }
         if had_any_shims {
-            println!("  operator shims  →  meta/operator_shims.hpp (Rust bindings in flat .rs files)");
+            println!(
+                "  operator shims  →  meta/operator_shims.hpp (Rust bindings in flat .rs files)"
+            );
         }
         if had_any_dynamic_casts {
             println!("  dynamic cast starters  →  embedded in flat .rs files");
@@ -1366,8 +1372,14 @@ mod tests {
             None,
             None,
         );
-        assert!(src.contains("hicc::cpp!"), "flat file must have hicc::cpp! block");
-        assert!(src.contains("import_lib!"), "flat file must have import_lib! block");
+        assert!(
+            src.contains("hicc::cpp!"),
+            "flat file must have hicc::cpp! block"
+        );
+        assert!(
+            src.contains("import_lib!"),
+            "flat file must have import_lib! block"
+        );
     }
 
     #[test]
@@ -1382,7 +1394,10 @@ mod tests {
             None,
             None,
         );
-        assert!(src.contains("shim_foo"), "shim ops should be appended to flat file");
+        assert!(
+            src.contains("shim_foo"),
+            "shim ops should be appended to flat file"
+        );
     }
 
     #[test]
@@ -1396,9 +1411,18 @@ mod tests {
             None,
             None,
         );
-        assert!(!src.contains("shim"), "no shim section when shim_ops is None");
-        assert!(!src.contains("@dynamic_cast"), "no cast section when dynamic_casts is None");
-        assert!(!src.contains("@placement_new"), "no pn section when placement_new is None");
+        assert!(
+            !src.contains("shim"),
+            "no shim section when shim_ops is None"
+        );
+        assert!(
+            !src.contains("@dynamic_cast"),
+            "no cast section when dynamic_casts is None"
+        );
+        assert!(
+            !src.contains("@placement_new"),
+            "no pn section when placement_new is None"
+        );
     }
 
     #[test]
