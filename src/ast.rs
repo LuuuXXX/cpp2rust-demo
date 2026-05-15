@@ -997,6 +997,34 @@ fn qualify_cpp_type(cpp_type: &str, class_map: &HashMap<String, String>) -> Stri
 // Internal traversal
 // ---------------------------------------------------------------------------
 
+/// Returns true when `path` is a known system/compiler header directory.
+///
+/// The `.cpp2rust` files are preprocessed TUs containing all expanded headers.
+/// When clang parses them it records `loc.file = null` for many declarations
+/// that come from system headers (only the `includedFrom.file` field is set).
+/// Without this guard those declarations would inherit `current_file` from the
+/// last node that *did* set it — often the user source file — and would
+/// erroneously pass the `is_target` check.
+fn is_system_header_path(path: &str) -> bool {
+    // Standard Unix/Linux system include/library directories.
+    path.starts_with("/usr/include/")
+        || path.starts_with("/usr/lib/")
+        || path.starts_with("/usr/local/include/")
+        || path.starts_with("/usr/local/lib/")
+        // GCC / clang built-in / cross-compile includes.
+        || path.starts_with("/usr/lib/gcc/")
+        || path.starts_with("/usr/lib/clang/")
+        || path.starts_with("/usr/lib/llvm")
+        || path.starts_with("/lib/")
+        || path.starts_with("/lib64/")
+        // macOS SDK / XCode paths.
+        || path.starts_with("/Applications/Xcode")
+        || path.starts_with("/Library/Developer/CommandLineTools")
+        || path.starts_with("/System/Library")
+        // Generic "<built-in>" / "<command-line>" virtual paths emitted by clang.
+        || path.starts_with('<')
+}
+
 /// Update `current_file` from a `Location`, following expansion / spelling locs.
 fn update_file(loc: &Location, current_file: &mut String) {
     if let Some(ref f) = loc.file {
@@ -1008,6 +1036,23 @@ fn update_file(loc: &Location, current_file: &mut String) {
     if let Some(ref exp) = loc.expansion_loc {
         update_file(exp, current_file);
     }
+}
+
+/// Returns `true` when an AST node's `loc.includedFrom.file` points to a
+/// system or compiler-built-in header directory.
+///
+/// The `.cpp2rust` files are preprocessed translation units whose `loc.file`
+/// is often `null` for declarations that come from system headers – the only
+/// reliable indicator is `loc.includedFrom.file`.  Checking this field lets us
+/// skip entire subtrees (e.g. a `LinkageSpecDecl` containing all of
+/// `<stdlib.h>`) without touching the `current_file` tracker.
+fn node_from_system_header(node: &AstNode) -> bool {
+    node.loc
+        .as_ref()
+        .and_then(|l| l.included_from.as_ref())
+        .and_then(|inc| inc.file.as_deref())
+        .map(is_system_header_path)
+        .unwrap_or(false)
 }
 
 /// Check whether `file` is one of the user-supplied target headers.
@@ -1038,6 +1083,21 @@ fn walk_node(
     // Advance current_file tracker.
     if let Some(ref loc) = node.loc {
         update_file(loc, current_file);
+    }
+
+    // Skip entire subtrees rooted in system/compiler headers.
+    //
+    // The `.cpp2rust` files are preprocessed TUs: many declarations that appear
+    // under the target file's `loc.file` actually originate in system headers
+    // (e.g. every function from `<stdlib.h>` included transitively by
+    // rapidjson).  Their `loc.file` is `null` and only `loc.includedFrom.file`
+    // reveals the true origin.  Returning here prunes the whole subtree so that
+    // we never capture stdlib functions such as `atof` / `strtol` / etc.
+    //
+    // `update_file` is called first so the `current_file` tracker continues to
+    // advance correctly for the nodes we do keep.
+    if node_from_system_header(node) {
+        return;
     }
 
     // Skip compiler-generated nodes.
