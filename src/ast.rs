@@ -437,6 +437,16 @@ fn collect_alias_nodes(node: &AstNode, namespace: &[String], reg: &mut AliasRegi
                 collect_alias_nodes(child, namespace, reg);
             }
         }
+        // Do not descend into class bodies.  Typedefs / using-aliases defined
+        // at class scope (e.g. `typedef Alloc<U> other` inside an allocator
+        // `rebind` struct) are implementation details and must NOT be
+        // registered as top-level type aliases.  Doing so would cause names
+        // like `other` to be mistakenly used as Rust struct names when
+        // extracting template specialisations.
+        "CXXRecordDecl"
+        | "ClassTemplateDecl"
+        | "ClassTemplateSpecializationDecl"
+        | "ClassTemplatePartialSpecializationDecl" => {}
         _ => {
             for child in node.inner.iter().flatten() {
                 collect_alias_nodes(child, namespace, reg);
@@ -3628,6 +3638,91 @@ mod tests {
             found == Some("A") || found == Some("B"),
             "alias_for_type should return A or B for Tmpl<int>, got {:?}",
             found
+        );
+    }
+
+    /// `collect_alias_nodes` must NOT register typedefs that live inside a
+    /// class body (e.g. the `typedef Alloc<U> other` found inside an
+    /// allocator's `rebind` helper struct).  Registering them would cause
+    /// generic names like `other` to be mistakenly used as Rust struct names
+    /// when extracting template specialisations.
+    #[test]
+    fn test_collect_alias_nodes_skips_class_scope_typedefs() {
+        // Simulate the clang AST for:
+        //
+        //   template<typename T>
+        //   struct StdAllocator {
+        //       template<typename U>
+        //       struct rebind {
+        //           typedef StdAllocator<U> other;  // ← must NOT be collected
+        //       };
+        //   };
+        //   using MyAlloc = StdAllocator<int>;      // ← must be collected
+        //
+        // The outer ClassTemplateDecl for StdAllocator wraps a CXXRecordDecl
+        // that itself contains another CXXRecordDecl (rebind) which owns the
+        // problematic TypedefDecl.
+
+        let other_typedef = AstNode {
+            kind: "TypedefDecl".to_string(),
+            name: Some("other".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "StdAllocator<U>".to_string(),
+            }),
+            ..AstNode::default()
+        };
+        let rebind_record = AstNode {
+            kind: "CXXRecordDecl".to_string(),
+            name: Some("rebind".to_string()),
+            complete_definition: Some(true),
+            inner: Some(vec![other_typedef]),
+            ..AstNode::default()
+        };
+        let alloc_record = AstNode {
+            kind: "CXXRecordDecl".to_string(),
+            name: Some("StdAllocator".to_string()),
+            complete_definition: Some(true),
+            inner: Some(vec![rebind_record]),
+            ..AstNode::default()
+        };
+        let alloc_tmpl = AstNode {
+            kind: "ClassTemplateDecl".to_string(),
+            name: Some("StdAllocator".to_string()),
+            inner: Some(vec![alloc_record]),
+            ..AstNode::default()
+        };
+        // Namespace-level `using MyAlloc = StdAllocator<int>` – should be collected.
+        let myalloc_alias = AstNode {
+            kind: "TypeAliasDecl".to_string(),
+            name: Some("MyAlloc".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "StdAllocator<int>".to_string(),
+            }),
+            ..AstNode::default()
+        };
+        let root = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            inner: Some(vec![alloc_tmpl, myalloc_alias]),
+            ..AstNode::default()
+        };
+
+        let reg = AliasRegistry::collect_from_ast(&root);
+
+        // The namespace-level alias must be collected.
+        assert_eq!(
+            reg.alias_for_template("StdAllocator"),
+            Some("MyAlloc"),
+            "MyAlloc should be registered as an alias for StdAllocator"
+        );
+
+        // The class-scope typedef `other` must NOT be registered.
+        assert!(
+            reg.full_type_for_alias("other").is_none(),
+            "`other` (class-scope typedef inside rebind) must not be registered in AliasRegistry"
+        );
+        assert!(
+            !reg.is_alias_of_template("other"),
+            "`other` must not appear as an alias of a template"
         );
     }
 

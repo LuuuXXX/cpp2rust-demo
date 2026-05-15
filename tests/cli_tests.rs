@@ -4521,3 +4521,72 @@ fn example_instance_fields_generate_field_accessors() {
         "#[cpp(field)] attribute must appear: {merged}"
     );
 }
+
+/// Regression test: `collect_alias_nodes` must not register class-scope
+/// typedefs (e.g. `typedef StdAllocator<U> other` inside an allocator
+/// `rebind` struct) as top-level type aliases in the `AliasRegistry`.
+///
+/// Before the fix the generic name `other` was picked up from inside the
+/// nested `rebind` struct and used as the Rust struct name for
+/// `StdAllocator` template specialisations, producing an FFI binding error.
+#[test]
+fn allocator_rebind_typedef_not_mistaken_for_class_name() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "allocators.hpp",
+        r#"
+        // Standard allocator protocol – the nested rebind typedef "other"
+        // must NOT be registered as a top-level alias.
+        template <typename T>
+        struct StdAllocator {
+            void* allocate(unsigned long n);
+            void  deallocate(void* p, unsigned long n);
+
+            template <typename U>
+            struct rebind {
+                typedef StdAllocator<U> other;
+            };
+        };
+
+        // A proper top-level alias: this should still be collected.
+        typedef StdAllocator<int> IntAllocator;
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "allocators.cpp", "allocators.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "allocators",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let report = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/meta/init-interface-report.md"),
+    )
+    .unwrap();
+
+    // The report must NOT treat "other" as a class name anywhere.
+    assert!(
+        !report.contains("## Class `other`") && !report.contains("Class `other`"),
+        "`other` (rebind typedef) must not appear as a class in the report;\
+         \ngot:\n{report}"
+    );
+
+    // The report should mention StdAllocator (either extracted or skipped).
+    assert!(
+        report.contains("StdAllocator") || report.contains("IntAllocator"),
+        "StdAllocator/IntAllocator must appear in the report; got:\n{report}"
+    );
+}
