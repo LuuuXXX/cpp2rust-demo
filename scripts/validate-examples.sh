@@ -291,8 +291,8 @@ check_any_rs  "${OUT}" 'link_name = "jsonvalue"'
 # The C++ shim header must be generated
 check_file    "${OUT}/meta/operator_shims.hpp"
 check_contains "${OUT}/meta/operator_shims.hpp" 'Auto-generated operator shims'
-# The Rust shim bindings skeleton must be generated
-check_glob_rs "${OUT}" "shim_ops.rs"
+# The Rust shim bindings skeleton must be generated (now inlined in the flat .rs file)
+check_any_rs  "${OUT}" 'Shim for'
 
 # ---------------------------------------------------------------------------
 # Step 11: rapidjson/08-multi-tu/ — multiple translation units + merge
@@ -311,10 +311,10 @@ merge_and_export "${FEATURE}" examples/rapidjson/08-multi-tu
 OUT="${REPO_ROOT}/.cpp2rust/${FEATURE}"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
 check_any_rs  "${OUT}" 'link_name = "rapidjson"'
-# Each TU must produce a distinct group directory under src.1
-check_file    "${OUT}/rust/src.1/mod_examples_rapidjson_08_multi_tu_entry_document/include/mod.rs"
-check_file    "${OUT}/rust/src.1/mod_examples_rapidjson_08_multi_tu_entry_writer/include/mod.rs"
-check_file    "${OUT}/rust/src.1/mod_examples_rapidjson_08_multi_tu_entry_errors/include/mod.rs"
+# Each TU must produce a distinct flat .rs file under src.1/
+check_file    "${OUT}/rust/src.1/entry-document.rs"
+check_file    "${OUT}/rust/src.1/entry-writer.rs"
+check_file    "${OUT}/rust/src.1/entry-errors.rs"
 # Errors TU contains the ParseErrorCode enum
 check_any_rs  "${OUT}" 'ParseErrorCode'
 
@@ -387,8 +387,8 @@ OUT="${REPO_ROOT}/.cpp2rust/sa02"
 check_file    "${OUT}/rust/src/merged_ffi.rs"
 check_any_rs  "${OUT}" 'link_name = "fixed_buffer"'
 check_any_rs  "${OUT}" 'FixedBuffer'
-# The placement_new.rs skeleton is generated for concrete classes with ctors
-check_glob_rs "${OUT}" "placement_new.rs"
+# The placement_new starters are now inlined in the flat .rs file
+check_any_rs  "${OUT}" '@placement_new'
 
 # ---------------------------------------------------------------------------
 # Step 16: guided/01-std-string/ — std::string skipped; POD method extracted
