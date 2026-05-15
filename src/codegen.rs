@@ -330,12 +330,19 @@ pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
         for enum_ir in &decls.enums {
             out.push_str("#[repr(C)]\n");
             out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
-            out.push_str(&format!("pub enum {} {{\n", enum_ir.name));
+            out.push_str(&format!(
+                "pub enum {} {{\n",
+                sanitize_type_name(&enum_ir.name)
+            ));
             for variant in &enum_ir.variants {
                 if let Some(v) = variant.value {
-                    out.push_str(&format!("    {} = {},\n", variant.name, v));
+                    out.push_str(&format!(
+                        "    {} = {},\n",
+                        sanitize_type_name(&variant.name),
+                        v
+                    ));
                 } else {
-                    out.push_str(&format!("    {},\n", variant.name));
+                    out.push_str(&format!("    {},\n", sanitize_type_name(&variant.name)));
                 }
             }
             out.push_str("}\n\n");
@@ -348,7 +355,8 @@ pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
         for alias in &decls.aliases {
             out.push_str(&format!(
                 "pub type {} = {};\n",
-                alias.name, alias.aliased_rust_type
+                sanitize_type_name(&alias.name),
+                alias.aliased_rust_type
             ));
         }
         out.push('\n');
@@ -485,10 +493,12 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
     };
 
     // The Rust struct name: use canonical_name (alias) for template specialisations.
-    let rust_name = class
-        .canonical_name
-        .as_deref()
-        .unwrap_or(class.name.as_str());
+    let rust_name = sanitize_type_name(
+        class
+            .canonical_name
+            .as_deref()
+            .unwrap_or(class.name.as_str()),
+    );
 
     writeln!(out, "hicc::import_class! {{").unwrap();
     if class.is_abstract {
@@ -739,10 +749,12 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         if class.is_abstract {
             continue;
         }
-        let rust_name = class
-            .canonical_name
-            .as_deref()
-            .unwrap_or(class.name.as_str());
+        let rust_name = sanitize_type_name(
+            class
+                .canonical_name
+                .as_deref()
+                .unwrap_or(class.name.as_str()),
+        );
         for (i, ctor) in class.ctors.iter().enumerate().skip(1) {
             let method_name = format!("new_{}", i + 1);
             let rust_params = render_rust_params(&ctor.params, "");
@@ -762,7 +774,7 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
             writeln!(
                 out,
                 "    fn {}_{}{}{};",
-                crate::ast::to_snake_case(rust_name),
+                crate::ast::to_snake_case(&rust_name),
                 method_name,
                 rust_params,
                 ret
@@ -777,11 +789,13 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         if !class.is_abstract {
             continue;
         }
-        let rust_name = class
-            .canonical_name
-            .as_deref()
-            .unwrap_or(class.name.as_str());
-        let snake = crate::ast::to_snake_case(rust_name);
+        let rust_name = sanitize_type_name(
+            class
+                .canonical_name
+                .as_deref()
+                .unwrap_or(class.name.as_str()),
+        );
+        let snake = crate::ast::to_snake_case(&rust_name);
         let proxy_fn = format!("new_{}_proxy", snake);
         writeln!(
             out,
@@ -902,6 +916,23 @@ fn sanitize_ident(name: &str) -> &str {
         | "become" | "final" | "override" | "priv" | "typeof" | "unsized" | "virtual" | "yield"
         | "do" | "try" | "macro" => "value",
         other => other,
+    }
+}
+
+/// Ensure a type-level name (type alias, enum, enum variant) is a valid Rust
+/// identifier (not a keyword).
+///
+/// C++ allows identifiers like `type` that clash with Rust keywords.  Appending
+/// `_` produces a valid identifier following the Rust keyword-escape convention.
+fn sanitize_type_name(name: &str) -> std::borrow::Cow<'_, str> {
+    match name {
+        "type" | "impl" | "mod" | "use" | "pub" | "fn" | "let" | "mut" | "ref" | "move"
+        | "loop" | "match" | "if" | "else" | "return" | "break" | "continue" | "where" | "for"
+        | "while" | "in" | "as" | "crate" | "self" | "super" | "trait" | "struct" | "enum"
+        | "union" | "extern" | "unsafe" | "async" | "await" | "dyn" | "box" | "abstract"
+        | "become" | "final" | "override" | "priv" | "typeof" | "unsized" | "virtual" | "yield"
+        | "do" | "try" | "macro" => std::borrow::Cow::Owned(format!("{}_", name)),
+        other => std::borrow::Cow::Borrowed(other),
     }
 }
 
