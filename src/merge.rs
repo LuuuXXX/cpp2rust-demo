@@ -1,27 +1,27 @@
 //! `merge` command implementation.
 //!
-//! The `merge` command reads grouped semantic modules produced by `init`
-//! (`mod_<group>/include|types|free|class|method`) and emits:
+//! The `merge` command reads flat per-file FFI modules produced by `init`
+//! (`<stem>.rs`, one per captured `.cpp` translation unit) and emits:
 //!
-//! 1. `rust/src.2/mod_<group>.rs` (merged per-group view)
+//! 1. `rust/src.2/<stem>.rs` (per-file merged view)
 //! 2. `rust/src.2/lib.rs`
 //! 3. `rust/src.2/merged_ffi.rs` (global consolidated view)
 //!
-//! Current v1 merge semantics:
-//! - `include/` contributes `hicc::cpp!` include lines
-//! - `types/` contributes type semantic blocks (inventory + C++/Rust mappings)
-//! - `method/` contributes `hicc::import_class!` method-binding blocks
-//! - `free/` contributes `hicc::import_lib!` fn items and class forward declarations
-//! - `class/` metadata constants are intentionally excluded from merged output
-//!   (they remain available in the non-merged per-group sources for inspection)
-//! - `global/` is explicitly deferred outside the current v1 closure scope
+//! Current merge semantics:
+//! - Each `<stem>.rs` flat file contributes `hicc::cpp!` include lines,
+//!   `hicc::import_class!` method-binding blocks, and `hicc::import_lib!`
+//!   fn items / class forward declarations.
+//! - `common/types.rs` contributes aggregate type helpers (CPP_TYPES, etc.)
+//!   to the global `merged_ffi.rs`.
+//! - `common/includes.rs` path metadata is intentionally excluded from merged
+//!   output (internal bookkeeping only).
 
 use crate::error::Result;
 use anyhow::anyhow;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const TYPES_PLACEHOLDER_COMMENT: &str = "// Type helpers";
+const _TYPES_PLACEHOLDER_COMMENT: &str = "// Type helpers";
 
 #[derive(Debug)]
 pub struct MergeOutput {
@@ -45,22 +45,27 @@ pub fn merge_grouped_modules(
     out_src2_dir: &Path,
     link_name: &str,
 ) -> Result<MergeOutput> {
-    let mut group_dirs: Vec<PathBuf> = fs::read_dir(init_src_dir)
+    // Collect flat `<stem>.rs` files from init_src_dir, excluding:
+    //   - `lib.rs` (module index, not FFI content)
+    //   - `common/` subdirectory (aggregate helpers)
+    //   - any non-`.rs` files (e.g. `*.meta.json`)
+    let mut flat_files: Vec<PathBuf> = fs::read_dir(init_src_dir)
         .map_err(|e| anyhow!("read dir {}: {}", init_src_dir.display(), e))?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .filter(|p| {
-            p.is_dir()
+            p.is_file()
+                && p.extension().and_then(|e| e.to_str()) == Some("rs")
                 && p.file_name()
                     .and_then(|n| n.to_str())
-                    .map(|n| n.starts_with("mod_"))
+                    .map(|n| n != "lib.rs")
                     .unwrap_or(false)
         })
         .collect();
-    group_dirs.sort();
+    flat_files.sort();
 
-    if group_dirs.is_empty() {
+    if flat_files.is_empty() {
         return Err(anyhow!(
-            "no mod_<group> directories found in {}; run 'init' first",
+            "no flat FFI .rs files found in {}; run 'init' first",
             init_src_dir.display()
         ));
     }
@@ -75,12 +80,7 @@ pub fn merge_grouped_modules(
     let mut merged_all = ModuleFragments::default();
     let mut group_modules = Vec::new();
 
-    // Load the aggregate type block from common/types.rs so that the global
-    // merged_ffi.rs can include type-mapping helpers (CPP_TYPES, enum defs,
-    // etc.) without duplicating per-group blocks.  The includes_block
-    // (common/includes.rs) is intentionally omitted because it contains only
-    // internal path metadata (MIDDLEWARE_FILES, MIDDLEWARE_BASENAMES, …) that
-    // has no role in the FFI bindings.
+    // Load the aggregate type block from common/types.rs.
     let common_types_block = {
         let common_types_path = init_src_dir.join("common").join("types.rs");
         if common_types_path.exists() {
@@ -93,14 +93,14 @@ pub fn merge_grouped_modules(
         }
     };
 
-    for group_dir in &group_dirs {
-        let group_name = group_dir
-            .file_name()
+    for flat_file in &flat_files {
+        let stem = flat_file
+            .file_stem()
             .and_then(|n| n.to_str())
-            .ok_or_else(|| anyhow!("invalid group directory name: {}", group_dir.display()))?
+            .ok_or_else(|| anyhow!("invalid flat file name: {}", flat_file.display()))?
             .to_string();
-        let out_file = out_src2_dir.join(format!("{group_name}.rs"));
-        let fragments = merge_group_module(group_dir, &out_file, link_name)?;
+        let out_file = out_src2_dir.join(format!("{stem}.rs"));
+        let fragments = merge_flat_file(flat_file, &out_file, link_name)?;
 
         for inc in fragments.includes.iter() {
             merged_all.includes.insert(inc.clone());
@@ -117,7 +117,7 @@ pub fn merge_grouped_modules(
             .fn_items
             .extend(fragments.fn_items.iter().cloned());
 
-        group_modules.push(group_name);
+        group_modules.push(stem);
     }
 
     let mod_refs: Vec<&str> = group_modules.iter().map(|s| s.as_str()).collect();
@@ -138,61 +138,30 @@ pub fn merge_grouped_modules(
     })
 }
 
-fn merge_group_module(
-    group_dir: &Path,
+/// Process a single flat `<stem>.rs` file produced by `init`, extract all FFI
+/// fragments, and write the per-file view to `output_file` in `src.2/`.
+fn merge_flat_file(
+    flat_file: &Path,
     output_file: &Path,
     link_name: &str,
 ) -> Result<ModuleFragments> {
     let mut fragments = ModuleFragments::default();
-    for semantic_dir in crate::SEMANTIC_DIRS {
-        let dir = group_dir.join(semantic_dir);
-        if !dir.exists() {
-            continue;
+    let src = fs::read_to_string(flat_file)
+        .map_err(|e| anyhow!("read {}: {}", flat_file.display(), e))?;
+
+    for include in extract_cpp_includes(&src) {
+        fragments.includes.insert(include);
+    }
+    for block in extract_import_class_blocks(&src) {
+        let key = class_name_from_block(&block).unwrap_or_else(|| block.clone());
+        fragments.import_class_blocks.insert(key, block);
+    }
+    for block in extract_import_lib_blocks(&src) {
+        let (fwd, fns) = parse_lib_block_contents(&block);
+        for f in fwd {
+            fragments.forward_decls.insert(f);
         }
-        let mut rs_files: Vec<PathBuf> = fs::read_dir(&dir)
-            .map_err(|e| anyhow!("read dir {}: {}", dir.display(), e))?
-            .filter_map(|entry| entry.ok().map(|e| e.path()))
-            .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("rs"))
-            .collect();
-        rs_files.sort();
-
-        for file in &rs_files {
-            let src =
-                fs::read_to_string(file).map_err(|e| anyhow!("read {}: {}", file.display(), e))?;
-
-            if semantic_dir == crate::SEMANTIC_TYPES_DIR
-                && file.file_name().and_then(|n| n.to_str()) == Some("mod.rs")
-            {
-                let trimmed = src.trim();
-                if !trimmed.is_empty() && !trimmed.starts_with(TYPES_PLACEHOLDER_COMMENT) {
-                    fragments.type_blocks.insert(trimmed.to_string());
-                }
-            }
-            // class/ semantic files contain CLASS_NAMES / CLASS_METHOD_COUNTS
-            // metadata constants.  These are useful for inspecting the
-            // non-merged per-group sources but do not belong in the merged FFI
-            // output, so we intentionally skip them here.
-
-            for include in extract_cpp_includes(&src) {
-                fragments.includes.insert(include);
-            }
-            for block in extract_import_class_blocks(&src) {
-                // Key on the Rust struct name so that two blocks defining the
-                // same class are deduplicated (first-wins).  When the block is
-                // malformed and has no `class <Name>` line, fall back to the
-                // full block text so the block is still emitted without being
-                // silently merged with an unrelated block.
-                let key = class_name_from_block(&block).unwrap_or_else(|| block.clone());
-                fragments.import_class_blocks.insert(key, block);
-            }
-            for block in extract_import_lib_blocks(&src) {
-                let (fwd, fns) = parse_lib_block_contents(&block);
-                for f in fwd {
-                    fragments.forward_decls.insert(f);
-                }
-                fragments.fn_items.extend(fns);
-            }
-        }
+        fragments.fn_items.extend(fns);
     }
 
     let rendered = render_merged_module(&fragments, None, link_name);

@@ -13,18 +13,6 @@ use selector::{FileSelector, InteractiveSelector};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-pub(crate) const SEMANTIC_TYPES_DIR: &str = "types";
-pub(crate) const SEMANTIC_INCLUDE_DIR: &str = "include";
-pub(crate) const SEMANTIC_FREE_DIR: &str = "free";
-pub(crate) const SEMANTIC_CLASS_DIR: &str = "class";
-pub(crate) const SEMANTIC_METHOD_DIR: &str = "method";
-pub(crate) const SEMANTIC_DIRS: [&str; 5] = [
-    SEMANTIC_TYPES_DIR,
-    SEMANTIC_INCLUDE_DIR,
-    SEMANTIC_FREE_DIR,
-    SEMANTIC_CLASS_DIR,
-    SEMANTIC_METHOD_DIR,
-];
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -226,9 +214,8 @@ fn run_init(args: InitArgs) -> Result<()> {
             .map_err(|e| anyhow!("create {}: {}", rust_src_dir.display(), e))?;
     }
 
-    // Compute deterministic names for middleware files and grouped module directories.
+    // Compute deterministic stem names for middleware files.
     let stems: Vec<String> = middleware_stems(&files_to_process);
-    let group_modules: Vec<String> = middleware_group_modules(&lo.cpp_dir, &files_to_process);
 
     // Write Cargo.toml, build.rs, lib.rs for the generated crate.
     let crate_name = format!("cpp2rust-{}-ffi", feature.replace('_', "-"));
@@ -255,11 +242,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     let mut had_any_dynamic_casts = false;
     let mut had_any_placement_new = false;
 
-    for ((selected_file, stem), group_module) in files_to_process
-        .iter()
-        .zip(stems.iter())
-        .zip(group_modules.iter())
-    {
+    for (selected_file, stem) in files_to_process.iter().zip(stems.iter()) {
         let file_basename = selected_file
             .file_name()
             .and_then(|n| n.to_str())
@@ -291,12 +274,8 @@ fn run_init(args: InitArgs) -> Result<()> {
             println!("  ⚠ No declarations found – check include paths or C++ source.");
         }
 
-        let has_free = has_free_bindings(&decls);
         let has_shims = !decls.operator_shims.is_empty()
             || decls.skipped.iter().any(|s| s.suggested_shim.is_some());
-        let class_mod_name = format!("cls_{}", stem);
-        let method_mod_name = format!("mtd_{}", stem);
-        let free_mod_name = format!("fn_{}", stem);
 
         // Dynamic cast skeletons are generated whenever any class has public bases.
         let dynamic_casts_src = codegen::render_dynamic_casts_module(&decls, link_name);
@@ -307,59 +286,27 @@ fn run_init(args: InitArgs) -> Result<()> {
         let has_placement_new = !placement_new_src.is_empty();
 
         if !dry_run {
-            // Step 3: generate grouped semantic module source.
-            let group_dir = rust_src_dir.join(group_module);
-            write_group_scaffold(&group_dir, stem)?;
+            // Render operator shim Rust stubs (active bindings for operator_shims.hpp).
+            let shims_rs = if !decls.operator_shims.is_empty() {
+                Some(codegen::render_operator_shims_rs(&decls.operator_shims, link_name))
+            } else {
+                None
+            };
 
-            let include_mod_path = group_dir.join("include").join("mod.rs");
-            let include_src = codegen::render_include_module(&selected_file.display().to_string());
-            std::fs::write(&include_mod_path, include_src)
-                .map_err(|e| anyhow!("write {}: {}", include_mod_path.display(), e))?;
+            // Write a single flat `<stem>.rs` file combining all FFI content.
+            let flat_src = codegen::render_flat_module(
+                &decls,
+                link_name,
+                &selected_file.display().to_string(),
+                shims_rs.as_deref(),
+                has_dynamic_casts.then_some(dynamic_casts_src.as_str()),
+                has_placement_new.then_some(placement_new_src.as_str()),
+            );
+            let flat_file_path = rust_src_dir.join(format!("{}.rs", stem));
+            std::fs::write(&flat_file_path, &flat_src)
+                .map_err(|e| anyhow!("write {}: {}", flat_file_path.display(), e))?;
 
-            // `class/` is the class-level semantic structure layer in v1.
-            // Binding macros for instance methods are emitted under `method/`.
-            let class_file_path = group_dir.join("class").join(format!("{class_mod_name}.rs"));
-            let class_src = codegen::render_class_module(&decls);
-            let has_class = !class_src.trim().is_empty();
-            if has_class {
-                std::fs::write(&class_file_path, class_src)
-                    .map_err(|e| anyhow!("write {}: {}", class_file_path.display(), e))?;
-                std::fs::write(
-                    group_dir.join("class").join("mod.rs"),
-                    codegen::render_lib_rs(&[&class_mod_name]),
-                )
-                .map_err(|e| anyhow!("write class/mod.rs: {}", e))?;
-            }
-
-            // `method/` is the sole layer that carries `hicc::import_class!` blocks in v1.
-            let method_file_path = group_dir
-                .join("method")
-                .join(format!("{method_mod_name}.rs"));
-            let method_src = codegen::render_method_module(&decls);
-            let has_method = !method_src.trim().is_empty();
-            if has_method {
-                std::fs::write(&method_file_path, method_src)
-                    .map_err(|e| anyhow!("write {}: {}", method_file_path.display(), e))?;
-                std::fs::write(
-                    group_dir.join("method").join("mod.rs"),
-                    codegen::render_lib_rs(&[&method_mod_name]),
-                )
-                .map_err(|e| anyhow!("write method/mod.rs: {}", e))?;
-            }
-
-            let free_file_path = group_dir.join("free").join(format!("{free_mod_name}.rs"));
-            if has_free {
-                let free_src = codegen::render_free_module(&decls, link_name);
-                std::fs::write(&free_file_path, free_src)
-                    .map_err(|e| anyhow!("write {}: {}", free_file_path.display(), e))?;
-            }
-
-            // `types/` is generated as per-group type semantics (inventory + mappings).
-            let types_src = codegen::render_types_module(&decls);
-            std::fs::write(group_dir.join("types").join("mod.rs"), types_src)
-                .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
-
-            // Operator shims: write C++ shim header to meta/ and Rust stubs to free/.
+            // Operator shims C++ header still goes to meta/ for user reference.
             if has_shims {
                 let middleware_basename = selected_file
                     .file_name()
@@ -374,67 +321,19 @@ fn run_init(args: InitArgs) -> Result<()> {
                     let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
                     std::fs::write(&shims_hpp_path, &shims_hpp)
                         .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
-                    println!("  → operator_shims.hpp + shim_ops.rs");
-                }
-                if !decls.operator_shims.is_empty() {
-                    let shims_rs =
-                        codegen::render_operator_shims_rs(&decls.operator_shims, link_name);
-                    let shims_rs_path = group_dir.join("free").join("shim_ops.rs");
-                    std::fs::write(&shims_rs_path, &shims_rs)
-                        .map_err(|e| anyhow!("write shim_ops.rs: {}", e))?;
+                    println!("  → operator_shims.hpp");
                 }
             }
 
-            // @dynamic_cast skeletons: write free/dynamic_casts.rs when any class
-            // has public base classes.  All bindings are commented-out starters.
             if has_dynamic_casts {
-                let dc_path = group_dir.join("free").join("dynamic_casts.rs");
-                std::fs::write(&dc_path, &dynamic_casts_src)
-                    .map_err(|e| anyhow!("write dynamic_casts.rs: {}", e))?;
-                println!("  → dynamic_casts.rs (commented-out @dynamic_cast starters)");
+                println!("  → @dynamic_cast starters (in {}.rs)", stem);
             }
-
-            // Placement-new skeletons (P4): write free/placement_new.rs when any concrete
-            // class has extracted constructors.  All bindings are commented-out starters.
             if has_placement_new {
-                let pn_path = group_dir.join("free").join("placement_new.rs");
-                std::fs::write(&pn_path, &placement_new_src)
-                    .map_err(|e| anyhow!("write placement_new.rs: {}", e))?;
-                println!("  → placement_new.rs (commented-out @placement_new starters)");
+                println!("  → @placement_new starters (in {}.rs)", stem);
             }
-
-            // Write free/mod.rs registering all submodules in the free/ directory.
-            let has_op_shims = !decls.operator_shims.is_empty();
-            if has_free || has_op_shims || has_dynamic_casts || has_placement_new {
-                let free_submodules: Vec<&str> = [
-                    has_free.then_some(free_mod_name.as_str()),
-                    has_op_shims.then_some("shim_ops"),
-                    has_dynamic_casts.then_some("dynamic_casts"),
-                    has_placement_new.then_some("placement_new"),
-                ]
-                .into_iter()
-                .flatten()
-                .collect();
-                std::fs::write(
-                    group_dir.join("free").join("mod.rs"),
-                    codegen::render_lib_rs(&free_submodules),
-                )
-                .map_err(|e| anyhow!("write free/mod.rs: {}", e))?;
-            }
-
-            let group_mod_path = group_dir.join("mod.rs");
-            std::fs::write(
-                &group_mod_path,
-                render_group_mod_rs(
-                    has_free || has_op_shims || has_dynamic_casts || has_placement_new,
-                    has_class,
-                    has_method,
-                ),
-            )
-            .map_err(|e| anyhow!("write {}: {}", group_mod_path.display(), e))?;
 
             let group_meta = GroupMeta {
-                group: group_module.to_string(),
+                group: stem.to_string(),
                 middleware: selected_file.display().to_string(),
                 ast: ast_json_path.display().to_string(),
                 free_functions: decls
@@ -458,7 +357,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                     .map(|g| g.qualified_name.clone())
                     .collect(),
             };
-            let meta_path = group_dir.join("meta.json");
+            let meta_path = rust_src_dir.join(format!("{}.meta.json", stem));
             std::fs::write(
                 &meta_path,
                 serde_json::to_string_pretty(&group_meta)
@@ -466,30 +365,8 @@ fn run_init(args: InitArgs) -> Result<()> {
             )
             .map_err(|e| anyhow!("write {}: {}", meta_path.display(), e))?;
 
-            build_rs_sources.push(format!("src/{}/include/mod.rs", group_module));
-            if has_free {
-                build_rs_sources.push(format!("src/{}/free/{}.rs", group_module, free_mod_name));
-            }
-            if has_op_shims {
-                build_rs_sources.push(format!("src/{}/free/shim_ops.rs", group_module));
-            }
-            if has_dynamic_casts {
-                build_rs_sources.push(format!("src/{}/free/dynamic_casts.rs", group_module));
-            }
-            if has_placement_new {
-                build_rs_sources.push(format!("src/{}/free/placement_new.rs", group_module));
-            }
-            if has_class {
-                build_rs_sources.push(format!("src/{}/class/{}.rs", group_module, class_mod_name));
-            }
-            if has_method {
-                build_rs_sources.push(format!(
-                    "src/{}/method/{}.rs",
-                    group_module, method_mod_name
-                ));
-            }
-            build_rs_sources.push(format!("src/{}/types/mod.rs", group_module));
-            lib_modules.push(group_module.to_string());
+            build_rs_sources.push(format!("src/{}.rs", stem));
+            lib_modules.push(stem.to_string());
             if has_shims {
                 had_any_shims = true;
             }
@@ -500,7 +377,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                 had_any_placement_new = true;
             }
         } else {
-            // dry-run: no file writes; has_class / has_method remain false.
+            // dry-run: no file writes.
         }
 
         // Accumulate for the consolidated report.
@@ -589,13 +466,13 @@ fn run_init(args: InitArgs) -> Result<()> {
             );
         }
         if had_any_shims {
-            println!("  operator shims  →  meta/operator_shims.hpp + free/shim_ops.rs");
+            println!("  operator shims  →  meta/operator_shims.hpp (Rust bindings in flat .rs files)");
         }
         if had_any_dynamic_casts {
-            println!("  dynamic cast starters  →  free/dynamic_casts.rs");
+            println!("  dynamic cast starters  →  embedded in flat .rs files");
         }
         if had_any_placement_new {
-            println!("  placement-new starters  →  free/placement_new.rs");
+            println!("  placement-new starters  →  embedded in flat .rs files");
         }
         if total_skipped > 0 {
             println!(
@@ -609,6 +486,12 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("    ├── ast/    clang AST JSON per file");
         println!("    ├── meta/   init-interface-report.md  build metadata");
         println!("    └── rust/   Rust project (Cargo.toml  build.rs  src/)");
+        println!("          src/");
+        println!("            ├── common/  aggregate type helpers + include metadata");
+        for m in lib_modules.iter().filter(|m| m.as_str() != "common") {
+            println!("            ├── {}.rs   ← flat FFI file (1:1 per .cpp)", m);
+        }
+        println!("            └── lib.rs");
         println!("\nNext steps:");
         println!("  1. Review the interface report:");
         println!("       .cpp2rust/{}/meta/init-interface-report.md", feature);
@@ -687,7 +570,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     }
     println!("\nOutput layout:");
     println!("  rust/src     → src.2   (build.rs uses this active view)");
-    println!("  rust/src.1/  per-group init modules (backup)");
+    println!("  rust/src.1/  per-file init modules (backup, 1:1 per .cpp)");
     println!("  rust/src.2/");
     println!("    ├── lib.rs");
     for g in &merged.group_modules {
@@ -979,55 +862,6 @@ fn write_common_modules(rust_src_dir: &Path, includes_src: &str, types_src: &str
     Ok(())
 }
 
-fn write_group_scaffold(group_dir: &Path, stem: &str) -> Result<()> {
-    for sub in SEMANTIC_DIRS {
-        std::fs::create_dir_all(group_dir.join(sub))
-            .map_err(|e| anyhow!("create {}: {}", group_dir.join(sub).display(), e))?;
-    }
-    std::fs::write(
-        group_dir.join("types").join("mod.rs"),
-        format!("// Source stem: {}\n", stem),
-    )
-    .map_err(|e| anyhow!("write types/mod.rs: {}", e))?;
-    std::fs::write(group_dir.join("method").join("mod.rs"), "")
-        .map_err(|e| anyhow!("write method/mod.rs: {}", e))?;
-    Ok(())
-}
-
-fn render_group_mod_rs(has_free: bool, has_class: bool, has_method: bool) -> String {
-    let mut out = String::from("pub mod include;\npub mod types;\n");
-    if has_free {
-        out.push_str("pub mod free;\n");
-    }
-    if has_class {
-        out.push_str("pub mod class;\n");
-    }
-    if has_method {
-        out.push_str("pub mod method;\n");
-    }
-    if has_free {
-        out.push_str("pub use free::*;\n");
-    }
-    if has_class {
-        out.push_str("pub use class::*;\n");
-    }
-    if has_method {
-        out.push_str("pub use method::*;\n");
-    }
-    out
-}
-
-fn has_free_bindings(decls: &ast::ExtractedDecls) -> bool {
-    !decls.functions.is_empty()
-        || !decls.classes.is_empty()
-        || !decls.globals.is_empty()
-        || decls
-            .classes
-            .iter()
-            .flat_map(|c| c.methods.iter())
-            .any(|m| m.is_static)
-}
-
 fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[String]) -> String {
     let files: Vec<String> = middleware_files
         .iter()
@@ -1083,81 +917,6 @@ pub fn has_include_dir(dir: &str) -> bool {\n\
 }\n",
     );
     out
-}
-
-fn middleware_group_modules(cpp_dir: &Path, paths: &[PathBuf]) -> Vec<String> {
-    use std::collections::HashMap;
-
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for path in paths {
-        let group = middleware_group_module(cpp_dir, path);
-        *counts.entry(group).or_insert(0) += 1;
-    }
-
-    paths
-        .iter()
-        .map(|path| {
-            let group = middleware_group_module(cpp_dir, path);
-            if counts.get(&group).copied().unwrap_or(0) <= 1 {
-                group
-            } else {
-                format!("{}_{}", group, stable_short_path_hash(path))
-            }
-        })
-        .collect()
-}
-
-fn middleware_group_module(cpp_dir: &Path, middleware_path: &Path) -> String {
-    let rel = middleware_path
-        .strip_prefix(cpp_dir)
-        .unwrap_or(middleware_path);
-    let mut tokens: Vec<String> = Vec::new();
-    for component in rel.components() {
-        let raw = component.as_os_str().to_string_lossy().to_string();
-        if raw == "." || raw == ".." {
-            continue;
-        }
-        tokens.push(raw);
-    }
-    if let Some(last) = tokens.last_mut() {
-        let no_suffix = last.strip_suffix(".cpp2rust").unwrap_or(last).to_string();
-        let stem = Path::new(&no_suffix)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(&no_suffix)
-            .to_string();
-        *last = stem;
-    }
-
-    let normalized = tokens
-        .into_iter()
-        .map(|part| sanitize_module_part(&part))
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("_");
-    if normalized.is_empty() {
-        "mod_group".to_string()
-    } else {
-        format!("mod_{}", normalized)
-    }
-}
-
-fn sanitize_module_part(part: &str) -> String {
-    let mut out = String::with_capacity(part.len());
-    let mut last_underscore = false;
-    for ch in part.chars() {
-        let mapped = if ch.is_ascii_alphanumeric() { ch } else { '_' };
-        if mapped == '_' {
-            if !last_underscore {
-                out.push('_');
-            }
-            last_underscore = true;
-        } else {
-            out.push(mapped.to_ascii_lowercase());
-            last_underscore = false;
-        }
-    }
-    out.trim_matches('_').to_string()
 }
 
 fn link_src_to_src2(rust_dir: &Path) -> Result<()> {
@@ -1574,25 +1333,6 @@ mod tests {
         assert_ne!(stems[0], stems[1]);
     }
 
-    #[test]
-    fn middleware_group_module_uses_relative_path_and_stem() {
-        let cpp_dir = PathBuf::from("/tmp/.cpp2rust/default/cpp");
-        let path = cpp_dir.join("src/foo/bar.cpp.cpp2rust");
-        let group = middleware_group_module(&cpp_dir, &path);
-        assert_eq!(group, "mod_src_foo_bar");
-    }
-
-    #[test]
-    fn render_group_mod_rs_tracks_real_content_flags() {
-        let src = render_group_mod_rs(true, false, false);
-        assert!(src.contains("pub mod include;"));
-        assert!(src.contains("pub mod types;"));
-        assert!(src.contains("pub mod free;"));
-        assert!(!src.contains("pub mod class;"));
-        assert!(src.contains("pub use free::*;"));
-        assert!(!src.contains("pub use class::*;"));
-    }
-
     fn make_function(name: &str, is_static: bool) -> FunctionIR {
         FunctionIR {
             name: name.to_string(),
@@ -1613,32 +1353,52 @@ mod tests {
     }
 
     #[test]
-    fn has_free_bindings_detects_free_functions() {
+    fn flat_module_contains_cpp_include_and_import_lib() {
         let decls = ExtractedDecls {
             functions: vec![make_function("foo", false)],
             ..ExtractedDecls::default()
         };
-        assert!(has_free_bindings(&decls));
+        let src = crate::codegen::render_flat_module(
+            &decls,
+            "mylib",
+            "/tmp/mylib.cpp.cpp2rust",
+            None,
+            None,
+            None,
+        );
+        assert!(src.contains("hicc::cpp!"), "flat file must have hicc::cpp! block");
+        assert!(src.contains("import_lib!"), "flat file must have import_lib! block");
     }
 
     #[test]
-    fn has_free_bindings_detects_class_forward_decls_requirement() {
-        let decls = ExtractedDecls {
-            classes: vec![ClassIR {
-                name: "Widget".to_string(),
-                qualified_name: "Widget".to_string(),
-                methods: vec![make_function("update", false)],
-                ..ClassIR::default()
-            }],
-            ..ExtractedDecls::default()
-        };
-        assert!(has_free_bindings(&decls));
-    }
-
-    #[test]
-    fn has_free_bindings_false_for_empty_decls() {
+    fn flat_module_appends_shim_ops_when_provided() {
         let decls = ExtractedDecls::default();
-        assert!(!has_free_bindings(&decls));
+        let shim_content = "hicc::import_lib! { #![link_name = \"mylib\"] fn shim_foo(); }";
+        let src = crate::codegen::render_flat_module(
+            &decls,
+            "mylib",
+            "/tmp/mylib.cpp.cpp2rust",
+            Some(shim_content),
+            None,
+            None,
+        );
+        assert!(src.contains("shim_foo"), "shim ops should be appended to flat file");
+    }
+
+    #[test]
+    fn flat_module_omits_optional_sections_when_none() {
+        let decls = ExtractedDecls::default();
+        let src = crate::codegen::render_flat_module(
+            &decls,
+            "mylib",
+            "/tmp/mylib.cpp.cpp2rust",
+            None,
+            None,
+            None,
+        );
+        assert!(!src.contains("shim"), "no shim section when shim_ops is None");
+        assert!(!src.contains("@dynamic_cast"), "no cast section when dynamic_casts is None");
+        assert!(!src.contains("@placement_new"), "no pn section when placement_new is None");
     }
 
     #[test]
