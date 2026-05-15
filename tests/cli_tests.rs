@@ -1025,9 +1025,84 @@ fn merge_consolidates_cpp_includes() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// cargo check integration tests (verify generated code is valid hicc input)
-// ---------------------------------------------------------------------------
+/// Regression test: when a C++ header contains an allocator-style template
+/// with a `typedef Alloc<U> other` inside a nested `rebind` struct, `init`
+/// followed by `merge` must NOT produce duplicate `import_class!` blocks for
+/// the same Rust struct in `merged_ffi.rs`.
+///
+/// Root causes fixed:
+/// 1. AST-level: clang emits the same `ClassTemplateSpecializationDecl` as
+///    both a child of its `ClassTemplateDecl` and as a standalone namespace-level
+///    node, which previously caused two `ClassIR` entries to be extracted.
+/// 2. Merge-level: `import_class_blocks` was a `Vec` that did not deduplicate,
+///    so both entries were written to `merged_ffi.rs`, causing the Rust
+///    `E0428` "defined multiple times" error.
+#[test]
+fn merge_deduplicates_import_class_blocks_for_template_alias() {
+    let tmp = TempDir::new().unwrap();
+
+    // Header: an allocator-style template that causes the
+    // ClassTemplateSpecializationDecl to appear twice in the clang AST.
+    write_header(
+        &tmp,
+        "alloc.hpp",
+        r#"
+        template <typename T>
+        struct MyAlloc {
+            void* allocate(unsigned long n);
+            void  deallocate(void* p, unsigned long n);
+
+            template <typename U>
+            struct rebind {
+                typedef MyAlloc<U> other;
+            };
+        };
+
+        // Concrete alias – unlocks template extraction.
+        typedef MyAlloc<int> IntAlloc;
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "alloc.cpp", "alloc.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "myalloc",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let merged = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src.2/merged_ffi.rs"),
+    )
+    .unwrap();
+
+    // The alias-named struct (IntAlloc) must appear at most once.
+    // Before the fix this was 2, triggering E0428.
+    let import_class_count = merged.matches("class IntAlloc").count();
+    assert!(
+        import_class_count <= 1,
+        "`class IntAlloc` must appear at most once in merged_ffi.rs (got {}); \
+         duplicate definitions would cause E0428.\nContent:\n{}",
+        import_class_count,
+        merged
+    );
+}
 
 /// Type-mapping verification: class pointer and reference types (`const T&`,
 /// `T&`, `const T*`, `T*`) used as function parameters and return values must
