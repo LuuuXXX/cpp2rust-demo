@@ -2147,12 +2147,12 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
     let t = cpp_type.trim();
 
     // Pointer chain.
-    if t.contains('*') && !t.contains("(*)") {
-        let parts: Vec<&str> = t.split('*').collect();
+    // Only treat `*` as a pointer qualifier at the top level (not inside `<…>`).
+    if has_top_level_ptr(t) {
+        let parts = split_at_top_level_ptr(t);
         let ptr_depth = parts.len().saturating_sub(1);
         if ptr_depth > 0 {
             let base_part = parts[0].trim();
-            let ptr_qualifiers: Vec<&str> = parts[1..].iter().map(|p| p.trim()).collect();
             let base_const = has_top_level_const(base_part);
             let base = strip_top_level_const(base_part);
             let mut rust_type = if base == "void" {
@@ -2161,11 +2161,11 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
                 cpp_to_rust_type_with_aliases(base, alias_registry)
             };
             for level in 0..ptr_depth {
-                let pointee_const = if level == 0 {
-                    base_const
-                } else {
-                    has_const_token(ptr_qualifiers[level - 1])
-                };
+                // Only `const` on the base type (before the first `*`) produces a
+                // `*const` inner pointer.  `const` qualifiers on the pointer variables
+                // themselves (between `*` marks) are dropped in Rust FFI, because Rust
+                // does not distinguish "const pointer to T" from "mutable pointer to T".
+                let pointee_const = level == 0 && base_const;
                 rust_type = if pointee_const {
                     format!("*const {}", rust_type)
                 } else {
@@ -2269,12 +2269,14 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
 
     // Pointer chain: supports single and multi-level pointers, e.g.
     // `int **`, `const char **`, `const T * const *`.
-    if t.contains('*') && !t.contains("(*)") {
-        let parts: Vec<&str> = t.split('*').collect();
+    // Only treat `*` as a pointer qualifier when it appears at the top level
+    // (not inside template angle brackets), to avoid mishandling types like
+    // `_Deque_iterator<_Tp, _Tp &, _Tp *>` which contain `*` in their args.
+    if has_top_level_ptr(t) {
+        let parts = split_at_top_level_ptr(t);
         let ptr_depth = parts.len().saturating_sub(1);
         if ptr_depth > 0 {
             let base_part = parts[0].trim();
-            let ptr_qualifiers: Vec<&str> = parts[1..].iter().map(|p| p.trim()).collect();
             let base_const = has_top_level_const(base_part);
             let base = strip_top_level_const(base_part);
             let mut rust_type = if base == "void" {
@@ -2283,11 +2285,10 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
                 cpp_to_rust_type(base)
             };
             for level in 0..ptr_depth {
-                let pointee_const = if level == 0 {
-                    base_const
-                } else {
-                    has_const_token(ptr_qualifiers[level - 1])
-                };
+                // Only `const` on the base type (before the first `*`) produces a
+                // `*const` inner pointer.  `const` qualifiers on the pointer variables
+                // themselves (between `*` marks) are dropped in Rust FFI.
+                let pointee_const = level == 0 && base_const;
                 rust_type = if pointee_const {
                     format!("*const {}", rust_type)
                 } else {
@@ -2364,7 +2365,51 @@ fn strip_trailing_ref(t: &str) -> Option<&str> {
     }
 }
 
-fn has_const_token(segment: &str) -> bool {
+/// Returns true if `t` contains a `*` that is not nested inside `<…>` or `(…)`.
+/// This avoids mis-treating `*` inside template type arguments as a top-level pointer.
+fn has_top_level_ptr(t: &str) -> bool {
+    let mut depth: i32 = 0;
+    for ch in t.chars() {
+        match ch {
+            '<' | '(' => depth += 1,
+            '>' | ')' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+            }
+            '*' if depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Split `t` at each `*` that is not nested inside `<…>` or `(…)`.
+/// Returns the pieces between the top-level `*` characters.
+fn split_at_top_level_ptr(t: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth: i32 = 0;
+    let mut last = 0usize;
+    for (i, ch) in t.char_indices() {
+        match ch {
+            '<' | '(' => depth += 1,
+            '>' | ')' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+            }
+            '*' if depth == 0 => {
+                parts.push(&t[last..i]);
+                last = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&t[last..]);
+    parts
+}
+
+fn _has_const_token(segment: &str) -> bool {
     segment.split_whitespace().any(|tok| tok == "const")
 }
 
@@ -2617,10 +2662,25 @@ fn record_skipped_with_hint(
 /// - `"mylib::Widget"` → `"Widget"`
 /// - `"MyClass"` → `"MyClass"`
 fn bare_class_name(t: &str) -> String {
-    // Take the last `::` segment.
-    let last = t.rsplit("::").next().unwrap_or(t).trim();
-    // Drop template parameters.
-    last.split('<').next().unwrap_or(last).trim().to_string()
+    // Strip leading "typename" or "struct"/"class" keyword that clang sometimes emits.
+    let t = t.trim();
+    let t = t
+        .strip_prefix("typename ")
+        .or_else(|| t.strip_prefix("struct "))
+        .or_else(|| t.strip_prefix("class "))
+        .unwrap_or(t)
+        .trim();
+    // Strip template args first (split on first `<`), then strip namespace qualifier
+    // (rsplit on `::`).  The reverse order produces wrong results for types like
+    // `typename common_type<duration<_Rep1, _Period1>>::type` where rsplit("::")
+    // would yield the fragment `"type"` from inside the template args.
+    let before_angle = t.split('<').next().unwrap_or(t).trim();
+    before_angle
+        .rsplit("::")
+        .next()
+        .unwrap_or(before_angle)
+        .trim()
+        .to_string()
 }
 
 /// Build a suggested `using` alias declaration for a skipped template.
@@ -3274,7 +3334,16 @@ mod tests {
         assert_eq!(cpp_to_rust_type("int *"), "*mut i32");
         assert_eq!(cpp_to_rust_type("int **"), "*mut *mut i32");
         assert_eq!(cpp_to_rust_type("const char **"), "*mut *const i8");
-        assert_eq!(cpp_to_rust_type("const char * const *"), "*const *const i8");
+        // `const` on the pointer variable itself (between `*` marks) is dropped in
+        // Rust FFI; only `const` on the base type (before the first `*`) is kept.
+        assert_eq!(cpp_to_rust_type("const char * const *"), "*mut *const i8");
+        // `*` inside template args must NOT be treated as a top-level pointer.
+        assert_eq!(
+            cpp_to_rust_type("std::_Deque_iterator<_OTp, _OTp &, _OTp *>"),
+            "_Deque_iterator"
+        );
+        // `__restrict` plus inner `* const` → all pointer-variable consts are dropped.
+        assert_eq!(cpp_to_rust_type("char *const *__restrict"), "*mut *mut i8");
     }
 
     #[test]
@@ -3297,6 +3366,21 @@ mod tests {
         assert_eq!(bare_class_name("std::vector<int>"), "vector");
         assert_eq!(bare_class_name("mylib::Widget"), "Widget");
         assert_eq!(bare_class_name("MyClass"), "MyClass");
+        // Complex dependent types must not bleed template-arg fragments.
+        assert_eq!(
+            bare_class_name("typename common_type<duration<_Rep1>, duration<_Rep2>>::type"),
+            "common_type"
+        );
+        assert_eq!(
+            bare_class_name(
+                "time_point<_Clock, typename common_type<duration<_Rep1>, _Dur2>::type>"
+            ),
+            "time_point"
+        );
+        assert_eq!(
+            bare_class_name("typename std::remove_reference<_Tp>::type"),
+            "remove_reference"
+        );
     }
 
     #[test]

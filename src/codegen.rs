@@ -356,7 +356,7 @@ pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
             out.push_str(&format!(
                 "pub type {} = {};\n",
                 sanitize_type_name(&alias.name),
-                alias.aliased_rust_type
+                sanitize_type_name(&alias.aliased_rust_type)
             ));
         }
         out.push('\n');
@@ -902,7 +902,7 @@ fn render_return_type(rust_type: &str) -> String {
     if rust_type == "()" {
         String::new()
     } else {
-        format!(" -> {}", rust_type)
+        format!(" -> {}", sanitize_type_name(rust_type))
     }
 }
 
@@ -1702,7 +1702,7 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         let ret_str = if ret == "()" {
             String::new()
         } else {
-            format!(" -> {}", ret)
+            format!(" -> {}", sanitize_type_name(&ret))
         };
 
         // Compute C++ signature for the shim function.
