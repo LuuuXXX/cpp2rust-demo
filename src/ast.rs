@@ -1765,6 +1765,15 @@ fn collect_operator_shim(
         })
         .collect();
 
+    // Skip shims whose parameters include rvalue references (`T&&`).  Rvalue
+    // references represent C++ move semantics and cannot be expressed in Rust FFI.
+    if params
+        .iter()
+        .any(|p| strip_trailing_rvalue_ref(p.cpp_type.trim()).is_some())
+    {
+        return;
+    }
+
     let shim_name = operator_shim_fn_name(op_name, class_name);
 
     result.operator_shims.push(OperatorShimIR {
@@ -2022,10 +2031,15 @@ fn extract_function(
 
     // Build the C++ signature for hicc attributes.
     let qualified_return = qualify_cpp_type(&return_type, class_map);
-    let param_types: Vec<String> = params
+    let mut param_types: Vec<String> = params
         .iter()
         .map(|p| qualify_cpp_type(&p.cpp_type, class_map))
         .collect();
+    // For C-style variadic functions the va_list param was dropped from `params`; put
+    // the variadic marker back so the cpp(func) signature matches the Rust `...` binding.
+    if is_variadic {
+        param_types.push("...".to_string());
+    }
     let method_suffix = if is_const {
         " const"
     } else if is_rvalue {
@@ -2176,6 +2190,19 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
         }
     }
 
+    // Rvalue reference: "T &&" or "const T &&" — map to a plain Rust reference.
+    // Must be checked before the `&` case to avoid stripping `&&` one `&` at a time.
+    if let Some(inner) = strip_trailing_rvalue_ref(t) {
+        let is_const = has_top_level_const(inner);
+        let base = strip_top_level_const(inner);
+        let rust_base = cpp_to_rust_type_with_aliases(base, alias_registry);
+        return if is_const {
+            format!("&{}", rust_base)
+        } else {
+            format!("&mut {}", rust_base)
+        };
+    }
+
     // Reference.
     if let Some(inner) = strip_trailing_ref(t) {
         let is_const = has_top_level_const(inner);
@@ -2299,6 +2326,19 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
         }
     }
 
+    // Rvalue reference: "T &&" or "const T &&" — map to a plain Rust reference.
+    // Must be checked before the `&` case to avoid stripping `&&` one `&` at a time.
+    if let Some(inner) = strip_trailing_rvalue_ref(t) {
+        let is_const = has_top_level_const(inner);
+        let base = strip_top_level_const(inner);
+        let rust_base = cpp_to_rust_type(base);
+        return if is_const {
+            format!("&{}", rust_base)
+        } else {
+            format!("&mut {}", rust_base)
+        };
+    }
+
     // Reference: "T &" or "T&" or "const T &"
     if let Some(inner) = strip_trailing_ref(t) {
         let is_const = has_top_level_const(inner);
@@ -2355,9 +2395,32 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
     }
 }
 
+/// Strip a trailing `&&` (rvalue reference, with optional surrounding spaces).
+/// Must be checked before `strip_trailing_ref` so that `T &&` is not mis-parsed
+/// as two nested `&` (which would produce the invalid Rust type `&&mut T`).
+fn strip_trailing_rvalue_ref(t: &str) -> Option<&str> {
+    let trimmed = t.trim_end();
+    if let Some(rest) = trimmed.strip_suffix("&&") {
+        // Make sure we didn't just strip the last `&` of a `>>&` or similar.
+        // A plain `&` that is itself a suffix of `&&` is valid only if the
+        // remaining string doesn't end with `&` (i.e., this really is `&&`).
+        let rest_trimmed = rest.trim_end();
+        if !rest_trimmed.ends_with('&') {
+            return Some(rest_trimmed);
+        }
+    }
+    None
+}
+
 /// Strip a trailing `&` (with optional surrounding spaces) from a type string.
+/// Only strips a single `&`; use `strip_trailing_rvalue_ref` for `&&` first.
 fn strip_trailing_ref(t: &str) -> Option<&str> {
     let trimmed = t.trim_end();
+    // Do not strip if this is actually a `&&` trailing — that case is handled
+    // by `strip_trailing_rvalue_ref`.
+    if trimmed.ends_with("&&") {
+        return None;
+    }
     if let Some(rest) = trimmed.strip_suffix('&') {
         Some(rest.trim_end())
     } else {
@@ -2372,11 +2435,7 @@ fn has_top_level_ptr(t: &str) -> bool {
     for ch in t.chars() {
         match ch {
             '<' | '(' => depth += 1,
-            '>' | ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
-            }
+            '>' | ')' if depth > 0 => depth -= 1,
             '*' if depth == 0 => return true,
             _ => {}
         }
@@ -2393,11 +2452,7 @@ fn split_at_top_level_ptr(t: &str) -> Vec<&str> {
     for (i, ch) in t.char_indices() {
         match ch {
             '<' | '(' => depth += 1,
-            '>' | ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
-            }
+            '>' | ')' if depth > 0 => depth -= 1,
             '*' if depth == 0 => {
                 parts.push(&t[last..i]);
                 last = i + 1;
@@ -2407,10 +2462,6 @@ fn split_at_top_level_ptr(t: &str) -> Vec<&str> {
     }
     parts.push(&t[last..]);
     parts
-}
-
-fn _has_const_token(segment: &str) -> bool {
-    segment.split_whitespace().any(|tok| tok == "const")
 }
 
 fn has_top_level_const(t: &str) -> bool {
@@ -2472,6 +2523,11 @@ fn is_supported_cpp_type(
 ) -> bool {
     let t = cpp_type.trim();
     if t.is_empty() {
+        return false;
+    }
+
+    // Rvalue references (`T&&`) cannot be expressed in Rust FFI — skip them.
+    if strip_trailing_rvalue_ref(t).is_some() {
         return false;
     }
 
