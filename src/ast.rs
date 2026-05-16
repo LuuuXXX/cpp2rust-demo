@@ -2794,13 +2794,20 @@ fn is_supported_cpp_type(
     // type and validate it directly (single level only).  Recursive resolution
     // would overflow the stack on deeply-chained std typedefs (e.g. spdlog).
     if let Some(underlying) = alias_registry.full_type_for_alias(base) {
+        let u_trim = underlying.trim();
         if !underlying.contains('<') {
-            let u = strip_top_level_const(underlying.trim());
+            let u = strip_top_level_const(u_trim);
             return is_primitive_cpp_type(u) || is_known_class_type(u, class_map);
         }
         // After transitive resolution, this alias directly names a template
-        // specialisation – treat it as supported (the alias is the Rust name).
+        // specialisation – treat it as supported (the alias is the Rust name),
+        // unless the underlying template is from std:: (e.g. `istream` is an
+        // alias for `std::basic_istream<char,...>` – hicc has no method tables
+        // for stdlib class templates).
         if alias_registry.is_alias_of_template(base) {
+            if u_trim.starts_with("std::") || u_trim.starts_with("::std::") {
+                return false;
+            }
             return true;
         }
     }
