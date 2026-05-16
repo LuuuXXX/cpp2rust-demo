@@ -983,8 +983,14 @@ fn middleware_stem(path: &Path) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
         .to_string();
-    // Rust module names must be valid identifiers; replace hyphens with underscores.
-    raw.replace('-', "_")
+    // Rust module names must be valid identifiers; replace hyphens with underscores
+    // and prepend underscore if the first character is a digit.
+    let sanitized = raw.replace('-', "_");
+    if sanitized.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("_{sanitized}")
+    } else {
+        sanitized
+    }
 }
 
 /// Build a stable, short hash suffix from the full path.
