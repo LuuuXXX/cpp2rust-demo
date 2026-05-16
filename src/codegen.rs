@@ -513,6 +513,13 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
 
     // Instance field accessors via `#[cpp(field = "...")]`.
     // Each field gets a read accessor and (unless const) a mutable accessor.
+    // hicc's EXPORT_DATA_IN macro generates `&Self::{field}` so we pass
+    // `UnqualifiedClassName::field_name` here.  Via C++'s injected-class-name
+    // rule, `Self::ClassName` resolves to `Self` itself, making
+    // `&Self::ClassName::field` equivalent to `&Self::field`.  Using the
+    // fully-qualified namespace form (e.g. `Ns::Class::field`) would produce
+    // `&Self::Ns::Class::field` where `Ns` is looked up as a nested member of
+    // `Self` and the C++ compiler rejects it.
     if !class.is_abstract {
         for field in &class.fields {
             let rust_type = &field.rust_type;
@@ -716,12 +723,16 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
             .canonical_name
             .as_deref()
             .unwrap_or(class.name.as_str());
+        let cpp_name = &class.qualified_name;
         let snake = crate::ast::to_snake_case(rust_name);
         let proxy_fn = format!("new_{}_proxy", snake);
+        // Use the fully-qualified C++ name in the func attribute so the hicc
+        // macro finds the type in its generated code (which runs outside the
+        // class's own C++ namespace).  The Rust type names stay unqualified.
         writeln!(
             out,
-            "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]",
-            name = rust_name
+            "    #[cpp(func = \"{cpp} @make_proxy<{cpp}>()\")]",
+            cpp = cpp_name
         )
         .unwrap();
         writeln!(out, "    #[interface(name = \"{}\")]", rust_name).unwrap();
@@ -740,12 +751,13 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
             continue;
         }
         let interface_name = format!("{}Interface", class.name);
+        let cpp_interface_name = format!("{}Interface", class.qualified_name);
         let snake = crate::ast::to_snake_case(&interface_name);
         let proxy_fn = format!("new_{}_proxy", snake);
         writeln!(
             out,
-            "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]",
-            name = interface_name
+            "    #[cpp(func = \"{cpp} @make_proxy<{cpp}>()\")]",
+            cpp = cpp_interface_name
         )
         .unwrap();
         writeln!(out, "    #[interface(name = \"{}\")]", interface_name).unwrap();

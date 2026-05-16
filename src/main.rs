@@ -158,6 +158,16 @@ fn run_init(args: InitArgs) -> Result<()> {
     capture::run_with_hook(&cwd, build_cmd, &project_root, &lo.feature_root, &hook_so)?;
 
     let captured_files = layout::scan_cpp2rust_files(&lo.cpp_dir)?;
+    // Filter out CMake-generated compiler detection files.  CMake produces
+    // `CMakeCXXCompilerId.cpp`, `CMakeCCompilerId.c`, etc. during project
+    // configuration to probe the compiler.  These files are standalone
+    // translation units containing a `main()` function and preprocessed
+    // system-header expansions; including them as middleware in `hicc::cpp!`
+    // causes duplicate-symbol and redefinition errors.
+    let captured_files: Vec<_> = captured_files
+        .into_iter()
+        .filter(|p| !is_cmake_generated_file(p))
+        .collect();
     if captured_files.is_empty() {
         return Err(anyhow!(
             "{}",
@@ -608,20 +618,111 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 /// Collect unique parent directories from a list of middleware file paths, sorted for
 /// deterministic output.  Used to populate `build.include(...)` calls in the
 /// generated `build.rs` so hicc-build can find the `#include`d middleware files.
+/// Build the list of C++ include directories to pass to hicc-build for a set
+/// of middleware files.
+///
+/// For each `<file>.cpp2rust` we include its parent directory (the capture
+/// directory) so that `hicc::cpp! { #include "entry.cpp" }` resolves the
+/// thin wrapper file we create alongside it.  We also parse the sibling
+/// `<file>.cpp2rust.opts` file (if present) to recover the original
+/// compiler `-I` flags, which are needed when the wrapper re-includes the
+/// original source file.
 fn middleware_include_dirs(middleware_files: &[PathBuf]) -> Vec<String> {
-    let mut dirs: Vec<String> = middleware_files
+    let mut dirs: std::collections::HashSet<String> = middleware_files
         .iter()
         .filter_map(|file| file.parent().map(|p| p.display().to_string()))
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
         .collect();
+
+    // Also extract -I flags from .opts files so the original source's
+    // #include directives resolve correctly.
+    for file in middleware_files {
+        let opts_path = file.with_extension("").with_extension("cpp2rust.opts");
+        // Fallback: try "<file>.opts" (some hooks write it that way).
+        let opts_path = if opts_path.exists() {
+            opts_path
+        } else {
+            let mut p = file.as_os_str().to_owned();
+            p.push(".opts");
+            PathBuf::from(p)
+        };
+        if let Ok(content) = std::fs::read_to_string(&opts_path) {
+            for dir in parse_opts_include_dirs(&content) {
+                dirs.insert(dir);
+            }
+        }
+    }
+
+    let mut dirs: Vec<String> = dirs.into_iter().collect();
     dirs.sort();
     dirs
 }
 
-/// Create a symlink `<basename_without_cpp2rust>` → `<basename>` in the same
-/// directory as `mw_file`, so that `hicc::cpp! { #include "entry.cpp" }` resolves
-/// correctly when the capture directory is on the include path.
+/// Parse `-I<path>` flags out of a `.opts` file.
+///
+/// The opts file contains shell-quoted compiler arguments (one per line or
+/// space-separated), e.g. `"-I/usr/local/include" "-I/tmp/project/include"`.
+/// This function extracts the path component of each `-I` flag.
+fn parse_opts_include_dirs(content: &str) -> Vec<String> {
+    let mut dirs = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for ch in content.chars() {
+        match ch {
+            '"' if !in_quotes => in_quotes = true,
+            '"' if in_quotes => {
+                in_quotes = false;
+                if let Some(path) = current.strip_prefix("-I") {
+                    if !path.is_empty() {
+                        dirs.push(path.to_string());
+                    }
+                }
+                current.clear();
+            }
+            '\'' if !in_quotes => in_quotes = true,
+            '\'' if in_quotes => {
+                in_quotes = false;
+                if let Some(path) = current.strip_prefix("-I") {
+                    if !path.is_empty() {
+                        dirs.push(path.to_string());
+                    }
+                }
+                current.clear();
+            }
+            c if c.is_whitespace() && !in_quotes => {
+                if let Some(path) = current.strip_prefix("-I") {
+                    if !path.is_empty() {
+                        dirs.push(path.to_string());
+                    }
+                }
+                current.clear();
+            }
+            c => current.push(c),
+        }
+    }
+    // Handle trailing token without trailing whitespace.
+    if let Some(path) = current.strip_prefix("-I") {
+        if !path.is_empty() {
+            dirs.push(path.to_string());
+        }
+    }
+    dirs
+}
+
+/// Create a thin wrapper file `<basename_without_cpp2rust>` in the same
+/// directory as `mw_file` so that `hicc::cpp! { #include "entry.cpp" }`
+/// compiles the **original** source file rather than the preprocessed
+/// `.cpp2rust` capture.
+///
+/// Using the original source is important because the preprocessed capture
+/// has all system headers already expanded (without include guards).  When
+/// hicc then adds `#include <hicc/std/memory.hpp>`, the standard-library
+/// headers are included a second time, producing redefinition errors.
+///
+/// The wrapper reads the original source path from the first `# N "path"`
+/// line marker in the preprocessed file.  If it cannot determine the
+/// original path it falls back to a symlink pointing at the preprocessed
+/// file (the previous behaviour).
 ///
 /// On non-Unix platforms this is a no-op (silently skipped).
 fn create_original_name_symlink(mw_file: &Path) {
@@ -639,20 +740,78 @@ fn create_original_name_symlink(mw_file: &Path) {
             Some(p) => p,
             None => return,
         };
-        let symlink_path = parent.join(original_name);
-        if !symlink_path.exists() {
-            // Target is a relative name so the symlink stays valid if the
-            // capture directory is moved.
-            if let Err(e) = std::os::unix::fs::symlink(file_name, &symlink_path) {
+        let wrapper_path = parent.join(original_name);
+        if wrapper_path.exists() {
+            return; // Already created (re-runs are idempotent).
+        }
+
+        // Try to read the original source path from the first line-marker in
+        // the preprocessed file.  GCC/Clang preprocessors emit:
+        //   # 0 "/absolute/path/to/source.cpp"
+        // or
+        //   # 1 "/absolute/path/to/source.cpp" 1
+        // as the very first meaningful line.
+        let original_src = read_original_source_path(mw_file);
+
+        if let Some(orig) = original_src.filter(|p| std::path::Path::new(p).is_file()) {
+            // Create a thin wrapper that #includes the original source.
+            // This lets hicc compile the real source with proper include
+            // guards, avoiding system-header redefinition errors.
+            let wrapper_content = format!("// cpp2rust wrapper – includes original source for hicc compilation.\n#include \"{}\"\n", orig);
+            if let Err(e) = std::fs::write(&wrapper_path, &wrapper_content) {
+                eprintln!(
+                    "  Warning: could not write wrapper {} : {}",
+                    wrapper_path.display(),
+                    e
+                );
+            }
+        } else {
+            // Fall back to symlink pointing at the preprocessed file.
+            if let Err(e) = std::os::unix::fs::symlink(file_name, &wrapper_path) {
                 eprintln!(
                     "  Warning: could not create symlink {} → {}: {}",
-                    symlink_path.display(),
+                    wrapper_path.display(),
                     file_name,
                     e
                 );
             }
         }
     }
+}
+
+/// Extract the original source file path recorded in the first `# N "path"`
+/// line-marker of a GCC/Clang preprocessed file.
+///
+/// Returns `None` if the file cannot be read or the first marker refers to a
+/// compiler-internal pseudo-file (`<built-in>`, `<command-line>`, …).
+fn read_original_source_path(preprocessed: &Path) -> Option<String> {
+    use std::io::{BufRead, BufReader};
+    let file = std::fs::File::open(preprocessed).ok()?;
+    let reader = BufReader::new(file);
+    for line in reader.lines().take(10) {
+        let line = line.ok()?;
+        let line = line.trim();
+        // Line-marker format: `# <number> "<path>" [flags...]`
+        if !line.starts_with('#') {
+            continue;
+        }
+        let rest = line[1..].trim_start();
+        // Skip the line number.
+        let rest = rest.split_once(' ').map(|x| x.1).unwrap_or("").trim_start();
+        if !rest.starts_with('"') {
+            continue;
+        }
+        // Extract the path between the first pair of quotes.
+        let rest = &rest[1..];
+        let end = rest.find('"')?;
+        let path = &rest[..end];
+        // Skip compiler-internal pseudo-files.
+        if path.starts_with('<') || path == "<built-in>" || path == "<command-line>" {
+            continue;
+        }
+        return Some(path.to_string());
+    }
+    None
 }
 
 /// Copy relevant meta files (`operator_shims.hpp`, `init-interface-report.md`)
@@ -945,6 +1104,37 @@ fn link_src_to_src2(rust_dir: &Path) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+/// Returns `true` when the path refers to a CMake-generated compiler detection
+/// file that should never be included as project middleware.
+///
+/// CMake writes files like `CMakeCXXCompilerId.cpp` and `CMakeCCompilerId.c`
+/// during project configuration to probe the C/C++ compiler.  These are
+/// standalone translation units with their own `main()` and pre-expanded
+/// system headers.  Including them inside a `hicc::cpp!` block alongside the
+/// real project source causes duplicate-symbol and header redefinition errors.
+fn is_cmake_generated_file(path: &Path) -> bool {
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    // Strip the `.cpp2rust` wrapper suffix to recover the original file name.
+    let original = file_name.strip_suffix(".cpp2rust").unwrap_or(file_name);
+    // Compare against known CMake compiler-detection file stems.
+    let stem = std::path::Path::new(original)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    matches!(
+        stem,
+        "CMakeCXXCompilerId"
+            | "CMakeCCompilerId"
+            | "CMakeFortranCompilerId"
+            | "CMakeRCCompilerId"
+            | "CMakeCSharpCompilerId"
+            | "CMakeCUDACompilerId"
+            | "CMakeHIPCompilerId"
+            | "CMakeOBJCCompilerId"
+            | "CMakeOBJCXXCompilerId"
+    )
 }
 
 fn middleware_stems(paths: &[PathBuf]) -> Vec<String> {

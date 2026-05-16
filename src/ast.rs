@@ -545,9 +545,15 @@ pub struct FieldIR {
     pub name: String,
     /// Rust-idiomatic snake_case name derived from `name`.
     pub rust_name: String,
-    /// Fully-qualified accessor form: `"ClassName::field_name"`.
+    /// Accessor form used in `#[cpp(field = "...")]`: `"ClassName::field_name"`
+    /// where `ClassName` is the **unqualified** class name.
     ///
-    /// Used in `#[cpp(field = "...")]` to identify the field.
+    /// hicc generates `&Self::{qualified_name}` for the pointer-to-member.
+    /// Using the unqualified class name works via C++'s injected-class-name
+    /// rule (`Self::ClassName` resolves to `Self` itself), so the member is
+    /// found correctly.  Using the fully-qualified form (e.g.
+    /// `Ns::ClassName::field`) instead produces `&Self::Ns::ClassName::field`
+    /// where `Ns` is looked up as a nested member of `Self` and fails.
     pub qualified_name: String,
     /// C++ type string as emitted by clang (e.g. `"int"`, `"double"`).
     pub cpp_type: String,
@@ -894,6 +900,33 @@ fn collect_class_names(node: &AstNode, namespace: &[String], map: &mut HashMap<S
             if let Some(ref ns_name) = node.name {
                 let mut ns = namespace.to_vec();
                 ns.push(ns_name.clone());
+                // Collect simple (non-template) typedef names that are DIRECT
+                // children of a non-system namespace so that `qualify_cpp_type`
+                // can turn bare typedef names (e.g. `SizeType`) into their
+                // fully-qualified form (e.g. `rapidjson::SizeType`) when
+                // building C++ signatures for hicc attributes.  Class-member
+                // typedefs (like `UTF8::Ch`) are intentionally excluded because
+                // `collect_class_names` recurses into CXXRecordDecl with the
+                // outer namespace, which would produce an incorrect qualified
+                // name (e.g. `rapidjson::Ch` instead of `rapidjson::UTF8::Ch`).
+                if !is_system_namespace(ns_name) {
+                    for child in node.inner.iter().flatten() {
+                        if child.kind == "TypedefDecl" || child.kind == "TypeAliasDecl" {
+                            if let (Some(alias_name), Some(underlying)) = (
+                                child.name.as_deref(),
+                                child.type_info.as_ref().map(|t| t.qual_type.as_str()),
+                            ) {
+                                if !alias_name.is_empty()
+                                    && !alias_name.starts_with("__")
+                                    && !underlying.contains('<')
+                                {
+                                    let qualified = make_qualified(&ns, alias_name);
+                                    map.entry(alias_name.to_string()).or_insert(qualified);
+                                }
+                            }
+                        }
+                    }
+                }
                 for child in node.inner.iter().flatten() {
                     collect_class_names(child, &ns, map);
                 }
@@ -1142,6 +1175,17 @@ fn walk_node(
             }
         }
 
+        // `CXXMethodDecl`, `CXXConstructorDecl`, `CXXDestructorDecl`, and
+        // `CXXConversionDecl` nodes can appear at namespace scope in the clang
+        // JSON AST as out-of-class / implicit-instantiation bodies.  They are
+        // already extracted when we process the containing `CXXRecordDecl`
+        // via `extract_class_body`.  Recursing into them here would cause
+        // their local variables (e.g. `char* buffer`, `const char* end`) to
+        // be mistakenly extracted as namespace-scope global variables.
+        "CXXMethodDecl" | "CXXConstructorDecl" | "CXXDestructorDecl" | "CXXConversionDecl" => {
+            // Do not recurse — just consume the node without extraction.
+        }
+
         "FunctionDecl" => {
             if !is_target(current_file, targets) {
                 return;
@@ -1151,6 +1195,11 @@ fn walk_node(
             // which can be a user target file; `includedFrom` exposes the
             // real origin so we can filter system-header nodes correctly.
             if is_from_system_header(node) {
+                return;
+            }
+            // Skip the C entry-point `main` — it is user scaffolding and
+            // not a genuine library function to bind.
+            if node.name.as_deref() == Some("main") {
                 return;
             }
             // Skip top-level concrete template instantiations where a
@@ -1614,6 +1663,47 @@ fn extract_class_body(
     // Collect pure-virtual methods separately; we decide after the loop
     // whether this class is fully abstract (→ #[interface]) or mixed.
     let mut pure_virtual_nodes: Vec<AstNode> = Vec::new();
+
+    // Build a local type-name override map for this class by collecting
+    // `typedef` / `using` declarations in the class body.  Class-local
+    // typedefs (e.g. `typedef uint64_t Type;` in `BigInteger`) take priority
+    // over same-named entries in the global `class_map` (e.g. the
+    // `rapidjson::Type` enum).  This prevents mis-qualification of return
+    // types like `Type GetDigit(…)` where `Type` refers to the class typedef,
+    // not the global enum.
+    let class_map: std::borrow::Cow<'_, HashMap<String, String>> = {
+        let local_typedefs: HashMap<String, String> = node
+            .inner
+            .iter()
+            .flatten()
+            .filter(|c| c.kind == "TypedefDecl" || c.kind == "TypeAliasDecl")
+            .filter_map(|c| {
+                let tname = c.name.as_deref()?.to_string();
+                if tname.is_empty() || tname.starts_with("__") {
+                    return None;
+                }
+                // Underlying concrete type (no template args, no dependent types).
+                let underlying = c.type_info.as_ref().map(|t| t.qual_type.as_str())?;
+                if underlying.contains('<') || underlying.contains("typename") {
+                    return None;
+                }
+                Some((tname, underlying.to_string()))
+            })
+            .collect();
+
+        if local_typedefs.is_empty() {
+            std::borrow::Cow::Borrowed(class_map)
+        } else {
+            let mut augmented = class_map.clone();
+            // Local typedefs override any global entry with the same name.
+            for (k, v) in local_typedefs {
+                augmented.insert(k, v);
+            }
+            std::borrow::Cow::Owned(augmented)
+        }
+    };
+    // Shadow the outer `class_map` borrow with the (potentially augmented) one.
+    let class_map = &*class_map;
 
     for child in node.inner.iter().flatten() {
         if child.is_implicit.unwrap_or(false) {
@@ -3111,8 +3201,8 @@ fn extract_static_member(
 /// Returns `None` when the field's type is unsupported or the field is anonymous.
 fn extract_field(
     node: &AstNode,
-    _class_name: &str,
-    class_qualified: &str,
+    class_name: &str,
+    _class_qualified: &str,
     class_map: &HashMap<String, String>,
     alias_registry: &AliasRegistry,
 ) -> Option<FieldIR> {
@@ -3130,7 +3220,11 @@ fn extract_field(
     let base_cpp = strip_top_level_const(&cpp_type);
     let rust_type = cpp_to_rust_type_with_aliases(base_cpp, alias_registry);
     let rust_name = to_snake_case(&name);
-    let qualified_name = format!("{}::{}", class_qualified, name);
+    // Use the UNQUALIFIED class name so hicc generates `&Self::ClassName::field`.
+    // Via C++'s injected-class-name rule, `Self::ClassName` resolves to `Self`,
+    // so this becomes `&Self::field`.  Using the fully-qualified form would
+    // produce `&Self::Ns::ClassName::field` where `Ns` is not a member of Self.
+    let qualified_name = format!("{}::{}", class_name, name);
 
     Some(FieldIR {
         name,
