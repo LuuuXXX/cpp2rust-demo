@@ -587,23 +587,15 @@ fn render_pair_slice(name: &str, values: &[(&str, &str)]) -> String {
 
 fn render_method(out: &mut String, func: &FunctionIR) {
     // Build the method signature for #[cpp(method = "...")]
-    // The signature is relative to the class, so we use the bare method
-    // signature without the class name prefix.
-    let param_types: Vec<&str> = func.params.iter().map(|p| p.cpp_type.as_str()).collect();
-    let method_suffix = if func.is_const {
-        " const"
-    } else if func.is_rvalue {
-        " &&"
-    } else {
-        ""
-    };
-    let method_sig = format!(
-        "{} {}({}){}",
-        func.return_type,
-        func.name,
-        param_types.join(", "),
-        method_suffix
-    );
+    // Use `func.cpp_signature` which contains fully qualified C++ types, then
+    // replace the fully-qualified method name with the bare method name so that
+    // hicc's attribute parser gets a valid member-function signature.
+    //
+    // Example: `cpp_signature` = "rapidjson::internal::DiyFp rapidjson::internal::DiyFp::Normalize() const"
+    //  → `method_sig`           = "rapidjson::internal::DiyFp Normalize() const"
+    let method_sig = func
+        .cpp_signature
+        .replacen(&format!(" {}", func.qualified_name), &format!(" {}", func.name), 1);
 
     writeln!(out, "        #[cpp(method = \"{method_sig}\")]").unwrap();
 
@@ -659,12 +651,6 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
     // Determine whether we need hicc/std/memory.hpp for @make_proxy.
     let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
     let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
-    // Determine whether any class has extra (non-primary) constructors exposed
-    // as factory functions.
-    let has_extra_ctors = decls
-        .classes
-        .iter()
-        .any(|c| !c.is_abstract && c.ctors.len() > 1);
 
     writeln!(out, "hicc::import_lib! {{").unwrap();
     writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
@@ -693,7 +679,6 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         || !static_methods.is_empty()
         || has_abstract
         || has_mixed
-        || has_extra_ctors
         || !decls.globals.is_empty();
     // Only add a blank separator if at least one concrete (non-abstract) class
     // forward-declaration was actually written above.
@@ -718,45 +703,6 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         };
         render_free_function_with_name(out, func, &prefixed);
         writeln!(out).unwrap();
-    }
-
-    // Extra constructors (index ≥ 1) exposed as named factory functions via
-    // `#[member(class = ..., method = "new_N")]`.
-    for class in &decls.classes {
-        if class.is_abstract {
-            continue;
-        }
-        let rust_name = class
-            .canonical_name
-            .as_deref()
-            .unwrap_or(class.name.as_str());
-        for (i, ctor) in class.ctors.iter().enumerate().skip(1) {
-            let method_name = format!("new_{}", i + 1);
-            let rust_params = render_rust_params(&ctor.params, "");
-            let ret = format!(" -> {}", rust_name);
-            writeln!(
-                out,
-                "    #[member(class = \"{}\", method = \"{}\")]",
-                rust_name, method_name
-            )
-            .unwrap();
-            writeln!(
-                out,
-                "    #[cpp(func = \"{} {}\")]",
-                class.qualified_name, ctor.cpp_signature
-            )
-            .unwrap();
-            writeln!(
-                out,
-                "    fn {}_{}{}{};",
-                crate::ast::to_snake_case(rust_name),
-                method_name,
-                rust_params,
-                ret
-            )
-            .unwrap();
-            writeln!(out).unwrap();
-        }
     }
 
     // @make_proxy bindings for fully-abstract classes.
@@ -1594,6 +1540,11 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
     }
 
     let mut out = String::new();
+    // The operator shim Rust bindings are emitted as **commented-out** starters.
+    // To activate them:
+    //   1. Add `#include "operator_shims.hpp"` to your `hicc::cpp! { ... }` block
+    //      (the file is generated at `meta/operator_shims.hpp`).
+    //   2. Uncomment the `hicc::import_lib!` block below.
     writeln!(
         out,
         "// Auto-generated operator shim Rust bindings by cpp2rust-demo."
@@ -1601,13 +1552,13 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
     .unwrap();
     writeln!(
         out,
-        "// Add the shim functions from operator_shims.hpp to your hicc::cpp! block,"
+        "// To activate: include operator_shims.hpp in your hicc::cpp! block,"
     )
     .unwrap();
-    writeln!(out, "// then uncomment the bindings below.").unwrap();
+    writeln!(out, "// then uncomment the import_lib! block below.").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "hicc::import_lib! {{").unwrap();
-    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
+    writeln!(out, "// hicc::import_lib! {{").unwrap();
+    writeln!(out, "//     #![link_name = \"{link_name}\"]").unwrap();
     writeln!(out).unwrap();
 
     for shim in shims {
@@ -1653,17 +1604,17 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         }
         let cpp_sig = format!("{} {}({})", cpp_ret, shim.shim_name, cpp_params.join(", "));
 
-        writeln!(out, "    // Shim for `{}`", shim.operator_name).unwrap();
-        writeln!(out, "    #[cpp(func = \"{}\")]", cpp_sig).unwrap();
+        writeln!(out, "//     // Shim for `{}`", shim.operator_name).unwrap();
+        writeln!(out, "//     #[cpp(func = \"{}\")]", cpp_sig).unwrap();
         writeln!(
             out,
-            "    fn {}({}){};\n",
+            "//     fn {}({}){};\n",
             shim.shim_name, param_str, ret_str
         )
         .unwrap();
     }
 
-    writeln!(out, "}}").unwrap();
+    writeln!(out, "// }}").unwrap();
     out
 }
 

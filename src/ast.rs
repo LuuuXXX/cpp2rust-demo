@@ -1051,6 +1051,49 @@ fn is_target(file: &str, targets: &[&Path]) -> bool {
     })
 }
 
+/// Returns `true` when `path` is a well-known system-header directory.
+///
+/// Clang's JSON AST omits `loc.file` for declarations in files that were
+/// seen earlier in the translation unit (it records the file only when it
+/// changes).  As a consequence our `current_file` tracker can be stale when
+/// we visit a node that was actually declared inside a system header: the
+/// `loc.file` field is `None` but the `loc.includedFrom.file` field points
+/// to the system include that pulled the declaration in.  Checking this field
+/// lets us skip libc / C++ standard-library declarations (e.g. `printf`,
+/// `vprintf`, `atof`) that would otherwise pass the `is_target` test.
+fn is_system_include_path(path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    // Unix-like system include trees (Linux, macOS with Xcode / Homebrew).
+    path.starts_with("/usr/")
+        || path.starts_with("/opt/homebrew/")
+        || path.starts_with("/Library/Developer/")
+        || path.starts_with("/Applications/Xcode")
+}
+
+/// Returns `true` when `node` was declared inside a system header.
+///
+/// Used in `walk_node` to filter out `FunctionDecl`, `CXXRecordDecl`, and
+/// `VarDecl` nodes that originate in libc / the C++ standard library even
+/// though `current_file` may still point to a user target file (due to clang
+/// omitting `loc.file` when the file is unchanged).
+fn is_from_system_header(node: &AstNode) -> bool {
+    let Some(ref loc) = node.loc else {
+        return false;
+    };
+    // Only apply this heuristic when clang did NOT record an explicit file for
+    // this node.  When `loc.file` is present the normal `is_target` path
+    // handles filtering correctly.
+    if loc.file.is_some() {
+        return false;
+    }
+    let Some(ref incl) = loc.included_from else {
+        return false;
+    };
+    is_system_include_path(incl.file.as_deref().unwrap_or(""))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn walk_node(
     node: &AstNode,
@@ -1103,6 +1146,29 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
+            // Skip declarations that originate in system headers.  When
+            // `loc.file` is absent clang reuses the previous file context,
+            // which can be a user target file; `includedFrom` exposes the
+            // real origin so we can filter system-header nodes correctly.
+            if is_from_system_header(node) {
+                return;
+            }
+            // Skip top-level concrete template instantiations where a
+            // non-const by-reference parameter has a primitive base type.
+            // These occur when a function template (e.g. `rapidjson::PutN`)
+            // is implicitly instantiated with a primitive `Stream` type and
+            // the instantiation appears in the clang JSON as a standalone
+            // `FunctionDecl` with no explicit `loc.file`.  Such bindings
+            // would cause C++ compilation failures inside hicc because the
+            // template body dereferences member types (e.g. `Stream::Ch`)
+            // that primitives do not have.
+            if node.loc.as_ref().map(|l| l.file.is_none()).unwrap_or(true) {
+                if let Some(ref ti) = node.type_info {
+                    if has_primitive_ref_param(&ti.qual_type) {
+                        return;
+                    }
+                }
+            }
             // Skip compiler-internal names (double-underscore prefix).
             if node
                 .name
@@ -1140,6 +1206,11 @@ fn walk_node(
 
         "CXXRecordDecl" => {
             if !is_target(current_file, targets) {
+                return;
+            }
+            // Skip declarations that originate in system headers (same
+            // reason as for FunctionDecl above).
+            if is_from_system_header(node) {
                 return;
             }
             // Only process complete definitions (not forward declarations).
@@ -1276,6 +1347,11 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
+            // Skip specialisations declared inside system headers (same
+            // reason as for FunctionDecl).
+            if is_from_system_header(node) {
+                return;
+            }
             let mut extracted_any = false;
             for child in node.inner.iter().flatten() {
                 if child.kind != "FunctionDecl" {
@@ -1287,6 +1363,14 @@ fn walk_node(
                     if ti.qual_type.contains("type-parameter-")
                         || ti.qual_type.contains("dependent")
                     {
+                        continue;
+                    }
+                    // Skip concrete specialisations where any by-reference
+                    // parameter has a primitive base type (e.g. `int &`).
+                    // Such instantiations are semantically invalid in C++
+                    // — primitives lack member types like `Stream::Ch` —
+                    // and would fail to compile inside hicc.
+                    if has_primitive_ref_param(&ti.qual_type) {
                         continue;
                     }
                 } else {
@@ -1373,6 +1457,10 @@ fn walk_node(
 
         "VarDecl" => {
             if !is_target(current_file, targets) {
+                return;
+            }
+            // Skip declarations that originate in system headers.
+            if is_from_system_header(node) {
                 return;
             }
             // Only extract non-static (i.e. namespace-scope / file-scope) variables.
@@ -2639,6 +2727,75 @@ fn is_primitive_cpp_type(t: &str) -> bool {
             | "intptr_t"
             | "uintptr_t"
     )
+}
+
+/// Split a C++ parameter list string at top-level commas (i.e., commas not
+/// inside `<...>` or `(...)` brackets).
+///
+/// For example `"int &, const T &, size_t"` → `["int &", "const T &", "size_t"]`.
+/// Used to detect invalid template instantiations (e.g. `PutN<int, char>`)
+/// where a reference parameter has a primitive base type.
+fn split_at_top_level_comma(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0u32;
+    let mut start = 0;
+    for (i, c) in s.char_indices() {
+        match c {
+            '<' | '(' => depth += 1,
+            '>' | ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(s[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let tail = s[start..].trim();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    parts
+}
+
+/// Returns `true` when a concrete template instantiation should be skipped
+/// because at least one by-reference (or by-pointer) parameter has a C++
+/// primitive base type (e.g. `int &`, `double *`).
+///
+/// Such specialisations are semantically invalid — primitives lack member
+/// types like `Stream::Ch` that template bodies often require — and including
+/// them as FFI bindings causes C++ compilation failures (e.g. `PutN<int, char>`
+/// which expands to `void (int &, char, size_t)`).
+///
+/// Only **non-const** mutable references (`T &`) are checked.  `const T &`
+/// is a legitimate by-value-in-disguise parameter that appears in many
+/// valid template specialisations (e.g. JSON pointer path overloads that
+/// take `const int &`).
+fn has_primitive_ref_param(qual_type: &str) -> bool {
+    let Some((_, params_str)) = parse_fn_qual_type(qual_type) else {
+        return false;
+    };
+    for param in split_at_top_level_comma(&params_str) {
+        let p = param.trim();
+        // Skip const references — `const T &` is a valid by-value pass even
+        // for primitive T (e.g. JSON path overloads).
+        if p.starts_with("const ") {
+            continue;
+        }
+        // Check for mutable `T &` where T is a primitive.
+        let base = if let Some(stripped) = p.strip_suffix(" &").or_else(|| p.strip_suffix('&')) {
+            stripped.trim()
+        } else {
+            continue;
+        };
+        let base = base
+            .trim_start_matches("volatile ")
+            .trim_start_matches("__restrict")
+            .trim();
+        if is_primitive_cpp_type(base) {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_known_class_type(t: &str, class_map: &HashMap<String, String>) -> bool {

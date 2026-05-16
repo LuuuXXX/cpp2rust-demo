@@ -1600,15 +1600,15 @@ fn init_class_multiple_ctors_generates_factory_functions() {
     let free_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/multi_ctor.rs"))
             .unwrap();
-    // Extra ctors should become factory functions in import_lib!.
+    // Extra ctors should appear as commented @placement_new skeletons.
     assert!(
-        free_src.contains("new_2") || free_src.contains("new_3"),
-        "extra constructors should appear as factory fns in import_lib!: {}",
+        free_src.contains("@placement_new"),
+        "extra constructors should appear as @placement_new skeletons: {}",
         free_src
     );
     assert!(
-        free_src.contains("#[member(class"),
-        "extra ctor factory should use #[member(...)] attribute: {}",
+        free_src.contains("new_counter_inplace"),
+        "extra ctor skeleton should use inplace naming: {}",
         free_src
     );
 }
@@ -1661,17 +1661,16 @@ fn init_class_ctors_sorted_by_param_count() {
 
     let free_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/rev_ctor.rs")).unwrap();
-    // The 1-param and 2-param ctors should become factory fns, NOT the 0-param.
+    // The 1-param and 2-param ctors should appear as commented @placement_new skeletons.
     assert!(
-        free_src.contains("new_2"),
-        "non-primary ctors should be factory fns: {}",
+        free_src.contains("@placement_new"),
+        "non-primary ctors should appear as @placement_new skeletons: {}",
         free_src
     );
-    // The 0-param ctor (primary) should NOT appear as a factory fn.
-    // Factory fn annotations use the pattern `Stack Stack()` (return type + ctor sig).
+    // The 0-param ctor (primary) should NOT appear as a placement_new skeleton.
     assert!(
-        !free_src.contains("Stack Stack()"),
-        "primary ctor Stack() should not be repeated as a factory fn: {}",
+        !free_src.contains("Stack @placement_new<Stack>()"),
+        "primary ctor Stack() should not be repeated as a placement_new skeleton: {}",
         free_src
     );
 }
@@ -2240,12 +2239,17 @@ fn init_operator_overload_generates_shim_files() {
         "shim functions should be declared in operator_shims.hpp: {shims_hpp}"
     );
 
-    // Shim bindings are now appended to the flat ops2.rs file.
+    // Shim bindings are appended to the flat ops2.rs file as commented-out starters.
+    // Users must include operator_shims.hpp first, then uncomment.
     let flat_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/ops2.rs")).unwrap();
     assert!(
-        flat_src.contains("import_lib!") && flat_src.contains("#[cpp(func"),
-        "flat ops2.rs should contain import_lib! with #[cpp(func)] shim bindings: {flat_src}"
+        flat_src.contains("// hicc::import_lib!") || flat_src.contains("// #[cpp(func"),
+        "flat ops2.rs should contain commented-out import_lib! shim bindings: {flat_src}"
+    );
+    assert!(
+        flat_src.contains("operator_shims.hpp"),
+        "flat ops2.rs should mention operator_shims.hpp in instructions: {flat_src}"
     );
 }
 
