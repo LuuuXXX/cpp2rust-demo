@@ -593,9 +593,11 @@ fn render_method(out: &mut String, func: &FunctionIR) {
     //
     // Example: `cpp_signature` = "rapidjson::internal::DiyFp rapidjson::internal::DiyFp::Normalize() const"
     //  → `method_sig`           = "rapidjson::internal::DiyFp Normalize() const"
-    let method_sig = func
-        .cpp_signature
-        .replacen(&format!(" {}", func.qualified_name), &format!(" {}", func.name), 1);
+    let method_sig = func.cpp_signature.replacen(
+        &format!(" {}", func.qualified_name),
+        &format!(" {}", func.name),
+        1,
+    );
 
     writeln!(out, "        #[cpp(method = \"{method_sig}\")]").unwrap();
 
@@ -1772,7 +1774,16 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
             "    // Placement-new binding(s) for `{rust_name}` — uncomment and adapt."
         )
         .unwrap();
+        let mut inplace_idx: usize = 0;
         for (i, ctor) in class.ctors.iter().enumerate() {
+            // Skip the primary constructor (fewest params = index 0) when it
+            // has no parameters: a 0-param ctor is already bound via
+            // `ctor = "ClassName()"` in `import_class!` and does not benefit
+            // from a placement-new skeleton.  Ctors with parameters are always
+            // included — they represent meaningful construction alternatives.
+            if i == 0 && ctor.params.is_empty() {
+                continue;
+            }
             // Build rust param list (no self; first param is the storage).
             let rust_params: Vec<String> = ctor
                 .params
@@ -1790,11 +1801,13 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
                 ctor.params.iter().map(|p| p.cpp_type.clone()).collect();
             let cpp_params_str = cpp_param_types.join(", ");
 
-            let fn_name = if i == 0 {
+            // Sequential naming: first included ctor → base name, second → _2, etc.
+            let fn_name = if inplace_idx == 0 {
                 format!("new_{snake}_inplace")
             } else {
-                format!("new_{snake}_inplace_{}", i + 1)
+                format!("new_{snake}_inplace_{}", inplace_idx + 1)
             };
+            inplace_idx += 1;
 
             writeln!(out, "    // #[cpp(func = \"{rust_name} @placement_new<{rust_name}>({cpp_params_str})\")]").unwrap();
             writeln!(out, "    // fn {fn_name}<'a>(mem: &'a mut hicc::AlignedStorage<{rust_name}>{param_str}) -> &'a mut {rust_name};").unwrap();
@@ -2361,6 +2374,8 @@ mod tests {
     #[test]
     fn render_placement_new_module_generates_commented_skeleton() {
         use crate::ast::{CtorIR, ParamIR};
+        // A class with a single parameterised ctor (primary) → should appear in
+        // placement_new (the 0-param exclusion only applies to 0-param ctors).
         let class = ClassIR {
             name: "Foo".to_string(),
             qualified_name: "Foo".to_string(),
@@ -2403,6 +2418,8 @@ mod tests {
     #[test]
     fn render_placement_new_module_multiple_ctors_get_indexed_names() {
         use crate::ast::{CtorIR, ParamIR};
+        // Bar() is 0-param primary → skipped.  Bar(int) → new_bar_inplace.
+        // Bar(int, int) → new_bar_inplace_2.
         let class = ClassIR {
             name: "Bar".to_string(),
             qualified_name: "Bar".to_string(),
@@ -2419,6 +2436,21 @@ mod tests {
                     }],
                     cpp_signature: "Bar(int)".to_string(),
                 },
+                CtorIR {
+                    params: vec![
+                        ParamIR {
+                            name: "n".to_string(),
+                            cpp_type: "int".to_string(),
+                            rust_type: "i32".to_string(),
+                        },
+                        ParamIR {
+                            name: "m".to_string(),
+                            cpp_type: "int".to_string(),
+                            rust_type: "i32".to_string(),
+                        },
+                    ],
+                    cpp_signature: "Bar(int, int)".to_string(),
+                },
             ],
             ..ClassIR::default()
         };
@@ -2427,8 +2459,18 @@ mod tests {
             ..ExtractedDecls::default()
         };
         let src = render_placement_new_module(&decls, "mylib");
-        assert!(src.contains("new_bar_inplace"), "primary ctor fn name");
-        assert!(src.contains("new_bar_inplace_2"), "second ctor fn name");
+        // First included ctor (Bar(int)) → base name.
+        assert!(src.contains("new_bar_inplace"), "first extra ctor fn name");
+        // Second included ctor (Bar(int, int)) → _2.
+        assert!(
+            src.contains("new_bar_inplace_2"),
+            "second extra ctor fn name"
+        );
+        // Primary 0-param ctor should NOT appear.
+        assert!(
+            !src.contains("@placement_new<Bar>()"),
+            "primary 0-param ctor should not appear in placement_new skeletons"
+        );
     }
 
     // P4.2 — RustAny suggestion tests

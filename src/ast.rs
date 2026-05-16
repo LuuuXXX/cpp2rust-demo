@@ -2617,6 +2617,15 @@ fn is_supported_cpp_type(
 
     let base = strip_top_level_const(t);
 
+    // Reject all C++ standard-library types regardless of alias resolution.
+    // Types like `std::string`, `std::istream`, `std::vector<T>`, etc. cannot
+    // be passed through the hicc ABI boundary directly.  Checking this before
+    // the template-alias path prevents system typedefs (e.g. `std::istream`)
+    // from making stdlib class templates appear supported.
+    if base.starts_with("std::") || base.starts_with("::std::") {
+        return false;
+    }
+
     // Allow template types whose bare name has a typedef alias.
     if base.contains('<') {
         let bare_template = bare_template_name(base);
@@ -2628,6 +2637,15 @@ fn is_supported_cpp_type(
     }
 
     if contains_unsupported_type_construct(base) {
+        return false;
+    }
+
+    // Reject all C++ standard-library types regardless of alias resolution.
+    // Types like `std::string`, `std::istream`, `std::vector<T>`, etc. cannot
+    // be passed through the hicc ABI boundary directly.  Checking this before
+    // the alias-of-template path prevents a `std::string` typedef alias from
+    // being classified as supported just because it resolves to a template.
+    if base.starts_with("std::") || base.starts_with("::std::") {
         return false;
     }
 
