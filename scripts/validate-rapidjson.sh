@@ -15,8 +15,9 @@
 #      --no-link is used because rapidjson is a header-only library.
 #   4. Runs cpp2rust-demo merge.
 #   5. Validates the expected output files exist and contain expected content.
-#   6. Verifies that the generated scaffolding is syntactically valid Rust
-#      (rustfmt --check).
+#   6. Runs a full `cargo check` on the generated Rust project to verify that
+#      the scaffolding is type-correct (build.rs compiles the C++ adapter,
+#      then the Rust code is type-checked against it).
 #
 # This script mirrors the CI workflow in .github/workflows/validate-rapidjson.yml
 # and can be run locally to reproduce CI results.
@@ -193,28 +194,15 @@ check_contains "${OUT}/rust/build.rs" "src/merged_ffi.rs"
 check_contains "${OUT}/rust/build.rs" "Header-only"
 
 # ---------------------------------------------------------------------------
-# Step 7: Verify generated scaffolding is syntactically valid Rust
+# Step 7: Full cargo check of the generated Rust project
 # ---------------------------------------------------------------------------
 echo ""
-echo "=== Step 7: Verifying Rust syntax of generated scaffolding ==="
-if command -v rustfmt >/dev/null 2>&1; then
-    for rs_file in "${FLAT_RS}" "${OUT}/rust/src/merged_ffi.rs"; do
-        # rustfmt --check exits 1 when formatting would change the file.
-        # For auto-generated code we only fail on hard parse errors.
-        if rustfmt --edition 2021 --check "${rs_file}" 2>/dev/null; then
-            echo "  [OK]  ${rs_file} passes rustfmt --check"
-        else
-            if rustfmt --edition 2021 "${rs_file}" 2>&1 | grep -q "error\["; then
-                echo "  [FAIL] ${rs_file} has Rust syntax errors" >&2
-                FAIL=1
-            else
-                echo "  [OK]  ${rs_file} is valid Rust (formatting differs from canonical)"
-            fi
-        fi
-    done
-else
-    echo "  [SKIP] rustfmt not available"
-fi
+echo "=== Step 7: Running cargo check on the generated Rust project ==="
+(
+    cd "${OUT}/rust"
+    cargo check
+)
+echo "  [OK]  cargo check passed"
 
 echo ""
 echo "=== Generated .cpp2rust directory tree ==="

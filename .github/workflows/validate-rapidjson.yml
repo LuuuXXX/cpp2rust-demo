@@ -13,6 +13,8 @@
 #    produces exactly one .rs file per .cpp file (1:1 mapping).
 #  - --no-link is used because rapidjson is header-only.
 #  - The project is built via CMake to exercise a realistic build flow.
+#  - cargo check is run on the generated Rust project to verify that the
+#    scaffolding is type-correct (not just syntactically valid).
 
 name: validate-rapidjson
 
