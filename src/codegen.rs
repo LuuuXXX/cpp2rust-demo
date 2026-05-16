@@ -608,23 +608,21 @@ fn render_pair_slice(name: &str, values: &[(&str, &str)]) -> String {
 
 fn render_method(out: &mut String, func: &FunctionIR) {
     // Build the method signature for #[cpp(method = "...")]
-    // The signature is relative to the class, so we use the bare method
-    // signature without the class name prefix.
-    let param_types: Vec<&str> = func.params.iter().map(|p| p.cpp_type.as_str()).collect();
-    let method_suffix = if func.is_const {
-        " const"
-    } else if func.is_rvalue {
-        " &&"
-    } else {
-        ""
+    //
+    // hicc processes method signatures from global (not class) scope, so all
+    // type names must be fully qualified (e.g. `rapidjson::internal::DiyFp`
+    // rather than bare `DiyFp`).
+    //
+    // `func.cpp_signature` already contains the fully-qualified return type
+    // and parameter types, but uses the fully-qualified method name
+    // (e.g. `"rapidjson::internal::DiyFp::Normalize"`).  hicc's `method =`
+    // attribute only wants the bare method name (`"Normalize"`), so we
+    // replace the first occurrence of ` {qualified_name}` with ` {bare_name}`.
+    let method_sig = {
+        let search = format!(" {}", func.qualified_name);
+        let replace = format!(" {}", func.name);
+        func.cpp_signature.replacen(&search, &replace, 1)
     };
-    let method_sig = format!(
-        "{} {}({}){}",
-        func.return_type,
-        func.name,
-        param_types.join(", "),
-        method_suffix
-    );
 
     writeln!(out, "        #[cpp(method = \"{method_sig}\")]").unwrap();
 
@@ -2315,6 +2313,46 @@ mod tests {
         assert!(types_src.contains("(\"void\", \"()\")"));
         assert!(types_src.contains("pub fn rust_type_for"));
         assert!(types_src.contains("pub fn has_cpp_type"));
+    }
+
+    /// `render_method` must emit the fully-qualified return type and parameter
+    /// types in the `#[cpp(method = "...")]` attribute so that hicc can find
+    /// all type names from global scope.  Previously the method used the bare
+    /// (unqualified) `func.return_type` and `func.params[*].cpp_type` strings,
+    /// causing errors like `'DiyFp' was not declared in this scope`.
+    #[test]
+    fn render_method_uses_qualified_types_in_cpp_attribute() {
+        let method = FunctionIR {
+            name: "Normalize".to_string(),
+            rust_name: "normalize".to_string(),
+            return_type: "DiyFp".to_string(), // bare (as clang emits inside class body)
+            rust_return_type: "*mut ::std::os::raw::c_void".to_string(),
+            params: vec![],
+            qualified_name: "rapidjson::internal::DiyFp::Normalize".to_string(),
+            // cpp_signature is built with qualified types by extract_function
+            cpp_signature:
+                "rapidjson::internal::DiyFp rapidjson::internal::DiyFp::Normalize() const"
+                    .to_string(),
+            is_const: true,
+            is_static: false,
+            is_virtual: false,
+            is_pure: false,
+            class_name: Some("DiyFp".to_string()),
+            is_variadic: false,
+            is_rvalue: false,
+        };
+        let mut out = String::new();
+        render_method(&mut out, &method);
+        // The #[cpp(method = "...")] attribute must use fully-qualified types.
+        assert!(
+            out.contains(r#"#[cpp(method = "rapidjson::internal::DiyFp Normalize() const")]"#),
+            "method attribute must use fully-qualified return type; got:\n{out}"
+        );
+        // Must NOT use the bare unqualified form.
+        assert!(
+            !out.contains(r#"#[cpp(method = "DiyFp Normalize() const")]"#),
+            "bare DiyFp must not appear in method attribute; got:\n{out}"
+        );
     }
 
     #[test]

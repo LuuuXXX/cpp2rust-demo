@@ -1312,19 +1312,24 @@ fn walk_node(
                 // instantiations in included headers and typically fail to
                 // compile because primitive types lack the member types that
                 // the template function body expects (e.g. `Stream::Ch`).
-                let has_primitive_ref_param = child.inner.iter().flatten().any(|p| {
-                    if p.kind != "ParmVarDecl" {
-                        return false;
+                //
+                // NOTE: clang JSON omits `inner` (ParmVarDecl children) for
+                // implicit template instantiations.  Parse the function's
+                // `type_info.qual_type` directly instead of relying on
+                // child-node iteration, which would silently skip the check
+                // when `inner` is None or empty.
+                let has_primitive_ref_param = child.type_info.as_ref().is_some_and(|ti| {
+                    if let Some((_, params_str)) = parse_fn_qual_type(&ti.qual_type) {
+                        split_at_top_level_comma(&params_str).iter().any(|p| {
+                            let t = p.trim();
+                            t.ends_with('&') && {
+                                let inner = t.trim_end_matches('&').trim_end();
+                                is_primitive_cpp_type(strip_top_level_const(inner))
+                            }
+                        })
+                    } else {
+                        false
                     }
-                    let Some(ref ti) = p.type_info else {
-                        return false;
-                    };
-                    let t = ti.qual_type.trim();
-                    if !t.ends_with('&') {
-                        return false;
-                    }
-                    let inner = t.trim_end_matches('&').trim_end();
-                    is_primitive_cpp_type(strip_top_level_const(inner))
                 });
                 if has_primitive_ref_param {
                     continue;
@@ -2546,6 +2551,28 @@ fn has_top_level_ptr(t: &str) -> bool {
         }
     }
     false
+}
+
+/// Split `t` at each `,` that is not nested inside `<…>` or `(…)`.
+/// Returns the pieces between the top-level `,` characters.
+/// Used to split a C++ function's parameter-type list.
+fn split_at_top_level_comma(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth: i32 = 0;
+    let mut last = 0usize;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '<' | '(' => depth += 1,
+            '>' | ')' if depth > 0 => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(&s[last..i]);
+                last = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[last..]);
+    parts
 }
 
 /// Split `t` at each `*` that is not nested inside `<…>` or `(…)`.
@@ -4409,6 +4436,96 @@ mod tests {
             !method.cpp_signature.contains("void DiyFp *"),
             "bare DiyFp must not remain in cpp_signature; got: {}",
             method.cpp_signature
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // split_at_top_level_comma
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_split_at_top_level_comma_simple() {
+        let parts = split_at_top_level_comma("int &, char, unsigned long");
+        assert_eq!(parts, vec!["int &", " char", " unsigned long"]);
+    }
+
+    #[test]
+    fn test_split_at_top_level_comma_no_split() {
+        let parts = split_at_top_level_comma("void");
+        assert_eq!(parts, vec!["void"]);
+    }
+
+    #[test]
+    fn test_split_at_top_level_comma_nested_template() {
+        // Comma inside template angle brackets must NOT be treated as a split point.
+        let parts = split_at_top_level_comma("std::vector<int, std::allocator<int>> &, bool");
+        assert_eq!(
+            parts,
+            vec!["std::vector<int, std::allocator<int>> &", " bool"]
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // FunctionTemplateDecl primitive-ref guard (PutN<int> regression)
+    // -------------------------------------------------------------------------
+
+    /// A concrete template instantiation `FunctionDecl` inside a
+    /// `FunctionTemplateDecl` may have no `inner` (ParmVarDecl) children in
+    /// the clang JSON because clang omits them for implicit instantiations.
+    /// The guard must still fire by parsing `type_info.qual_type` directly.
+    #[test]
+    fn test_fn_template_primitive_ref_skipped_when_inner_is_none() {
+        use std::path::Path;
+        let target = Path::new("/tmp/tutorial.cpp");
+        let loc = Location {
+            file: Some(target.display().to_string()),
+            line: None,
+            col: None,
+            offset: None,
+            spelling_loc: None,
+            expansion_loc: None,
+            included_from: None,
+        };
+
+        // Concrete FunctionDecl for PutN<int, char>: inner = None (as clang
+        // would emit for an implicit instantiation).
+        let concrete_fn = AstNode {
+            kind: "FunctionDecl".to_string(),
+            name: Some("PutN".to_string()),
+            type_info: Some(TypeInfo {
+                qual_type: "void (int &, char, unsigned long)".to_string(),
+            }),
+            inner: None, // ← no ParmVarDecl children
+            ..AstNode::default()
+        };
+
+        let ftd = AstNode {
+            kind: "FunctionTemplateDecl".to_string(),
+            loc: Some(loc.clone()),
+            name: Some("PutN".to_string()),
+            inner: Some(vec![concrete_fn]),
+            ..AstNode::default()
+        };
+
+        let ns = AstNode {
+            kind: "NamespaceDecl".to_string(),
+            name: Some("rapidjson".to_string()),
+            inner: Some(vec![ftd]),
+            ..AstNode::default()
+        };
+
+        let root = AstNode {
+            kind: "TranslationUnitDecl".to_string(),
+            inner: Some(vec![ns]),
+            ..AstNode::default()
+        };
+
+        let decls = extract_declarations(&root, &[target]);
+        // PutN<int, char> must NOT be exported — it would fail to compile.
+        assert!(
+            decls.functions.is_empty(),
+            "PutN<int,char> should be skipped; got: {:?}",
+            decls.functions.iter().map(|f| &f.name).collect::<Vec<_>>()
         );
     }
 }

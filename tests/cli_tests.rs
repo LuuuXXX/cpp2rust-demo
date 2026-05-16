@@ -4456,3 +4456,52 @@ fn allocator_rebind_typedef_not_mistaken_for_class_name() {
         "StdAllocator/IntAllocator must appear in the report; got:\n{report}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Rapid-JSON end-to-end self-validation
+// ---------------------------------------------------------------------------
+
+/// Full end-to-end rapidjson validation: build → init → merge → cargo check.
+///
+/// This mirrors the CI workflow in `.github/workflows/validate-rapidjson.yml`
+/// and can be run locally to reproduce (or pre-empt) CI failures before
+/// pushing.
+///
+/// The test is **ignored by default** because it requires a cmake + clang
+/// tool-chain, internet access (to clone rapidjson on first run), and takes
+/// several minutes.  Run it explicitly with:
+///
+/// ```
+/// cargo test validate_rapidjson -- --include-ignored --nocapture
+/// ```
+///
+/// The environment variable `SKIP_RAPIDJSON_VALIDATION=1` also skips it when
+/// set, useful in partial CI contexts where only the lint jobs run.
+#[test]
+#[ignore = "requires cmake/clang + network; run with --include-ignored"]
+fn validate_rapidjson_end_to_end() {
+    if std::env::var("SKIP_RAPIDJSON_VALIDATION").as_deref() == Ok("1") {
+        eprintln!("SKIP_RAPIDJSON_VALIDATION=1 — skipping");
+        return;
+    }
+
+    let script =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/validate-rapidjson.sh");
+
+    assert!(
+        script.exists(),
+        "validate-rapidjson.sh not found at {}",
+        script.display()
+    );
+
+    let status = std::process::Command::new("bash")
+        .arg(&script)
+        .status()
+        .expect("failed to spawn validate-rapidjson.sh");
+
+    assert!(
+        status.success(),
+        "validate-rapidjson.sh exited with status {:?}",
+        status
+    );
+}
