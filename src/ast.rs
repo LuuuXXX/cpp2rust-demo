@@ -1993,7 +1993,11 @@ fn extract_function(
             .filter(|n| !n.is_empty())
             .unwrap_or(&format!("arg{}", i))
             .to_string();
-        let Some(cpp_type) = p.type_info.as_ref().map(|t| normalize_cpp_type(&t.qual_type)) else {
+        let Some(cpp_type) = p
+            .type_info
+            .as_ref()
+            .map(|t| normalize_cpp_type(&t.qual_type))
+        else {
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
@@ -2198,7 +2202,6 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
         let ptr_depth = parts.len().saturating_sub(1);
         if ptr_depth > 0 {
             let base_part = parts[0].trim();
-            let ptr_qualifiers: Vec<&str> = parts[1..].iter().map(|p| p.trim()).collect();
             let base_const = has_top_level_const(base_part);
             let base = strip_top_level_const(base_part);
             let mut rust_type = if base == "void" {
@@ -2207,11 +2210,12 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
                 cpp_to_rust_type_with_aliases(base, alias_registry)
             };
             for level in 0..ptr_depth {
-                let pointee_const = if level == 0 {
-                    base_const
-                } else {
-                    has_const_token(ptr_qualifiers[level - 1])
-                };
+                // In Rust FFI, only the DATA's const-ness matters.  C++ "pointer-const"
+                // qualifiers (the `const` between stars, e.g. `char *const *`) apply to
+                // the pointer address itself and are dropped when translating to Rust — exactly
+                // as tools like rust-bindgen do.  Only the base type's own const qualifier
+                // (e.g. `const char *`) determines whether the innermost pointer is `*const`.
+                let pointee_const = level == 0 && base_const;
                 rust_type = if pointee_const {
                     format!("*const {}", rust_type)
                 } else {
@@ -2329,7 +2333,6 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
         let ptr_depth = parts.len().saturating_sub(1);
         if ptr_depth > 0 {
             let base_part = parts[0].trim();
-            let ptr_qualifiers: Vec<&str> = parts[1..].iter().map(|p| p.trim()).collect();
             let base_const = has_top_level_const(base_part);
             let base = strip_top_level_const(base_part);
             let mut rust_type = if base == "void" {
@@ -2338,11 +2341,10 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
                 cpp_to_rust_type(base)
             };
             for level in 0..ptr_depth {
-                let pointee_const = if level == 0 {
-                    base_const
-                } else {
-                    has_const_token(ptr_qualifiers[level - 1])
-                };
+                // In Rust FFI, only the DATA's const-ness matters.  C++ "pointer-const"
+                // qualifiers between stars are dropped — only the base type's const qualifier
+                // determines whether the innermost pointer is `*const`.
+                let pointee_const = level == 0 && base_const;
                 rust_type = if pointee_const {
                     format!("*const {}", rust_type)
                 } else {
@@ -2417,10 +2419,6 @@ fn strip_trailing_ref(t: &str) -> Option<&str> {
     } else {
         None
     }
-}
-
-fn has_const_token(segment: &str) -> bool {
-    segment.split_whitespace().any(|tok| tok == "const")
 }
 
 fn has_top_level_const(t: &str) -> bool {
@@ -3355,9 +3353,12 @@ mod tests {
         assert_eq!(cpp_to_rust_type("int *"), "*mut i32");
         assert_eq!(cpp_to_rust_type("int **"), "*mut *mut i32");
         assert_eq!(cpp_to_rust_type("const char **"), "*mut *const i8");
-        assert_eq!(cpp_to_rust_type("const char * const *"), "*const *const i8");
-        // GCC/Clang __restrict qualifiers must be stripped.
-        assert_eq!(cpp_to_rust_type("char *const *__restrict"), "*const *mut i8");
+        // Pointer-const qualifiers (between stars) are dropped in Rust FFI — only the
+        // base type's const-ness determines *const vs *mut (same as rust-bindgen).
+        assert_eq!(cpp_to_rust_type("const char * const *"), "*mut *const i8");
+        assert_eq!(cpp_to_rust_type("char *const *"), "*mut *mut i8");
+        // GCC/Clang __restrict qualifiers must also be stripped first.
+        assert_eq!(cpp_to_rust_type("char *const *__restrict"), "*mut *mut i8");
         assert_eq!(cpp_to_rust_type("char *__restrict"), "*mut i8");
         assert_eq!(cpp_to_rust_type("const char *__restrict__"), "*const i8");
     }
