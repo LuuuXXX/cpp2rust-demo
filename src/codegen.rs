@@ -489,6 +489,10 @@ fn render_import_class(out: &mut String, class: &ClassIR) {
     writeln!(out, "hicc::import_class! {{").unwrap();
     if class.is_abstract {
         // Fully-abstract C++ class: map to a hicc `#[interface]` trait.
+        // hicc requires #[cpp(class = "...")] even for interfaces so that it
+        // can set up the ABI method table; without it, make_proxy fails with
+        // "incomplete type" because class_methods_type resolves to void.
+        writeln!(out, "    #[cpp(class = \"{}\")]", class.qualified_name).unwrap();
         writeln!(out, "    #[interface]").unwrap();
         writeln!(out, "    class {}{} {{", rust_name, bases_suffix).unwrap();
     } else {
@@ -715,6 +719,14 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
     }
 
     // @make_proxy bindings for fully-abstract classes.
+    //
+    // hicc's @make_proxy<X>() requires X to be a CONCRETE class with a
+    // registered MethodsType.  For a fully-abstract C++ class (all methods
+    // pure-virtual), we can only generate a proxy if there is a concrete
+    // non-abstract class in the same declarations that has the abstract class
+    // in its inheritance chain (bases list).  Without such a concrete
+    // implementor the @make_proxy would reference a void MethodsType and the
+    // C++ compiler would reject it.
     for class in &decls.classes {
         if !class.is_abstract {
             continue;
@@ -723,48 +735,79 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
             .canonical_name
             .as_deref()
             .unwrap_or(class.name.as_str());
-        let cpp_name = &class.qualified_name;
+
+        // Find a concrete (non-abstract) class that directly inherits from
+        // this abstract class.  That concrete class becomes the proxy type.
+        let concrete_implementor = decls.classes.iter().find(|c| {
+            !c.is_abstract
+                && c.bases.iter().any(|b| {
+                    b == class.name.as_str() || b == rust_name || b == class.qualified_name.as_str()
+                })
+        });
+
+        let Some(impl_class) = concrete_implementor else {
+            // No concrete implementor found → skip @make_proxy for this
+            // abstract class.  The Rust trait is still usable; users just
+            // cannot create a Rust-backed proxy for it.
+            continue;
+        };
+
+        let impl_rust_name = impl_class
+            .canonical_name
+            .as_deref()
+            .unwrap_or(impl_class.name.as_str());
+        let impl_cpp_name = &impl_class.qualified_name;
         let snake = crate::ast::to_snake_case(rust_name);
         let proxy_fn = format!("new_{}_proxy", snake);
-        // Use the fully-qualified C++ name in the func attribute so the hicc
-        // macro finds the type in its generated code (which runs outside the
-        // class's own C++ namespace).  The Rust type names stay unqualified.
+        // Use the fully-qualified C++ name of the concrete implementor so
+        // hicc finds the registered MethodsType.
         writeln!(
             out,
             "    #[cpp(func = \"{cpp} @make_proxy<{cpp}>()\")]",
-            cpp = cpp_name
+            cpp = impl_cpp_name
         )
         .unwrap();
         writeln!(out, "    #[interface(name = \"{}\")]", rust_name).unwrap();
         writeln!(
             out,
             "    fn {}(intf: hicc::Interface<{}>) -> {};",
-            proxy_fn, rust_name, rust_name
+            proxy_fn, impl_rust_name, impl_rust_name
         )
         .unwrap();
         writeln!(out).unwrap();
     }
 
     // @make_proxy bindings for companion interfaces of mixed classes.
+    //
+    // For a mixed C++ class (some concrete + some pure-virtual methods), hicc
+    // exposes the concrete part via `#[cpp(class = "...")]` and the
+    // pure-virtual part via a synthetic companion `#[interface]` named
+    // `{ClassName}Interface`.  The proxy uses the CONCRETE class as the proxy
+    // type (it already has a MethodsType registered) and the companion
+    // interface as the Rust trait being proxied.
     for class in &decls.classes {
         if !class.has_pure_virtual || class.pure_virtual_methods.is_empty() {
             continue;
         }
         let interface_name = format!("{}Interface", class.name);
-        let cpp_interface_name = format!("{}Interface", class.qualified_name);
+        let rust_class_name = class
+            .canonical_name
+            .as_deref()
+            .unwrap_or(class.name.as_str());
+        let cpp_class_name = &class.qualified_name;
         let snake = crate::ast::to_snake_case(&interface_name);
         let proxy_fn = format!("new_{}_proxy", snake);
         writeln!(
             out,
             "    #[cpp(func = \"{cpp} @make_proxy<{cpp}>()\")]",
-            cpp = cpp_interface_name
+            cpp = cpp_class_name
         )
         .unwrap();
         writeln!(out, "    #[interface(name = \"{}\")]", interface_name).unwrap();
         writeln!(
             out,
             "    fn {}(intf: hicc::Interface<{}>) -> {};",
-            proxy_fn, interface_name, interface_name
+            proxy_fn, rust_class_name, rust_class_name
         )
         .unwrap();
         writeln!(out).unwrap();
@@ -2215,9 +2258,12 @@ mod tests {
         };
 
         let method_src = render_method_module(&decls);
-        // Abstract class → #[interface] annotation, NOT #[cpp(class = ...)]
+        // Abstract class → both #[cpp(class = ...)] (for ABI binding) and #[interface].
         assert!(method_src.contains("#[interface]"));
-        assert!(!method_src.contains(r#"cpp(class = "IFoo")"#));
+        assert!(
+            method_src.contains(r#"cpp(class = "IFoo")"#),
+            "abstract class must have #[cpp(class = ...)] so hicc can set up the ABI method table"
+        );
         assert!(method_src.contains("fn process(&self, x: i32) -> i32"));
 
         // Abstract class should NOT appear as a forward declaration in import_lib!
