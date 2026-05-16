@@ -1993,7 +1993,7 @@ fn extract_function(
             .filter(|n| !n.is_empty())
             .unwrap_or(&format!("arg{}", i))
             .to_string();
-        let Some(cpp_type) = p.type_info.as_ref().map(|t| t.qual_type.clone()) else {
+        let Some(cpp_type) = p.type_info.as_ref().map(|t| normalize_cpp_type(&t.qual_type)) else {
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
@@ -2311,7 +2311,16 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
 /// classes, templates, etc.) are passed through as the bare class name so
 /// hicc can handle them via its `class` declarations.
 pub fn cpp_to_rust_type(cpp_type: &str) -> String {
-    let t = cpp_type.trim();
+    // Normalize first: strip compiler-extension qualifiers (__restrict etc.)
+    // that have no Rust equivalent. We need to own the string for the
+    // normalization case; borrow it otherwise.
+    let normalized;
+    let t = if cpp_type.contains("__restrict") {
+        normalized = normalize_cpp_type(cpp_type);
+        normalized.as_str()
+    } else {
+        cpp_type.trim()
+    };
 
     // Pointer chain: supports single and multi-level pointers, e.g.
     // `int **`, `const char **`, `const T * const *`.
@@ -2432,6 +2441,32 @@ fn strip_top_level_const(t: &str) -> &str {
 
 fn is_operator_name(name: Option<&str>) -> bool {
     name.is_some_and(|n| n.starts_with("operator"))
+}
+
+/// Normalize a C++ type string by removing compiler-extension qualifiers
+/// that have no equivalent in Rust or standard C++ (e.g. `__restrict`,
+/// `__restrict__`).
+///
+/// These qualifiers appear in clang's `qual_type` output for pointer parameters
+/// on some platforms (e.g. `char *const *__restrict`).  hicc-build and
+/// the Rust type conversion both fail when they encounter them, so we strip
+/// them before any further processing.
+pub(crate) fn normalize_cpp_type(t: &str) -> String {
+    // Handle the common forms emitted by clang:
+    //   "char *const *__restrict"   -> "char *const *"   (after `*`)
+    //   "__restrict char *"         -> "char *"           (leading)
+    //   "char * __restrict"         -> "char *"           (trailing / mid)
+    let s = t
+        .replace("*__restrict__", "*")
+        .replace("*__restrict", "*")
+        .replace("__restrict__", "")
+        .replace("__restrict", "");
+    // Collapse any double spaces introduced by the removal, then trim.
+    let mut out = s.trim().to_string();
+    while out.contains("  ") {
+        out = out.replace("  ", " ");
+    }
+    out
 }
 
 /// Extract the bare (no namespace, no template args) outer template class name.
@@ -3321,6 +3356,10 @@ mod tests {
         assert_eq!(cpp_to_rust_type("int **"), "*mut *mut i32");
         assert_eq!(cpp_to_rust_type("const char **"), "*mut *const i8");
         assert_eq!(cpp_to_rust_type("const char * const *"), "*const *const i8");
+        // GCC/Clang __restrict qualifiers must be stripped.
+        assert_eq!(cpp_to_rust_type("char *const *__restrict"), "*const *mut i8");
+        assert_eq!(cpp_to_rust_type("char *__restrict"), "*mut i8");
+        assert_eq!(cpp_to_rust_type("const char *__restrict__"), "*const i8");
     }
 
     #[test]
