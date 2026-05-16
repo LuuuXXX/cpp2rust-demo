@@ -104,40 +104,7 @@ pub fn render_flat_module(
         writeln!(out).unwrap();
     }
 
-    // 2. C++ enum definitions.
-    if !decls.enums.is_empty() {
-        writeln!(out, "// C++ enum / enum class definitions.").unwrap();
-        for enum_ir in &decls.enums {
-            writeln!(out, "#[repr(C)]").unwrap();
-            writeln!(out, "#[derive(Debug, Clone, Copy, PartialEq, Eq)]").unwrap();
-            writeln!(out, "pub enum {} {{", enum_ir.name).unwrap();
-            for variant in &enum_ir.variants {
-                if let Some(v) = variant.value {
-                    writeln!(out, "    {} = {},", variant.name, v).unwrap();
-                } else {
-                    writeln!(out, "    {},", variant.name).unwrap();
-                }
-            }
-            writeln!(out, "}}").unwrap();
-            writeln!(out).unwrap();
-        }
-    }
-
-    // 3. Type aliases.
-    if !decls.aliases.is_empty() {
-        writeln!(out, "// C++ typedef / using aliases.").unwrap();
-        for alias in &decls.aliases {
-            writeln!(
-                out,
-                "pub type {} = {};",
-                alias.name, alias.aliased_rust_type
-            )
-            .unwrap();
-        }
-        writeln!(out).unwrap();
-    }
-
-    // 4. import_class! blocks.
+    // 2. import_class! blocks.
     let method_part = render_method_module(decls);
     if !method_part.is_empty() {
         out.push_str(&method_part);
@@ -341,18 +308,17 @@ pub fn render_types_module(decls: &ExtractedDecls) -> String {
     ));
     out.push_str(&render_string_slice("CPP_TYPES", &values));
     out.push_str(&render_pair_slice("CPP_RUST_TYPE_MAPPINGS", &mappings));
-    out.push_str(
-        "\
-pub fn rust_type_for(cpp_type: &str) -> Option<&'static str> {\n\
-    CPP_RUST_TYPE_MAPPINGS\n\
-        .iter()\n\
-        .find_map(|(cpp, rust)| (*cpp == cpp_type).then_some(*rust))\n\
-}\n\
-\n\
-pub fn has_cpp_type(cpp_type: &str) -> bool {\n\
-    CPP_TYPES.iter().any(|ty| *ty == cpp_type)\n\
-}\n",
-    );
+    out.push_str(concat!(
+        "pub fn rust_type_for(cpp_type: &str) -> Option<&'static str> {\n",
+        "    CPP_RUST_TYPE_MAPPINGS\n",
+        "        .iter()\n",
+        "        .find_map(|(cpp, rust)| (*cpp == cpp_type).then_some(*rust))\n",
+        "}\n",
+        "\n",
+        "pub fn has_cpp_type(cpp_type: &str) -> bool {\n",
+        "    CPP_TYPES.iter().any(|ty| *ty == cpp_type)\n",
+        "}\n",
+    ));
 
     // Emit extracted C++ enum definitions as #[repr(C)] Rust enums.
     if !decls.enums.is_empty() {

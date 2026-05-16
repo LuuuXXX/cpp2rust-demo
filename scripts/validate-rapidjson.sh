@@ -187,8 +187,8 @@ check_contains "${OUT}/rust/src/merged_ffi.rs" "import_lib!"
 check_contains "${OUT}/rust/src/merged_ffi.rs" 'link_name = "rapidjson"'
 check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${ORIGINAL}\""
 
-# build.rs must reference the flat source file for hicc-build.
-check_contains "${OUT}/rust/build.rs" "src/entry.rs"
+# build.rs must reference the merged FFI file (merge updates build.rs to src/merged_ffi.rs).
+check_contains "${OUT}/rust/build.rs" "src/merged_ffi.rs"
 # build.rs must be in no-link mode (header-only library).
 check_contains "${OUT}/rust/build.rs" "Header-only"
 

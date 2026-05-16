@@ -397,6 +397,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         all_decls.functions.extend(decls.functions);
         all_decls.classes.extend(decls.classes);
         all_decls.globals.extend(decls.globals);
+        all_decls.enums.extend(decls.enums);
+        all_decls.aliases.extend(decls.aliases);
         all_decls.skipped.extend(decls.skipped);
         all_decls.operator_shims.extend(decls.operator_shims);
     }
@@ -903,18 +905,18 @@ fn render_common_includes_module(middleware_files: &[PathBuf], include_dirs: &[S
         out.push_str(&format!("    {:?},\n", include_line));
     }
     out.push_str("];\n\n");
-    out.push_str(
-        "pub fn include_line_for(basename: &str) -> Option<&'static str> {\n\
-    MIDDLEWARE_BASENAMES\n\
-        .iter()\n\
-        .position(|name| *name == basename)\n\
-        .map(|idx| CPP_INCLUDE_LINES[idx])\n\
-}\n\
-\n\
-pub fn has_include_dir(dir: &str) -> bool {\n\
-    INCLUDE_DIRS.iter().any(|d| *d == dir)\n\
-}\n",
-    );
+    out.push_str(concat!(
+        "pub fn include_line_for(basename: &str) -> Option<&'static str> {\n",
+        "    MIDDLEWARE_BASENAMES\n",
+        "        .iter()\n",
+        "        .position(|name| *name == basename)\n",
+        "        .map(|idx| CPP_INCLUDE_LINES[idx])\n",
+        "}\n",
+        "\n",
+        "pub fn has_include_dir(dir: &str) -> bool {\n",
+        "    INCLUDE_DIRS.iter().any(|d| *d == dir)\n",
+        "}\n",
+    ));
     out
 }
 
@@ -976,11 +978,13 @@ fn middleware_stem(path: &Path) -> String {
         .strip_suffix(".cpp2rust")
         .unwrap_or(file_name)
         .to_string();
-    Path::new(&no_suffix)
+    let raw = Path::new(&no_suffix)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
-        .to_string()
+        .to_string();
+    // Rust module names must be valid identifiers; replace hyphens with underscores.
+    raw.replace('-', "_")
 }
 
 /// Build a stable, short hash suffix from the full path.
