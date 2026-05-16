@@ -287,8 +287,11 @@ fn run_init(args: InitArgs) -> Result<()> {
         if !dry_run {
             // Step 3: generate flat Rust source file (<stem>.rs) — 1:1 with the
             // C++ middleware file.
-            let mut flat_src =
-                codegen::render_flat_module(&decls, link_name, &selected_file.display().to_string());
+            let mut flat_src = codegen::render_flat_module(
+                &decls,
+                link_name,
+                &selected_file.display().to_string(),
+            );
 
             // Append operator shim bindings when present.
             if !decls.operator_shims.is_empty() {

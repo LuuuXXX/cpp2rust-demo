@@ -11,7 +11,7 @@ cpp2rust-demo 在遇到含 `std::string` 参数或返回值的方法时：
 
 1. **跳过**该方法，在接口报告中记录 `hicc_limitation`。
 2. 在 `meta/operator_shims.hpp` 中**自动生成 C-string shim 签名**（函数体留空，等待用户填写）。
-3. 在 `free/shim_ops.rs` 中生成对应的 Rust 绑定骨架（已可编译，指向 shim 函数名）。
+3. 在 `entry.rs` 中生成对应的 Rust 绑定骨架（已可编译，指向 shim 函数名）。
 
 用户只需在 `operator_shims.hpp` 中填写 C++ shim 函数体（处理缓冲区/生命周期），
 然后在 `hicc::cpp!` 宏中引入，即可完成绑定。
@@ -54,7 +54,7 @@ cat .cpp2rust/g01/meta/init-interface-report.md
 cat .cpp2rust/g01/meta/operator_shims.hpp
 
 # 查看 Rust 骨架
-cat .cpp2rust/g01/rust/src/mod_entry/free/shim_ops.rs
+cat .cpp2rust/g01/rust/src/entry.rs
 
 # 第 2 步：填写 shim 函数体（见下文）
 
@@ -66,7 +66,7 @@ cpp2rust-demo merge --feature g01
 
 ## 预期生成产物
 
-### `method/mtd_entry.rs`（自动提取的方法，✅）
+### `entry.rs` (methods section)（自动提取的方法，✅）
 
 ```rust
 hicc::import_class! {
@@ -128,7 +128,7 @@ inline int string_processor_join(
 }
 ```
 
-### `free/shim_ops.rs`（🔧 工具自动生成 Rust 骨架）
+### shim_ops section in `entry.rs`（🔧 工具自动生成 Rust 骨架）
 
 ```rust
 hicc::import_lib! {
@@ -201,7 +201,7 @@ std::string 不被 hicc 支持 → SkipCategory::HiccLimitation
     │  codegen
     ▼
 meta/operator_shims.hpp  ─── C++ shim 签名骨架（函数体为 TODO）
-free/shim_ops.rs         ─── Rust 绑定骨架（已可编译）
+entry.rs         ─── Rust 绑定骨架（含 shim ops）（已可编译）
 meta/init-interface-report.md ─── 跳过记录
     │
     │  用户填写 shim 函数体

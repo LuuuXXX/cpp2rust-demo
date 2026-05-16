@@ -115,9 +115,7 @@ fn init_simple_free_functions() {
         .stdout(predicate::str::contains("✓  init completed"));
 
     // Check that flat semantic file exists.
-    let ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/mylib.rs");
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/mylib.rs");
     assert!(ffi.exists(), "mylib.rs should exist");
     assert!(tmp
         .path()
@@ -172,9 +170,7 @@ fn init_build_cmd_via_sh_c() {
         .assert()
         .success();
 
-    let ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/quoted.rs");
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/quoted.rs");
     assert!(ffi.exists(), "quoted.rs should exist");
     let ffi_content = std::fs::read_to_string(&ffi).unwrap();
     assert!(
@@ -223,9 +219,7 @@ fn init_overloaded_functions_get_numeric_suffix() {
         .assert()
         .success();
 
-    let ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/over.rs");
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/over.rs");
     let content = std::fs::read_to_string(&ffi).unwrap();
 
     // First overload keeps plain name.
@@ -273,9 +267,7 @@ fn init_namespace_qualified_signature() {
         .assert()
         .success();
 
-    let ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/ns.rs");
+    let ffi = tmp.path().join(".cpp2rust/default/rust/src/ns.rs");
     let content = std::fs::read_to_string(&ffi).unwrap();
     // The C++ signature in the attribute should be namespace-qualified.
     assert!(
@@ -317,15 +309,9 @@ fn init_class_generates_import_class_and_import_lib() {
         .assert()
         .success();
 
-    let class_ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/widget.rs");
-    let method_ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/widget.rs");
-    let free_ffi = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src/widget.rs");
+    let class_ffi = tmp.path().join(".cpp2rust/default/rust/src/widget.rs");
+    let method_ffi = tmp.path().join(".cpp2rust/default/rust/src/widget.rs");
+    let free_ffi = tmp.path().join(".cpp2rust/default/rust/src/widget.rs");
     let class_content = std::fs::read_to_string(&class_ffi).unwrap();
     let method_content = std::fs::read_to_string(&method_ffi).unwrap();
     let free_content = std::fs::read_to_string(&free_ffi).unwrap();
@@ -403,11 +389,9 @@ fn init_free_only_group_conditional_exports() {
         .success();
 
     // Flat layout: all content is in a single free_only.rs file.
-    let flat_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/free_only.rs"),
-    )
-    .unwrap();
+    let flat_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/free_only.rs"))
+            .unwrap();
     assert!(flat_src.contains("CPP_TYPES"));
     assert!(flat_src.contains("CPP_RUST_TYPE_MAPPINGS"));
     assert!(flat_src.contains("pub fn rust_type_for"));
@@ -541,16 +525,20 @@ fn init_no_link_skips_unsupported_members_and_reports_reasons() {
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
     assert!(!build_rs.contains("cargo::rustc-link-lib=rapidjson"));
 
-    let free = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/unsupported.rs"),
-    )
-    .unwrap();
+    let free =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/unsupported.rs"))
+            .unwrap();
     assert!(free.contains("fn fill(out: *mut *mut i32, name: *mut *const i8) -> i32"));
     // In the flat layout, operator shims are appended after a section separator.
     // Verify operators are NOT extracted as regular bindings (before the shim section).
-    let before_shims = free.split("// --- operator shims ---").next().unwrap_or(&free);
-    assert!(!before_shims.contains("operator"), "operator should not appear as a regular binding");
+    let before_shims = free
+        .split("// --- operator shims ---")
+        .next()
+        .unwrap_or(&free);
+    assert!(
+        !before_shims.contains("operator"),
+        "operator should not appear as a regular binding"
+    );
 
     let report = std::fs::read_to_string(
         tmp.path()
@@ -605,11 +593,8 @@ fn init_skips_free_function_with_template_instance_type() {
         .assert()
         .success();
 
-    let free = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/templated.rs"),
-    )
-    .unwrap();
+    let free = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/templated.rs"))
+        .unwrap();
     assert!(free.contains("fn regular(v: i32) -> i32"));
     assert!(!free.contains("use_holder"));
 
@@ -1364,11 +1349,8 @@ fn init_virtual_methods_extracted() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/virtual.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/virtual.rs")).unwrap();
     // All three public methods (including the two virtual ones) should be extracted.
     assert!(method_src.contains("fn tick(&mut self, delta: i32) -> i32"));
     assert!(method_src.contains("fn reset(&mut self)"));
@@ -1423,11 +1405,8 @@ fn init_abstract_class_generates_interface() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/abstract.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/abstract.rs")).unwrap();
     // Fully-abstract class → #[interface] annotation.
     assert!(
         method_src.contains("#[interface]"),
@@ -1442,11 +1421,9 @@ fn init_abstract_class_generates_interface() {
     assert!(method_src.contains("fn reset(&mut self)"));
 
     // Abstract class should NOT appear as a forward decl in import_lib!
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/abstract.rs"),
-    )
-    .unwrap_or_default();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/abstract.rs"))
+            .unwrap_or_default();
     assert!(
         !free_src.contains("class IProcessor;"),
         "abstract class should not be forward-declared in import_lib!"
@@ -1498,11 +1475,8 @@ fn init_operator_overload_report_includes_shim_hints() {
     assert!(report.contains("## Operator Overload Shim Hints"));
     assert!(report.contains("operator_shims.hpp"));
     // Regular non-operator method should be extracted and not skipped.
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/ops.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/ops.rs")).unwrap();
     assert!(method_src.contains("fn get(&self, idx: i32) -> f64"));
 }
 
@@ -1545,11 +1519,9 @@ fn init_class_with_ctor_generates_ctor_attribute() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/widget_ctor.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/widget_ctor.rs"))
+            .unwrap();
 
     // The import_class! block should include ctor = "...".
     assert!(
@@ -1615,11 +1587,9 @@ fn init_class_multiple_ctors_generates_factory_functions() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/multi_ctor.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/multi_ctor.rs"))
+            .unwrap();
     // Primary ctor (fewest params = 0-param default ctor) in import_class!.
     assert!(
         method_src.contains("ctor = \"Counter()\""),
@@ -1627,11 +1597,9 @@ fn init_class_multiple_ctors_generates_factory_functions() {
         method_src
     );
 
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/multi_ctor.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/multi_ctor.rs"))
+            .unwrap();
     // Extra ctors should become factory functions in import_lib!.
     assert!(
         free_src.contains("new_2") || free_src.contains("new_3"),
@@ -1682,11 +1650,8 @@ fn init_class_ctors_sorted_by_param_count() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/rev_ctor.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/rev_ctor.rs")).unwrap();
     // Even though Stack() is declared last, it should be the primary ctor.
     assert!(
         method_src.contains("ctor = \"Stack()\""),
@@ -1694,11 +1659,8 @@ fn init_class_ctors_sorted_by_param_count() {
         method_src
     );
 
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/rev_ctor.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/rev_ctor.rs")).unwrap();
     // The 1-param and 2-param ctors should become factory fns, NOT the 0-param.
     assert!(
         free_src.contains("new_2"),
@@ -1754,11 +1716,8 @@ fn init_class_inheritance_generates_bases_syntax() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/inherit.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/inherit.rs")).unwrap();
 
     // Shape should be abstract (#[interface]).
     assert!(
@@ -1815,11 +1774,8 @@ fn init_abstract_class_generates_make_proxy() {
         .assert()
         .success();
 
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/listener.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/listener.rs")).unwrap();
 
     // @make_proxy binding should be generated.
     assert!(
@@ -1904,11 +1860,8 @@ fn init_global_variable_generates_data_binding() {
         .assert()
         .success();
 
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/globals.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/globals.rs")).unwrap();
 
     // Mutable global: `&'static mut T`
     assert!(
@@ -1988,11 +1941,9 @@ fn init_namespaced_global_variable_uses_qualified_name() {
         .assert()
         .success();
 
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/ns_globals.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/ns_globals.rs"))
+            .unwrap();
 
     // Qualified name should be used in the data attribute.
     assert!(
@@ -2186,11 +2137,8 @@ fn init_mixed_class_generates_companion_interface() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/mixed.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/mixed.rs")).unwrap();
 
     // Companion interface trait should be emitted first.
     assert!(
@@ -2293,11 +2241,8 @@ fn init_operator_overload_generates_shim_files() {
     );
 
     // Shim bindings are now appended to the flat ops2.rs file.
-    let flat_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/ops2.rs"),
-    )
-    .unwrap();
+    let flat_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/ops2.rs")).unwrap();
     assert!(
         flat_src.contains("import_lib!") && flat_src.contains("#[cpp(func"),
         "flat ops2.rs should contain import_lib! with #[cpp(func)] shim bindings: {flat_src}"
@@ -2393,11 +2338,8 @@ fn init_enum_extraction_generates_repr_c_enum() {
         .assert()
         .success();
 
-    let types_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/colors.rs"),
-    )
-    .unwrap();
+    let types_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/colors.rs")).unwrap();
     // Both enum definitions should appear in the types module.
     assert!(
         types_src.contains("pub enum Color"),
@@ -2429,11 +2371,8 @@ fn init_enum_extraction_generates_repr_c_enum() {
     );
 
     // The free function that uses the enum type should be extracted.
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/colors.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/colors.rs")).unwrap();
     assert!(
         free_src.contains("fn flip("),
         "function using enum type should be extracted: {free_src}"
@@ -2491,11 +2430,8 @@ fn init_simple_typedef_generates_type_alias() {
         .assert()
         .success();
 
-    let types_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/aliases.rs"),
-    )
-    .unwrap();
+    let types_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/aliases.rs")).unwrap();
     // All three type aliases should appear in the types module.
     assert!(
         types_src.contains("pub type MyUint"),
@@ -2517,11 +2453,8 @@ fn init_simple_typedef_generates_type_alias() {
 
     // The function using typedef types as parameters should be extracted into
     // the free module (typedef aliases must be resolved through is_supported_cpp_type).
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/aliases.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/aliases.rs")).unwrap();
     assert!(
         free_src.contains("fn compute("),
         "function with typedef parameter types should be extracted: {free_src}"
@@ -2576,11 +2509,8 @@ fn init_static_data_member_generates_data_binding() {
         .assert()
         .success();
 
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/counter.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/counter.rs")).unwrap();
     // Static data members should be emitted as #[cpp(data = "ClassName::member")] bindings.
     assert!(
         free_src.contains("Counter::count"),
@@ -2644,11 +2574,8 @@ fn init_function_template_explicit_spec_is_extracted() {
         .assert()
         .success();
 
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/tmpl.rs"),
-    )
-    .unwrap_or_default();
+    let free_src = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/tmpl.rs"))
+        .unwrap_or_default();
 
     // The concrete specialization for int should be extracted.
     assert!(
@@ -2698,11 +2625,8 @@ fn init_nested_class_is_extracted() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/nested.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/nested.rs")).unwrap();
     // The outer class should be extracted.
     assert!(
         method_src.contains("class Outer"),
@@ -2831,11 +2755,9 @@ fn alias_registry_handles_namespaced_template_type() {
 
     // The typedef specialisation should be extracted and use the alias name
     // "Doc" (canonical_name) as the Rust struct name.
-    let method_rs = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/doclib.rs"),
-    )
-    .unwrap_or_default();
+    let method_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/doclib.rs"))
+            .unwrap_or_default();
 
     // Either the method file uses "Doc" as struct name, or the report
     // confirms template class extraction (canonical_name in the report).
@@ -2993,11 +2915,8 @@ fn transitive_alias_unlocks_function_parameter() {
         .assert()
         .success();
 
-    let free = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/transitive.rs"),
-    )
-    .unwrap();
+    let free = std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/transitive.rs"))
+        .unwrap();
 
     // Both the direct alias and the transitive alias should be accepted.
     assert!(
@@ -3186,11 +3105,9 @@ fn init_virtual_base_skipped_and_reported() {
     );
 
     // The method binding should NOT list a virtual Base in the class line.
-    let method_rs = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/virt_base.rs"),
-    )
-    .unwrap_or_default();
+    let method_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/virt_base.rs"))
+            .unwrap_or_default();
     // Virtual base should not appear in `class Derived: Base {` because hicc
     // doesn't support virtual inheritance.  We just verify the file is generated
     // (the exact class line may vary).
@@ -3240,11 +3157,8 @@ fn init_instance_fields_generate_field_bindings() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/sensor.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/sensor.rs")).unwrap();
 
     // Read accessor for `id` field.
     assert!(
@@ -3329,11 +3243,8 @@ fn init_field_only_class_generates_bindings() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/point.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/point.rs")).unwrap();
 
     // Field-only class must produce an import_class! block with field accessors.
     assert!(
@@ -3415,11 +3326,8 @@ fn init_std_string_function_generates_shim_suggestion() {
     );
 
     // The non-string function `add` should be extracted normally.
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/stringer.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/stringer.rs")).unwrap();
     assert!(
         free_src.contains("fn add(a: i32, b: i32) -> i32"),
         "fn add should be extracted normally"
@@ -3484,11 +3392,9 @@ fn init_std_function_generates_interface_suggestion() {
     );
 
     // `add` should still be extracted normally.
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/callbacks.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/callbacks.rs"))
+            .unwrap();
     assert!(
         free_src.contains("fn add(a: i32, b: i32) -> i32"),
         "fn add should be extracted normally"
@@ -3646,11 +3552,8 @@ fn init_va_list_last_param_generates_unsafe_variadic_binding() {
         .assert()
         .success();
 
-    let free_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/variadic.rs"),
-    )
-    .unwrap();
+    let free_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/variadic.rs")).unwrap();
 
     // The function should be extracted (not skipped) and marked unsafe with `...`.
     assert!(
@@ -3715,11 +3618,8 @@ fn init_inherited_class_generates_dynamic_cast_skeleton() {
         .success();
 
     // Dynamic cast starters are appended to the flat shapes.rs file.
-    let dc_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/shapes.rs"),
-    )
-    .unwrap();
+    let dc_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/shapes.rs")).unwrap();
 
     // Should contain a @dynamic_cast skeleton for Circle from Shape.
     assert!(
@@ -3787,11 +3687,8 @@ fn init_multiple_inheritance_all_bases_extracted() {
         .assert()
         .success();
 
-    let method_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/multi.rs"),
-    )
-    .unwrap();
+    let method_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/multi.rs")).unwrap();
 
     // Document should inherit from both Printable and Serializable.
     assert!(
@@ -3856,11 +3753,8 @@ fn init_placement_new_file_created_for_class_with_ctor() {
         .success();
 
     // Placement-new starters are appended to the flat widget.rs file.
-    let pn_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/widget.rs"),
-    )
-    .unwrap();
+    let pn_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/widget.rs")).unwrap();
     // Must contain the @placement_new annotation (commented out).
     assert!(
         pn_src.contains("@placement_new"),
@@ -3912,11 +3806,8 @@ fn init_no_placement_new_file_when_only_free_functions() {
         .success();
 
     // Flat layout: util.rs is written but should NOT contain placement_new starters.
-    let flat_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/util.rs"),
-    )
-    .unwrap();
+    let flat_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/util.rs")).unwrap();
     assert!(
         !flat_src.contains("@placement_new"),
         "placement_new starters should NOT appear when there are no classes with ctors"
@@ -4018,11 +3909,8 @@ fn init_types_module_contains_rust_any_for_stl_param() {
         .assert()
         .success();
 
-    let types_src = std::fs::read_to_string(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src/items.rs"),
-    )
-    .unwrap();
+    let types_src =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/items.rs")).unwrap();
     assert!(
         types_src.contains("RustAny"),
         "types/mod.rs should contain RustAny suggestions when STL containers detected: {}",

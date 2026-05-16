@@ -21,10 +21,11 @@ RapidJSON 是纯 header-only 库，无预编译二进制，主要特点：
 **绑定策略**：
 
 1. 使用 `--no-link` 模式（无需链接库）
-2. 为每个 RapidJSON 头文件创建一个 synthetic 编译单元（`entry-xxx.cpp`），触发预处理展开
-3. 多次 `init` 累积到同一 feature，`merge` 合并为全局视图
-4. 模板类依赖 RapidJSON 内置的 `typedef` 别名（无需额外 `using` 声明）
-5. 运算符通过 `operator_shims.hpp` 三步工作流处理
+2. 创建一个 `entry.cpp` 汇总所有主要头文件，使用 CMake 构建整个项目
+3. 单个翻译单元触发 `init`，生成一个平铺的 `entry.rs`（1:1 映射）
+4. `merge` 合并为全局视图
+5. 模板类依赖 RapidJSON 内置的 `typedef` 别名（无需额外 `using` 声明）
+6. 运算符通过 `operator_shims.hpp` 三步工作流处理
 
 ---
 
@@ -32,20 +33,20 @@ RapidJSON 是纯 header-only 库，无预编译二进制，主要特点：
 
 | RapidJSON 组件 | C++ 特性 | 绑定状态 | 输出位置 |
 |---------------|---------|---------|---------|
-| `ParseErrorCode` 枚举 | `enum` | ✅ | `types/mod.rs` |
-| `Type` 枚举（Value 类型） | `enum` | ✅ | `types/mod.rs` |
-| `Document` (GenericDocument 别名) | 模板特化 + typedef | ✅ | `method/mtd_*.rs` |
-| `Value` (GenericValue 别名) | 模板特化 + typedef | ✅ | `method/mtd_*.rs` |
-| `Writer<StringBuffer>` 别名 | 模板特化 + typedef | ✅ | `method/mtd_*.rs` |
-| `PrettyWriter<StringBuffer>` 别名 | 模板特化 + typedef | ✅ | `method/mtd_*.rs` |
-| `StringBuffer` | 普通类 | ✅ | `method/mtd_*.rs` |
-| `Reader` 相关方法 | 普通类/方法 | ✅ | `method/mtd_*.rs` |
-| `Pointer` | 模板特化 + typedef | ✅ | `method/mtd_*.rs` |
-| 自定义 Allocator 接口 | 纯虚类 + `@make_proxy` | ✅ | `method/mtd_*.rs` + `free/fn_*.rs` |
-| 非虚方法（`isNull()`, `getInt()` 等） | 普通方法 | ✅ | `method/mtd_*.rs` |
-| `const` 方法 | `const` 方法 | ✅ | `method/mtd_*.rs` |
-| 全局函数（`parseErrorName` 等） | 自由函数 | ✅ | `free/fn_*.rs` |
-| `operator[]`、`operator=` 等 | 运算符重载 | 🔧 shim | `free/shim_ops.rs` + `meta/operator_shims.hpp` |
+| `ParseErrorCode` 枚举 | `enum` | ✅ | `entry.rs` |
+| `Type` 枚举（Value 类型） | `enum` | ✅ | `entry.rs` |
+| `Document` (GenericDocument 别名) | 模板特化 + typedef | ✅ | `entry.rs` |
+| `Value` (GenericValue 别名) | 模板特化 + typedef | ✅ | `entry.rs` |
+| `Writer<StringBuffer>` 别名 | 模板特化 + typedef | ✅ | `entry.rs` |
+| `PrettyWriter<StringBuffer>` 别名 | 模板特化 + typedef | ✅ | `entry.rs` |
+| `StringBuffer` | 普通类 | ✅ | `entry.rs` |
+| `Reader` 相关方法 | 普通类/方法 | ✅ | `entry.rs` |
+| `Pointer` | 模板特化 + typedef | ✅ | `entry.rs` |
+| 自定义 Allocator 接口 | 纯虚类 + `@make_proxy` | ✅ | `entry.rs` |
+| 非虚方法（`isNull()`, `getInt()` 等） | 普通方法 | ✅ | `entry.rs` |
+| `const` 方法 | `const` 方法 | ✅ | `entry.rs` |
+| 全局函数（`parseErrorName` 等） | 自由函数 | ✅ | `entry.rs` |
+| `operator[]`、`operator=` 等 | 运算符重载 | 🔧 shim | `entry.rs` + `meta/operator_shims.hpp` |
 | 析构函数 | 析构函数 | ❌ 跳过 | — |
 | `std::basic_ostream` 参数（`operator<<`）| `std::` 类型 | ❌ 跳过 | — |
 | `std::allocator` 模板参数 | 复杂模板参数 | ⚠️ 依赖别名 | — |
@@ -95,45 +96,41 @@ git clone --depth=1 https://github.com/Tencent/rapidjson.git /tmp/rapidjson
 cd /tmp/rapidjson
 ```
 
-### 步骤 3：准备 Synthetic 编译单元
+### 步骤 3：准备 entry.cpp + CMakeLists.txt
 
-RapidJSON 是 header-only 库，需要为每个头文件创建一个"入口" `.cpp` 文件：
+将所有主要 RapidJSON 头文件集中到一个翻译单元中，实现整体项目的一次性处理（1 cpp → 1 rs）：
 
 ```bash
 cd /tmp/rapidjson
 
 # 覆盖所有之前的运行产物（保证幂等）
-rm -rf .cpp2rust
+rm -rf .cpp2rust build
 
-# 为六个头文件维度创建编译单元
-cat > document.cpp     <<CPP
+# 单翻译单元，覆盖所有主要 API 头文件
+cat > entry.cpp << 'CPP'
 #include "rapidjson/document.h"
-CPP
-cat > reader.cpp       <<CPP
 #include "rapidjson/reader.h"
-CPP
-cat > writer.cpp       <<CPP
 #include "rapidjson/writer.h"
-CPP
-cat > prettywriter.cpp <<CPP
 #include "rapidjson/prettywriter.h"
-CPP
-cat > pointer.cpp      <<CPP
 #include "rapidjson/pointer.h"
-CPP
-cat > schema.cpp       <<CPP
 #include "rapidjson/schema.h"
+
+int main() { return 0; }
 CPP
+
+# CMakeLists.txt 用于模拟真实项目构建流程
+cat > CMakeLists.txt << 'CMAKE'
+cmake_minimum_required(VERSION 3.10)
+project(cpp2rust_validate LANGUAGES CXX)
+add_executable(cpp2rust_entry entry.cpp)
+target_include_directories(cpp2rust_entry PRIVATE include)
+target_compile_features(cpp2rust_entry PRIVATE cxx_std_11)
+CMAKE
 ```
 
 ### 步骤 4：运行 `cpp2rust-demo init`
 
-六个编译单元一次性传给 init（通过 `sh -c "cmd1 && cmd2 && ..."` 链接）：
-
-> **`--link` 与 `--no-link` 说明**：两个标志用途不同，同时使用不矛盾。
-> `--link rapidjson` 设置生成代码中 `import_lib!` 的 `link_name`（逻辑库名）；
-> `--no-link` 告知工具不向 `build.rs` 注入 `cargo::rustc-link-lib=rapidjson`，
-> 因为 RapidJSON 是 header-only 库，不需要预编译目标可链接。
+使用 CMake 构建整个项目（模拟真实工程构建），`--no-link` 跳过链接（header-only 库）：
 
 ```bash
 CPP2RUST=/path/to/cpp2rust-demo/target/release/cpp2rust-demo
@@ -145,14 +142,7 @@ cd /tmp/rapidjson
     --feature "${FEATURE}" \
     --link rapidjson \
     --no-link \
-    -- sh -c "
-        clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude document.cpp &&
-        clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude reader.cpp &&
-        clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude writer.cpp &&
-        clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude prettywriter.cpp &&
-        clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude pointer.cpp &&
-        clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude schema.cpp
-    " < /dev/null
+    -- sh -c "cmake -S . -B build && cmake --build build -j2" < /dev/null
 ```
 
 > **说明**：`< /dev/null` 使 init 在非交互模式下自动全选所有中间件文件。  
@@ -162,14 +152,10 @@ cd /tmp/rapidjson
 ```
 [init] Hook compiled: .cpp2rust/default/hook/libhook.so
 [init] Running build command via LD_PRELOAD...
-[init] Captured 6 translation unit(s)
-[init] Selected 6 middleware file(s)
-[init] AST dump: document.cpp.cpp2rust ... OK
-[init] AST dump: reader.cpp.cpp2rust   ... OK
-...
-[init] Generated: .cpp2rust/default/rust/src/mod_document/
-[init] Generated: .cpp2rust/default/rust/src/mod_reader/
-...
+[init] Captured 1 translation unit(s)
+[init] Selected 1 middleware file(s)
+[init] AST dump: entry.cpp.cpp2rust ... OK
+[init] Generated: .cpp2rust/default/rust/src/entry.rs   (1:1 flat module)
 [init] Interface report: .cpp2rust/default/meta/init-interface-report.md
 ```
 
@@ -199,14 +185,13 @@ cd /tmp/rapidjson
 ls -la .cpp2rust/default/rust/src
 # 预期：.cpp2rust/default/rust/src -> src.2
 
-# init 原始产物备份
+# init 原始产物备份（平铺文件，1:1 映射）
 ls .cpp2rust/default/rust/src.1/
-# 预期包含：mod_document/ mod_reader/ mod_writer/ ... common/ lib.rs
+# 预期包含：entry.rs  entry.meta.json  common/  lib.rs
 
 # merge 产物
 ls .cpp2rust/default/rust/src.2/
-# 预期：lib.rs  mod_document.rs  mod_reader.rs  mod_writer.rs
-#         mod_prettywriter.rs  mod_pointer.rs  mod_schema.rs  merged_ffi.rs
+# 预期：lib.rs  entry.rs  merged_ffi.rs
 ```
 
 #### 6.2 关键文件存在性检查
@@ -215,20 +200,15 @@ ls .cpp2rust/default/rust/src.2/
 OUT=".cpp2rust/default"
 
 # 验证中间件文件
-for case in document reader writer prettywriter pointer schema; do
-    test -f "${OUT}/cpp/${case}.cpp.cpp2rust"       && echo "[OK] ${case}.cpp2rust"
-    test -f "${OUT}/cpp/${case}.cpp.cpp2rust.opts"  && echo "[OK] ${case}.cpp2rust.opts"
-done
+test -f "${OUT}/cpp/entry.cpp.cpp2rust"       && echo "[OK] entry.cpp2rust"
+test -f "${OUT}/cpp/entry.cpp.cpp2rust.opts"  && echo "[OK] entry.cpp2rust.opts"
 
-# 验证 init 产物（src.1 备份）
-for case in document reader writer prettywriter pointer schema; do
-    test -f "${OUT}/rust/src.1/mod_${case}/include/mod.rs"     && echo "[OK] mod_${case}/include"
-    test -f "${OUT}/rust/src.1/mod_${case}/free/fn_${case}.rs" && echo "[OK] mod_${case}/free"
-    test -f "${OUT}/rust/src.1/mod_${case}/meta.json"           && echo "[OK] mod_${case}/meta.json"
-done
+# 验证 init 产物（平铺 1:1 文件）
+test -f "${OUT}/rust/src.1/entry.rs"           && echo "[OK] entry.rs (flat module)"
+test -f "${OUT}/rust/src.1/entry.meta.json"    && echo "[OK] entry.meta.json"
 
 # 验证 merge 产物
-test -f "${OUT}/rust/src/merged_ffi.rs"   && echo "[OK] merged_ffi.rs"
+test -f "${OUT}/rust/src/merged_ffi.rs"        && echo "[OK] merged_ffi.rs"
 test -f "${OUT}/meta/init-interface-report.md" && echo "[OK] interface report"
 test -f "${OUT}/meta/merge-report.md"          && echo "[OK] merge report"
 ```
@@ -238,26 +218,20 @@ test -f "${OUT}/meta/merge-report.md"          && echo "[OK] merge report"
 ```bash
 OUT=".cpp2rust/default"
 
+# entry.rs 应包含 hicc::cpp!, import_class!, import_lib!
+grep -q "hicc::cpp!"           "${OUT}/rust/src.1/entry.rs" && echo "[OK] hicc::cpp!"
+grep -q "import_lib!"          "${OUT}/rust/src.1/entry.rs" && echo "[OK] import_lib!"
+grep -q 'link_name = "rapidjson"' "${OUT}/rust/src.1/entry.rs" && echo "[OK] link_name"
+grep -q '#include "entry.cpp"' "${OUT}/rust/src.1/entry.rs" && echo "[OK] include entry.cpp"
+
 # merged_ffi.rs 应包含 import_lib! 和 link_name
 grep -q "import_lib!"         "${OUT}/rust/src/merged_ffi.rs" && echo "[OK] import_lib!"
 grep -q 'link_name = "rapidjson"' "${OUT}/rust/src/merged_ffi.rs" && echo "[OK] link_name"
+grep -q '#include "entry.cpp"' "${OUT}/rust/src/merged_ffi.rs" && echo "[OK] include entry.cpp"
 
-# merged_ffi.rs 应包含六个中间件的 include（使用原始源文件名，不含 .cpp2rust 后缀）
-for case in document reader writer prettywriter pointer schema; do
-    grep -q "#include \"${case}.cpp\"" "${OUT}/rust/src/merged_ffi.rs" \
-        && echo "[OK] include ${case}"
-done
-
-# 接口报告应包含 Type Aliases 和模板别名
-grep -q "Type Aliases" "${OUT}/meta/init-interface-report.md" && echo "[OK] Type Aliases section"
+# 接口报告应包含 Document, Value 等
 grep -q "Document"     "${OUT}/meta/init-interface-report.md" && echo "[OK] Document alias"
 grep -q "Value"        "${OUT}/meta/init-interface-report.md" && echo "[OK] Value alias"
-
-# 验证各 group 的 import_lib! 包含 link_name
-for case in document reader writer prettywriter pointer schema; do
-    grep -q 'link_name = "rapidjson"' "${OUT}/rust/src.1/mod_${case}/free/fn_${case}.rs" \
-        && echo "[OK] mod_${case} link_name"
-done
 ```
 
 ### 步骤 7：使用自动化脚本（一键复现）
@@ -272,43 +246,43 @@ done
 ./scripts/validate-rapidjson.sh --release
 ```
 
-脚本会自动完成构建 → 克隆 rapidjson → init → merge → 验证全流程，最终输出：
+脚本会自动完成构建 → 克隆 rapidjson → 创建 entry.cpp + CMakeLists.txt → init → merge → 验证全流程，最终输出：
 ```
-✓ All validation checks passed.
+All validation checks passed.
 ```
 
-> **与手动步骤的差异**：脚本的 `init` 命令**不传 `--no-link`**（即会向 `build.rs` 注入 `cargo::rustc-link-lib=rapidjson`）。这是 CI 有意为之：脚本只验证接口提取和绑定生成的正确性，不实际执行 `cargo build`，因此是否注入链接指令不影响结果。若你需要将生成的 crate 用于 header-only 场景（不链接预编译库），应在自己的 entry.cpp 流程中加上 `--no-link`，如手动步骤 4 所示。
+> 脚本使用 `--no-link`（rapidjson 是 header-only 库），并通过 `rustfmt --check` 验证生成脚手架的 Rust 语法正确性。
 
 ---
 
 ## 四、预期产物示例
 
-### `merged_ffi.rs`（节选）
+### `entry.rs`（init 生成的平铺模块，节选）
 
 ```rust
-// merged_ffi.rs — auto-generated by cpp2rust-demo merge
+// Auto-generated by cpp2rust-demo.
+// Source: entry.cpp.cpp2rust  Link: rapidjson
 
-// ===== Common includes =====
 hicc::cpp! {
-    #include "document.cpp"
-    #include "reader.cpp"
-    #include "writer.cpp"
-    #include "prettywriter.cpp"
-    #include "pointer.cpp"
-    #include "schema.cpp"
+    #include "entry.cpp"
 }
 
-// ===== mod_document =====
-hicc::import_lib! {
-    #![link_name = "rapidjson"]
-    // ... 自由函数
+// C++ enum / enum class definitions.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseErrorCode {
+    kParseErrorNone = 0,
+    kParseErrorDocumentEmpty = 1,
+    // ...
 }
 
 hicc::import_class! {
     #[cpp(class = "rapidjson::GenericValue<rapidjson::UTF8<char>, ...>",
           ctor = "Value()")]
     class Value {
-        // ... Value 方法
+        fn is_null(&self) -> bool;
+        fn get_int(&self) -> i32;
+        // ...
     }
 }
 
@@ -316,16 +290,35 @@ hicc::import_class! {
     #[cpp(class = "rapidjson::GenericDocument<rapidjson::UTF8<char>, ...>",
           ctor = "Document()")]
     class Document: Value {
-        // ... Document 方法
+        fn parse(&mut self, json: *const i8) -> *mut Document;
+        // ...
     }
 }
 
-// ===== mod_schema =====
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParseErrorCode {
-    kParseErrorNone = 0,
-    kParseErrorDocumentEmpty = 1,
+hicc::import_lib! {
+    #![link_name = "rapidjson"]
+    class Value;
+    class Document;
+    // ...
+    fn get_parse_error_code(d: *const Document) -> ParseErrorCode;
+}
+```
+
+### `merged_ffi.rs`（merge 后全局视图，节选）
+
+```rust
+// merged_ffi.rs — auto-generated by cpp2rust-demo merge
+
+hicc::cpp! {
+    #include "entry.cpp"
+}
+
+hicc::import_class! {
+    // ... Value 和 Document 的绑定（从 entry.rs 聚合而来）
+}
+
+hicc::import_lib! {
+    #![link_name = "rapidjson"]
     // ...
 }
 ```
