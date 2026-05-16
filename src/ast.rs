@@ -1306,6 +1306,29 @@ fn walk_node(
                 } else {
                     continue;
                 }
+                // Skip template instantiations where a by-reference parameter
+                // has a primitive base type (e.g. `PutN<int, char>` where
+                // `Stream = int`).  Such instantiations arise from implicit
+                // instantiations in included headers and typically fail to
+                // compile because primitive types lack the member types that
+                // the template function body expects (e.g. `Stream::Ch`).
+                let has_primitive_ref_param = child.inner.iter().flatten().any(|p| {
+                    if p.kind != "ParmVarDecl" {
+                        return false;
+                    }
+                    let Some(ref ti) = p.type_info else {
+                        return false;
+                    };
+                    let t = ti.qual_type.trim();
+                    if !t.ends_with('&') {
+                        return false;
+                    }
+                    let inner = t.trim_end_matches('&').trim_end();
+                    is_primitive_cpp_type(strip_top_level_const(inner))
+                });
+                if has_primitive_ref_param {
+                    continue;
+                }
                 if is_operator_name(child.name.as_deref()) {
                     collect_operator_shim(child, namespace, None, None, result);
                     record_skipped(
@@ -2635,6 +2658,15 @@ fn is_supported_cpp_type(
 
     // Allow template types whose bare name has a typedef alias.
     if base.contains('<') {
+        // Reject std:: and compiler-internal template types unconditionally.
+        // hicc has no method table for stdlib class templates (e.g.
+        // `std::basic_istream<char>`), and system-header typedefs such as
+        // `std::istream = std::basic_istream<char,...>` would otherwise make
+        // `has_template_alias` return true, incorrectly marking them as
+        // supported and generating bindings that fail to compile.
+        if base.starts_with("std::") || base.starts_with("::std::") {
+            return false;
+        }
         let bare_template = bare_template_name(base);
         if alias_registry.has_template_alias(bare_template) {
             return true;
