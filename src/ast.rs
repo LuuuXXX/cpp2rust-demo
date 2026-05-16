@@ -1011,6 +1011,34 @@ fn update_file(loc: &Location, current_file: &mut String) {
 }
 
 /// Check whether `file` is one of the user-supplied target headers.
+/// Returns `true` for namespace names that belong to the C++ standard library,
+/// compiler runtime support, or other system-level implementation namespaces.
+/// Declarations inside these namespaces are never useful as Rust FFI bindings
+/// and filtering them at the namespace level prevents hundreds of unwanted
+/// symbol extractions from preprocessed (all-headers-expanded) middleware files.
+fn is_system_namespace(name: &str) -> bool {
+    // Explicit well-known system namespaces.
+    matches!(
+        name,
+        "std"
+            | "__gnu_cxx"
+            | "__cxx11"
+            | "__1"
+            | "__detail"
+            | "__fs"
+            | "__atomic_impl"
+            | "posix"
+            | "__pstl"
+            | "__gnu_pbds"
+            | "__exception_ptr"
+            | "__cxxabiv1"
+            | "abi"
+            | "chrono"
+            | "filesystem"
+            | "experimental"
+    ) || name.starts_with("__")
+}
+
 fn is_target(file: &str, targets: &[&Path]) -> bool {
     if file.is_empty() {
         return false;
@@ -1048,6 +1076,11 @@ fn walk_node(
     match node.kind.as_str() {
         "NamespaceDecl" => {
             if let Some(ref ns_name) = node.name {
+                // Skip well-known system/compiler namespaces to avoid extracting
+                // stdlib and compiler-internal symbols from preprocessed headers.
+                if is_system_namespace(ns_name) {
+                    return;
+                }
                 let mut ns = namespace.to_vec();
                 ns.push(ns_name.clone());
                 for child in node.inner.iter().flatten() {
@@ -1068,6 +1101,15 @@ fn walk_node(
 
         "FunctionDecl" => {
             if !is_target(current_file, targets) {
+                return;
+            }
+            // Skip compiler-internal names (double-underscore prefix).
+            if node
+                .name
+                .as_deref()
+                .map(|n| n.starts_with("__"))
+                .unwrap_or(false)
+            {
                 return;
             }
             if is_operator_name(node.name.as_deref()) {
@@ -1107,6 +1149,10 @@ fn walk_node(
             let Some(class_name) = node.name.as_deref() else {
                 return;
             };
+            // Skip compiler-internal names (double-underscore prefix).
+            if class_name.starts_with("__") {
+                return;
+            }
             let qualified_name = make_qualified(namespace, class_name);
             if let Some(class_ir) = extract_class_body(
                 node,
