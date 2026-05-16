@@ -2456,17 +2456,17 @@ pub(crate) fn normalize_cpp_type(t: &str) -> String {
     //   "char *const *__restrict"   -> "char *const *"   (after `*`)
     //   "__restrict char *"         -> "char *"           (leading)
     //   "char * __restrict"         -> "char *"           (trailing / mid)
+    //
+    // Replacement order: handle the `*__restrict[__]` form first so that the
+    // `*` is preserved; then handle any bare `__restrict[__]` that remains.
+    // This avoids leaving an orphaned `*` after the longer suffix is matched.
     let s = t
         .replace("*__restrict__", "*")
         .replace("*__restrict", "*")
         .replace("__restrict__", "")
         .replace("__restrict", "");
-    // Collapse any double spaces introduced by the removal, then trim.
-    let mut out = s.trim().to_string();
-    while out.contains("  ") {
-        out = out.replace("  ", " ");
-    }
-    out
+    // Collapse any whitespace runs introduced by the removal and trim edges.
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Extract the bare (no namespace, no template args) outer template class name.
