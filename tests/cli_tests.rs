@@ -550,7 +550,7 @@ fn init_no_link_skips_unsupported_members_and_reports_reasons() {
     // In the flat layout, operator shims are appended after a section separator.
     // Verify operators are NOT extracted as regular bindings (before the shim section).
     let before_shims = free.split("// --- operator shims ---").next().unwrap_or(&free);
-    assert!(!before_shims.contains("operator"), "operator should not appear as a regular binding: {}", before_shims);
+    assert!(!before_shims.contains("operator"), "operator should not appear as a regular binding");
 
     let report = std::fs::read_to_string(
         tmp.path()
