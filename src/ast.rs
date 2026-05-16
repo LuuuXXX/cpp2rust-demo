@@ -1130,6 +1130,36 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
+            // When a FunctionDecl has no explicit `loc.file` entry it originates
+            // from a template instantiation emitted in a header rather than from
+            // user-written code in the target file.  Apply the same
+            // primitive-by-reference guard used for FunctionTemplateDecl
+            // instantiations: if any by-reference parameter has a primitive base
+            // type (e.g. `PutN<int, char>` where the first param is `int &`), the
+            // instantiation is semantically invalid for hicc and must be skipped.
+            let loc_file_absent = node
+                .loc
+                .as_ref()
+                .map(|l| l.file.as_deref().map(str::is_empty).unwrap_or(true))
+                .unwrap_or(true);
+            if loc_file_absent {
+                let has_primitive_ref = node.type_info.as_ref().is_some_and(|ti| {
+                    if let Some((_, params_str)) = parse_fn_qual_type(&ti.qual_type) {
+                        split_at_top_level_comma(&params_str).iter().any(|p| {
+                            let t = p.trim();
+                            t.ends_with('&') && {
+                                let inner = t.trim_end_matches('&').trim_end();
+                                is_primitive_cpp_type(strip_top_level_const(inner))
+                            }
+                        })
+                    } else {
+                        false
+                    }
+                });
+                if has_primitive_ref {
+                    return;
+                }
+            }
             if is_operator_name(node.name.as_deref()) {
                 collect_operator_shim(node, namespace, None, None, result);
                 record_skipped(
@@ -1154,6 +1184,17 @@ fn walk_node(
             ) {
                 result.functions.push(ir);
             }
+        }
+
+        // Out-of-line method definitions appear as CXXMethodDecl / CXXConstructorDecl /
+        // CXXDestructorDecl / CXXConversionDecl nodes at the TranslationUnit level.
+        // The class body has already been processed from its CXXRecordDecl, so these
+        // definitions are redundant for our extraction purposes.  More importantly, the
+        // default `_ => {}` arm would recurse into the function body and treat every
+        // local VarDecl (e.g. `memberItr`, `result`, `buffer`) as a namespace-scope
+        // global — we must explicitly handle these kinds to prevent that.
+        "CXXMethodDecl" | "CXXConstructorDecl" | "CXXDestructorDecl" | "CXXConversionDecl" => {
+            // Do not recurse into the method body.
         }
 
         "CXXRecordDecl" => {
@@ -1542,6 +1583,29 @@ fn extract_class_body(
         let qualified_cn = make_qualified(namespace, class_name);
         let mut m = class_map.clone();
         m.insert(class_name.to_string(), qualified_cn);
+        // Add inner typedef/using-alias names from the class body so that methods
+        // whose return/parameter types reference a bare inner typedef name (e.g.
+        // `Type` in `BigInteger::GetDigit`) resolve to the underlying primitive
+        // type rather than a same-named global type (e.g. `rapidjson::Type` enum).
+        // Only simple, non-template, non-pointer underlying types are added; deeper
+        // types (arrays, function pointers, templates) are left to the default path.
+        for child in node.inner.iter().flatten() {
+            if child.kind == "TypedefDecl" || child.kind == "TypeAliasDecl" {
+                if let (Some(alias_name), Some(ti)) =
+                    (child.name.as_deref(), child.type_info.as_ref())
+                {
+                    let underlying = ti.qual_type.trim();
+                    if !underlying.contains('<')
+                        && !underlying.contains('*')
+                        && !underlying.contains('&')
+                        && !underlying.contains('[')
+                        && !underlying.is_empty()
+                    {
+                        m.insert(alias_name.to_string(), underlying.to_string());
+                    }
+                }
+            }
+        }
         class_local_map = m;
         &class_local_map
     };
@@ -2171,7 +2235,17 @@ fn extract_function(
     *count += 1;
     let rust_name = strategy.uniquify(&to_snake_case(name), *count);
 
-    let rust_return_type = cpp_to_rust_type_with_aliases(&return_type, alias_registry);
+    // When the class_map contains an override for a bare inner typedef name
+    // (e.g. `"Type"` → `"uint64_t"` added by `extract_class_body`), resolve it
+    // so the Rust return type reflects the correct primitive rather than the
+    // same-named global type.
+    let rust_return_type = {
+        let effective = class_map
+            .get(return_type.as_str())
+            .map(|s| s.as_str())
+            .unwrap_or(return_type.as_str());
+        cpp_to_rust_type_with_aliases(effective, alias_registry)
+    };
 
     Some(FunctionIR {
         name: name.to_string(),
@@ -2703,6 +2777,16 @@ fn is_supported_cpp_type(
     }
 
     if contains_unsupported_type_construct(base) {
+        return false;
+    }
+
+    // Reject all `std::` and `::std::` types unconditionally – hicc has no
+    // method tables for stdlib types.  This covers both explicit template
+    // forms (already caught above by the `<` branch) and non-template
+    // typedefs such as `std::istream` (a typedef alias for
+    // `std::basic_istream<char,...>`).  Without this guard the alias-lookup
+    // branch below would incorrectly return `true` for those typedefs.
+    if base.starts_with("std::") || base.starts_with("::std::") {
         return false;
     }
 

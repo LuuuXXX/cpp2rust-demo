@@ -823,12 +823,16 @@ fn render_import_lib_with_extra(
                 .as_deref()
                 .unwrap_or(class.name.as_str()),
         );
+        // The `#[cpp(func = "...")]` attribute must use the fully-qualified C++
+        // name so that hicc can resolve the type from global scope (e.g.
+        // `rapidjson::internal::ISchemaValidator` rather than just
+        // `ISchemaValidator`).
+        let cpp_name = &class.qualified_name;
         let snake = crate::ast::to_snake_case(&rust_name);
         let proxy_fn = format!("new_{}_proxy", snake);
         writeln!(
             out,
-            "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]",
-            name = rust_name
+            "    #[cpp(func = \"{cpp_name} @make_proxy<{cpp_name}>()\")]",
         )
         .unwrap();
         writeln!(out, "    #[interface(name = \"{}\")]", rust_name).unwrap();
@@ -847,12 +851,15 @@ fn render_import_lib_with_extra(
             continue;
         }
         let interface_name = format!("{}Interface", class.name);
+        // The companion interface is a synthetic type; its "qualified name" is
+        // derived from the class's own qualified name by appending `Interface`.
+        let cpp_interface_name = format!("{}Interface", class.qualified_name);
         let snake = crate::ast::to_snake_case(&interface_name);
         let proxy_fn = format!("new_{}_proxy", snake);
         writeln!(
             out,
             "    #[cpp(func = \"{name} @make_proxy<{name}>()\")]",
-            name = interface_name
+            name = cpp_interface_name
         )
         .unwrap();
         writeln!(out, "    #[interface(name = \"{}\")]", interface_name).unwrap();
