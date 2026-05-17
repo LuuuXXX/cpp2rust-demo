@@ -2230,7 +2230,15 @@ fn extract_function(
             });
             return None;
         }
-        let rust_type = cpp_to_rust_type_with_aliases(&cpp_type, alias_registry);
+        // Qualify the param type through the class-local typedef map before
+        // deriving the Rust type.  This resolves class-local typedefs such as
+        // `typedef char Ch` or `typedef uint64_t Type` to their underlying
+        // primitive, so `cpp_to_rust_type_with_aliases` returns the correct
+        // Rust primitive (`i8`, `u64`, …) rather than the unresolved alias
+        // name (`Ch`, `Type`, …) which would be undefined in the generated
+        // Rust scope.
+        let qualified_cpp_for_rust = qualify_cpp_type(&cpp_type, class_map);
+        let rust_type = cpp_to_rust_type_with_aliases(&qualified_cpp_for_rust, alias_registry);
         params.push(ParamIR {
             name: pname,
             cpp_type,
@@ -2275,7 +2283,12 @@ fn extract_function(
     *count += 1;
     let rust_name = strategy.uniquify(&to_snake_case(name), *count);
 
-    let rust_return_type = cpp_to_rust_type_with_aliases(&return_type, alias_registry);
+    // Use the already-qualified return type to derive the Rust return type.
+    // `qualified_return` has been resolved through the class-local typedef map
+    // (e.g. `Ch` → `char`, `Type` → `uint64_t` inside BigInteger), so
+    // `cpp_to_rust_type_with_aliases` produces the correct primitive Rust type
+    // (`i8`, `u64`, …) instead of the unresolved alias name.
+    let rust_return_type = cpp_to_rust_type_with_aliases(&qualified_return, alias_registry);
 
     Some(FunctionIR {
         name: name.to_string(),
@@ -3218,7 +3231,11 @@ fn extract_field(
 
     let is_const = has_top_level_const(&cpp_type);
     let base_cpp = strip_top_level_const(&cpp_type);
-    let rust_type = cpp_to_rust_type_with_aliases(base_cpp, alias_registry);
+    // Qualify through the class-local typedef map so that class-local typedefs
+    // (e.g. `typedef char Ch`) resolve to the underlying primitive before the
+    // Rust type is derived.
+    let qualified_base = qualify_cpp_type(base_cpp, class_map);
+    let rust_type = cpp_to_rust_type_with_aliases(&qualified_base, alias_registry);
     let rust_name = to_snake_case(&name);
     // Use the UNQUALIFIED class name so hicc generates `&Self::ClassName::field`.
     // Via C++'s injected-class-name rule, `Self::ClassName` resolves to `Self`,

@@ -327,14 +327,45 @@ pub fn render_types_module(decls: &ExtractedDecls) -> String {
             out.push_str("#[repr(C)]\n");
             out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
             out.push_str(&format!("pub enum {} {{\n", enum_ir.name));
+            // C++ allows multiple enum enumerators to share the same integer
+            // value (alias enumerators).  Rust `#[repr(C)]` enums do not permit
+            // duplicate discriminant values, so we skip later aliases and emit
+            // them as `pub const` items after the enum to preserve the names.
+            let mut seen_values: std::collections::HashSet<i64> = std::collections::HashSet::new();
+            let mut aliases: Vec<(String, String, i64)> = Vec::new(); // (alias, canonical, value)
             for variant in &enum_ir.variants {
                 if let Some(v) = variant.value {
+                    if seen_values.contains(&v) {
+                        // This variant is an alias – find the canonical name for
+                        // the same value (first enumerator with this value).
+                        let canonical = enum_ir
+                            .variants
+                            .iter()
+                            .find(|vv| vv.value == Some(v) && vv.name != variant.name)
+                            .map(|vv| vv.name.as_str())
+                            .unwrap_or(&variant.name);
+                        aliases.push((variant.name.clone(), canonical.to_string(), v));
+                        continue;
+                    }
+                    seen_values.insert(v);
                     out.push_str(&format!("    {} = {},\n", variant.name, v));
                 } else {
                     out.push_str(&format!("    {},\n", variant.name));
                 }
             }
-            out.push_str("}\n\n");
+            out.push_str("}\n");
+            // Emit duplicate-value aliases as associated constants.
+            if !aliases.is_empty() {
+                out.push_str(&format!("impl {} {{\n", enum_ir.name));
+                for (alias, canonical, _v) in &aliases {
+                    out.push_str(&format!(
+                        "    pub const {}: {} = {}::{};\n",
+                        alias, enum_ir.name, enum_ir.name, canonical
+                    ));
+                }
+                out.push_str("}\n");
+            }
+            out.push('\n');
         }
     }
 

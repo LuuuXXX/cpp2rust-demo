@@ -159,6 +159,14 @@ fn merge_flat_file(
         fragments.fn_items.extend(fns);
     }
 
+    // Extract enum definitions and emit them before import_class! blocks so
+    // that types like ParseErrorCode / SchemaDraft / OpenApiVersion are in
+    // scope when Rust compiles the import_class! invocations.
+    let enum_block = extract_enum_defs_block(&src);
+    if !enum_block.is_empty() {
+        fragments.type_blocks.insert(enum_block);
+    }
+
     let rendered = render_merged_module(&fragments, None, link_name);
     fs::write(output_file, rendered)
         .map_err(|e| anyhow!("write {}: {}", output_file.display(), e))?;
@@ -294,6 +302,75 @@ fn extract_cpp_includes(src: &str) -> Vec<String> {
         }
     }
     includes
+}
+
+/// Extract the `#[repr(C)] pub enum ...` section from a flat module source.
+///
+/// The flat source emitted by `render_flat_module` contains a
+/// `// C++ enum / enum class definitions.` section that lists all extracted
+/// C++ enums as `#[repr(C)] pub enum` items.  We re-emit that section verbatim
+/// in the per-stem merged output so that types such as `ParseErrorCode`,
+/// `SchemaDraft`, and `OpenApiVersion` are defined *before* the
+/// `hicc::import_class!` invocations that reference them in method signatures.
+fn extract_enum_defs_block(src: &str) -> String {
+    const ENUM_MARKER: &str = "// C++ enum / enum class definitions.";
+    // Stop markers that signal the end of the enum-defs section when seen at
+    // the *top level* (brace depth 0).
+    const STOP_MARKERS: &[&str] = &[
+        "// C++ typedef",
+        "pub const ",
+        "pub fn ",
+        "hicc::",
+        "pub mod ",
+        "pub use ",
+        "pub struct ",
+        "pub trait ",
+        "pub type ",
+    ];
+
+    let start = match src.find(ENUM_MARKER) {
+        Some(pos) => pos,
+        None => return String::new(),
+    };
+
+    let after = &src[start + ENUM_MARKER.len()..];
+    let mut end_offset = after.len(); // default: take everything after marker
+    let mut brace_depth: i32 = 0;
+    let mut consumed = 0usize;
+
+    for line in after.lines() {
+        let trimmed = line.trim();
+        // Track brace depth so we don't stop inside an `impl` block.
+        brace_depth += line.chars().filter(|&c| c == '{').count() as i32;
+        brace_depth -= line.chars().filter(|&c| c == '}').count() as i32;
+
+        let line_end = consumed + line.len() + 1; // +1 for '\n'
+
+        // Only check stop markers at the top level (brace depth 0 after
+        // processing the line's braces).
+        if brace_depth <= 0 && !trimmed.is_empty() {
+            // Reset depth to 0 to guard against trailing `}` imbalance.
+            brace_depth = 0;
+
+            // Check if the NEXT non-empty line (at depth 0) is a stop marker.
+            // We check *before* the current line if we haven't started yet.
+            // Actually, check whether this line itself is a stop marker.
+            if STOP_MARKERS.iter().any(|m| trimmed.starts_with(m)) {
+                // Compute offset of the start of this line within `after`.
+                end_offset = consumed;
+                break;
+            }
+        }
+
+        consumed = line_end.min(after.len());
+    }
+
+    let enum_body = after[..end_offset].trim_end();
+    if enum_body.is_empty() {
+        return String::new();
+    }
+
+    format!("{}\n{}", ENUM_MARKER, enum_body)
 }
 
 fn is_valid_include(line: &str) -> bool {
