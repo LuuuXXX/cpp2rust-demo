@@ -712,7 +712,7 @@ fn merge_without_init_fails() {
 }
 
 #[test]
-fn merge_produces_merged_ffi() {
+fn merge_produces_per_stem_rs_files() {
     let tmp = TempDir::new().unwrap();
 
     // Create two headers and matching translation units.
@@ -741,10 +741,26 @@ fn merge_produces_merged_ffi() {
         .success()
         .stdout(predicate::str::contains("✓  merge completed"));
 
-    let merged = tmp
-        .path()
-        .join(".cpp2rust/default/rust/src.2/merged_ffi.rs");
-    assert!(merged.exists(), "merged_ffi.rs should exist");
+    let rust_src2 = tmp.path().join(".cpp2rust/default/rust/src.2");
+    // merged_ffi.rs must NOT exist — it is replaced by flat per-stem files.
+    assert!(
+        !rust_src2.join("merged_ffi.rs").exists(),
+        "merged_ffi.rs should not be emitted; use per-stem files instead"
+    );
+    // Per-stem files must exist.
+    assert!(
+        rust_src2.join("lib1.rs").exists(),
+        "merge should emit lib1.rs into src.2"
+    );
+    assert!(
+        rust_src2.join("lib2.rs").exists(),
+        "merge should emit lib2.rs into src.2"
+    );
+    // lib.rs aggregation must exist.
+    assert!(
+        rust_src2.join("lib.rs").exists(),
+        "merge should emit lib.rs into src.2"
+    );
     let src = tmp.path().join(".cpp2rust/default/rust/src");
     assert!(
         std::fs::symlink_metadata(&src)
@@ -756,33 +772,39 @@ fn merge_produces_merged_ffi() {
         tmp.path().join(".cpp2rust/default/rust/src.1").exists(),
         "rust/src.1 should preserve init output"
     );
-    assert!(
-        tmp.path()
-            .join(".cpp2rust/default/rust/src.2/lib1.rs")
-            .exists(),
-        "merge should emit per-group module files into src.2"
-    );
 
-    let content = std::fs::read_to_string(&merged).unwrap();
-    // Should contain items from both headers.
-    assert!(content.contains("fn add("));
-    assert!(content.contains("fn log("));
-    // Metadata constants (MIDDLEWARE_FILES etc.) belong only in the per-group
-    // non-merged sources, not in the final merged FFI file.
-    assert!(!content.contains("MIDDLEWARE_FILES"));
-    assert!(!content.contains("INCLUDE_DIRS"));
-    assert!(!content.contains("CPP_INCLUDE_LINES"));
-    assert!(!content.contains("pub fn include_line_for"));
-    // Type-mapping helpers may still appear (from per-group type_blocks).
-    assert!(content.contains("CPP_TYPES"));
-    assert!(content.contains("CPP_RUST_TYPE_MAPPINGS"));
-    assert!(content.contains("pub fn rust_type_for"));
-    // Should have exactly one import_lib! block.
+    // Each per-stem file has its own content.
+    let lib1_content =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/lib1.rs")).unwrap();
+    let lib2_content =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/lib2.rs")).unwrap();
+    assert!(lib1_content.contains("fn add("), "lib1.rs should have fn add");
+    assert!(lib2_content.contains("fn log("), "lib2.rs should have fn log");
+    // Metadata constants belong in common/, not in per-stem merged files.
+    assert!(!lib1_content.contains("MIDDLEWARE_FILES"));
+    assert!(!lib1_content.contains("INCLUDE_DIRS"));
+    assert!(!lib1_content.contains("CPP_INCLUDE_LINES"));
+    assert!(!lib1_content.contains("pub fn include_line_for"));
+    // Each per-stem file has exactly one import_lib! block.
     assert_eq!(
-        content.matches("import_lib!").count(),
+        lib1_content.matches("import_lib!").count(),
         1,
-        "should have exactly one import_lib! block"
+        "lib1.rs should have exactly one import_lib! block"
     );
+    assert_eq!(
+        lib2_content.matches("import_lib!").count(),
+        1,
+        "lib2.rs should have exactly one import_lib! block"
+    );
+    // Type-mapping helpers live in common/types.rs (accessible via lib.rs re-export).
+    let common_types = std::fs::read_to_string(
+        tmp.path()
+            .join(".cpp2rust/default/rust/src/common/types.rs"),
+    )
+    .unwrap();
+    assert!(common_types.contains("CPP_TYPES"));
+    assert!(common_types.contains("CPP_RUST_TYPE_MAPPINGS"));
+    assert!(common_types.contains("pub fn rust_type_for"));
 }
 
 #[test]
@@ -820,7 +842,7 @@ fn merge_deduplicates_class_forward_decls() {
         .success();
 
     let content =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/a.rs"))
             .unwrap();
 
     // "class Widget;" should appear exactly once in import_lib!
@@ -848,7 +870,7 @@ fn merge_deduplicates_class_forward_decls() {
 }
 
 #[test]
-fn merge_updates_build_rs_to_merged_ffi() {
+fn merge_updates_build_rs_to_per_stem_files() {
     let tmp = TempDir::new().unwrap();
     write_header(&tmp, "simple.hpp", "void foo();");
     let tu = write_translation_unit(&tmp, "simple.cpp", "simple.hpp");
@@ -878,8 +900,12 @@ fn merge_updates_build_rs_to_merged_ffi() {
     let build_rs =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
     assert!(
-        build_rs.contains("merged_ffi.rs"),
-        "build.rs should reference merged_ffi.rs after merge"
+        build_rs.contains("src/simple.rs"),
+        "build.rs should reference the per-stem source file after merge"
+    );
+    assert!(
+        !build_rs.contains("merged_ffi.rs"),
+        "build.rs must not reference merged_ffi.rs after merge"
     );
     let src2_lib =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src.2/lib.rs")).unwrap();
@@ -922,11 +948,11 @@ fn merge_preserves_no_link_build_rs() {
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
     assert!(!build_rs.contains("cargo::rustc-link-lib=mylib"));
     assert!(build_rs.contains("cargo::rustc-link-lib=cpp2rust_adapter"));
-    assert!(build_rs.contains("merged_ffi.rs"));
+    assert!(build_rs.contains("simple.rs"));
 }
 
 #[test]
-fn merge_consolidates_cpp_includes() {
+fn merge_per_stem_rs_has_own_cpp_includes() {
     let tmp = TempDir::new().unwrap();
     write_header(&tmp, "lib1.hpp", "int add(int a, int b);");
     write_header(&tmp, "lib2.hpp", "void log(const char* msg);");
@@ -950,22 +976,32 @@ fn merge_consolidates_cpp_includes() {
         .assert()
         .success();
 
-    let merged =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
-            .unwrap();
+    let lib1 =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/lib1.rs")).unwrap();
+    let lib2 =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/lib2.rs")).unwrap();
 
-    // Both headers should be included in a single hicc::cpp! block.
+    // Each per-stem file has its own hicc::cpp! block with its own include.
     assert!(
-        merged.contains("hicc::cpp!"),
-        "merged file should have hicc::cpp! block"
+        lib1.contains("hicc::cpp!"),
+        "lib1.rs should have a hicc::cpp! block"
     );
-    assert!(merged.contains("#include \"lib1.cpp\""));
-    assert!(merged.contains("#include \"lib2.cpp\""));
-    // Should have exactly one hicc::cpp! block (consolidated).
+    assert!(lib1.contains("#include \"lib1.cpp\""), "lib1.rs should include lib1.cpp");
     assert_eq!(
-        merged.matches("hicc::cpp!").count(),
+        lib1.matches("hicc::cpp!").count(),
         1,
-        "should have exactly one consolidated hicc::cpp! block"
+        "lib1.rs should have exactly one hicc::cpp! block"
+    );
+
+    assert!(
+        lib2.contains("hicc::cpp!"),
+        "lib2.rs should have a hicc::cpp! block"
+    );
+    assert!(lib2.contains("#include \"lib2.cpp\""), "lib2.rs should include lib2.cpp");
+    assert_eq!(
+        lib2.matches("hicc::cpp!").count(),
+        1,
+        "lib2.rs should have exactly one hicc::cpp! block"
     );
 }
 
@@ -1032,7 +1068,7 @@ fn merge_deduplicates_import_class_blocks_for_template_alias() {
 
     let merged = std::fs::read_to_string(
         tmp.path()
-            .join(".cpp2rust/default/rust/src.2/merged_ffi.rs"),
+            .join(".cpp2rust/default/rust/src.2/alloc.rs"),
     )
     .unwrap();
 
@@ -1041,7 +1077,7 @@ fn merge_deduplicates_import_class_blocks_for_template_alias() {
     let import_class_count = merged.matches("class IntAlloc").count();
     assert!(
         import_class_count <= 1,
-        "`class IntAlloc` must appear at most once in merged_ffi.rs (got {}); \
+        "`class IntAlloc` must appear at most once in alloc.rs (got {}); \
          duplicate definitions would cause E0428.\nContent:\n{}",
         import_class_count,
         merged
@@ -1123,10 +1159,10 @@ const Point* get_origin();
     if !check_output.status.success() {
         eprintln!("=== cargo check stderr ===");
         eprintln!("{}", String::from_utf8_lossy(&check_output.stderr));
-        eprintln!("=== generated merged_ffi.rs ===");
-        let merged = rust_proj.join("src/merged_ffi.rs");
-        if merged.exists() {
-            eprintln!("{}", std::fs::read_to_string(merged).unwrap());
+        eprintln!("=== generated geometry.rs ===");
+        let stem_rs = rust_proj.join("src/geometry.rs");
+        if stem_rs.exists() {
+            eprintln!("{}", std::fs::read_to_string(stem_rs).unwrap());
         }
         eprintln!("=== generated build.rs ===");
         let build_rs = rust_proj.join("build.rs");
@@ -1205,10 +1241,10 @@ namespace geo {
     if !check_output.status.success() {
         eprintln!("=== cargo check stderr ===");
         eprintln!("{}", String::from_utf8_lossy(&check_output.stderr));
-        eprintln!("=== generated merged_ffi.rs ===");
-        let merged = rust_proj.join("src/merged_ffi.rs");
-        if merged.exists() {
-            eprintln!("{}", std::fs::read_to_string(merged).unwrap());
+        eprintln!("=== generated vec2.rs ===");
+        let stem_rs = rust_proj.join("src/vec2.rs");
+        if stem_rs.exists() {
+            eprintln!("{}", std::fs::read_to_string(stem_rs).unwrap());
         }
         eprintln!("=== generated build.rs ===");
         let build_rs = rust_proj.join("build.rs");
@@ -1278,12 +1314,16 @@ namespace mathlib {
     );
     let build_rs = std::fs::read_to_string(rust_proj.join("build.rs")).unwrap();
     assert!(
-        build_rs.contains("src/merged_ffi.rs"),
-        "build.rs should target active src/ view"
+        build_rs.contains("src/mathlib.rs"),
+        "build.rs should reference per-stem source file after merge"
     );
     assert!(
-        rust_proj.join("src/merged_ffi.rs").exists(),
-        "active src/ view should resolve merged_ffi.rs after merge"
+        !build_rs.contains("merged_ffi.rs"),
+        "build.rs must not reference merged_ffi.rs after merge"
+    );
+    assert!(
+        rust_proj.join("src/mathlib.rs").exists(),
+        "active src/ view should resolve mathlib.rs after merge"
     );
 
     // Run `cargo check` on the generated project.
@@ -1296,10 +1336,10 @@ namespace mathlib {
     if !check_output.status.success() {
         eprintln!("=== cargo check stderr ===");
         eprintln!("{}", String::from_utf8_lossy(&check_output.stderr));
-        eprintln!("=== generated merged_ffi.rs ===");
-        let merged = rust_proj.join("src/merged_ffi.rs");
-        if merged.exists() {
-            eprintln!("{}", std::fs::read_to_string(merged).unwrap());
+        eprintln!("=== generated mathlib.rs ===");
+        let stem_rs = rust_proj.join("src/mathlib.rs");
+        if stem_rs.exists() {
+            eprintln!("{}", std::fs::read_to_string(stem_rs).unwrap());
         }
         eprintln!("=== generated build.rs ===");
         let build_rs = rust_proj.join("build.rs");
@@ -4019,7 +4059,7 @@ fn example_inline_functions_extracted_like_non_inline() {
         .success();
 
     let merged =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs"))
             .unwrap();
 
     // Both inline and non-inline functions must be extracted as plain bindings
@@ -4080,7 +4120,7 @@ fn example_default_params_extracted_with_full_signature() {
         .success();
 
     let merged =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs"))
             .unwrap();
 
     // Functions with default params must be extracted (default values discarded)
@@ -4129,7 +4169,7 @@ fn example_rvalue_ref_method_maps_to_consuming_self() {
         .success();
 
     let merged =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs"))
             .unwrap();
 
     // const method → &self
@@ -4185,7 +4225,7 @@ fn example_va_list_last_param_generates_unsafe_variadic() {
         .success();
 
     let merged =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs"))
             .unwrap();
 
     // va_list functions must become unsafe fn with trailing ...
@@ -4238,7 +4278,7 @@ fn example_global_vars_generate_static_bindings() {
         .success();
 
     let merged =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs"))
             .unwrap();
 
     // Mutable global → &'static mut accessor
@@ -4294,7 +4334,7 @@ fn example_static_members_generate_data_bindings() {
         .success();
 
     let merged =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs"))
             .unwrap();
 
     // Static members must use fully-qualified Class::member form
@@ -4345,7 +4385,7 @@ fn example_instance_fields_generate_field_accessors() {
         .success();
 
     let merged =
-        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/merged_ffi.rs"))
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs"))
             .unwrap();
 
     // Mutable fields must get getter + mut accessor

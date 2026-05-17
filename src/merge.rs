@@ -3,9 +3,12 @@
 //! The `merge` command reads flat per-stem `.rs` files produced by `init`
 //! (`<stem>.rs`) and emits:
 //!
-//! 1. `rust/src.2/<stem>.rs` (merged per-stem view)
-//! 2. `rust/src.2/lib.rs`
-//! 3. `rust/src.2/merged_ffi.rs` (global consolidated view)
+//! 1. `rust/src.2/<stem>.rs` (merged per-stem view, one file per compilation unit)
+//! 2. `rust/src.2/common/` (copied from `init` output for shared type helpers)
+//! 3. `rust/src.2/lib.rs` (module aggregation — re-exports every stem + common)
+//!
+//! After merge, `rust/src` is switched to a symlink pointing at `src.2`, so
+//! `build.rs` keeps referencing `src/<stem>.rs` paths unchanged.
 //!
 //! Current v1 merge semantics:
 //! - Each flat `<stem>.rs` contributes `hicc::cpp!` include lines,
@@ -19,7 +22,6 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct MergeOutput {
-    pub merged_path: PathBuf,
     pub group_modules: Vec<String>,
 }
 
@@ -69,26 +71,7 @@ pub fn merge_grouped_modules(
     fs::create_dir_all(out_src2_dir)
         .map_err(|e| anyhow!("create {}: {}", out_src2_dir.display(), e))?;
 
-    let mut merged_all = ModuleFragments::default();
     let mut group_modules = Vec::new();
-
-    // Load the aggregate type block from common/types.rs so that the global
-    // merged_ffi.rs can include type-mapping helpers (CPP_TYPES, enum defs,
-    // etc.) without duplicating per-group blocks.  The includes_block
-    // (common/includes.rs) is intentionally omitted because it contains only
-    // internal path metadata (MIDDLEWARE_FILES, MIDDLEWARE_BASENAMES, …) that
-    // has no role in the FFI bindings.
-    let common_types_block = {
-        let common_types_path = init_src_dir.join("common").join("types.rs");
-        if common_types_path.exists() {
-            Some(
-                fs::read_to_string(&common_types_path)
-                    .map_err(|e| anyhow!("read {}: {}", common_types_path.display(), e))?,
-            )
-        } else {
-            None
-        }
-    };
 
     for flat_file in &flat_files {
         let stem = flat_file
@@ -97,49 +80,51 @@ pub fn merge_grouped_modules(
             .ok_or_else(|| anyhow!("invalid flat file name: {}", flat_file.display()))?
             .to_string();
         let out_file = out_src2_dir.join(format!("{stem}.rs"));
-        let fragments = merge_flat_file(flat_file, &out_file, link_name)?;
-
-        for inc in fragments.includes.iter() {
-            merged_all.includes.insert(inc.clone());
-        }
-        for (name, block) in fragments.import_class_blocks.iter() {
-            merged_all
-                .import_class_blocks
-                .insert(name.clone(), block.clone());
-        }
-        for decl in fragments.forward_decls.iter() {
-            merged_all.forward_decls.insert(decl.clone());
-        }
-        merged_all
-            .fn_items
-            .extend(fragments.fn_items.iter().cloned());
+        merge_flat_file(flat_file, &out_file, link_name)?;
 
         group_modules.push(stem);
     }
 
-    let mod_refs: Vec<&str> = group_modules.iter().map(|s| s.as_str()).collect();
+    // Carry the common/ module (shared type helpers, include metadata) from the
+    // init output into src.2 so the merged view is self-contained.
+    let src_common = init_src_dir.join("common");
+    let has_common = src_common.exists();
+    if has_common {
+        let dst_common = out_src2_dir.join("common");
+        copy_dir_all(&src_common, &dst_common).map_err(|e| {
+            anyhow!(
+                "copy common/ {} → {}: {}",
+                src_common.display(),
+                dst_common.display(),
+                e
+            )
+        })?;
+    }
+
+    // Build the module list for lib.rs: common first (when present), then per-stem.
+    let lib_modules: Vec<&str> = {
+        let mut v: Vec<&str> = Vec::new();
+        if has_common {
+            v.push("common");
+        }
+        v.extend(group_modules.iter().map(|s| s.as_str()));
+        v
+    };
+
     fs::write(
         out_src2_dir.join("lib.rs"),
-        crate::codegen::render_lib_rs(&mod_refs),
+        crate::codegen::render_lib_rs(&lib_modules),
     )
     .map_err(|e| anyhow!("write {}/lib.rs: {}", out_src2_dir.display(), e))?;
 
-    let merged_src = render_merged_module(&merged_all, common_types_block.as_deref(), link_name);
-    let merged_path = out_src2_dir.join("merged_ffi.rs");
-    fs::write(&merged_path, merged_src)
-        .map_err(|e| anyhow!("write {}: {}", merged_path.display(), e))?;
-
-    Ok(MergeOutput {
-        merged_path,
-        group_modules,
-    })
+    Ok(MergeOutput { group_modules })
 }
 
 fn merge_flat_file(
     flat_file: &Path,
     output_file: &Path,
     link_name: &str,
-) -> Result<ModuleFragments> {
+) -> Result<()> {
     let mut fragments = ModuleFragments::default();
     let src = fs::read_to_string(flat_file)
         .map_err(|e| anyhow!("read {}: {}", flat_file.display(), e))?;
@@ -167,37 +152,23 @@ fn merge_flat_file(
         fragments.type_blocks.insert(enum_block);
     }
 
-    let rendered = render_merged_module(&fragments, None, link_name);
+    let rendered = render_merged_module(&fragments, link_name);
     fs::write(output_file, rendered)
         .map_err(|e| anyhow!("write {}: {}", output_file.display(), e))?;
 
-    Ok(fragments)
+    Ok(())
 }
 
-/// Render the merged module content.
+/// Render the merged module content for a single per-stem file.
 ///
-/// `common_types_block` — when `Some`, the content of `common/types.rs` is
-/// emitted after the per-group include lines.  Pass `None` for per-group
-/// merged files; pass `Some(...)` for the global `merged_ffi.rs`.
-///
-/// The `common/includes.rs` block (MIDDLEWARE_FILES, MIDDLEWARE_BASENAMES, …)
-/// is intentionally excluded from both per-group and global merged outputs
-/// because those constants are internal path bookkeeping that has no role in
-/// the actual FFI bindings.  Likewise, `class/` metadata constants
-/// (CLASS_NAMES, CLASS_METHOD_COUNTS, …) are excluded.  All of that
-/// information remains available in the non-merged per-group sources under
-/// `rust/src.1/` for inspection purposes.
-fn render_merged_module(
-    fragments: &ModuleFragments,
-    common_types_block: Option<&str>,
-    link_name: &str,
-) -> String {
+/// Emits a clean hicc FFI module containing only the binding macros:
+/// `hicc::cpp!` include block, enum definitions, `hicc::import_class!` blocks,
+/// and a single `hicc::import_lib!` block.  Internal metadata constants
+/// (MIDDLEWARE_FILES, CPP_TYPES, CLASS_NAMES, …) are intentionally excluded;
+/// those remain in `common/` which is re-exported by `lib.rs`.
+fn render_merged_module(fragments: &ModuleFragments, link_name: &str) -> String {
     let mut out = String::new();
-    if common_types_block.is_some() {
-        out.push_str("// Merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
-    } else {
-        out.push_str("// Group-merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
-    }
+    out.push_str("// Group-merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
     out.push_str("#![allow(non_snake_case, dead_code)]\n\n");
 
     if !fragments.includes.is_empty() {
@@ -206,16 +177,6 @@ fn render_merged_module(
             out.push_str(&format!("    {}\n", include));
         }
         out.push_str("}\n\n");
-    }
-
-    // Emit the aggregate type block (CPP_TYPES, enum defs, type aliases, …)
-    // for the global merged output.
-    if let Some(block) = common_types_block {
-        let trimmed = block.trim();
-        if !trimmed.is_empty() {
-            out.push_str(trimmed);
-            out.push_str("\n\n");
-        }
     }
 
     for block in fragments.type_blocks.iter() {
@@ -263,10 +224,10 @@ fn extract_import_class_blocks(src: &str) -> Vec<String> {
 /// inheritance or `{` for the opening brace).  Returns `None` when the block
 /// does not contain such a line.
 ///
-/// Used as the deduplication key when merging blocks across multiple groups so
+/// Used as the deduplication key when merging blocks within a stem so
 /// that the same class emitted from two different AST nodes (e.g. once as a
 /// child of `ClassTemplateDecl` and once as a standalone specialisation) only
-/// appears once in `merged_ffi.rs`.
+/// appears once in the per-stem merged output.
 fn class_name_from_block(block: &str) -> Option<String> {
     for line in block.lines() {
         let trimmed = line.trim();
@@ -493,6 +454,26 @@ fn strip_block_wrapper(block: &str) -> &str {
     &block[open + 1..close]
 }
 
+/// Recursively copy an entire directory tree from `src` to `dst`.
+///
+/// `dst` is created if it does not already exist.  Existing files at the
+/// destination are overwritten; the function does not descend into symlinks.
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dest)?;
+        } else if ty.is_file() {
+            fs::copy(entry.path(), dest)?;
+        }
+        // Symlinks are skipped intentionally.
+    }
+    Ok(())
+}
+
 mod indexmap {
     #[derive(Default)]
     pub struct IndexSet<T> {
@@ -709,7 +690,7 @@ hicc::import_lib! {
     }
 
     /// `parse_lib_block_contents` must preserve `@make_proxy skeleton` comment
-    /// blocks so they survive the merge step and appear in `merged_ffi.rs`.
+    /// blocks so they survive the merge step and appear in the per-stem merged output.
     #[test]
     fn parse_lib_block_preserves_make_proxy_skeleton() {
         let src = r#"hicc::import_lib! {

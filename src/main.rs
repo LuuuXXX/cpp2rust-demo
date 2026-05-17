@@ -506,7 +506,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("\nNext steps:");
         println!("  1. Review the interface report:");
         println!("       .cpp2rust/{}/meta/init-interface-report.md", feature);
-        println!("  2. Run `cpp2rust-demo merge` to produce a single merged_ffi.rs");
+        println!("  2. Run `cpp2rust-demo merge` to produce the consolidated src.2/ view");
         println!("  3. Or use `cpp2rust-demo merge --output <dir>` to export");
     }
 
@@ -551,13 +551,20 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let include_dirs = middleware_include_dirs(&stored_files);
     let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
-    // Update build.rs to reference merged_ffi.rs through the active view path `src/`.
-    // After link_src_to_src2(), `rust/src` is a symlink to `rust/src.2`, so keeping
-    // this path stable means build.rs always targets the current active source view.
+    // Update build.rs to reference per-stem source files through the active
+    // view path `src/`.  After link_src_to_src2(), `rust/src` is a symlink to
+    // `rust/src.2`, so keeping these paths stable means build.rs always
+    // targets the current active source view without modification.
     let build_rs_path = lo.rust_dir.join("build.rs");
+    let source_refs: Vec<String> = merged
+        .group_modules
+        .iter()
+        .map(|s| format!("src/{}.rs", s))
+        .collect();
+    let source_ref_strs: Vec<&str> = source_refs.iter().map(|s| s.as_str()).collect();
     std::fs::write(
         &build_rs_path,
-        codegen::render_build_rs(&link_name, no_link, &["src/merged_ffi.rs"], &inc_refs),
+        codegen::render_build_rs(&link_name, no_link, &source_ref_strs, &inc_refs),
     )
     .map_err(|e| anyhow!("update build.rs: {}", e))?;
 
@@ -566,9 +573,14 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     // Write a merge report.
     let report_path = lo.meta_dir.join("merge-report.md");
     let report = format!(
-        "# Merge Report\n\nFeature: `{feature}`\nLink name: `{link_name}`\n\nMerged groups: {}\n\nMerged output: `{}`\n",
+        "# Merge Report\n\nFeature: `{feature}`\nLink name: `{link_name}`\n\nMerged groups: {}\n\nPer-stem outputs:\n{}\n",
         merged.group_modules.len(),
-        merged.merged_path.display()
+        merged
+            .group_modules
+            .iter()
+            .map(|g| format!("- `src/{g}.rs`"))
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
     std::fs::write(&report_path, &report).map_err(|e| anyhow!("write merge report: {}", e))?;
 
@@ -583,15 +595,15 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("  rust/src     → src.2   (build.rs uses this active view)");
     println!("  rust/src.1/  per-group init modules (backup)");
     println!("  rust/src.2/");
-    println!("    ├── lib.rs");
+    println!("    ├── lib.rs   ← module aggregation (entry point)");
+    println!("    ├── common/  ← shared type helpers");
     for g in &merged.group_modules {
-        println!("    ├── {}.rs", g);
+        println!("    └── {}.rs", g);
     }
-    println!("    └── merged_ffi.rs   ← main FFI entry point");
     println!("  meta/merge-report.md");
     println!("\nNext steps:");
-    println!("  1. Use merged_ffi.rs as your FFI entry point:");
-    println!("       .cpp2rust/{}/rust/src/merged_ffi.rs", feature);
+    println!("  1. Use lib.rs as your FFI entry point:");
+    println!("       .cpp2rust/{}/rust/src/lib.rs", feature);
     println!("  2. Copy the Rust project to your workspace:");
     println!(
         "       cp -r .cpp2rust/{}/rust/ /path/to/my-project/",
