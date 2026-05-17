@@ -10,8 +10,8 @@
 传统 C++ -> Rust 绑定常见痛点是手工维护头文件列表、手写大量 FFI 声明。  
 本项目通过两步流程减少手工工作：
 
-1. `init`：执行真实构建命令并捕获 `.cpp2rust` 中间件，再生成分组的 Rust 绑定模块。
-2. `merge`：把分组模块整合为更易消费的 `merged_ffi.rs`。
+1. `init`：执行真实构建命令并捕获 `.cpp2rust` 中间件，再生成平铺的 Rust 绑定模块（每个 C++ 翻译单元对应一个 `<stem>.rs`）。
+2. `merge`：把平铺模块整合为更易消费的 `merged_ffi.rs`。
 
 > 自动捕获对象是 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`），头文件内容通过预处理展开进入中间件。
 
@@ -24,8 +24,8 @@
 │   ├── capture.rs    # 构建 hook 并通过 LD_PRELOAD 执行真实构建命令
 │   ├── layout.rs     # .cpp2rust/<feature> 目录布局与元数据读写
 │   ├── ast.rs        # clang AST JSON 解析与声明抽取
-│   ├── codegen.rs    # 生成 hicc 所需 Rust 代码（include/free/class/method/types/common）
-│   ├── merge.rs      # 将 rust/src/mod_<group> 合并到 rust/src.2
+│   ├── codegen.rs    # 生成 hicc 所需 Rust 代码（render_flat_module / build.rs / Cargo.toml）
+│   ├── merge.rs      # 将 rust/src/<stem>.rs 平铺文件合并到 rust/src.2
 │   └── selector.rs   # 交互式/非交互式中间件选择
 ├── hook/
 │   ├── hook.c        # 编译拦截逻辑（识别编译器调用并输出 *2rust 中间件）
@@ -142,15 +142,16 @@ cpp2rust-demo suggest-aliases --feature myfeature
         │   ├── mod.rs
         │   ├── includes.rs
         │   └── types.rs
-        └── mod_<group>/
-            ├── mod.rs
-            ├── include/mod.rs
-            ├── types/mod.rs
-            ├── free/mod.rs + fn_*.rs
-            ├── class/mod.rs + cls_*.rs
-            ├── method/mod.rs + mtd_*.rs
-            └── meta.json
+        ├── <stem>.rs         # 平铺模块（1:1 对应 <stem>.cpp），包含完整 hicc 绑定
+        └── <stem>.meta.json  # 该翻译单元的元数据（函数/类/方法清单）
 ```
+
+每个 `<stem>.rs` 是单个翻译单元的完整 hicc 脚手架，包含（按顺序）：
+1. `hicc::cpp!` — 引用中间件源文件
+2. C++ enum 定义（`#[repr(C)] pub enum`）
+3. `pub type` 别名
+4. `hicc::import_class!` — 每个 C++ 类一个块
+5. `hicc::import_lib!` — 自由函数、静态方法、构造工厂函数
 
 `merge` 后新增：
 
@@ -158,26 +159,20 @@ cpp2rust-demo suggest-aliases --feature myfeature
 .cpp2rust/<feature>/
 ├── meta/merge-report.md
 └── rust/
-    ├── src.1/     # init 原始拆分输出备份
+    ├── src.1/     # init 原始平铺输出备份
     ├── src -> src.2
     └── src.2/
         ├── lib.rs
-        ├── mod_<group>.rs
-        └── merged_ffi.rs
+        ├── <stem>.rs      # 每个 init 翻译单元对应一个合并后的模块文件
+        └── merged_ffi.rs  # 所有翻译单元合并后的全局视图
 ```
 
 ## C++ 与 Rust 代码关系
 
 - **C++ 侧输入**：`hook/hook.c` 拦截编译器调用，生成 `*.cpp2rust` 中间件；`init` 同时在 capture 目录下创建同名符号链接（`entry.cpp → entry.cpp.cpp2rust`）。
 - **中间表示**：`*.cpp2rust` + clang AST JSON（`ast.rs` 解析）。
-- **Rust 侧输出**：`codegen.rs` 生成 `hicc::cpp!`、`hicc::import_lib!`、`hicc::import_class!` 及语义清单模块；include/mod.rs 中 `#include` 使用原始源文件名（如 `"entry.cpp"`）而非 `.cpp2rust` 后缀名。
-- **合并阶段**：`merge.rs` 将 `mod_<group>` 的 include/free/method/types（per-group 块）与 `common/types.rs` 整合为 `merged_ffi.rs`；`class/` 元信息常量和 `common/includes.rs` 路径元数据**不**写入合并输出，仍可在 `rust/src.1/` 原始产物中查阅。
-
-语义边界（v1）：
-
-- `include/`：`hicc::cpp!` include 上下文（引用原始 `.cpp` 文件名，配合 capture 目录中的同名符号链接）
-- `free/`：自由函数与静态方法（`import_lib!`）
-- `method/`：实例方法绑定（`import_class!`）
+- **Rust 侧输出**：`codegen.rs` 生成平铺的 `<stem>.rs`，包含 `hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!` 三段式绑定；每个 C++ 翻译单元对应一个 RS 文件（1:1 映射）。`hicc::cpp!` 中的 `#include` 引用原始源文件名（如 `"entry.cpp"`）而非 `.cpp2rust` 后缀名。
+- **合并阶段**：`merge.rs` 扫描 `src.1/` 中的平铺 `*.rs` 文件（跳过 `lib.rs` 和 `common/`），将各文件中的 `hicc::cpp!`/`hicc::import_class!`/`hicc::import_lib!` 块整合为 `merged_ffi.rs`（全局视图）和每个翻译单元对应的 `<stem>.rs`（局部视图）。
 - `class/`：类级语义结构（类名、关系、计数等）；仅存在于 per-group 产物，不进入合并输出
 - `types/`：类型清单、C++→Rust 映射与查询函数
 - `common/types.rs`：跨 group 聚合类型块（写入全局 `merged_ffi.rs`）

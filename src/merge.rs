@@ -1,27 +1,21 @@
 //! `merge` command implementation.
 //!
-//! The `merge` command reads grouped semantic modules produced by `init`
-//! (`mod_<group>/include|types|free|class|method`) and emits:
+//! The `merge` command reads flat per-stem `.rs` files produced by `init`
+//! (`<stem>.rs`) and emits:
 //!
-//! 1. `rust/src.2/mod_<group>.rs` (merged per-group view)
+//! 1. `rust/src.2/<stem>.rs` (merged per-stem view)
 //! 2. `rust/src.2/lib.rs`
 //! 3. `rust/src.2/merged_ffi.rs` (global consolidated view)
 //!
 //! Current v1 merge semantics:
-//! - `include/` contributes `hicc::cpp!` include lines
-//! - `types/` contributes type semantic blocks (inventory + C++/Rust mappings)
-//! - `method/` contributes `hicc::import_class!` method-binding blocks
-//! - `free/` contributes `hicc::import_lib!` fn items and class forward declarations
-//! - `class/` metadata constants are intentionally excluded from merged output
-//!   (they remain available in the non-merged per-group sources for inspection)
+//! - Each flat `<stem>.rs` contributes `hicc::cpp!` include lines,
+//!   `hicc::import_class!` method-binding blocks, and `hicc::import_lib!` fn items.
 //! - `global/` is explicitly deferred outside the current v1 closure scope
 
 use crate::error::Result;
 use anyhow::anyhow;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-const TYPES_PLACEHOLDER_COMMENT: &str = "// Type helpers";
 
 #[derive(Debug)]
 pub struct MergeOutput {
@@ -45,22 +39,25 @@ pub fn merge_grouped_modules(
     out_src2_dir: &Path,
     link_name: &str,
 ) -> Result<MergeOutput> {
-    let mut group_dirs: Vec<PathBuf> = fs::read_dir(init_src_dir)
+    // Scan for flat <stem>.rs files, excluding lib.rs and any files inside
+    // the common/ subdirectory or other subdirectories.
+    let mut flat_files: Vec<PathBuf> = fs::read_dir(init_src_dir)
         .map_err(|e| anyhow!("read dir {}: {}", init_src_dir.display(), e))?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .filter(|p| {
-            p.is_dir()
+            p.is_file()
+                && p.extension().and_then(|e| e.to_str()) == Some("rs")
                 && p.file_name()
                     .and_then(|n| n.to_str())
-                    .map(|n| n.starts_with("mod_"))
+                    .map(|n| n != "lib.rs")
                     .unwrap_or(false)
         })
         .collect();
-    group_dirs.sort();
+    flat_files.sort();
 
-    if group_dirs.is_empty() {
+    if flat_files.is_empty() {
         return Err(anyhow!(
-            "no mod_<group> directories found in {}; run 'init' first",
+            "no flat <stem>.rs files found in {}; run 'init' first",
             init_src_dir.display()
         ));
     }
@@ -93,14 +90,14 @@ pub fn merge_grouped_modules(
         }
     };
 
-    for group_dir in &group_dirs {
-        let group_name = group_dir
-            .file_name()
+    for flat_file in &flat_files {
+        let stem = flat_file
+            .file_stem()
             .and_then(|n| n.to_str())
-            .ok_or_else(|| anyhow!("invalid group directory name: {}", group_dir.display()))?
+            .ok_or_else(|| anyhow!("invalid flat file name: {}", flat_file.display()))?
             .to_string();
-        let out_file = out_src2_dir.join(format!("{group_name}.rs"));
-        let fragments = merge_group_module(group_dir, &out_file, link_name)?;
+        let out_file = out_src2_dir.join(format!("{stem}.rs"));
+        let fragments = merge_flat_file(flat_file, &out_file, link_name)?;
 
         for inc in fragments.includes.iter() {
             merged_all.includes.insert(inc.clone());
@@ -117,7 +114,7 @@ pub fn merge_grouped_modules(
             .fn_items
             .extend(fragments.fn_items.iter().cloned());
 
-        group_modules.push(group_name);
+        group_modules.push(stem);
     }
 
     let mod_refs: Vec<&str> = group_modules.iter().map(|s| s.as_str()).collect();
@@ -138,61 +135,36 @@ pub fn merge_grouped_modules(
     })
 }
 
-fn merge_group_module(
-    group_dir: &Path,
+fn merge_flat_file(
+    flat_file: &Path,
     output_file: &Path,
     link_name: &str,
 ) -> Result<ModuleFragments> {
     let mut fragments = ModuleFragments::default();
-    for semantic_dir in crate::SEMANTIC_DIRS {
-        let dir = group_dir.join(semantic_dir);
-        if !dir.exists() {
-            continue;
+    let src = fs::read_to_string(flat_file)
+        .map_err(|e| anyhow!("read {}: {}", flat_file.display(), e))?;
+
+    for include in extract_cpp_includes(&src) {
+        fragments.includes.insert(include);
+    }
+    for block in extract_import_class_blocks(&src) {
+        let key = class_name_from_block(&block).unwrap_or_else(|| block.clone());
+        fragments.import_class_blocks.insert(key, block);
+    }
+    for block in extract_import_lib_blocks(&src) {
+        let (fwd, fns) = parse_lib_block_contents(&block);
+        for f in fwd {
+            fragments.forward_decls.insert(f);
         }
-        let mut rs_files: Vec<PathBuf> = fs::read_dir(&dir)
-            .map_err(|e| anyhow!("read dir {}: {}", dir.display(), e))?
-            .filter_map(|entry| entry.ok().map(|e| e.path()))
-            .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("rs"))
-            .collect();
-        rs_files.sort();
+        fragments.fn_items.extend(fns);
+    }
 
-        for file in &rs_files {
-            let src =
-                fs::read_to_string(file).map_err(|e| anyhow!("read {}: {}", file.display(), e))?;
-
-            if semantic_dir == crate::SEMANTIC_TYPES_DIR
-                && file.file_name().and_then(|n| n.to_str()) == Some("mod.rs")
-            {
-                let trimmed = src.trim();
-                if !trimmed.is_empty() && !trimmed.starts_with(TYPES_PLACEHOLDER_COMMENT) {
-                    fragments.type_blocks.insert(trimmed.to_string());
-                }
-            }
-            // class/ semantic files contain CLASS_NAMES / CLASS_METHOD_COUNTS
-            // metadata constants.  These are useful for inspecting the
-            // non-merged per-group sources but do not belong in the merged FFI
-            // output, so we intentionally skip them here.
-
-            for include in extract_cpp_includes(&src) {
-                fragments.includes.insert(include);
-            }
-            for block in extract_import_class_blocks(&src) {
-                // Key on the Rust struct name so that two blocks defining the
-                // same class are deduplicated (first-wins).  When the block is
-                // malformed and has no `class <Name>` line, fall back to the
-                // full block text so the block is still emitted without being
-                // silently merged with an unrelated block.
-                let key = class_name_from_block(&block).unwrap_or_else(|| block.clone());
-                fragments.import_class_blocks.insert(key, block);
-            }
-            for block in extract_import_lib_blocks(&src) {
-                let (fwd, fns) = parse_lib_block_contents(&block);
-                for f in fwd {
-                    fragments.forward_decls.insert(f);
-                }
-                fragments.fn_items.extend(fns);
-            }
-        }
+    // Extract enum definitions and emit them before import_class! blocks so
+    // that types like ParseErrorCode / SchemaDraft / OpenApiVersion are in
+    // scope when Rust compiles the import_class! invocations.
+    let enum_block = extract_enum_defs_block(&src);
+    if !enum_block.is_empty() {
+        fragments.type_blocks.insert(enum_block);
     }
 
     let rendered = render_merged_module(&fragments, None, link_name);
@@ -332,6 +304,70 @@ fn extract_cpp_includes(src: &str) -> Vec<String> {
     includes
 }
 
+/// Extract the `#[repr(C)] pub enum ...` section from a flat module source.
+///
+/// The flat source emitted by `render_flat_module` contains a
+/// `// C++ enum / enum class definitions.` section that lists all extracted
+/// C++ enums as `#[repr(C)] pub enum` items.  We re-emit that section verbatim
+/// in the per-stem merged output so that types such as `ParseErrorCode`,
+/// `SchemaDraft`, and `OpenApiVersion` are defined *before* the
+/// `hicc::import_class!` invocations that reference them in method signatures.
+fn extract_enum_defs_block(src: &str) -> String {
+    const ENUM_MARKER: &str = "// C++ enum / enum class definitions.";
+    // Stop markers that signal the end of the enum-defs section when seen at
+    // the *top level* (brace depth 0).
+    const STOP_MARKERS: &[&str] = &[
+        "// C++ typedef",
+        "pub const ",
+        "pub fn ",
+        "hicc::",
+        "pub mod ",
+        "pub use ",
+        "pub struct ",
+        "pub trait ",
+        "pub type ",
+    ];
+
+    let start = match src.find(ENUM_MARKER) {
+        Some(pos) => pos,
+        None => return String::new(),
+    };
+
+    let after = &src[start + ENUM_MARKER.len()..];
+    let mut end_offset = after.len(); // default: take everything after marker
+    let mut brace_depth: i32 = 0;
+    let mut consumed = 0usize;
+
+    for line in after.lines() {
+        let trimmed = line.trim();
+        // Track brace depth so we don't stop inside an `impl` block.
+        brace_depth += line.chars().filter(|&c| c == '{').count() as i32;
+        brace_depth -= line.chars().filter(|&c| c == '}').count() as i32;
+
+        let line_end = consumed + line.len() + 1; // +1 for '\n'
+
+        // Only check stop markers at the top level (brace depth 0 after
+        // processing the line's braces).
+        if brace_depth == 0
+            && !trimmed.is_empty()
+            && STOP_MARKERS.iter().any(|m| trimmed.starts_with(m))
+        {
+            // Compute offset of the start of this line within `after`.
+            end_offset = consumed;
+            break;
+        }
+
+        consumed = line_end.min(after.len());
+    }
+
+    let enum_body = after[..end_offset].trim_end();
+    if enum_body.is_empty() {
+        return String::new();
+    }
+
+    format!("{}\n{}", ENUM_MARKER, enum_body)
+}
+
 fn is_valid_include(line: &str) -> bool {
     if !line.starts_with("#include") {
         return false;
@@ -384,6 +420,8 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
     let mut fn_items = Vec::new();
     let mut current_item = String::new();
     let mut in_item = false;
+    // Buffer for accumulating consecutive comment lines.
+    let mut comment_buf = String::new();
 
     for line in inner.lines() {
         let trimmed = line.trim();
@@ -393,9 +431,22 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
             continue;
         }
 
-        // Skip comment lines (including the @make_proxy notice and global var header).
         if trimmed.starts_with("//") {
+            // Accumulate comment lines; we decide what to keep once the block ends.
+            if !comment_buf.is_empty() {
+                comment_buf.push('\n');
+            }
+            comment_buf.push_str(trimmed);
             continue;
+        }
+
+        // Flush the comment buffer now that we've hit a non-comment line.
+        // Preserve @make_proxy skeleton comment blocks so they survive merge.
+        if !comment_buf.is_empty() {
+            if comment_buf.contains("@make_proxy skeleton") {
+                fn_items.push(comment_buf.clone());
+            }
+            comment_buf.clear();
         }
 
         if trimmed.starts_with("class ") && trimmed.ends_with(';') && !trimmed.contains("//") {
@@ -426,6 +477,11 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
                 in_item = false;
             }
         }
+    }
+
+    // Flush any trailing comment block.
+    if !comment_buf.is_empty() && comment_buf.contains("@make_proxy skeleton") {
+        fn_items.push(comment_buf);
     }
 
     (forward_decls, fn_items)
@@ -650,5 +706,55 @@ hicc::import_lib! {
     }
 }"#;
         assert_eq!(class_name_from_block(block_brace), Some("Bar".to_string()));
+    }
+
+    /// `parse_lib_block_contents` must preserve `@make_proxy skeleton` comment
+    /// blocks so they survive the merge step and appear in `merged_ffi.rs`.
+    #[test]
+    fn parse_lib_block_preserves_make_proxy_skeleton() {
+        let src = r#"hicc::import_lib! {
+    #![link_name = "mylib"]
+
+    // @make_proxy skeleton for `IFoo` — uncomment and replace
+    // `YourConcreteImpl` with a concrete C++ class that derives from it.
+    // #[cpp(func = "YourConcreteImpl @make_proxy<YourConcreteImpl>()")]
+    // #[interface(name = "IFoo")]
+    // fn new_i_foo_proxy(intf: hicc::Interface<YourConcreteImpl>) -> YourConcreteImpl;
+
+}"#;
+        let blocks = extract_import_lib_blocks(src);
+        assert_eq!(blocks.len(), 1);
+
+        let (fwd, fns) = parse_lib_block_contents(&blocks[0]);
+        assert!(fwd.is_empty(), "no forward decls expected");
+        assert_eq!(
+            fns.len(),
+            1,
+            "skeleton comment block should be preserved as one item"
+        );
+        assert!(
+            fns[0].contains("make_proxy"),
+            "preserved item should contain 'make_proxy': {:?}",
+            fns[0]
+        );
+    }
+
+    /// Regular comment lines (non-skeleton) must still be stripped during merge.
+    #[test]
+    fn parse_lib_block_strips_regular_comments() {
+        let src = r#"hicc::import_lib! {
+    #![link_name = "mylib"]
+
+    // @make_proxy support: required for wrapping Rust structs as C++ interfaces.
+
+    #[cpp(func = "int add(int, int)")]
+    fn add(a: i32, b: i32) -> i32;
+}"#;
+        let blocks = extract_import_lib_blocks(src);
+        let (fwd, fns) = parse_lib_block_contents(&blocks[0]);
+        assert!(fwd.is_empty());
+        // Only the real fn binding should remain; the support comment should be dropped.
+        assert_eq!(fns.len(), 1);
+        assert!(fns[0].contains("fn add"));
     }
 }

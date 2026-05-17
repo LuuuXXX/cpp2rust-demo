@@ -52,7 +52,7 @@ cpp2rust-demo init --feature g03 --link dispatcher \
 cat .cpp2rust/g03/meta/init-interface-report.md
 
 # 查看自动提取的 POD 方法
-cat .cpp2rust/g03/rust/src/mod_entry/method/mtd_entry.rs
+cat .cpp2rust/g03/rust/src/entry.rs
 ```
 
 ---
@@ -93,7 +93,7 @@ cat .cpp2rust/g03/rust/src/mod_entry/method/mtd_entry.rs
 
 ## 预期生成产物（重跑后）
 
-### `method/mtd_entry2.rs`（含接口类）
+### `entry2.rs` (methods section)（含接口类）
 
 ```rust
 // ICallback 全纯虚接口
@@ -137,7 +137,7 @@ hicc::import_class! {
 }
 ```
 
-### `free/fn_entry2.rs`（`@make_proxy` 反向绑定）
+### `entry2.rs` (free functions section)（`@make_proxy` 反向绑定）
 
 ```rust
 hicc::import_lib! {

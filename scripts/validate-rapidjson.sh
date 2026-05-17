@@ -9,10 +9,15 @@
 # The script:
 #   1. Builds cpp2rust-demo (debug by default, --release for release build).
 #   2. Clones Tencent/rapidjson into /tmp/rapidjson (re-uses existing clone).
-#   3. Runs `cpp2rust-demo init` inside the rapidjson directory via multiple
-#      translation units to trigger the complete “compile→capture→middleware” flow.
-#   4. Runs `cpp2rust-demo merge`.
+#   3. Creates a single entry.cpp that includes all main rapidjson headers,
+#      builds the whole project using CMake, and runs cpp2rust-demo init.
+#      Using one translation unit means one .cpp -> one .rs (1:1 mapping).
+#      --no-link is used because rapidjson is a header-only library.
+#   4. Runs cpp2rust-demo merge.
 #   5. Validates the expected output files exist and contain expected content.
+#   6. Runs a full `cargo check` on the generated Rust project to verify that
+#      the scaffolding is type-correct (build.rs compiles the C++ adapter,
+#      then the Rust code is type-checked against it).
 #
 # This script mirrors the CI workflow in .github/workflows/validate-rapidjson.yml
 # and can be run locally to reproduce CI results.
@@ -67,61 +72,59 @@ else
 fi
 echo ""
 
-# rapidjson validation cases by capability dimension:
-# - document     => DOM/document
-# - reader       => Reader/SAX
-# - writer       => Writer
-# - prettywriter => PrettyWriter
-# - pointer      => Pointer
-# - schema       => Schema/Error related
-CASE_NAMES=(document reader writer prettywriter pointer schema)
-CASE_INCLUDES=(
-    'rapidjson/document.h'
-    'rapidjson/reader.h'
-    'rapidjson/writer.h'
-    'rapidjson/prettywriter.h'
-    'rapidjson/pointer.h'
-    'rapidjson/schema.h'
-)
-
 # ---------------------------------------------------------------------------
-# Step 3: Run cpp2rust-demo init
+# Step 3: Prepare the project -- one entry.cpp for all major headers + CMake
 # ---------------------------------------------------------------------------
-echo "=== Step 3: Running cpp2rust-demo init ==="
+echo "=== Step 3: Preparing rapidjson project build ==="
 (
     cd "${RAPIDJSON_DIR}"
     # Remove previous output so this script is idempotent.
-    rm -rf .cpp2rust
-    BUILD_STEPS=()
-    for i in "${!CASE_NAMES[@]}"; do
-        case_name="${CASE_NAMES[$i]}"
-        include_header="${CASE_INCLUDES[$i]}"
-        source_file="${case_name}.cpp"
-        cat > "${source_file}" <<CPP
-#include "${include_header}"
-CPP
-        # Keep one shared compile profile across cases for stable CI behavior:
-        # rapidjson is header-only and supports C++11 as a baseline.
-        BUILD_STEPS+=("clang++ -x c++ -std=c++11 -fsyntax-only -Iinclude ${source_file}")
-    done
-    BUILD_CMD=""
-    for step in "${BUILD_STEPS[@]}"; do
-        if [ -n "${BUILD_CMD}" ]; then
-            BUILD_CMD="${BUILD_CMD} && "
-        fi
-        BUILD_CMD="${BUILD_CMD}${step}"
-    done
-    "${BIN}" init \
-        --feature "${FEATURE}" \
-        --link rapidjson \
-        -- sh -c "${BUILD_CMD}" < /dev/null
+    rm -rf .cpp2rust build
+
+    # Single translation unit that covers the whole library surface.
+    # Using one entry.cpp gives a clean 1 cpp -> 1 rs output file.
+    cat > entry.cpp << 'CPP_EOF'
+#include "rapidjson/document.h"
+#include "rapidjson/reader.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/pointer.h"
+#include "rapidjson/schema.h"
+
+int main() { return 0; }
+CPP_EOF
+
+    # Minimal CMakeLists.txt that compiles entry.cpp with include/ on the path.
+    cat > CMakeLists.txt << 'CMAKE_EOF'
+cmake_minimum_required(VERSION 3.10)
+project(cpp2rust_validate LANGUAGES CXX)
+add_executable(cpp2rust_entry entry.cpp)
+target_include_directories(cpp2rust_entry PRIVATE include)
+target_compile_features(cpp2rust_entry PRIVATE cxx_std_11)
+CMAKE_EOF
 )
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 4: Run cpp2rust-demo merge
+# Step 4: Run cpp2rust-demo init
 # ---------------------------------------------------------------------------
-echo "=== Step 4: Running cpp2rust-demo merge ==="
+echo "=== Step 4: Running cpp2rust-demo init ==="
+(
+    cd "${RAPIDJSON_DIR}"
+    # Use --no-link because rapidjson is a header-only library.
+    # The CMake build supplies the correct -Iinclude flag automatically.
+    "${BIN}" init \
+        --feature "${FEATURE}" \
+        --link rapidjson \
+        --no-link \
+        -- sh -c "cmake -S . -B build && cmake --build build -j2" < /dev/null
+)
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 5: Run cpp2rust-demo merge
+# ---------------------------------------------------------------------------
+echo "=== Step 5: Running cpp2rust-demo merge ==="
 (
     cd "${RAPIDJSON_DIR}"
     "${BIN}" merge --feature "${FEATURE}"
@@ -129,9 +132,9 @@ echo "=== Step 4: Running cpp2rust-demo merge ==="
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 5: Validate output
+# Step 6: Validate output
 # ---------------------------------------------------------------------------
-echo "=== Step 5: Validating output ==="
+echo "=== Step 6: Validating output ==="
 
 FAIL=0
 check_file() {
@@ -156,24 +159,20 @@ check_contains() {
 
 OUT="${RAPIDJSON_DIR}/.cpp2rust/${FEATURE}"
 
-for case_name in "${CASE_NAMES[@]}"; do
-    middleware_file="${case_name}.cpp.cpp2rust"
-    # The original source name (without the .cpp2rust capture suffix) is what
-    # render_include_module now emits inside hicc::cpp! blocks.
-    original_file="${case_name}.cpp"
-    check_file  "${OUT}/cpp/${middleware_file}"
-    check_file  "${OUT}/cpp/${middleware_file}.opts"
-    check_file  "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs"
-    check_file  "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs"
-    check_file  "${OUT}/rust/src.1/mod_${case_name}/meta.json"
-    check_contains "${OUT}/meta/selected_files.json" "${middleware_file}"
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/include/mod.rs" "#include \"${original_file}\""
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs" "import_lib!"
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/free/fn_${case_name}.rs" 'link_name = "rapidjson"'
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "\"group\": \"mod_${case_name}\""
-    check_contains "${OUT}/rust/src.1/mod_${case_name}/meta.json" "${middleware_file}"
-    check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${original_file}\""
-done
+# The single entry.cpp produces one flat entry.rs (1:1 mapping).
+MIDDLEWARE="entry.cpp.cpp2rust"
+ORIGINAL="entry.cpp"
+FLAT_RS="${OUT}/rust/src/entry.rs"
+
+check_file  "${OUT}/cpp/${MIDDLEWARE}"
+check_file  "${OUT}/cpp/${MIDDLEWARE}.opts"
+check_file  "${OUT}/rust/src/entry.rs"
+check_file  "${OUT}/rust/src.1/entry.meta.json"
+check_contains "${OUT}/meta/selected_files.json" "${MIDDLEWARE}"
+check_contains "${FLAT_RS}" "hicc::cpp!"
+check_contains "${FLAT_RS}" "#include \"${ORIGINAL}\""
+check_contains "${FLAT_RS}" "import_lib!"
+check_contains "${FLAT_RS}" 'link_name = "rapidjson"'
 
 check_file  "${OUT}/meta/build_cmd.txt"
 check_file  "${OUT}/meta/selected_files.json"
@@ -187,6 +186,23 @@ check_file  "${OUT}/meta/merge-report.md"
 
 check_contains "${OUT}/rust/src/merged_ffi.rs" "import_lib!"
 check_contains "${OUT}/rust/src/merged_ffi.rs" 'link_name = "rapidjson"'
+check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${ORIGINAL}\""
+
+# build.rs must reference the merged FFI file (merge updates build.rs to src/merged_ffi.rs).
+check_contains "${OUT}/rust/build.rs" "src/merged_ffi.rs"
+# build.rs must be in no-link mode (header-only library).
+check_contains "${OUT}/rust/build.rs" "Header-only"
+
+# ---------------------------------------------------------------------------
+# Step 7: Full cargo check of the generated Rust project
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Step 7: Running cargo check on the generated Rust project ==="
+(
+    cd "${OUT}/rust"
+    cargo check
+)
+echo "  [OK]  cargo check passed"
 
 echo ""
 echo "=== Generated .cpp2rust directory tree ==="
@@ -194,9 +210,9 @@ find "${RAPIDJSON_DIR}/.cpp2rust" -type f | sort
 
 if [ "${FAIL}" -ne 0 ]; then
     echo ""
-    echo "VALIDATION FAILED – see errors above." >&2
+    echo "VALIDATION FAILED -- see errors above." >&2
     exit 1
 fi
 
 echo ""
-echo "✓ All validation checks passed."
+echo "All validation checks passed."

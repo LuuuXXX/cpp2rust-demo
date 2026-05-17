@@ -9,10 +9,10 @@
 
 ## 关键约定
 
-1. 每个 `mod_<group>/include/mod.rs` 都会包含 `hicc::cpp! { #include "*.cpp" }`（原始源文件名，不含 `.cpp2rust` 后缀）；`init` 会在 capture 目录下同时创建同名符号链接（`entry.cpp → entry.cpp.cpp2rust`）使 include 可解析
-2. `build.rs` 会为 `hicc_build::Build` 注入中间件所在目录的 include path，并始终引用 `src/...` 活跃视图路径
-3. `merge` 后会生成 `rust/src.2/mod_<group>.rs` 与 `rust/src.2/merged_ffi.rs`，并将 `rust/src` 切换到 `src.2`（因此 `build.rs` 无需改成 `src.2/...`）
-4. 语义层职责：`method` 承接 `import_class!` 实例方法绑定；`free` 承接自由函数/静态方法/make_proxy/全局变量；`types` 负责类型语义（含 C++→Rust 映射与查询函数）；`class` 负责类级语义结构（含关系访问函数）；`common/*` 进入全局 merged 共享语义层；`global` 当前不生成
+1. 每个 `<stem>.rs` 都会包含 `hicc::cpp! { #include "*.cpp" }`（原始源文件名，不含 `.cpp2rust` 后缀）；`init` 会在 capture 目录下同时创建同名符号链接（`entry.cpp → entry.cpp.cpp2rust`）使 include 可解析
+2. `build.rs` 会为 `hicc_build::Build` 注入中间件所在目录的 include path，并始终引用 `src/<stem>.rs` 路径（每个 C++ 翻译单元对应一个 RS 文件，1:1 映射）
+3. `merge` 后会生成 `rust/src.2/<stem>.rs` 与 `rust/src.2/merged_ffi.rs`，并将 `rust/src` 切换到 `src.2`（因此 `build.rs` 无需改成 `src.2/...`）
+4. 平铺模块职责：`<stem>.rs` 包含完整的 hicc 脚手架（`hicc::cpp!`、枚举/别名定义、`import_class!` 块、`import_lib!` 块）；`common/*` 进入全局 merged 共享语义层
 5. `init --no-link`（`--header-only`）用于 header-only/no-link 场景：生成的 `build.rs` 不会输出 `cargo::rustc-link-lib=<link_name>`
 6. destructor、operator overload、template declarations 当前会被跳过，并在 `init-interface-report.md` 中显示 skipped 原因；virtual/pure virtual 方法按以下规则处理：非纯 virtual 直接提取、全纯虚类生成 `#[interface]` trait、混合类的纯虚方法提取为 companion `#[interface]` 并加入继承链
 7. `inline` 函数对工具透明，与普通函数生成完全相同的绑定（见 [`examples/features/01-inline-functions/`](../examples/features/01-inline-functions/README.md)）

@@ -545,9 +545,15 @@ pub struct FieldIR {
     pub name: String,
     /// Rust-idiomatic snake_case name derived from `name`.
     pub rust_name: String,
-    /// Fully-qualified accessor form: `"ClassName::field_name"`.
+    /// Accessor form used in `#[cpp(field = "...")]`: `"ClassName::field_name"`
+    /// where `ClassName` is the **unqualified** class name.
     ///
-    /// Used in `#[cpp(field = "...")]` to identify the field.
+    /// hicc generates `&Self::{qualified_name}` for the pointer-to-member.
+    /// Using the unqualified class name works via C++'s injected-class-name
+    /// rule (`Self::ClassName` resolves to `Self` itself), so the member is
+    /// found correctly.  Using the fully-qualified form (e.g.
+    /// `Ns::ClassName::field`) instead produces `&Self::Ns::ClassName::field`
+    /// where `Ns` is looked up as a nested member of `Self` and fails.
     pub qualified_name: String,
     /// C++ type string as emitted by clang (e.g. `"int"`, `"double"`).
     pub cpp_type: String,
@@ -894,6 +900,33 @@ fn collect_class_names(node: &AstNode, namespace: &[String], map: &mut HashMap<S
             if let Some(ref ns_name) = node.name {
                 let mut ns = namespace.to_vec();
                 ns.push(ns_name.clone());
+                // Collect simple (non-template) typedef names that are DIRECT
+                // children of a non-system namespace so that `qualify_cpp_type`
+                // can turn bare typedef names (e.g. `SizeType`) into their
+                // fully-qualified form (e.g. `rapidjson::SizeType`) when
+                // building C++ signatures for hicc attributes.  Class-member
+                // typedefs (like `UTF8::Ch`) are intentionally excluded because
+                // `collect_class_names` recurses into CXXRecordDecl with the
+                // outer namespace, which would produce an incorrect qualified
+                // name (e.g. `rapidjson::Ch` instead of `rapidjson::UTF8::Ch`).
+                if !is_system_namespace(ns_name) {
+                    for child in node.inner.iter().flatten() {
+                        if child.kind == "TypedefDecl" || child.kind == "TypeAliasDecl" {
+                            if let (Some(alias_name), Some(underlying)) = (
+                                child.name.as_deref(),
+                                child.type_info.as_ref().map(|t| t.qual_type.as_str()),
+                            ) {
+                                if !alias_name.is_empty()
+                                    && !alias_name.starts_with("__")
+                                    && !underlying.contains('<')
+                                {
+                                    let qualified = make_qualified(&ns, alias_name);
+                                    map.entry(alias_name.to_string()).or_insert(qualified);
+                                }
+                            }
+                        }
+                    }
+                }
                 for child in node.inner.iter().flatten() {
                     collect_class_names(child, &ns, map);
                 }
@@ -1011,6 +1044,34 @@ fn update_file(loc: &Location, current_file: &mut String) {
 }
 
 /// Check whether `file` is one of the user-supplied target headers.
+/// Returns `true` for namespace names that belong to the C++ standard library,
+/// compiler runtime support, or other system-level implementation namespaces.
+/// Declarations inside these namespaces are never useful as Rust FFI bindings
+/// and filtering them at the namespace level prevents hundreds of unwanted
+/// symbol extractions from preprocessed (all-headers-expanded) middleware files.
+fn is_system_namespace(name: &str) -> bool {
+    // Explicit well-known system namespaces.
+    matches!(
+        name,
+        "std"
+            | "__gnu_cxx"
+            | "__cxx11"
+            | "__1"
+            | "__detail"
+            | "__fs"
+            | "__atomic_impl"
+            | "posix"
+            | "__pstl"
+            | "__gnu_pbds"
+            | "__exception_ptr"
+            | "__cxxabiv1"
+            | "abi"
+            | "chrono"
+            | "filesystem"
+            | "experimental"
+    ) || name.starts_with("__")
+}
+
 fn is_target(file: &str, targets: &[&Path]) -> bool {
     if file.is_empty() {
         return false;
@@ -1021,6 +1082,49 @@ fn is_target(file: &str, targets: &[&Path]) -> bool {
             || p.canonicalize().ok().as_deref() == t.canonicalize().ok().as_deref()
             || p.file_name() == t.file_name()
     })
+}
+
+/// Returns `true` when `path` is a well-known system-header directory.
+///
+/// Clang's JSON AST omits `loc.file` for declarations in files that were
+/// seen earlier in the translation unit (it records the file only when it
+/// changes).  As a consequence our `current_file` tracker can be stale when
+/// we visit a node that was actually declared inside a system header: the
+/// `loc.file` field is `None` but the `loc.includedFrom.file` field points
+/// to the system include that pulled the declaration in.  Checking this field
+/// lets us skip libc / C++ standard-library declarations (e.g. `printf`,
+/// `vprintf`, `atof`) that would otherwise pass the `is_target` test.
+fn is_system_include_path(path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    // Unix-like system include trees (Linux, macOS with Xcode / Homebrew).
+    path.starts_with("/usr/")
+        || path.starts_with("/opt/homebrew/")
+        || path.starts_with("/Library/Developer/")
+        || path.starts_with("/Applications/Xcode")
+}
+
+/// Returns `true` when `node` was declared inside a system header.
+///
+/// Used in `walk_node` to filter out `FunctionDecl`, `CXXRecordDecl`, and
+/// `VarDecl` nodes that originate in libc / the C++ standard library even
+/// though `current_file` may still point to a user target file (due to clang
+/// omitting `loc.file` when the file is unchanged).
+fn is_from_system_header(node: &AstNode) -> bool {
+    let Some(ref loc) = node.loc else {
+        return false;
+    };
+    // Only apply this heuristic when clang did NOT record an explicit file for
+    // this node.  When `loc.file` is present the normal `is_target` path
+    // handles filtering correctly.
+    if loc.file.is_some() {
+        return false;
+    }
+    let Some(ref incl) = loc.included_from else {
+        return false;
+    };
+    is_system_include_path(incl.file.as_deref().unwrap_or(""))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1048,6 +1152,11 @@ fn walk_node(
     match node.kind.as_str() {
         "NamespaceDecl" => {
             if let Some(ref ns_name) = node.name {
+                // Skip well-known system/compiler namespaces to avoid extracting
+                // stdlib and compiler-internal symbols from preprocessed headers.
+                if is_system_namespace(ns_name) {
+                    return;
+                }
                 let mut ns = namespace.to_vec();
                 ns.push(ns_name.clone());
                 for child in node.inner.iter().flatten() {
@@ -1066,8 +1175,56 @@ fn walk_node(
             }
         }
 
+        // `CXXMethodDecl`, `CXXConstructorDecl`, `CXXDestructorDecl`, and
+        // `CXXConversionDecl` nodes can appear at namespace scope in the clang
+        // JSON AST as out-of-class / implicit-instantiation bodies.  They are
+        // already extracted when we process the containing `CXXRecordDecl`
+        // via `extract_class_body`.  Recursing into them here would cause
+        // their local variables (e.g. `char* buffer`, `const char* end`) to
+        // be mistakenly extracted as namespace-scope global variables.
+        "CXXMethodDecl" | "CXXConstructorDecl" | "CXXDestructorDecl" | "CXXConversionDecl" => {
+            // Do not recurse — just consume the node without extraction.
+        }
+
         "FunctionDecl" => {
             if !is_target(current_file, targets) {
+                return;
+            }
+            // Skip declarations that originate in system headers.  When
+            // `loc.file` is absent clang reuses the previous file context,
+            // which can be a user target file; `includedFrom` exposes the
+            // real origin so we can filter system-header nodes correctly.
+            if is_from_system_header(node) {
+                return;
+            }
+            // Skip the C entry-point `main` — it is user scaffolding and
+            // not a genuine library function to bind.
+            if node.name.as_deref() == Some("main") {
+                return;
+            }
+            // Skip top-level concrete template instantiations where a
+            // non-const by-reference parameter has a primitive base type.
+            // These occur when a function template (e.g. `rapidjson::PutN`)
+            // is implicitly instantiated with a primitive `Stream` type and
+            // the instantiation appears in the clang JSON as a standalone
+            // `FunctionDecl` with no explicit `loc.file`.  Such bindings
+            // would cause C++ compilation failures inside hicc because the
+            // template body dereferences member types (e.g. `Stream::Ch`)
+            // that primitives do not have.
+            if node.loc.as_ref().map(|l| l.file.is_none()).unwrap_or(true) {
+                if let Some(ref ti) = node.type_info {
+                    if has_primitive_ref_param(&ti.qual_type) {
+                        return;
+                    }
+                }
+            }
+            // Skip compiler-internal names (double-underscore prefix).
+            if node
+                .name
+                .as_deref()
+                .map(|n| n.starts_with("__"))
+                .unwrap_or(false)
+            {
                 return;
             }
             if is_operator_name(node.name.as_deref()) {
@@ -1100,6 +1257,11 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
+            // Skip declarations that originate in system headers (same
+            // reason as for FunctionDecl above).
+            if is_from_system_header(node) {
+                return;
+            }
             // Only process complete definitions (not forward declarations).
             if !node.complete_definition.unwrap_or(false) {
                 return;
@@ -1107,6 +1269,10 @@ fn walk_node(
             let Some(class_name) = node.name.as_deref() else {
                 return;
             };
+            // Skip compiler-internal names (double-underscore prefix).
+            if class_name.starts_with("__") {
+                return;
+            }
             let qualified_name = make_qualified(namespace, class_name);
             if let Some(class_ir) = extract_class_body(
                 node,
@@ -1230,6 +1396,11 @@ fn walk_node(
             if !is_target(current_file, targets) {
                 return;
             }
+            // Skip specialisations declared inside system headers (same
+            // reason as for FunctionDecl).
+            if is_from_system_header(node) {
+                return;
+            }
             let mut extracted_any = false;
             for child in node.inner.iter().flatten() {
                 if child.kind != "FunctionDecl" {
@@ -1241,6 +1412,14 @@ fn walk_node(
                     if ti.qual_type.contains("type-parameter-")
                         || ti.qual_type.contains("dependent")
                     {
+                        continue;
+                    }
+                    // Skip concrete specialisations where any by-reference
+                    // parameter has a primitive base type (e.g. `int &`).
+                    // Such instantiations are semantically invalid in C++
+                    // — primitives lack member types like `Stream::Ch` —
+                    // and would fail to compile inside hicc.
+                    if has_primitive_ref_param(&ti.qual_type) {
                         continue;
                     }
                 } else {
@@ -1327,6 +1506,10 @@ fn walk_node(
 
         "VarDecl" => {
             if !is_target(current_file, targets) {
+                return;
+            }
+            // Skip declarations that originate in system headers.
+            if is_from_system_header(node) {
                 return;
             }
             // Only extract non-static (i.e. namespace-scope / file-scope) variables.
@@ -1480,6 +1663,47 @@ fn extract_class_body(
     // Collect pure-virtual methods separately; we decide after the loop
     // whether this class is fully abstract (→ #[interface]) or mixed.
     let mut pure_virtual_nodes: Vec<AstNode> = Vec::new();
+
+    // Build a local type-name override map for this class by collecting
+    // `typedef` / `using` declarations in the class body.  Class-local
+    // typedefs (e.g. `typedef uint64_t Type;` in `BigInteger`) take priority
+    // over same-named entries in the global `class_map` (e.g. the
+    // `rapidjson::Type` enum).  This prevents mis-qualification of return
+    // types like `Type GetDigit(…)` where `Type` refers to the class typedef,
+    // not the global enum.
+    let class_map: std::borrow::Cow<'_, HashMap<String, String>> = {
+        let local_typedefs: HashMap<String, String> = node
+            .inner
+            .iter()
+            .flatten()
+            .filter(|c| c.kind == "TypedefDecl" || c.kind == "TypeAliasDecl")
+            .filter_map(|c| {
+                let tname = c.name.as_deref()?.to_string();
+                if tname.is_empty() || tname.starts_with("__") {
+                    return None;
+                }
+                // Underlying concrete type (no template args, no dependent types).
+                let underlying = c.type_info.as_ref().map(|t| t.qual_type.as_str())?;
+                if underlying.contains('<') || underlying.contains("typename") {
+                    return None;
+                }
+                Some((tname, underlying.to_string()))
+            })
+            .collect();
+
+        if local_typedefs.is_empty() {
+            std::borrow::Cow::Borrowed(class_map)
+        } else {
+            let mut augmented = class_map.clone();
+            // Local typedefs override any global entry with the same name.
+            for (k, v) in local_typedefs {
+                augmented.insert(k, v);
+            }
+            std::borrow::Cow::Owned(augmented)
+        }
+    };
+    // Shadow the outer `class_map` borrow with the (potentially augmented) one.
+    let class_map = &*class_map;
 
     for child in node.inner.iter().flatten() {
         if child.is_implicit.unwrap_or(false) {
@@ -1947,7 +2171,11 @@ fn extract_function(
             .filter(|n| !n.is_empty())
             .unwrap_or(&format!("arg{}", i))
             .to_string();
-        let Some(cpp_type) = p.type_info.as_ref().map(|t| t.qual_type.clone()) else {
+        let Some(cpp_type) = p
+            .type_info
+            .as_ref()
+            .map(|t| normalize_cpp_type(&t.qual_type))
+        else {
             skipped.push(SkippedDecl {
                 kind: node.kind.clone(),
                 name: qualified_name.clone(),
@@ -2002,7 +2230,15 @@ fn extract_function(
             });
             return None;
         }
-        let rust_type = cpp_to_rust_type_with_aliases(&cpp_type, alias_registry);
+        // Qualify the param type through the class-local typedef map before
+        // deriving the Rust type.  This resolves class-local typedefs such as
+        // `typedef char Ch` or `typedef uint64_t Type` to their underlying
+        // primitive, so `cpp_to_rust_type_with_aliases` returns the correct
+        // Rust primitive (`i8`, `u64`, …) rather than the unresolved alias
+        // name (`Ch`, `Type`, …) which would be undefined in the generated
+        // Rust scope.
+        let qualified_cpp_for_rust = qualify_cpp_type(&cpp_type, class_map);
+        let rust_type = cpp_to_rust_type_with_aliases(&qualified_cpp_for_rust, alias_registry);
         params.push(ParamIR {
             name: pname,
             cpp_type,
@@ -2047,7 +2283,12 @@ fn extract_function(
     *count += 1;
     let rust_name = strategy.uniquify(&to_snake_case(name), *count);
 
-    let rust_return_type = cpp_to_rust_type_with_aliases(&return_type, alias_registry);
+    // Use the already-qualified return type to derive the Rust return type.
+    // `qualified_return` has been resolved through the class-local typedef map
+    // (e.g. `Ch` → `char`, `Type` → `uint64_t` inside BigInteger), so
+    // `cpp_to_rust_type_with_aliases` produces the correct primitive Rust type
+    // (`i8`, `u64`, …) instead of the unresolved alias name.
+    let rust_return_type = cpp_to_rust_type_with_aliases(&qualified_return, alias_registry);
 
     Some(FunctionIR {
         name: name.to_string(),
@@ -2152,7 +2393,6 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
         let ptr_depth = parts.len().saturating_sub(1);
         if ptr_depth > 0 {
             let base_part = parts[0].trim();
-            let ptr_qualifiers: Vec<&str> = parts[1..].iter().map(|p| p.trim()).collect();
             let base_const = has_top_level_const(base_part);
             let base = strip_top_level_const(base_part);
             let mut rust_type = if base == "void" {
@@ -2161,11 +2401,12 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
                 cpp_to_rust_type_with_aliases(base, alias_registry)
             };
             for level in 0..ptr_depth {
-                let pointee_const = if level == 0 {
-                    base_const
-                } else {
-                    has_const_token(ptr_qualifiers[level - 1])
-                };
+                // In Rust FFI, only the DATA's const-ness matters.  C++ "pointer-const"
+                // qualifiers (the `const` between stars, e.g. `char *const *`) apply to
+                // the pointer address itself and are dropped when translating to Rust — exactly
+                // as tools like rust-bindgen do.  Only the base type's own const qualifier
+                // (e.g. `const char *`) determines whether the innermost pointer is `*const`.
+                let pointee_const = level == 0 && base_const;
                 rust_type = if pointee_const {
                     format!("*const {}", rust_type)
                 } else {
@@ -2265,7 +2506,16 @@ pub(crate) fn cpp_to_rust_type_with_aliases(
 /// classes, templates, etc.) are passed through as the bare class name so
 /// hicc can handle them via its `class` declarations.
 pub fn cpp_to_rust_type(cpp_type: &str) -> String {
-    let t = cpp_type.trim();
+    // Normalize first: strip compiler-extension qualifiers (__restrict etc.)
+    // that have no Rust equivalent. We need to own the string for the
+    // normalization case; borrow it otherwise.
+    let normalized;
+    let t = if cpp_type.contains("__restrict") {
+        normalized = normalize_cpp_type(cpp_type);
+        normalized.as_str()
+    } else {
+        cpp_type.trim()
+    };
 
     // Pointer chain: supports single and multi-level pointers, e.g.
     // `int **`, `const char **`, `const T * const *`.
@@ -2274,7 +2524,6 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
         let ptr_depth = parts.len().saturating_sub(1);
         if ptr_depth > 0 {
             let base_part = parts[0].trim();
-            let ptr_qualifiers: Vec<&str> = parts[1..].iter().map(|p| p.trim()).collect();
             let base_const = has_top_level_const(base_part);
             let base = strip_top_level_const(base_part);
             let mut rust_type = if base == "void" {
@@ -2283,11 +2532,10 @@ pub fn cpp_to_rust_type(cpp_type: &str) -> String {
                 cpp_to_rust_type(base)
             };
             for level in 0..ptr_depth {
-                let pointee_const = if level == 0 {
-                    base_const
-                } else {
-                    has_const_token(ptr_qualifiers[level - 1])
-                };
+                // In Rust FFI, only the DATA's const-ness matters.  C++ "pointer-const"
+                // qualifiers between stars are dropped — only the base type's const qualifier
+                // determines whether the innermost pointer is `*const`.
+                let pointee_const = level == 0 && base_const;
                 rust_type = if pointee_const {
                     format!("*const {}", rust_type)
                 } else {
@@ -2364,10 +2612,6 @@ fn strip_trailing_ref(t: &str) -> Option<&str> {
     }
 }
 
-fn has_const_token(segment: &str) -> bool {
-    segment.split_whitespace().any(|tok| tok == "const")
-}
-
 fn has_top_level_const(t: &str) -> bool {
     let trimmed = t.trim();
     trimmed.starts_with("const ") || trimmed.ends_with(" const") || trimmed == "const"
@@ -2386,6 +2630,32 @@ fn strip_top_level_const(t: &str) -> &str {
 
 fn is_operator_name(name: Option<&str>) -> bool {
     name.is_some_and(|n| n.starts_with("operator"))
+}
+
+/// Normalize a C++ type string by removing compiler-extension qualifiers
+/// that have no equivalent in Rust or standard C++ (e.g. `__restrict`,
+/// `__restrict__`).
+///
+/// These qualifiers appear in clang's `qual_type` output for pointer parameters
+/// on some platforms (e.g. `char *const *__restrict`).  hicc-build and
+/// the Rust type conversion both fail when they encounter them, so we strip
+/// them before any further processing.
+pub(crate) fn normalize_cpp_type(t: &str) -> String {
+    // Handle the common forms emitted by clang:
+    //   "char *const *__restrict"   -> "char *const *"   (after `*`)
+    //   "__restrict char *"         -> "char *"           (leading)
+    //   "char * __restrict"         -> "char *"           (trailing / mid)
+    //
+    // Replacement order: handle the `*__restrict[__]` form first so that the
+    // `*` is preserved; then handle any bare `__restrict[__]` that remains.
+    // This avoids leaving an orphaned `*` after the longer suffix is matched.
+    let s = t
+        .replace("*__restrict__", "*")
+        .replace("*__restrict", "*")
+        .replace("__restrict__", "")
+        .replace("__restrict", "");
+    // Collapse any whitespace runs introduced by the removal and trim edges.
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Extract the bare (no namespace, no template args) outer template class name.
@@ -2450,6 +2720,15 @@ fn is_supported_cpp_type(
 
     let base = strip_top_level_const(t);
 
+    // Reject all C++ standard-library types regardless of alias resolution.
+    // Types like `std::string`, `std::istream`, `std::vector<T>`, etc. cannot
+    // be passed through the hicc ABI boundary directly.  Checking this before
+    // the template-alias path prevents system typedefs (e.g. `std::istream`)
+    // from making stdlib class templates appear supported.
+    if base.starts_with("std::") || base.starts_with("::std::") {
+        return false;
+    }
+
     // Allow template types whose bare name has a typedef alias.
     if base.contains('<') {
         let bare_template = bare_template_name(base);
@@ -2461,6 +2740,15 @@ fn is_supported_cpp_type(
     }
 
     if contains_unsupported_type_construct(base) {
+        return false;
+    }
+
+    // Reject all C++ standard-library types regardless of alias resolution.
+    // Types like `std::string`, `std::istream`, `std::vector<T>`, etc. cannot
+    // be passed through the hicc ABI boundary directly.  Checking this before
+    // the alias-of-template path prevents a `std::string` typedef alias from
+    // being classified as supported just because it resolves to a template.
+    if base.starts_with("std::") || base.starts_with("::std::") {
         return false;
     }
 
@@ -2560,6 +2848,75 @@ fn is_primitive_cpp_type(t: &str) -> bool {
             | "intptr_t"
             | "uintptr_t"
     )
+}
+
+/// Split a C++ parameter list string at top-level commas (i.e., commas not
+/// inside `<...>` or `(...)` brackets).
+///
+/// For example `"int &, const T &, size_t"` → `["int &", "const T &", "size_t"]`.
+/// Used to detect invalid template instantiations (e.g. `PutN<int, char>`)
+/// where a reference parameter has a primitive base type.
+fn split_at_top_level_comma(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0u32;
+    let mut start = 0;
+    for (i, c) in s.char_indices() {
+        match c {
+            '<' | '(' => depth += 1,
+            '>' | ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(s[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let tail = s[start..].trim();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    parts
+}
+
+/// Returns `true` when a concrete template instantiation should be skipped
+/// because at least one by-reference (or by-pointer) parameter has a C++
+/// primitive base type (e.g. `int &`, `double *`).
+///
+/// Such specialisations are semantically invalid — primitives lack member
+/// types like `Stream::Ch` that template bodies often require — and including
+/// them as FFI bindings causes C++ compilation failures (e.g. `PutN<int, char>`
+/// which expands to `void (int &, char, size_t)`).
+///
+/// Only **non-const** mutable references (`T &`) are checked.  `const T &`
+/// is a legitimate by-value-in-disguise parameter that appears in many
+/// valid template specialisations (e.g. JSON pointer path overloads that
+/// take `const int &`).
+fn has_primitive_ref_param(qual_type: &str) -> bool {
+    let Some((_, params_str)) = parse_fn_qual_type(qual_type) else {
+        return false;
+    };
+    for param in split_at_top_level_comma(&params_str) {
+        let p = param.trim();
+        // Skip const references — `const T &` is a valid by-value pass even
+        // for primitive T (e.g. JSON path overloads).
+        if p.starts_with("const ") {
+            continue;
+        }
+        // Check for mutable `T &` where T is a primitive.
+        let base = if let Some(stripped) = p.strip_suffix(" &").or_else(|| p.strip_suffix('&')) {
+            stripped.trim()
+        } else {
+            continue;
+        };
+        let base = base
+            .trim_start_matches("volatile ")
+            .trim_start_matches("__restrict")
+            .trim();
+        if is_primitive_cpp_type(base) {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_known_class_type(t: &str, class_map: &HashMap<String, String>) -> bool {
@@ -2857,8 +3214,8 @@ fn extract_static_member(
 /// Returns `None` when the field's type is unsupported or the field is anonymous.
 fn extract_field(
     node: &AstNode,
-    _class_name: &str,
-    class_qualified: &str,
+    class_name: &str,
+    _class_qualified: &str,
     class_map: &HashMap<String, String>,
     alias_registry: &AliasRegistry,
 ) -> Option<FieldIR> {
@@ -2874,9 +3231,17 @@ fn extract_field(
 
     let is_const = has_top_level_const(&cpp_type);
     let base_cpp = strip_top_level_const(&cpp_type);
-    let rust_type = cpp_to_rust_type_with_aliases(base_cpp, alias_registry);
+    // Qualify through the class-local typedef map so that class-local typedefs
+    // (e.g. `typedef char Ch`) resolve to the underlying primitive before the
+    // Rust type is derived.
+    let qualified_base = qualify_cpp_type(base_cpp, class_map);
+    let rust_type = cpp_to_rust_type_with_aliases(&qualified_base, alias_registry);
     let rust_name = to_snake_case(&name);
-    let qualified_name = format!("{}::{}", class_qualified, name);
+    // Use the UNQUALIFIED class name so hicc generates `&Self::ClassName::field`.
+    // Via C++'s injected-class-name rule, `Self::ClassName` resolves to `Self`,
+    // so this becomes `&Self::field`.  Using the fully-qualified form would
+    // produce `&Self::Ns::ClassName::field` where `Ns` is not a member of Self.
+    let qualified_name = format!("{}::{}", class_name, name);
 
     Some(FieldIR {
         name,
@@ -3274,7 +3639,14 @@ mod tests {
         assert_eq!(cpp_to_rust_type("int *"), "*mut i32");
         assert_eq!(cpp_to_rust_type("int **"), "*mut *mut i32");
         assert_eq!(cpp_to_rust_type("const char **"), "*mut *const i8");
-        assert_eq!(cpp_to_rust_type("const char * const *"), "*const *const i8");
+        // Pointer-const qualifiers (between stars) are dropped in Rust FFI — only the
+        // base type's const-ness determines *const vs *mut (same as rust-bindgen).
+        assert_eq!(cpp_to_rust_type("const char * const *"), "*mut *const i8");
+        assert_eq!(cpp_to_rust_type("char *const *"), "*mut *mut i8");
+        // GCC/Clang __restrict qualifiers must also be stripped first.
+        assert_eq!(cpp_to_rust_type("char *const *__restrict"), "*mut *mut i8");
+        assert_eq!(cpp_to_rust_type("char *__restrict"), "*mut i8");
+        assert_eq!(cpp_to_rust_type("const char *__restrict__"), "*const i8");
     }
 
     #[test]

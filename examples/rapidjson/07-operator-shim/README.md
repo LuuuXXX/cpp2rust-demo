@@ -62,7 +62,7 @@ cpp2rust-demo init --feature rj07 --link jsonvalue \
 
 # 查看自动生成的 shim starter
 cat .cpp2rust/rj07/meta/operator_shims.hpp
-cat .cpp2rust/rj07/rust/src/mod_entry/free/shim_ops.rs
+cat .cpp2rust/rj07/rust/src/entry.rs
 
 # 第 2 步：用户审查 operator_shims.hpp，确认或调整实现
 # （本示例中 examples/rapidjson/07-operator-shim/operator_shims.hpp 是已审查版本）

@@ -100,7 +100,7 @@ cat .cpp2rust/g02/meta/init-interface-report.md
 
 ## 预期生成产物（重跑后）
 
-### `method/mtd_entry2.rs`（重跑后，含接口类）
+### `entry2.rs` (methods section)（重跑后，含接口类）
 
 ```rust
 // EventHandler 全纯虚接口
@@ -141,7 +141,7 @@ hicc::import_class! {
 }
 ```
 
-### `free/fn_entry2.rs`（`@make_proxy` 反向绑定）
+### `entry2.rs` (free functions section)（`@make_proxy` 反向绑定）
 
 ```rust
 hicc::import_lib! {
