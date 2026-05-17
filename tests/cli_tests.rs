@@ -1776,19 +1776,23 @@ fn init_abstract_class_generates_make_proxy() {
     let free_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/listener.rs")).unwrap();
 
-    // With no concrete implementor in the same translation unit, @make_proxy
-    // cannot be generated (hicc requires a concrete class with a MethodsType
-    // registered; the abstract class itself does not qualify).
-    // The abstract class is still exposed as a Rust #[interface] trait.
+    // The abstract class is exposed as a Rust #[interface] trait.
     assert!(
-        free_src.contains("ISchemaValidator")
-            || free_src.contains("Listener")
-            || free_src.contains("#[interface]"),
+        free_src.contains("Listener") || free_src.contains("#[interface]"),
         "abstract class should produce an #[interface] trait: {}",
         free_src
     );
 
-    // The @make_proxy comment hint should be in the report.
+    // Even without a concrete implementor, a commented-out @make_proxy skeleton
+    // is emitted so users know how to wire it up once they add a C++ implementor.
+    assert!(
+        free_src.contains("make_proxy"),
+        "abstract class with no concrete implementor should still emit \
+         a commented @make_proxy skeleton: {}",
+        free_src
+    );
+
+    // The @make_proxy comment hint should also be in the report.
     let report = std::fs::read_to_string(
         tmp.path()
             .join(".cpp2rust/default/meta/init-interface-report.md"),

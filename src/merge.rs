@@ -707,4 +707,54 @@ hicc::import_lib! {
 }"#;
         assert_eq!(class_name_from_block(block_brace), Some("Bar".to_string()));
     }
+
+    /// `parse_lib_block_contents` must preserve `@make_proxy skeleton` comment
+    /// blocks so they survive the merge step and appear in `merged_ffi.rs`.
+    #[test]
+    fn parse_lib_block_preserves_make_proxy_skeleton() {
+        let src = r#"hicc::import_lib! {
+    #![link_name = "mylib"]
+
+    // @make_proxy skeleton for `IFoo` — uncomment and replace
+    // `YourConcreteImpl` with a concrete C++ class that derives from it.
+    // #[cpp(func = "YourConcreteImpl @make_proxy<YourConcreteImpl>()")]
+    // #[interface(name = "IFoo")]
+    // fn new_i_foo_proxy(intf: hicc::Interface<YourConcreteImpl>) -> YourConcreteImpl;
+
+}"#;
+        let blocks = extract_import_lib_blocks(src);
+        assert_eq!(blocks.len(), 1);
+
+        let (fwd, fns) = parse_lib_block_contents(&blocks[0]);
+        assert!(fwd.is_empty(), "no forward decls expected");
+        assert_eq!(
+            fns.len(),
+            1,
+            "skeleton comment block should be preserved as one item"
+        );
+        assert!(
+            fns[0].contains("make_proxy"),
+            "preserved item should contain 'make_proxy': {:?}",
+            fns[0]
+        );
+    }
+
+    /// Regular comment lines (non-skeleton) must still be stripped during merge.
+    #[test]
+    fn parse_lib_block_strips_regular_comments() {
+        let src = r#"hicc::import_lib! {
+    #![link_name = "mylib"]
+
+    // @make_proxy support: required for wrapping Rust structs as C++ interfaces.
+
+    #[cpp(func = "int add(int, int)")]
+    fn add(a: i32, b: i32) -> i32;
+}"#;
+        let blocks = extract_import_lib_blocks(src);
+        let (fwd, fns) = parse_lib_block_contents(&blocks[0]);
+        assert!(fwd.is_empty());
+        // Only the real fn binding should remain; the support comment should be dropped.
+        assert_eq!(fns.len(), 1);
+        assert!(fns[0].contains("fn add"));
+    }
 }
