@@ -777,9 +777,33 @@ fn render_import_lib(out: &mut String, decls: &ExtractedDecls, link_name: &str) 
         });
 
         let Some(impl_class) = concrete_implementor else {
-            // No concrete implementor found → skip @make_proxy for this
-            // abstract class.  The Rust trait is still usable; users just
-            // cannot create a Rust-backed proxy for it.
+            // No concrete implementor found → emit a commented-out
+            // @make_proxy skeleton so users know how to wire it up once
+            // they provide a concrete C++ implementor in scope.
+            let snake = crate::ast::to_snake_case(rust_name);
+            let proxy_fn = format!("new_{snake}_proxy");
+            writeln!(
+                out,
+                "    // @make_proxy skeleton for `{rust_name}` — uncomment and replace"
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    // `YourConcreteImpl` with a concrete C++ class that derives from it."
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "    // #[cpp(func = \"YourConcreteImpl @make_proxy<YourConcreteImpl>()\")]"
+            )
+            .unwrap();
+            writeln!(out, "    // #[interface(name = \"{rust_name}\")]").unwrap();
+            writeln!(
+                out,
+                "    // fn {proxy_fn}(intf: hicc::Interface<YourConcreteImpl>) -> YourConcreteImpl;"
+            )
+            .unwrap();
+            writeln!(out).unwrap();
             continue;
         };
 

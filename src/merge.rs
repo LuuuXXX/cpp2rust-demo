@@ -420,6 +420,8 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
     let mut fn_items = Vec::new();
     let mut current_item = String::new();
     let mut in_item = false;
+    // Buffer for accumulating consecutive comment lines.
+    let mut comment_buf = String::new();
 
     for line in inner.lines() {
         let trimmed = line.trim();
@@ -429,9 +431,22 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
             continue;
         }
 
-        // Skip comment lines (including the @make_proxy notice and global var header).
         if trimmed.starts_with("//") {
+            // Accumulate comment lines; we decide what to keep once the block ends.
+            if !comment_buf.is_empty() {
+                comment_buf.push('\n');
+            }
+            comment_buf.push_str(trimmed);
             continue;
+        }
+
+        // Flush the comment buffer now that we've hit a non-comment line.
+        // Preserve @make_proxy skeleton comment blocks so they survive merge.
+        if !comment_buf.is_empty() {
+            if comment_buf.contains("@make_proxy skeleton") {
+                fn_items.push(comment_buf.clone());
+            }
+            comment_buf.clear();
         }
 
         if trimmed.starts_with("class ") && trimmed.ends_with(';') && !trimmed.contains("//") {
@@ -462,6 +477,11 @@ fn parse_lib_block_contents(block: &str) -> (Vec<String>, Vec<String>) {
                 in_item = false;
             }
         }
+    }
+
+    // Flush any trailing comment block.
+    if !comment_buf.is_empty() && comment_buf.contains("@make_proxy skeleton") {
+        fn_items.push(comment_buf);
     }
 
     (forward_decls, fn_items)
