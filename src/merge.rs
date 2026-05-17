@@ -348,13 +348,7 @@ fn extract_enum_defs_block(src: &str) -> String {
 
         // Only check stop markers at the top level (brace depth 0 after
         // processing the line's braces).
-        if brace_depth <= 0 && !trimmed.is_empty() {
-            // Reset depth to 0 to guard against trailing `}` imbalance.
-            brace_depth = 0;
-
-            // Check if the NEXT non-empty line (at depth 0) is a stop marker.
-            // We check *before* the current line if we haven't started yet.
-            // Actually, check whether this line itself is a stop marker.
+        if brace_depth == 0 && !trimmed.is_empty() {
             if STOP_MARKERS.iter().any(|m| trimmed.starts_with(m)) {
                 // Compute offset of the start of this line within `after`.
                 end_offset = consumed;
