@@ -348,12 +348,13 @@ fn extract_enum_defs_block(src: &str) -> String {
 
         // Only check stop markers at the top level (brace depth 0 after
         // processing the line's braces).
-        if brace_depth == 0 && !trimmed.is_empty() {
-            if STOP_MARKERS.iter().any(|m| trimmed.starts_with(m)) {
-                // Compute offset of the start of this line within `after`.
-                end_offset = consumed;
-                break;
-            }
+        if brace_depth == 0
+            && !trimmed.is_empty()
+            && STOP_MARKERS.iter().any(|m| trimmed.starts_with(m))
+        {
+            // Compute offset of the start of this line within `after`.
+            end_offset = consumed;
+            break;
         }
 
         consumed = line_end.min(after.len());
