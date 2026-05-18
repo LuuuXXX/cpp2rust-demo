@@ -1523,7 +1523,11 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 fn resolve_shim_names(shims: &[OperatorShimIR]) -> Vec<String> {
     // Build a helper closure that computes a stable param-type signature for a shim.
     let param_sig = |s: &OperatorShimIR| -> String {
-        s.params.iter().map(|p| p.cpp_type.as_str()).collect::<Vec<_>>().join(",")
+        s.params
+            .iter()
+            .map(|p| p.cpp_type.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
     };
 
     // For each shim_name, collect all distinct param-type signatures in
@@ -1569,10 +1573,7 @@ fn resolve_shim_names(shims: &[OperatorShimIR]) -> Vec<String> {
 ///
 /// Additionally, any `suggested_shim` text from skipped declarations is
 /// appended to the file as commented-out prototype suggestions.
-pub fn render_operator_shims_hpp(
-    shims: &[OperatorShimIR],
-    skipped: &[SkippedDecl],
-) -> String {
+pub fn render_operator_shims_hpp(shims: &[OperatorShimIR], skipped: &[SkippedDecl]) -> String {
     let string_shims: Vec<&SkippedDecl> = skipped
         .iter()
         .filter(|s| s.suggested_shim.is_some())
@@ -1595,8 +1596,16 @@ pub fn render_operator_shims_hpp(
         "// Bind the functions below via #[cpp(func = \"...\")] in import_lib!."
     )
     .unwrap();
-    writeln!(out, "// NOTE: Do NOT #include any middleware here; rely on the outer").unwrap();
-    writeln!(out, "// hicc::cpp! block to provide the required type definitions.").unwrap();
+    writeln!(
+        out,
+        "// NOTE: Do NOT #include any middleware here; rely on the outer"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// hicc::cpp! block to provide the required type definitions."
+    )
+    .unwrap();
     writeln!(out, "#pragma once").unwrap();
     writeln!(out, "#ifndef {}", guard).unwrap();
     writeln!(out, "#define {}", guard).unwrap();
@@ -1642,12 +1651,7 @@ pub fn render_operator_shims_hpp(
 
         // Build a deduplication key from the full C++ function declaration
         // (using the resolved/disambiguated name).
-        let decl_sig = format!(
-            "{} {}({})",
-            ret,
-            resolved_name,
-            all_params.join(", ")
-        );
+        let decl_sig = format!("{} {}({})", ret, resolved_name, all_params.join(", "));
         if !seen_sigs.insert(decl_sig.clone()) {
             // Already emitted this shim — skip to avoid redefinition errors.
             continue;
@@ -1702,8 +1706,7 @@ pub fn render_operator_shims_hpp(
         writeln!(
             out,
             "static inline {} {{ return {}; }}",
-            decl_sig,
-            call_expr
+            decl_sig, call_expr
         )
         .unwrap();
         writeln!(out).unwrap();

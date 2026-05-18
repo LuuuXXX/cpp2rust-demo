@@ -398,15 +398,16 @@ fn run_init(args: InitArgs) -> Result<()> {
     // Using all_decls ensures the file contains ALL shims from every TU, fixing
     // multi-TU scenarios where different TUs define operators for different classes.
     if !dry_run && had_any_shims {
-        let shims_hpp = codegen::render_operator_shims_hpp(
-            &all_decls.operator_shims,
-            &all_decls.skipped,
-        );
+        let shims_hpp =
+            codegen::render_operator_shims_hpp(&all_decls.operator_shims, &all_decls.skipped);
         if !shims_hpp.is_empty() {
             let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
             std::fs::write(&shims_hpp_path, &shims_hpp)
                 .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
-            println!("\n  → operator_shims.hpp ({} shim(s))", all_decls.operator_shims.len());
+            println!(
+                "\n  → operator_shims.hpp ({} shim(s))",
+                all_decls.operator_shims.len()
+            );
         }
     }
 
