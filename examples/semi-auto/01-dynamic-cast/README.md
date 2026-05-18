@@ -1,6 +1,6 @@
-# ⚙️ 半自动示例 01：`dynamic_cast` 向下转型绑定
+# ✅ 全自动示例 01：`dynamic_cast` 向下转型绑定
 
-**汇总统计类别：⚙️ 半自动**（工具生成注释骨架，用户解注释或加 flag 后可完全自动化）
+**汇总统计类别：✅ 完全自动（工具直接生成活跃绑定，无需用户干预）
 
 ---
 
@@ -15,7 +15,7 @@ if (Dog* dog = dynamic_cast<Dog*>(animal)) {
 }
 ```
 
-hicc 支持 `dynamic_cast` 绑定，但 cpp2rust-demo 默认以**注释形式**生成这部分绑定（避免引入非必要的 RTTI 开销），用户确认需要后解注释即可。
+hicc 支持 `dynamic_cast` 绑定，但 cpp2rust-demo 直接生成活跃的 `@dynamic_cast` 绑定并追加到 `<stem>.rs`，无需手动解注释。
 
 ---
 

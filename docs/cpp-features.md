@@ -43,7 +43,7 @@
 | 额外构造函数（重载） | ✅ | `<stem>.rs` | 作为工厂函数进入 `import_lib!` |
 | Copy / Move 构造函数 | ✅（自动跳过） | — | 自动识别 `const T&` / `T&&` 签名，跳过 |
 | 析构函数 | ❌ | — | `hicc_limitation`；hicc 不支持显式析构绑定；对象生命周期由 C++ 侧管理 |
-| 运算符重载 | 🔧 | `<stem>.rs`（注释骨架） | 工具自动生成 `operator_shims.hpp` starter 和 Rust 骨架；用户确认实现后激活 |
+| 运算符重载 | ✅ | `<stem>.rs` + `meta/operator_shims.hpp` | 工具自动生成 C++ shim 包装函数（`operator_shims.hpp`）并在 `<stem>.rs` 中直接输出活跃的 `import_lib!` 绑定；`hicc::cpp!` 块自动包含 `operator_shims.hpp`，无需用户手动处理 |
 | `private` / `protected` 成员 | ✅（自动跳过） | — | 设计上自动排除，不进入输出 |
 | 友元函数（`friend`） | ❌ | — | AST 提取不可靠（`FriendDecl` 解析受限）；跳过 |
 | 方法模板（类内函数模板） | ❌ | — | `hicc_limitation`；无法生成通用 Rust 泛型；跳过 |
@@ -170,10 +170,10 @@
 | 全纯虚接口 + @make_proxy | ✅ | `examples/rapidjson/04-abstract-interface/` |
 | 非纯虚方法 | ✅ | `examples/rapidjson/05-virtual-methods/` |
 | public 继承 | ✅ | `examples/rapidjson/06-inheritance/` |
-| 运算符重载 shim | 🔧 | `examples/rapidjson/07-operator-shim/` |
+| 运算符重载 shim | ✅ | `examples/rapidjson/07-operator-shim/` |
 | 多翻译单元 + merge | ✅ | `examples/rapidjson/08-multi-tu/` |
-| dynamic_cast 向下转型 | ⚙️ | `examples/semi-auto/01-dynamic-cast/` |
-| Placement New | ⚙️ | `examples/semi-auto/02-placement-new/` |
+| dynamic_cast 向下转型 | ✅ | `examples/semi-auto/01-dynamic-cast/` |
+| Placement New | ✅ | `examples/semi-auto/02-placement-new/` |
 | 模板类（无别名） | ⚠️ | `examples/conditional/01-template-no-alias/` |
 | 函数模板（无显式特化） | ⚠️ | `examples/conditional/02-function-template/` |
 | std::string 参数/返回 | 🔧 | `examples/guided/01-std-string/` |

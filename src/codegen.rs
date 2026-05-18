@@ -42,7 +42,7 @@ pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &st
     writeln!(out, "#![allow(non_snake_case, dead_code)]").unwrap();
     writeln!(out).unwrap();
 
-    out.push_str(&render_include_module(source_file_path));
+    out.push_str(&render_include_module(source_file_path, false));
     let class_part = render_class_module(decls);
     if !class_part.is_empty() {
         out.push_str(&class_part);
@@ -71,6 +71,7 @@ pub fn render_flat_module(
     decls: &ExtractedDecls,
     link_name: &str,
     source_file_path: &str,
+    has_operator_shims: bool,
 ) -> String {
     let mut out = String::new();
 
@@ -86,7 +87,12 @@ pub fn render_flat_module(
     writeln!(out).unwrap();
 
     // 1. hicc::cpp! include block.
-    out.push_str(&render_include_module(source_file_path));
+    // When operator shims are present we include operator_shims.hpp (which itself
+    // includes the middleware file) so that the shim functions are compiled in the
+    // same translation unit as the C++ declarations they wrap.  This avoids the
+    // double-inclusion problem that would arise from including both the middleware
+    // and operator_shims.hpp (which also includes the middleware) in the same block.
+    out.push_str(&render_include_module(source_file_path, has_operator_shims));
     writeln!(out).unwrap();
 
     // @make_proxy support header (when abstract / mixed classes are present).
@@ -130,7 +136,7 @@ pub fn render_flat_module(
     out
 }
 
-pub fn render_include_module(source_file_path: &str) -> String {
+pub fn render_include_module(source_file_path: &str, has_operator_shims: bool) -> String {
     let mut out = String::new();
     let raw_basename = std::path::Path::new(source_file_path)
         .file_name()
@@ -142,9 +148,19 @@ pub fn render_include_module(source_file_path: &str) -> String {
     let include_basename = raw_basename
         .strip_suffix(".cpp2rust")
         .unwrap_or(raw_basename);
-    writeln!(out, "hicc::cpp! {{").unwrap();
-    writeln!(out, "    #include \"{}\"", include_basename).unwrap();
-    writeln!(out, "}}").unwrap();
+
+    if has_operator_shims {
+        // Include operator_shims.hpp instead of the middleware directly.
+        // operator_shims.hpp already includes the middleware file, so both the
+        // C++ declarations and the operator shim wrappers are compiled together.
+        writeln!(out, "hicc::cpp! {{").unwrap();
+        writeln!(out, "    #include \"operator_shims.hpp\"").unwrap();
+        writeln!(out, "}}").unwrap();
+    } else {
+        writeln!(out, "hicc::cpp! {{").unwrap();
+        writeln!(out, "    #include \"{}\"", include_basename).unwrap();
+        writeln!(out, "}}").unwrap();
+    }
     out
 }
 
@@ -1394,8 +1410,8 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .filter(|c| !c.bases.is_empty())
             .collect();
         if !inherited_classes.is_empty() {
-            writeln!(out, "## @dynamic_cast Skeletons\n").unwrap();
-            writeln!(out, "_The following classes have public base classes. `@dynamic_cast` binding skeletons have been appended to `<stem>.rs` (look for the `// --- dynamic cast starters ---` section). Uncomment the pairs you need._\n").unwrap();
+            writeln!(out, "## @dynamic_cast Bindings\n").unwrap();
+            writeln!(out, "_The following classes have public base classes. Active `@dynamic_cast` bindings have been appended to `<stem>.rs` (see the `// --- dynamic cast starters ---` section)._\n").unwrap();
             for cls in &inherited_classes {
                 let rust_name = cls.canonical_name.as_deref().unwrap_or(cls.name.as_str());
                 writeln!(
@@ -1414,7 +1430,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
         }
 
         // Dedicated section for operator overloads: guide users on how to
-        // expose them manually via a hicc::cpp! wrapper.
+        // expose them via operator shims.
         let operators: Vec<&SkippedDecl> = decls
             .skipped
             .iter()
@@ -1425,8 +1441,8 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             out.push_str(
                 "The following C++ operators were skipped. \
                  hicc does not support operator overloads directly. \
-                 Auto-generated C++ shims have been written to `meta/<group>/operator_shims.hpp`. \
-                 Use `#[cpp(func = \"...\")]` in `import_lib!` to bind them.\n\n",
+                 Auto-generated C++ shims have been written to `meta/<group>/operator_shims.hpp` \
+                 and the corresponding Rust bindings are active in `<stem>.rs`.\n\n",
             );
             writeln!(out, "| Skipped operator | Suggested shim name |").unwrap();
             writeln!(out, "|-----------------|---------------------|").unwrap();
@@ -1457,8 +1473,8 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .filter(|c| !c.is_abstract && !c.ctors.is_empty())
             .collect();
         if !classes_with_ctors.is_empty() {
-            writeln!(out, "## Placement-New Skeletons (P4)\n").unwrap();
-            writeln!(out, "_The following concrete classes have extracted constructors. Placement-new binding skeletons have been appended to `<stem>.rs` (look for the `// --- placement-new starters ---` section). Uncomment the constructors you need to build C++ objects in Rust-managed memory._\n").unwrap();
+            writeln!(out, "## Placement-New Bindings (P4)\n").unwrap();
+            writeln!(out, "_The following concrete classes have extracted constructors. Active placement-new bindings have been appended to `<stem>.rs` (see the `// --- placement-new starters ---` section) to build C++ objects in Rust-managed memory._\n").unwrap();
             for cls in &classes_with_ctors {
                 let rust_name = cls.canonical_name.as_deref().unwrap_or(cls.name.as_str());
                 let ctor_sigs: Vec<String> = cls
@@ -1669,31 +1685,24 @@ pub fn render_operator_shims_hpp(
 /// These stubs are appended to `<stem>.rs` (after a `// --- operator shims ---`
 /// comment separator).  They provide `#[cpp(func = "...")]` bindings for each
 /// operator shim so that Rust can call the wrapper functions.
+///
+/// The bindings are emitted as **active** (uncommented) code.  The corresponding
+/// C++ shim file is automatically included via `operator_shims.hpp` in the
+/// `hicc::cpp!` block, so no manual activation step is required.
 pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> String {
     if shims.is_empty() {
         return String::new();
     }
 
     let mut out = String::new();
-    // The operator shim Rust bindings are emitted as **commented-out** starters.
-    // To activate them:
-    //   1. Add `#include "operator_shims.hpp"` to your `hicc::cpp! { ... }` block
-    //      (the file is generated at `meta/operator_shims.hpp`).
-    //   2. Uncomment the `hicc::import_lib!` block below.
     writeln!(
         out,
         "// Auto-generated operator shim Rust bindings by cpp2rust-demo."
     )
     .unwrap();
-    writeln!(
-        out,
-        "// To activate: include operator_shims.hpp in your hicc::cpp! block,"
-    )
-    .unwrap();
-    writeln!(out, "// then uncomment the import_lib! block below.").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "// hicc::import_lib! {{").unwrap();
-    writeln!(out, "//     #![link_name = \"{link_name}\"]").unwrap();
+    writeln!(out, "hicc::import_lib! {{").unwrap();
+    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
     writeln!(out).unwrap();
 
     for shim in shims {
@@ -1739,26 +1748,25 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         }
         let cpp_sig = format!("{} {}({})", cpp_ret, shim.shim_name, cpp_params.join(", "));
 
-        writeln!(out, "//     // Shim for `{}`", shim.operator_name).unwrap();
-        writeln!(out, "//     #[cpp(func = \"{}\")]", cpp_sig).unwrap();
+        writeln!(out, "    // Shim for `{}`", shim.operator_name).unwrap();
+        writeln!(out, "    #[cpp(func = \"{}\")]", cpp_sig).unwrap();
         writeln!(
             out,
-            "//     fn {}({}){};\n",
+            "    fn {}({}){};\n",
             shim.shim_name, param_str, ret_str
         )
         .unwrap();
     }
 
-    writeln!(out, "// }}").unwrap();
+    writeln!(out, "}}").unwrap();
     out
 }
 
 /// Render `@dynamic_cast` binding skeletons for classes that inherit from other classes.
 ///
-/// For each (Base → Derived) relationship found in `decls.classes`, emits a
-/// commented-out `@dynamic_cast` import_lib! stub.  The result is appended to
+/// For each (Base → Derived) relationship found in `decls.classes`, emits an
+/// active `@dynamic_cast` import_lib! stub.  The result is appended to
 /// `<stem>.rs` (after a `// --- dynamic cast starters ---` separator).
-/// Users can uncomment the pairs they need.
 ///
 /// Returns an empty string when no inheritance relationships exist.
 pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> String {
@@ -1792,12 +1800,7 @@ pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> S
     let mut out = String::new();
     writeln!(
         out,
-        "// Auto-generated @dynamic_cast binding skeletons by cpp2rust-demo."
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "// Uncomment the casts you need and add this file to your hicc build."
+        "// Auto-generated @dynamic_cast bindings by cpp2rust-demo."
     )
     .unwrap();
     writeln!(
@@ -1824,10 +1827,14 @@ pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> S
         .unwrap();
         writeln!(
             out,
-            "    // #[cpp(func = \"{derived_name} @dynamic_cast<{derived_name}>({base_name} *)\")]"
+            "    #[cpp(func = \"{derived_name} @dynamic_cast<{derived_name}>({base_name} *)\")]"
         )
         .unwrap();
-        writeln!(out, "    // fn dynamic_cast_to_{snake_derived}(ptr: *mut {base_name}) -> *mut {derived_name};").unwrap();
+        writeln!(
+            out,
+            "    fn dynamic_cast_to_{snake_derived}(ptr: *mut {base_name}) -> *mut {derived_name};"
+        )
+        .unwrap();
     }
     writeln!(out, "}}").unwrap();
     out
@@ -1836,8 +1843,8 @@ pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> S
 /// Render placement-new binding skeletons for classes with constructors.
 ///
 /// hicc supports constructing C++ objects directly in Rust-managed memory via
-/// `@placement_new<ClassName>(args...)`.  The generated bindings are all
-/// **commented-out** starters; users uncomment and adapt the ones they need.
+/// `@placement_new<ClassName>(args...)`.  The generated bindings are emitted as
+/// active code ready for use.
 ///
 /// Returns an empty string when no concrete class has any extracted constructors.
 pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> String {
@@ -1854,17 +1861,12 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
     let mut out = String::new();
     writeln!(
         out,
-        "// Auto-generated placement-new binding skeletons by cpp2rust-demo."
+        "// Auto-generated placement-new bindings by cpp2rust-demo."
     )
     .unwrap();
     writeln!(
         out,
         "// hicc supports constructing C++ objects in Rust-managed memory."
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "// Uncomment the constructors you need and add this file to your hicc build."
     )
     .unwrap();
     writeln!(out, "//").unwrap();
@@ -1902,17 +1904,13 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
         let snake = crate::ast::to_snake_case(rust_name);
 
         writeln!(out).unwrap();
-        writeln!(
-            out,
-            "    // Placement-new binding(s) for `{rust_name}` — uncomment and adapt."
-        )
-        .unwrap();
+        writeln!(out, "    // Placement-new binding(s) for `{rust_name}`.").unwrap();
         let mut inplace_idx: usize = 0;
         for (i, ctor) in class.ctors.iter().enumerate() {
             // Skip the primary constructor (fewest params = index 0) when it
             // has no parameters: a 0-param ctor is already bound via
             // `ctor = "ClassName()"` in `import_class!` and does not benefit
-            // from a placement-new skeleton.  Ctors with parameters are always
+            // from a placement-new binding.  Ctors with parameters are always
             // included — they represent meaningful construction alternatives.
             if i == 0 && ctor.params.is_empty() {
                 continue;
@@ -1942,8 +1940,12 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
             };
             inplace_idx += 1;
 
-            writeln!(out, "    // #[cpp(func = \"{rust_name} @placement_new<{rust_name}>({cpp_params_str})\")]").unwrap();
-            writeln!(out, "    // fn {fn_name}<'a>(mem: &'a mut hicc::AlignedStorage<{rust_name}>{param_str}) -> &'a mut {rust_name};").unwrap();
+            writeln!(
+                out,
+                "    #[cpp(func = \"{rust_name} @placement_new<{rust_name}>({cpp_params_str})\")]"
+            )
+            .unwrap();
+            writeln!(out, "    fn {fn_name}<'a>(mem: &'a mut hicc::AlignedStorage<{rust_name}>{param_str}) -> &'a mut {rust_name};").unwrap();
         }
     }
 
@@ -2530,7 +2532,6 @@ mod tests {
             ..ExtractedDecls::default()
         };
         let src = render_placement_new_module(&decls, "mylib");
-        // Must be commented-out (all binding lines start with //).
         assert!(src.contains("import_lib!"), "missing import_lib! macro");
         assert!(
             src.contains("@placement_new<Foo>"),
@@ -2544,9 +2545,14 @@ mod tests {
             src.contains("AlignedStorage"),
             "missing AlignedStorage param"
         );
+        // Bindings are now active (not commented out).
         assert!(
-            src.contains("// #[cpp"),
-            "binding lines should be commented out"
+            src.contains("#[cpp"),
+            "binding lines should be active (uncommented)"
+        );
+        assert!(
+            !src.contains("// #[cpp"),
+            "binding lines must not be commented out"
         );
         assert!(src.contains("link_name = \"mylib\""), "missing link_name");
     }
@@ -2714,8 +2720,8 @@ mod tests {
         };
         let report = render_interface_report(&decls, "mylib", "widget.hpp");
         assert!(
-            report.contains("Placement-New Skeletons"),
-            "report should mention placement-new skeletons section"
+            report.contains("Placement-New Bindings"),
+            "report should mention placement-new bindings section"
         );
         assert!(
             report.contains("Widget"),

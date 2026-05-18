@@ -8,10 +8,12 @@ pub trait FileSelector {
     fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>>;
 }
 
-/// Interactive multi-select backed by `dialoguer`.
+/// Selects all candidates automatically, enforcing the full-capture principle.
 ///
-/// When stdin is not a terminal (CI, pipes, tests) this automatically selects
-/// all candidates so the workflow is never blocked waiting for user input.
+/// Previously this presented an interactive MultiSelect in terminal mode, allowing
+/// users to deselect individual middleware files.  The full-capture principle
+/// requires all captured translation units to be processed, so the interactive
+/// prompt has been removed.  All candidates are always selected.
 pub struct InteractiveSelector;
 
 impl FileSelector for InteractiveSelector {
@@ -21,33 +23,11 @@ impl FileSelector for InteractiveSelector {
             return Ok(vec![]);
         }
 
-        // When stdin is not a terminal (CI/scripts) fall back to selecting all.
-        use std::io::IsTerminal;
-        if !std::io::stdin().is_terminal() {
-            println!(
-                "Non-interactive terminal: selecting all {} file(s) automatically.",
-                candidates.len()
-            );
-            return Ok(candidates.to_vec());
-        }
-
-        use dialoguer::{theme::ColorfulTheme, MultiSelect};
-
-        let items: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
-
-        let selections = MultiSelect::with_theme(&ColorfulTheme::default())
-            .with_prompt(
-                "Select middleware files to include in this feature (space to toggle, enter to confirm)",
-            )
-            .items(&items)
-            .defaults(&vec![true; items.len()])
-            .interact()
-            .map_err(|e| anyhow::anyhow!("interactive selection failed: {}", e))?;
-
-        Ok(selections
-            .into_iter()
-            .map(|i| candidates[i].clone())
-            .collect())
+        println!(
+            "Full-capture mode: selecting all {} file(s) automatically.",
+            candidates.len()
+        );
+        Ok(candidates.to_vec())
     }
 }
 

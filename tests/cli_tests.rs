@@ -530,14 +530,15 @@ fn init_no_link_skips_unsupported_members_and_reports_reasons() {
             .unwrap();
     assert!(free.contains("fn fill(out: *mut *mut i32, name: *mut *const i8) -> i32"));
     // In the flat layout, operator shims are appended after a section separator.
-    // Verify operators are NOT extracted as regular bindings (before the shim section).
+    // Verify operators are NOT extracted as regular fn bindings (before the shim section).
     let before_shims = free
         .split("// --- operator shims ---")
         .next()
         .unwrap_or(&free);
     assert!(
-        !before_shims.contains("operator"),
-        "operator should not appear as a regular binding"
+        !before_shims.contains("fn operator")
+            && !before_shims.contains("#[cpp(func = \"int operator"),
+        "operator should not appear as a regular fn binding before shim section"
     );
 
     let report = std::fs::read_to_string(
@@ -1609,10 +1610,10 @@ fn init_class_multiple_ctors_generates_factory_functions() {
     let free_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/multi_ctor.rs"))
             .unwrap();
-    // Extra ctors should appear as commented @placement_new skeletons.
+    // Extra ctors should appear as active @placement_new bindings.
     assert!(
         free_src.contains("@placement_new"),
-        "extra constructors should appear as @placement_new skeletons: {}",
+        "extra constructors should appear as @placement_new bindings: {}",
         free_src
     );
     assert!(
@@ -1670,10 +1671,10 @@ fn init_class_ctors_sorted_by_param_count() {
 
     let free_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/rev_ctor.rs")).unwrap();
-    // The 1-param and 2-param ctors should appear as commented @placement_new skeletons.
+    // The 1-param and 2-param ctors should appear as active @placement_new bindings.
     assert!(
         free_src.contains("@placement_new"),
-        "non-primary ctors should appear as @placement_new skeletons: {}",
+        "non-primary ctors should appear as @placement_new bindings: {}",
         free_src
     );
     // The 0-param ctor (primary) should NOT appear as a placement_new skeleton.
@@ -2232,17 +2233,17 @@ fn init_operator_overload_generates_shim_files() {
         "shim functions should be declared in operator_shims.hpp: {shims_hpp}"
     );
 
-    // Shim bindings are appended to the flat ops2.rs file as commented-out starters.
-    // Users must include operator_shims.hpp first, then uncomment.
+    // Shim bindings are appended to the flat ops2.rs file as active (uncommented) bindings.
+    // operator_shims.hpp is automatically included via the hicc::cpp! block.
     let flat_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/ops2.rs")).unwrap();
     assert!(
-        flat_src.contains("// hicc::import_lib!") || flat_src.contains("// #[cpp(func"),
-        "flat ops2.rs should contain commented-out import_lib! shim bindings: {flat_src}"
+        flat_src.contains("hicc::import_lib!") && !flat_src.contains("// hicc::import_lib!"),
+        "flat ops2.rs should contain active (uncommented) import_lib! shim bindings: {flat_src}"
     );
     assert!(
         flat_src.contains("operator_shims.hpp"),
-        "flat ops2.rs should mention operator_shims.hpp in instructions: {flat_src}"
+        "flat ops2.rs hicc::cpp! block should include operator_shims.hpp: {flat_src}"
     );
 }
 
@@ -3572,11 +3573,11 @@ fn init_va_list_last_param_generates_unsafe_variadic_binding() {
 }
 
 // ---------------------------------------------------------------------------
-// P3: @dynamic_cast binding skeletons
+// P3: @dynamic_cast bindings
 // ---------------------------------------------------------------------------
 
-/// When a class has a public base class, a `dynamic_casts.rs` skeleton file
-/// should be generated inside `free/` with commented-out `@dynamic_cast` bindings.
+/// When a class has a public base class, active `@dynamic_cast` bindings
+/// should be appended to `<stem>.rs`.
 #[test]
 fn init_inherited_class_generates_dynamic_cast_skeleton() {
     let tmp = TempDir::new().unwrap();
@@ -3716,7 +3717,7 @@ fn init_multiple_inheritance_all_bases_extracted() {
 // ---------------------------------------------------------------------------
 
 /// When a C++ class has extracted constructors, the tool should append
-/// commented-out placement-new starters to `<stem>.rs`.
+/// active placement-new bindings to `<stem>.rs`.
 #[test]
 fn init_placement_new_file_created_for_class_with_ctor() {
     let tmp = TempDir::new().unwrap();
@@ -3749,10 +3750,10 @@ fn init_placement_new_file_created_for_class_with_ctor() {
         .assert()
         .success();
 
-    // Placement-new starters are appended to the flat widget.rs file.
+    // Placement-new bindings are appended to the flat widget.rs file as active code.
     let pn_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/widget.rs")).unwrap();
-    // Must contain the @placement_new annotation (commented out).
+    // Must contain the @placement_new annotation.
     assert!(
         pn_src.contains("@placement_new"),
         "widget.rs should contain @placement_new annotation: {}",
@@ -3767,10 +3768,14 @@ fn init_placement_new_file_created_for_class_with_ctor() {
         pn_src.contains("new_widget_inplace"),
         "placement_new.rs should contain the generated fn name"
     );
-    // All binding lines must be commented out (users uncomment what they need).
+    // Bindings are now active (not commented out).
     assert!(
-        pn_src.contains("// #[cpp"),
-        "binding lines should be commented out"
+        pn_src.contains("#[cpp"),
+        "binding lines should be active (uncommented)"
+    );
+    assert!(
+        !pn_src.contains("// #[cpp"),
+        "binding lines must not be commented out"
     );
     assert!(
         pn_src.contains("AlignedStorage"),
@@ -3811,7 +3816,7 @@ fn init_no_placement_new_file_when_only_free_functions() {
     );
 }
 
-/// The interface report should contain a placement-new skeletons section when
+/// The interface report should contain a placement-new bindings section when
 /// a class has extracted constructors.
 #[test]
 fn init_report_contains_placement_new_section() {
@@ -3851,7 +3856,7 @@ fn init_report_contains_placement_new_section() {
     )
     .unwrap();
     assert!(
-        report.contains("Placement-New Skeletons"),
+        report.contains("Placement-New Bindings"),
         "interface report should contain a placement-new section: {}",
         &report[report.len().saturating_sub(500)..]
     );

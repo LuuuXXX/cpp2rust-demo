@@ -1,18 +1,18 @@
-# ⚙️ 半自动示例
+# ✅ 全自动示例（原半自动）
 
-**汇总统计类别：⚙️ 半自动**（工具生成注释骨架，用户解注释后即可完全自动化）
+**汇总统计类别：✅ 完全自动**（工具直接生成活跃绑定，无需用户干预）
 
-本目录包含 cpp2rust-demo 中需要少量人工干预的两个特性场景。
-工具已经生成完整的绑定骨架，用户只需解注释目标绑定，无需手写任何绑定代码。
+本目录包含 cpp2rust-demo 中运算符 / 继承相关的两个特性场景。
+工具已经生成完整的活跃绑定，直接可编译使用，无需手工解注释。
 
 ---
 
 ## 示例列表
 
-| 示例 | C++ 特性 | 解锁方式 |
+| 示例 | C++ 特性 | 自动化方式 |
 |------|---------|---------|
-| [`01-dynamic-cast/`](01-dynamic-cast/README.md) | `dynamic_cast` 向下转型 | 解注释 `entry.rs` 末尾骨架 |
-| [`02-placement-new/`](02-placement-new/README.md) | Placement New（Rust 内存中构造 C++ 对象） | 解注释 `entry.rs` 末尾骨架 |
+| [`01-dynamic-cast/`](01-dynamic-cast/README.md) | `dynamic_cast` 向下转型 | `@dynamic_cast` 绑定自动生成并激活到 `<stem>.rs` |
+| [`02-placement-new/`](02-placement-new/README.md) | Placement New（Rust 内存中构造 C++ 对象） | `@placement_new` 绑定自动生成并激活到 `<stem>.rs` |
 
 ---
 

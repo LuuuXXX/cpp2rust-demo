@@ -183,8 +183,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     );
 
     // ----------------------------------------------------------------
-    // Interactive middleware file selection
-    // (auto-selects all when stdin is not a terminal, e.g. in CI/scripts)
+    // Middleware file selection — full-capture principle: always select all.
     // ----------------------------------------------------------------
     let sel = InteractiveSelector;
     let selected_files = sel.select(&captured_files)?;
@@ -296,32 +295,36 @@ fn run_init(args: InitArgs) -> Result<()> {
 
         if !dry_run {
             // Step 3: generate flat Rust source file (<stem>.rs) — 1:1 with the
-            // C++ middleware file.
+            // C++ middleware file.  Pass has_shims so the hicc::cpp! include block
+            // uses operator_shims.hpp (which includes the middleware) instead of
+            // including the middleware directly, avoiding double-inclusion.
+            let has_shims_for_stem = !decls.operator_shims.is_empty();
             let mut flat_src = codegen::render_flat_module(
                 &decls,
                 link_name,
                 &selected_file.display().to_string(),
+                has_shims_for_stem,
             );
 
-            // Append operator shim bindings when present.
-            if !decls.operator_shims.is_empty() {
+            // Append active operator shim bindings when present.
+            if has_shims_for_stem {
                 let shims_rs = codegen::render_operator_shims_rs(&decls.operator_shims, link_name);
                 flat_src.push_str("\n// --- operator shims ---\n");
                 flat_src.push_str(&shims_rs);
             }
 
-            // Append dynamic cast starters when present.
+            // Append active dynamic cast bindings when present.
             if has_dynamic_casts {
                 flat_src.push_str("\n// --- dynamic cast starters ---\n");
                 flat_src.push_str(&dynamic_casts_src);
-                println!("  → dynamic_casts starters (commented-out)");
+                println!("  → @dynamic_cast bindings");
             }
 
-            // Append placement-new starters when present.
+            // Append active placement-new bindings when present.
             if has_placement_new {
                 flat_src.push_str("\n// --- placement-new starters ---\n");
                 flat_src.push_str(&placement_new_src);
-                println!("  → placement_new starters (commented-out)");
+                println!("  → placement_new bindings");
             }
 
             // Write the flat source file.
@@ -428,7 +431,12 @@ fn run_init(args: InitArgs) -> Result<()> {
         {
             let build_rs_path = lo.rust_dir.join("build.rs");
             let source_refs: Vec<&str> = build_rs_sources.iter().map(|s| s.as_str()).collect();
-            let include_dirs = middleware_include_dirs(&files_to_process);
+            let mut include_dirs = middleware_include_dirs(&files_to_process);
+            // When operator shims are present, the meta directory must be in the
+            // include path so that `#include "operator_shims.hpp"` resolves.
+            if had_any_shims {
+                include_dirs.push(lo.meta_dir.display().to_string());
+            }
             let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
             std::fs::write(
                 &build_rs_path,
@@ -483,15 +491,13 @@ fn run_init(args: InitArgs) -> Result<()> {
             );
         }
         if had_any_shims {
-            println!(
-                "  operator shims  →  meta/operator_shims.hpp + <stem>.rs (commented-out section)"
-            );
+            println!("  operator shims  →  meta/operator_shims.hpp + <stem>.rs (active bindings)");
         }
         if had_any_dynamic_casts {
-            println!("  dynamic cast starters  →  <stem>.rs (commented-out section)");
+            println!("  @dynamic_cast bindings  →  <stem>.rs (active bindings)");
         }
         if had_any_placement_new {
-            println!("  placement-new starters  →  <stem>.rs (commented-out section)");
+            println!("  placement-new bindings  →  <stem>.rs (active bindings)");
         }
         if total_skipped > 0 {
             println!(

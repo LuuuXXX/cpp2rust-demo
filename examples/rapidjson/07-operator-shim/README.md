@@ -1,8 +1,8 @@
-# 场景 07：运算符重载 → `operator_shims.hpp` 三步工作流
+# 场景 07：运算符重载 → `operator_shims.hpp` 全自动工作流
 
 本示例演示 cpp2rust-demo 处理 **C++ 运算符重载**的完整工作流：
-工具自动生成 `operator_shims.hpp` starter 文件和 `entry.rs` 末尾的注释骨架，
-用户确认/调整后通过 `hicc::cpp!` 使用。
+工具全自动生成 `operator_shims.hpp` C++ 包装函数、在 `hicc::cpp!` 中自动包含该头文件，
+并在 `entry.rs` 中输出活跃的 `import_lib!` 绑定，无需用户手动处理。
 
 ---
 
@@ -56,18 +56,16 @@ public:
 ## 运行步骤
 
 ```bash
-# 第 1 步：生成分组 FFI（工具自动生成 operator_shims.hpp 和 entry.rs 末尾注释骨架）
+# 第 1 步：生成 FFI（工具全自动生成 operator_shims.hpp、hicc::cpp! 包含和活跃 Rust 绑定）
 cpp2rust-demo init --feature rj07 --link jsonvalue \
     -- clang -x c++ -fsyntax-only examples/rapidjson/07-operator-shim/entry.cpp
 
-# 查看自动生成的 shim starter
+# 查看自动生成的 shim 文件（C++ 包装函数定义）
 cat .cpp2rust/rj07/meta/operator_shims.hpp
+# 查看自动生成的 Rust 绑定（hicc::cpp! 已包含 operator_shims.hpp，绑定已激活）
 cat .cpp2rust/rj07/rust/src/entry.rs
 
-# 第 2 步：用户审查 operator_shims.hpp，确认或调整实现
-# （本示例中 examples/rapidjson/07-operator-shim/operator_shims.hpp 是已审查版本）
-
-# 第 3 步：合并
+# 第 2 步：合并（可选）
 cpp2rust-demo merge --feature rj07
 ```
 
@@ -118,12 +116,10 @@ static inline bool json_value_ne(const JsonValue& self, const JsonValue& rhs) {
 #endif // OPERATOR_SHIMS_HPP
 ```
 
-### 自动生成：`entry.rs` 末尾的 operator shim 注释骨架（节选）
+### 自动生成：`entry.rs` 的 operator shim 活跃绑定（节选）
 
 ```rust
 // Auto-generated operator shim Rust bindings by cpp2rust-demo.
-// Add the shim functions from operator_shims.hpp to your hicc::cpp! block,
-// then uncomment the bindings below.
 
 hicc::import_lib! {
     #![link_name = "jsonvalue"]
@@ -153,6 +149,17 @@ hicc::import_lib! {
     fn json_value_ne(this_val: &JsonValue, rhs: &JsonValue) -> bool;
 }
 ```
+
+注意：`hicc::cpp!` 块自动切换为包含 `operator_shims.hpp`（而非直接包含中间件文件）：
+
+```rust
+// 自动生成的 hicc::cpp! 块（当有 operator shim 时）：
+hicc::cpp! {
+    #include "operator_shims.hpp"   // ← 自动包含（operator_shims.hpp 内部包含 entry.cpp）
+}
+```
+
+`build.rs` 自动将 `meta/` 目录加入 include 路径，`operator_shims.hpp` 开箱即用。
 
 ### 普通方法仍然提取：`entry.rs`（节选）
 
@@ -196,42 +203,18 @@ directly.  Auto-generated C++ shims have been written to `meta/operator_shims.hp
 
 ## 场景解析
 
-### 三步工作流详解
-
-**第 1 步：工具自动生成 starter**
+### 全自动工作流详解
 
 `extract_class_body()` 遇到 `is_operator_name() == true` 的方法时：
 1. 跳过提取（不进入 `FunctionIR` / `import_class!`）
 2. 创建 `OperatorShimIR`（记录运算符名、参数类型、返回类型、class 归属）
 3. 进入 `ExtractedDecls.operator_shims`
 
-init 结束后：
-- `render_operator_shims_hpp()` → `meta/operator_shims.hpp`（C++ shim 函数定义）
-- `render_operator_shims_rs()` → `<stem>.rs` 末尾的注释骨架（`// --- operator shims ---` 段落）
-
-**第 2 步：用户确认/调整 C++ 实现**
-
-打开 `meta/operator_shims.hpp` 检查：
-- 函数名是否合理（工具按 `<snake_class>_<snake_op>` 命名）
-- `const`/非 `const` 版本是否正确区分（`operator[]` 有两个版本）
-- 对于复杂运算符（如 `operator<<`），可能需要手工调整参数顺序
-
-**第 3 步：在 `hicc::cpp!` 中引入并激活**
-
-```rust
-// 在 build.rs 中添加 shim header 目录：
-hicc_build::Build::new()
-    .include(".cpp2rust/rj07/meta")     // operator_shims.hpp 所在目录
-    .compile(...);
-
-// include/ 中的 hicc::cpp! 块（自动生成，但需要用户引入 shims）：
-hicc::cpp! {
-    #include "entry.cpp"
-    #include "operator_shims.hpp"       // ← 手动添加此行
-}
-
-// 然后解注释 entry.rs 末尾 `// --- operator shims ---` 段落的绑定即可激活
-```
+init 结束后，工具全自动完成以下操作：
+- `render_operator_shims_hpp()` → `meta/operator_shims.hpp`（C++ shim 函数定义，含 `#include "entry.cpp"`）
+- 将 `meta/` 目录加入 `build.rs` include 路径
+- `render_flat_module()` 的 `hicc::cpp!` 块切换为 `#include "operator_shims.hpp"`（避免双重包含）
+- `render_operator_shims_rs()` → `<stem>.rs` 末尾的活跃 `import_lib!` 绑定（`// --- operator shims ---` 段落）
 
 ### 运算符命名规则
 
