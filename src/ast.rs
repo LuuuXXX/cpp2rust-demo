@@ -1228,7 +1228,7 @@ fn walk_node(
                 return;
             }
             if is_operator_name(node.name.as_deref()) {
-                collect_operator_shim(node, namespace, None, None, result);
+                collect_operator_shim(node, namespace, None, None, result, alias_registry);
                 record_skipped(
                     result,
                     node,
@@ -1426,7 +1426,7 @@ fn walk_node(
                     continue;
                 }
                 if is_operator_name(child.name.as_deref()) {
-                    collect_operator_shim(child, namespace, None, None, result);
+                    collect_operator_shim(child, namespace, None, None, result, alias_registry);
                     record_skipped(
                         result,
                         child,
@@ -1767,6 +1767,7 @@ fn extract_class_body(
                         Some(class_name),
                         Some(qualified_name),
                         result,
+                        alias_registry,
                     );
                     record_skipped(
                         result,
@@ -1862,6 +1863,7 @@ fn extract_class_body(
                     Some(class_name),
                     Some(qualified_name),
                     result,
+                    alias_registry,
                 );
                 record_skipped(
                     result,
@@ -1897,6 +1899,7 @@ fn extract_class_body(
                     Some(class_name),
                     Some(qualified_name),
                     result,
+                    alias_registry,
                 );
                 record_skipped(
                     result,
@@ -1946,6 +1949,7 @@ fn collect_operator_shim(
     class_name: Option<&str>,
     qualified_class: Option<&str>,
     result: &mut ExtractedDecls,
+    alias_registry: &AliasRegistry,
 ) {
     let op_name = match node.name.as_deref() {
         Some(n) if n.starts_with("operator") => n,
@@ -1960,6 +1964,21 @@ fn collect_operator_shim(
     } else {
         (String::new(), false)
     };
+
+    // Resolve class_name to the typedef/using alias if one is registered.
+    // This ensures that the generated operator shim functions use the alias
+    // type (e.g. `Value`) instead of the bare template name (`GenericValue`),
+    // which is required for:
+    //   1. Valid C++ in operator_shims.hpp (bare template names without template
+    //      args are not complete types in C++).
+    //   2. Correct Rust type matching — import_class! registers the alias as the
+    //      Rust struct name, so hicc-build expects that name in fn signatures.
+    let resolved_class_name: Option<String> = class_name.map(|cn| {
+        alias_registry
+            .alias_for_template(cn)
+            .map(|a| a.to_string())
+            .unwrap_or_else(|| cn.to_string())
+    });
 
     // Collect parameters (best-effort; ignore type-gate issues here).
     let params: Vec<ParamIR> = node
@@ -1989,10 +2008,10 @@ fn collect_operator_shim(
         })
         .collect();
 
-    let shim_name = operator_shim_fn_name(op_name, class_name);
+    let shim_name = operator_shim_fn_name(op_name, resolved_class_name.as_deref().or(class_name));
 
     result.operator_shims.push(OperatorShimIR {
-        class_name: class_name.map(|s| s.to_string()),
+        class_name: resolved_class_name,
         qualified_class: qualified_class.map(|s| {
             // Use namespace-qualified class name if no qualified_class given.
             if s.is_empty() {

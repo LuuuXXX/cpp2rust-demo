@@ -150,10 +150,14 @@ pub fn render_include_module(source_file_path: &str, has_operator_shims: bool) -
         .unwrap_or(raw_basename);
 
     if has_operator_shims {
-        // Include operator_shims.hpp instead of the middleware directly.
-        // operator_shims.hpp already includes the middleware file, so both the
-        // C++ declarations and the operator shim wrappers are compiled together.
+        // Include both the middleware AND operator_shims.hpp.
+        // The middleware must come first so that the class types it defines
+        // (e.g. typedef aliases like `Value`) are in scope when the shim
+        // functions in operator_shims.hpp are compiled.
+        // operator_shims.hpp does NOT include the middleware itself; it relies
+        // on the middleware already being included in the same hicc::cpp! block.
         writeln!(out, "hicc::cpp! {{").unwrap();
+        writeln!(out, "    #include \"{}\"", include_basename).unwrap();
         writeln!(out, "    #include \"operator_shims.hpp\"").unwrap();
         writeln!(out, "}}").unwrap();
     } else {
@@ -1527,11 +1531,14 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 ///
 /// Additionally, any `suggested_shim` text from skipped declarations is
 /// appended to the file as commented-out prototype suggestions.
-pub fn render_operator_shims_hpp(
-    shims: &[OperatorShimIR],
-    skipped: &[SkippedDecl],
-    middleware_basename: &str,
-) -> String {
+///
+/// The generated file does **not** include the middleware header; the caller
+/// is responsible for including the middleware before `operator_shims.hpp` in
+/// the `hicc::cpp!` block (see `render_include_module`).  This design avoids
+/// the double-inclusion problem in the multi-TU case where every stem's RS file
+/// would otherwise include `operator_shims.hpp` (which embedded one specific
+/// middleware), so after `merge` only that one middleware would be present.
+pub fn render_operator_shims_hpp(shims: &[OperatorShimIR], skipped: &[SkippedDecl]) -> String {
     let string_shims: Vec<&SkippedDecl> = skipped
         .iter()
         .filter(|s| s.suggested_shim.is_some())
@@ -1546,30 +1553,40 @@ pub fn render_operator_shims_hpp(
     writeln!(out, "// Auto-generated operator shims by cpp2rust-demo.").unwrap();
     writeln!(
         out,
-        "// Include this file in your hicc::cpp! block, then bind"
+        "// This file is included via hicc::cpp! after the middleware header(s)."
     )
     .unwrap();
     writeln!(
         out,
-        "// the functions below via #[cpp(func = \"...\")] in import_lib!."
+        "// The shim functions below are bound in Rust via #[cpp(func = \"...\")] in import_lib!."
     )
     .unwrap();
     writeln!(out, "#pragma once").unwrap();
     writeln!(out, "#ifndef {}", guard).unwrap();
     writeln!(out, "#define {}", guard).unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "#include \"{}\"", middleware_basename).unwrap();
-    writeln!(out).unwrap();
+    // NOTE: No #include of the middleware here — the middleware is included
+    // separately (and before this file) in the hicc::cpp! block.
 
     for shim in shims {
-        let class_ref = shim.qualified_class.as_deref().unwrap_or("");
-        let self_param = if let Some(ref _cls) = shim.class_name {
-            if !class_ref.is_empty() {
-                let const_q = if shim.is_const { "const " } else { "" };
-                format!("{}{} &self", const_q, class_ref)
-            } else {
-                String::new()
-            }
+        // Compute the bare template name from qualified_class so we can
+        // substitute the alias (class_name) in C++ type strings.
+        let class_bare = shim
+            .qualified_class
+            .as_deref()
+            .map(|qc| {
+                let s = qc.rsplit("::").next().unwrap_or(qc).trim();
+                s.split('<').next().unwrap_or(s).trim().to_string()
+            })
+            .unwrap_or_default();
+        let alias_name = shim.class_name.as_deref().unwrap_or(&class_bare);
+
+        // Use class_name (alias) for the self parameter so the C++ shim
+        // function uses a complete type (e.g. `Value &self` rather than
+        // `GenericValue<E,A> &self` which would be an invalid partial template).
+        let self_param = if let Some(ref cls) = shim.class_name {
+            let const_q = if shim.is_const { "const " } else { "" };
+            format!("{}{} &self", const_q, cls)
         } else {
             String::new()
         };
@@ -1577,7 +1594,10 @@ pub fn render_operator_shims_hpp(
         let extra_params: Vec<String> = shim
             .params
             .iter()
-            .map(|p| format!("{} {}", p.cpp_type, p.name))
+            .map(|p| {
+                let ty = substitute_class_alias_in_cpp(&p.cpp_type, &class_bare, alias_name);
+                format!("{} {}", ty, p.name)
+            })
             .collect();
 
         let all_params: Vec<String> = if self_param.is_empty() {
@@ -1589,7 +1609,7 @@ pub fn render_operator_shims_hpp(
         let ret = if shim.return_cpp_type.is_empty() || shim.return_cpp_type == "()" {
             "void".to_string()
         } else {
-            shim.return_cpp_type.clone()
+            substitute_class_alias_in_cpp(&shim.return_cpp_type, &class_bare, alias_name)
         };
 
         let call_self = if shim.class_name.is_some() {
@@ -1680,6 +1700,54 @@ pub fn render_operator_shims_hpp(
     out
 }
 
+/// Replace the bare class name in a C++ type string with the alias.
+///
+/// Handles simple forms: `"const GenericValue<E,A> &"` → `"const Value &"`,
+/// `"GenericValue<E,A>"` → `"Value"`, etc.
+///
+/// No-ops when `class_bare` is empty or `alias == class_bare`.
+fn substitute_class_alias_in_cpp(cpp_type: &str, class_bare: &str, alias: &str) -> String {
+    if class_bare.is_empty() || alias == class_bare {
+        return cpp_type.to_string();
+    }
+    let trimmed = cpp_type.trim();
+    // Detect const prefix.
+    let (is_const, after_const) = if let Some(rest) = trimmed.strip_prefix("const ") {
+        (true, rest.trim())
+    } else {
+        (false, trimmed)
+    };
+    // Detect reference/pointer suffix.
+    let (core, suffix) = if let Some(s) = after_const.strip_suffix(" &&") {
+        (s, " &&")
+    } else if let Some(s) = after_const.strip_suffix(" &") {
+        (s, " &")
+    } else if let Some(s) = after_const.strip_suffix("&&") {
+        (s, " &&")
+    } else if let Some(s) = after_const.strip_suffix('&') {
+        (s, " &")
+    } else {
+        (after_const, "")
+    };
+    // Get the bare (unqualified, non-template) name of the core type.
+    let core_trimmed = core.trim();
+    let bare = core_trimmed
+        .rsplit("::")
+        .next()
+        .unwrap_or(core_trimmed)
+        .trim()
+        .split('<')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if bare == class_bare {
+        let const_prefix = if is_const { "const " } else { "" };
+        format!("{}{}{}", const_prefix, alias, suffix)
+    } else {
+        cpp_type.to_string()
+    }
+}
+
 /// Render the Rust free-function stubs for operator shims (主线四).
 ///
 /// These stubs are appended to `<stem>.rs` (after a `// --- operator shims ---`
@@ -1706,13 +1774,47 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
     writeln!(out).unwrap();
 
     for shim in shims {
+        // Compute the bare template name for alias substitution.
+        // `qualified_class` is the namespace-qualified bare name (no template
+        // args), e.g. "rapidjson::GenericValue".  Stripping the namespace gives
+        // the bare name used by cpp_to_rust_type ("GenericValue").
+        let class_bare = shim
+            .qualified_class
+            .as_deref()
+            .map(|qc| {
+                let s = qc.rsplit("::").next().unwrap_or(qc).trim();
+                s.split('<').next().unwrap_or(s).trim().to_string()
+            })
+            .unwrap_or_default();
+        // `shim.class_name` holds the resolved alias (e.g. "Value" for
+        // GenericValue), set in collect_operator_shim via alias_registry.
+        // This is the Rust struct name in import_class!, so hicc-build expects
+        // it in fn signatures.
+        let alias_name = shim.class_name.as_deref().unwrap_or(&class_bare);
+
+        // Helper: convert a raw Rust type string, substituting the alias for
+        // the bare class name wherever it appears.
+        let fix_rust_type = |s: &str| -> String {
+            if class_bare.is_empty() || alias_name == class_bare {
+                return s.to_string();
+            }
+            let inner = s.trim_start_matches("&mut ").trim_start_matches('&');
+            if inner == class_bare {
+                s.replacen(class_bare.as_str(), alias_name, 1)
+            } else {
+                s.to_string()
+            }
+        };
+
+        // Return type: convert C++ → Rust, then substitute alias.
         let ret = if shim.return_cpp_type.is_empty() || shim.return_cpp_type == "()" {
             "()".to_string()
         } else {
-            crate::ast::cpp_to_rust_type(&shim.return_cpp_type)
+            fix_rust_type(&crate::ast::cpp_to_rust_type(&shim.return_cpp_type))
         };
 
         // Build Rust param list.
+        // Self param uses class_name (alias) directly.
         let mut rust_params: Vec<String> = Vec::new();
         if let Some(ref cls) = shim.class_name {
             if shim.is_const {
@@ -1722,7 +1824,11 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
             }
         }
         for p in &shim.params {
-            rust_params.push(format!("{}: {}", sanitize_ident(&p.name), p.rust_type));
+            rust_params.push(format!(
+                "{}: {}",
+                sanitize_ident(&p.name),
+                fix_rust_type(&p.rust_type)
+            ));
         }
         let param_str = rust_params.join(", ");
 
@@ -1732,19 +1838,27 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
             format!(" -> {}", ret)
         };
 
-        // Compute C++ signature for the shim function.
+        // C++ signature for the #[cpp(func)] annotation.
+        // Use class_name (alias) for the self parameter and return type so the
+        // annotation matches the shim function definition in operator_shims.hpp,
+        // which also uses the alias.  hicc-build resolves the alias to the
+        // registered import_class! entry via the cpp(class) attribute.
         let cpp_ret = if shim.return_cpp_type.is_empty() {
-            "void"
+            "void".to_string()
         } else {
-            &shim.return_cpp_type
+            substitute_class_alias_in_cpp(&shim.return_cpp_type, &class_bare, alias_name)
         };
         let mut cpp_params: Vec<String> = Vec::new();
-        if let Some(ref cls) = shim.qualified_class {
+        if let Some(ref cls) = shim.class_name {
             let const_q = if shim.is_const { "const " } else { "" };
             cpp_params.push(format!("{}{} &", const_q, cls));
         }
         for p in &shim.params {
-            cpp_params.push(p.cpp_type.clone());
+            cpp_params.push(substitute_class_alias_in_cpp(
+                &p.cpp_type,
+                &class_bare,
+                alias_name,
+            ));
         }
         let cpp_sig = format!("{} {}({})", cpp_ret, shim.shim_name, cpp_params.join(", "));
 

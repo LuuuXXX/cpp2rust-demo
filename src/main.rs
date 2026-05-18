@@ -332,25 +332,6 @@ fn run_init(args: InitArgs) -> Result<()> {
             std::fs::write(&flat_path, &flat_src)
                 .map_err(|e| anyhow!("write {}: {}", flat_path.display(), e))?;
 
-            // Operator shims C++ header goes to meta/.
-            if has_shims {
-                let middleware_basename = selected_file
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("middleware.hpp");
-                let shims_hpp = codegen::render_operator_shims_hpp(
-                    &decls.operator_shims,
-                    &decls.skipped,
-                    middleware_basename,
-                );
-                if !shims_hpp.is_empty() {
-                    let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
-                    std::fs::write(&shims_hpp_path, &shims_hpp)
-                        .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
-                    println!("  → operator_shims.hpp");
-                }
-            }
-
             // Write meta.json for this stem.
             let group_meta = GroupMeta {
                 group: stem.to_string(),
@@ -424,6 +405,22 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("{}", report);
         println!("\n✓ init --dry-run done (no files written to rust/src/).");
     } else {
+        // Write operator_shims.hpp once, after ALL stems have been processed,
+        // using the accumulated shims from every translation unit.
+        // This avoids the multi-TU overwrite problem (each stem previously
+        // overwrote the file) and ensures the shim header contains all shims
+        // from all stems in a single file.
+        if had_any_shims {
+            let shims_hpp =
+                codegen::render_operator_shims_hpp(&all_decls.operator_shims, &all_decls.skipped);
+            if !shims_hpp.is_empty() {
+                let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
+                std::fs::write(&shims_hpp_path, &shims_hpp)
+                    .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
+                println!("  → operator_shims.hpp");
+            }
+        }
+
         let report_path = lo.meta_dir.join("init-interface-report.md");
         std::fs::write(&report_path, &report).map_err(|e| anyhow!("write report: {}", e))?;
 
@@ -556,7 +553,14 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let merged = merge::merge_grouped_modules(&rust_src_dir, &merged_src2, &link_name)?;
 
     // Recompute unique include dirs from stored selected files.
-    let include_dirs = middleware_include_dirs(&stored_files);
+    let mut include_dirs = middleware_include_dirs(&stored_files);
+    // When operator_shims.hpp exists in meta, add the meta directory to the
+    // include path so that `#include "operator_shims.hpp"` in the merged lib.rs
+    // resolves correctly during hicc-build compilation.
+    let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
+    if shims_hpp_path.exists() {
+        include_dirs.push(lo.meta_dir.display().to_string());
+    }
     let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
     // Update build.rs to reference lib.rs through the active view path `src/`.

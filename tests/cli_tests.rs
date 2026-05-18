@@ -2222,10 +2222,11 @@ fn init_operator_overload_generates_shim_files() {
         "operator_shims.hpp should be generated in meta/"
     );
     let shims_hpp = std::fs::read_to_string(&shims_hpp_path).unwrap();
-    // The shim file should include the original header.
+    // The shim file should NOT include the middleware (middleware is included
+    // separately and first in the hicc::cpp! block to avoid multi-TU issues).
     assert!(
-        shims_hpp.contains("ops2.hpp") || shims_hpp.contains("#include"),
-        "operator_shims.hpp should #include the original header: {shims_hpp}"
+        !shims_hpp.contains("#include \"ops2"),
+        "operator_shims.hpp should not #include the middleware directly: {shims_hpp}"
     );
     // At least one shim function should be declared.
     assert!(
@@ -2234,7 +2235,7 @@ fn init_operator_overload_generates_shim_files() {
     );
 
     // Shim bindings are appended to the flat ops2.rs file as active (uncommented) bindings.
-    // operator_shims.hpp is automatically included via the hicc::cpp! block.
+    // Both the middleware and operator_shims.hpp are included in the hicc::cpp! block.
     let flat_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/ops2.rs")).unwrap();
     assert!(
@@ -2244,6 +2245,10 @@ fn init_operator_overload_generates_shim_files() {
     assert!(
         flat_src.contains("operator_shims.hpp"),
         "flat ops2.rs hicc::cpp! block should include operator_shims.hpp: {flat_src}"
+    );
+    assert!(
+        flat_src.contains("ops2.cpp") || flat_src.contains("ops2.hpp"),
+        "flat ops2.rs hicc::cpp! block should also include the middleware directly: {flat_src}"
     );
 }
 
