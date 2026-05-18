@@ -2180,7 +2180,7 @@ fn init_mixed_class_generates_companion_interface() {
 // ---------------------------------------------------------------------------
 
 /// When operators are skipped, `operator_shims.hpp` should be written to the
-/// meta directory and `shim_ops.rs` to the group's free/ directory.
+/// meta directory and operator shim Rust stubs appended to `<stem>.rs`.
 #[test]
 fn init_operator_overload_generates_shim_files() {
     let tmp = TempDir::new().unwrap();
@@ -3715,8 +3715,8 @@ fn init_multiple_inheritance_all_bases_extracted() {
 // P4.1: Placement-new binding skeletons
 // ---------------------------------------------------------------------------
 
-/// When a C++ class has extracted constructors, the tool should generate a
-/// `free/placement_new.rs` file with commented-out placement-new starters.
+/// When a C++ class has extracted constructors, the tool should append
+/// commented-out placement-new starters to `<stem>.rs`.
 #[test]
 fn init_placement_new_file_created_for_class_with_ctor() {
     let tmp = TempDir::new().unwrap();
@@ -3866,7 +3866,7 @@ fn init_report_contains_placement_new_section() {
 // ---------------------------------------------------------------------------
 
 /// When a function is skipped because of an STL container parameter, the
-/// `types/mod.rs` should contain RustAny suggestions.
+/// flat `<stem>.rs` should contain RustAny suggestions.
 #[test]
 fn init_types_module_contains_rust_any_for_stl_param() {
     let tmp = TempDir::new().unwrap();
@@ -3910,7 +3910,7 @@ fn init_types_module_contains_rust_any_for_stl_param() {
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/items.rs")).unwrap();
     assert!(
         types_src.contains("RustAny"),
-        "types/mod.rs should contain RustAny suggestions when STL containers detected: {}",
+        "<stem>.rs should contain RustAny suggestions when STL containers detected: {}",
         types_src
     );
 }

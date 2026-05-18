@@ -1395,7 +1395,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .collect();
         if !inherited_classes.is_empty() {
             writeln!(out, "## @dynamic_cast Skeletons\n").unwrap();
-            writeln!(out, "_The following classes have public base classes. `@dynamic_cast` binding skeletons have been written to `free/dynamic_casts.rs`. Uncomment the pairs you need._\n").unwrap();
+            writeln!(out, "_The following classes have public base classes. `@dynamic_cast` binding skeletons have been appended to `<stem>.rs` (look for the `// --- dynamic cast starters ---` section). Uncomment the pairs you need._\n").unwrap();
             for cls in &inherited_classes {
                 let rust_name = cls.canonical_name.as_deref().unwrap_or(cls.name.as_str());
                 writeln!(
@@ -1458,7 +1458,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
             .collect();
         if !classes_with_ctors.is_empty() {
             writeln!(out, "## Placement-New Skeletons (P4)\n").unwrap();
-            writeln!(out, "_The following concrete classes have extracted constructors. Placement-new binding skeletons have been written to `free/placement_new.rs`. Uncomment the constructors you need to build C++ objects in Rust-managed memory._\n").unwrap();
+            writeln!(out, "_The following concrete classes have extracted constructors. Placement-new binding skeletons have been appended to `<stem>.rs` (look for the `// --- placement-new starters ---` section). Uncomment the constructors you need to build C++ objects in Rust-managed memory._\n").unwrap();
             for cls in &classes_with_ctors {
                 let rust_name = cls.canonical_name.as_deref().unwrap_or(cls.name.as_str());
                 let ctor_sigs: Vec<String> = cls
@@ -1490,7 +1490,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
                 "## `hicc::RustAny` Suggestions for STL Containers (P4)\n"
             )
             .unwrap();
-            writeln!(out, "_The following STL container types were encountered in skipped declarations. See `types/mod.rs` for detailed suggestions on using `hicc::RustAny<T>` / `hicc-std` to store Rust data in these containers._\n").unwrap();
+            writeln!(out, "_The following STL container types were encountered in skipped declarations. `hicc::RustAny<T>` / `hicc-std` suggestions have been appended to `<stem>.rs`._\n").unwrap();
             for ct in &stl_types {
                 writeln!(out, "- `{ct}`").unwrap();
             }
@@ -1666,9 +1666,9 @@ pub fn render_operator_shims_hpp(
 
 /// Render the Rust free-function stubs for operator shims (主线四).
 ///
-/// These stubs go into `free/<group>/shim_ops.rs`.  They provide
-/// `#[cpp(func = "...")]` bindings for each operator shim so that
-/// Rust can call the wrapper functions.
+/// These stubs are appended to `<stem>.rs` (after a `// --- operator shims ---`
+/// comment separator).  They provide `#[cpp(func = "...")]` bindings for each
+/// operator shim so that Rust can call the wrapper functions.
 pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> String {
     if shims.is_empty() {
         return String::new();
@@ -1756,9 +1756,9 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
 /// Render `@dynamic_cast` binding skeletons for classes that inherit from other classes.
 ///
 /// For each (Base → Derived) relationship found in `decls.classes`, emits a
-/// commented-out `@dynamic_cast` import_lib! stub in a dedicated
-/// `free/dynamic_casts.rs` file.  Users can uncomment the pairs they need and
-/// add the file to their build.
+/// commented-out `@dynamic_cast` import_lib! stub.  The result is appended to
+/// `<stem>.rs` (after a `// --- dynamic cast starters ---` separator).
+/// Users can uncomment the pairs they need.
 ///
 /// Returns an empty string when no inheritance relationships exist.
 pub fn render_dynamic_casts_module(decls: &ExtractedDecls, link_name: &str) -> String {
@@ -1957,7 +1957,7 @@ pub fn render_placement_new_module(decls: &ExtractedDecls, link_name: &str) -> S
 /// When C++ functions/methods use STL container parameters (e.g.
 /// `std::vector<Foo>`, `std::map<Key, Value>`), those functions are currently
 /// skipped because hicc cannot pass container objects across the ABI boundary
-/// directly.  This function generates hint comments in `types/mod.rs` suggesting
+/// directly.  This function generates hint comments appended to `<stem>.rs` suggesting
 /// how to use `hicc::RustAny` or `hicc-std` equivalents to store Rust data in
 /// C++ containers.
 ///

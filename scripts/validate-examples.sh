@@ -278,7 +278,7 @@ check_any_rs  "${OUT}" 'PrettyWriterImpl: WriterBase'
 # ---------------------------------------------------------------------------
 # Step 10: rapidjson/07-operator-shim/ — operator overload shim generation
 # ---------------------------------------------------------------------------
-run_case "rapidjson/07-operator-shim/ (operator overload → shim_ops.rs + operator_shims.hpp)"
+run_case "rapidjson/07-operator-shim/ (operator overload → entry.rs shim stubs + operator_shims.hpp)"
 (cd "${REPO_ROOT}" && "${BIN}" init \
     --feature rj07 \
     --link jsonvalue \
