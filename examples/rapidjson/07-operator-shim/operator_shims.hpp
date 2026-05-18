@@ -2,12 +2,12 @@
 //
 // ILLUSTRATION FILE — shows what cpp2rust-demo auto-generates in
 //   .cpp2rust/<feature>/meta/operator_shims.hpp
-// and what the user should review / adjust before use.
 //
-// Step 2 of the three-step operator shim workflow:
-//   1. cpp2rust-demo generates this file automatically (starter)
-//   2. User reviews and adjusts (this file represents a reviewed version)
-//   3. User includes this in hicc::cpp! and activates the commented-out bindings in entry.rs
+// The full operator shim pipeline is fully automated:
+//   1. cpp2rust-demo generates this file automatically (complete C++ shim bodies)
+//   2. entry.rs receives an active import_lib! block (no commented-out starters)
+//   3. The hicc::cpp! include and build.rs include paths are auto-configured
+// No user action is required for standard operators.
 
 // Auto-generated operator shims by cpp2rust-demo.
 // Include this file in your hicc::cpp! block, then bind
