@@ -153,6 +153,7 @@
 | 模板特化重复提取（E0428） | clang AST 会将同一 `ClassTemplateSpecializationDecl` 同时作为 `ClassTemplateDecl` 的子节点和命名空间顶层节点写入；`extract_declarations_with_strategy()` 现在在 `walk_node` 后按 Rust 结构体名去重（first-wins），防止生成两份同名 `ClassIR` |
 | merge 阶段 `import_class!` 重复定义（E0428） | `import_class_blocks` 由 `Vec<String>` 改为按 Rust 结构体名索引的有序 Map（first-wins）；`class_name_from_block()` 从块文本中提取结构体名作为去重键，确保同一类名在 `lib.rs` 中仅出现一次 |
 | allocator `rebind` 内嵌 typedef 误认为顶层别名 | `collect_alias_nodes()` 遇到 `CXXRecordDecl` / `ClassTemplateDecl` 等类节点时**不再递归**，防止 `typedef Alloc<U> other` 这类类内 typedef 被注册为顶层类型别名并污染模板特化的 Rust 结构体名 |
+| 指针返回类型的实例方法被静默跳过 | `parse_fn_qual_type()` 原本搜索 `" ("` 作为返回类型与参数列表的分隔符，但 clang 对指针返回类型省略空格（如 `void *(size_t)` 而非 `void (void *)`），导致 `Malloc`、`Realloc` 等返回 `void*` 的方法被误判为 `unsupported_type` 静默跳过；改为查找第一个 `(` 字符（始终是参数列表的起始分隔符）后问题消除 |
 
 ---
 

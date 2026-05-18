@@ -40,6 +40,19 @@ clang -Xclang -ast-dump=json -fsyntax-only -x c++ -std=c++14 <file>.cpp2rust
 - **运算符重载**：跳过提取，但收集 `OperatorShimIR` 并写入 `operator_shims.hpp` starter
 - **类内 typedef / using**：`collect_alias_nodes()` 遇到 `CXXRecordDecl` 等类节点时**不递归**，防止类内 `typedef`（如 `rebind::other`）污染顶层别名注册表
 
+## 函数类型字符串解析（`parse_fn_qual_type`）
+
+clang 对函数类型 `qualType` 字段有两种序列化形式，取决于返回类型是否为指针：
+
+| 情形 | clang 输出示例 | 分隔符 |
+|------|--------------|--------|
+| 非指针返回 | `"void (void *)"` | `" ("` — 返回类型与 `(` 之间有空格 |
+| 指针返回 | `"void *(size_t)"` | 无空格 — `*` 直接连接 `(` |
+
+`parse_fn_qual_type()` 通过查找字符串中第一个 `(` 来定位参数列表的起始位置（这在任何合法的 clang 函数类型字符串中都是参数列表分隔符），两种形式均可正确解析。
+
+早期实现搜索 `" ("` 作为分隔符，导致 `void*(size_t)` 格式的函数（如 `void* Malloc(size_t)`、`void* Realloc(void*, size_t, size_t)` 等）被误判为 `unsupported_type` 而静默跳过，影响所有指针返回类型的实例方法提取。
+
 ## AliasRegistry
 
 模板类提取依赖 `AliasRegistry`，在首次 AST 遍历时收集所有 `TypedefDecl`/`TypeAliasDecl`，

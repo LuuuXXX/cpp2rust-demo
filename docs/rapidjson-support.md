@@ -423,7 +423,7 @@ RapidJSON 的 `SchemaValidator` 等少数类使用多重继承，工具会提取
 | `rapidjson/02-typedef-alias/` | `typedef`/`using` + AliasRegistry | `Document`, `Value` 别名机制 |
 | `rapidjson/03-template-class/` | 模板特化类提取 | `GenericDocument`, `GenericValue` |
 | `rapidjson/04-abstract-interface/` | 全纯虚类 + `@make_proxy` | 自定义 Allocator 接口 |
-| `rapidjson/05-virtual-methods/` | 非纯虚方法 | `CrtAllocator` 类 |
+| `rapidjson/05-virtual-methods/` | 非纯虚方法 | `BaseAllocator` 类（`void* Malloc`/`Realloc` 等指针返回方法） |
 | `rapidjson/06-inheritance/` | public 继承链 | `PrettyWriter: Writer` |
 | `rapidjson/07-operator-shim/` | 运算符重载 shim | `GenericValue::operator[]` 等 |
 | `rapidjson/08-multi-tu/` | 多翻译单元 + `--no-link` + `merge` | 完整 RapidJSON 多头文件场景 |

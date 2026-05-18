@@ -119,7 +119,7 @@ Rust 侧项目搭建统一使用：
 | 自由函数（非模板） | ✅ | `<stem>.rs` | `import_lib!` + `#[cpp(func = "...")]` |
 | 函数重载 | ✅ | `<stem>.rs` | 自动追加 `_2`, `_3`, … 后缀 |
 | 命名空间函数 | ✅ | `<stem>.rs` | 限定名嵌入 `#[cpp(func = "ns::foo(...)")]` |
-| 类实例方法 | ✅ | `<stem>.rs` | `import_class!` + `#[cpp(method = "...")]` |
+| 类实例方法（含 `void*` 等指针返回类型） | ✅ | `<stem>.rs` | `import_class!` + `#[cpp(method = "...")]`；指针返回类型（如 `void*(size_t)`）与非指针返回类型完全相同路径提取 |
 | `const` 方法 | ✅ | `<stem>.rs` | 映射为 `fn foo(&self)` |
 | 非 `const` 方法 | ✅ | `<stem>.rs` | 映射为 `fn foo(&mut self)` |
 | 非纯 `virtual` 方法 | ✅ | `<stem>.rs` | hicc 通过 vtable 透明调用 |
