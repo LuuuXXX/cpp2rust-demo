@@ -44,14 +44,14 @@ cpp2rust-demo init --feature sa02 --link fixed_buffer \
 cpp2rust-demo merge --feature sa02
 
 # 第 3 步：查看 placement_new 注释骨架
-cat .cpp2rust/sa02/rust/src/free/placement_new.rs
+cat .cpp2rust/sa02/rust/src/entry.rs
 ```
 
 ---
 
 ## 预期生成产物
 
-### `method/mtd_entry.rs`（正常类绑定，✅ 完全自动）
+### `entry.rs`（正常类绑定，✅ 完全自动）
 
 ```rust
 hicc::import_class! {
@@ -76,7 +76,7 @@ hicc::import_class! {
 }
 ```
 
-### `free/placement_new.rs`（⚙️ 注释骨架）
+### `entry.rs`（placement_new 注释骨架，⚙️ 末尾追加）
 
 ```rust
 // placement new 绑定（默认注释，解注释后可用）
@@ -104,7 +104,7 @@ hicc::import_class! {
 
 ### 手动解注释
 
-打开 `.cpp2rust/sa02/rust/src/free/placement_new.rs`，去掉目标类的注释符即可。
+打开 `.cpp2rust/sa02/rust/src/entry.rs`，去掉末尾 `placement_new` 注释骨架中目标类的注释符即可。
 
 ---
 
@@ -120,8 +120,8 @@ CXXRecordDecl + CXXConstructorDecl
 ClassIR { ctors: [CtorIR { ... }], ... }
     │  codegen
     ▼
-method/mtd_entry.rs   ─── 正常方法绑定 (✅ 全自动)
-free/placement_new.rs ─── placement_new 注释骨架 (⚙️ 半自动)
+entry.rs             ─── 正常方法绑定 (✅ 全自动)
+entry.rs             ─── placement_new 注释骨架 (⚙️ 半自动，末尾追加)
     │
     │  用户解注释 / 加 --enable-placement-new flag
     ▼
@@ -139,8 +139,8 @@ unsafe { FixedBuffer::placement_new(&mut storage, 1024) }
 | 步骤 | 工具行为 | 用户操作 |
 |------|---------|---------|
 | `init` | 检测含构造函数的 ClassIR | 无 |
-| codegen | 在 `free/placement_new.rs` 生成**注释**的 `@placement_new` 骨架 | 无 |
-| 解锁 | — | 解注释 `free/placement_new.rs` |
+| codegen | 在 `entry.rs` 末尾追加**注释**的 `@placement_new` 骨架 | 无 |
+| 解锁 | — | 解注释 `entry.rs` 末尾 `placement_new` 骨架 |
 | 使用 | Rust 侧调用 `placement_new()`，传入对齐内存 | 提供 `AlignedStorage<T>` 内存 |
 
 ---

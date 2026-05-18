@@ -18,9 +18,9 @@
 // (without it, clang only emits a partial/incomplete specialization).
 //
 // Expected outputs:
-//   types/mod.rs  : pub type MyStore = IntStore;
-//   method/       : import_class! { class IntStore { fn put(...); ... } }
-//   free/         : fn has_entry(...); fn count_entries(...);
+//   entry.rs  : pub type MyStore = IntStore;
+//   entry.rs  : import_class! { class IntStore { fn put(...); ... } }
+//   entry.rs  : fn has_entry(...); fn count_entries(...);
 
 // ── Template class definition (inline, not via header include) ─────────────
 template<typename T>

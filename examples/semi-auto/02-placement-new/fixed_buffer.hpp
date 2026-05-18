@@ -4,7 +4,7 @@
 // A class that owns a fixed-size buffer.
 // Demonstrates the ⚙️ placement-new semi-auto workflow:
 // cpp2rust-demo generates a commented-out @placement_new skeleton in
-// free/placement_new.rs; the user uncomments it (or passes
+// entry.rs; the user uncomments it (or passes
 // --enable-placement-new) to let Rust construct the object in
 // Rust-managed aligned memory.
 

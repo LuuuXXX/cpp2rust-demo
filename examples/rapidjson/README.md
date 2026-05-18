@@ -11,13 +11,13 @@
 
 | 示例 | 核心 C++ 特性 | 对应 hicc 能力 | 关键产物 |
 |------|-------------|---------------|---------|
-| [`01-enum/`](01-enum/README.md) | `enum` / `enum class` | `EnumIR` → `#[repr(C)] enum` | `types/mod.rs` |
-| [`02-typedef-alias/`](02-typedef-alias/README.md) | `typedef` / `using` 别名 | AliasRegistry 两张映射表 | `types/mod.rs` + 接口报告 |
-| [`03-template-class/`](03-template-class/README.md) | 模板特化 + typedef 解锁 | `ClassTemplateSpecializationDecl` → `ClassIR` | `method/mtd_*.rs` |
-| [`04-abstract-interface/`](04-abstract-interface/README.md) | 全纯虚类 | `#[interface]` + `@make_proxy` | `method/mtd_*.rs` + `free/fn_*.rs` |
-| [`05-virtual-methods/`](05-virtual-methods/README.md) | 非纯虚方法 | vtable 透明调用 | `method/mtd_*.rs` |
-| [`06-inheritance/`](06-inheritance/README.md) | public 继承链 | `class Derived: Base` 语法 | `method/mtd_*.rs` |
-| [`07-operator-shim/`](07-operator-shim/README.md) | 运算符重载 | `operator_shims.hpp` 三步工作流 | `free/shim_ops.rs` + `meta/operator_shims.hpp` |
+| [`01-enum/`](01-enum/README.md) | `enum` / `enum class` | `EnumIR` → `#[repr(C)] enum` | `entry.rs` |
+| [`02-typedef-alias/`](02-typedef-alias/README.md) | `typedef` / `using` 别名 | AliasRegistry 两张映射表 | `entry.rs` + 接口报告 |
+| [`03-template-class/`](03-template-class/README.md) | 模板特化 + typedef 解锁 | `ClassTemplateSpecializationDecl` → `ClassIR` | `entry.rs` |
+| [`04-abstract-interface/`](04-abstract-interface/README.md) | 全纯虚类 | `#[interface]` + `@make_proxy` | `entry.rs` |
+| [`05-virtual-methods/`](05-virtual-methods/README.md) | 非纯虚方法 | vtable 透明调用 | `entry.rs` |
+| [`06-inheritance/`](06-inheritance/README.md) | public 继承链 | `class Derived: Base` 语法 | `entry.rs` |
+| [`07-operator-shim/`](07-operator-shim/README.md) | 运算符重载 | `operator_shims.hpp` 三步工作流 | `entry.rs`（注释骨架）+ `meta/operator_shims.hpp` |
 | [`08-multi-tu/`](08-multi-tu/README.md) | 多编译单元 + header-only | `--no-link` + `merge` 全流程 | `lib.rs` |
 
 ---

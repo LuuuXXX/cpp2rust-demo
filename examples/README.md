@@ -60,13 +60,13 @@ examples/
 
 | 示例 | 核心 C++ 特性 | 关键产物 |
 |------|-------------|---------|
-| [`rapidjson/01-enum/`](rapidjson/01-enum/README.md) | `enum` / `enum class` | `types/mod.rs` |
-| [`rapidjson/02-typedef-alias/`](rapidjson/02-typedef-alias/README.md) | `typedef` / `using` 别名 | `types/mod.rs` |
-| [`rapidjson/03-template-class/`](rapidjson/03-template-class/README.md) | 模板特化 + typedef 解锁 | `method/mtd_*.rs` |
-| [`rapidjson/04-abstract-interface/`](rapidjson/04-abstract-interface/README.md) | 全纯虚类 + `@make_proxy` | `method/mtd_*.rs` + `free/fn_*.rs` |
-| [`rapidjson/05-virtual-methods/`](rapidjson/05-virtual-methods/README.md) | 非纯虚方法 | `method/mtd_*.rs` |
-| [`rapidjson/06-inheritance/`](rapidjson/06-inheritance/README.md) | public 继承链 | `method/mtd_*.rs` |
-| [`rapidjson/07-operator-shim/`](rapidjson/07-operator-shim/README.md) | 运算符重载 shim（🔧 引导） | `free/shim_ops.rs` + `meta/operator_shims.hpp` |
+| [`rapidjson/01-enum/`](rapidjson/01-enum/README.md) | `enum` / `enum class` | `entry.rs` |
+| [`rapidjson/02-typedef-alias/`](rapidjson/02-typedef-alias/README.md) | `typedef` / `using` 别名 | `entry.rs` |
+| [`rapidjson/03-template-class/`](rapidjson/03-template-class/README.md) | 模板特化 + typedef 解锁 | `entry.rs` |
+| [`rapidjson/04-abstract-interface/`](rapidjson/04-abstract-interface/README.md) | 全纯虚类 + `@make_proxy` | `entry.rs` |
+| [`rapidjson/05-virtual-methods/`](rapidjson/05-virtual-methods/README.md) | 非纯虚方法 | `entry.rs` |
+| [`rapidjson/06-inheritance/`](rapidjson/06-inheritance/README.md) | public 继承链 | `entry.rs` |
+| [`rapidjson/07-operator-shim/`](rapidjson/07-operator-shim/README.md) | 运算符重载 shim（🔧 引导） | `entry.rs`（注释骨架）+ `meta/operator_shims.hpp` |
 | [`rapidjson/08-multi-tu/`](rapidjson/08-multi-tu/README.md) | 多编译单元 + `--no-link` | `lib.rs` |
 
 ---
@@ -79,8 +79,8 @@ examples/
 
 | 示例 | C++ 特性 | 解锁方式 |
 |------|---------|---------|
-| [`semi-auto/01-dynamic-cast/`](semi-auto/01-dynamic-cast/README.md) | `dynamic_cast` 向下转型 | 解注释 `free/dynamic_casts.rs` |
-| [`semi-auto/02-placement-new/`](semi-auto/02-placement-new/README.md) | Placement New | 解注释 `free/placement_new.rs` |
+| [`semi-auto/01-dynamic-cast/`](semi-auto/01-dynamic-cast/README.md) | `dynamic_cast` 向下转型 | 解注释 `entry.rs` 末尾骨架 |
+| [`semi-auto/02-placement-new/`](semi-auto/02-placement-new/README.md) | Placement New | 解注释 `entry.rs` 末尾骨架 |
 
 ---
 

@@ -13,8 +13,8 @@
 /// Minimal allocator interface compatible with RapidJSON's allocator concept.
 ///
 /// When mapped by cpp2rust-demo this becomes:
-///   - #[interface] class IAllocator { ... }   (in method/mtd_entry.rs)
-///   - @make_proxy binding                      (in free/fn_entry.rs)
+///   - #[interface] class IAllocator { ... }   (in entry.rs)
+///   - @make_proxy binding                      (in entry.rs)
 ///
 /// Rust code can then implement this interface:
 ///   struct MyAlloc;

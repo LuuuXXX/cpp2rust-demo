@@ -168,7 +168,7 @@ cd /tmp/rapidjson
 
 **预期输出**（节选）：
 ```
-[merge] Reading 6 group(s) from .cpp2rust/default/rust/src/
+[merge] Reading 1 file(s) from .cpp2rust/default/rust/src/
 [merge] Writing merged output to .cpp2rust/default/rust/src.2/
 [merge] Symlink: .cpp2rust/default/rust/src -> src.2
 [merge] Merge report: .cpp2rust/default/meta/merge-report.md
@@ -351,13 +351,13 @@ hicc::import_lib! {
 ### 5.1 operator 重载（半支持，需用户参与）
 
 **现状**：`operator[]`、`operator=`、`operator bool` 等被跳过提取，
-但工具自动生成 `operator_shims.hpp` starter 和 `shim_ops.rs` 骨架。
+但工具自动生成 `operator_shims.hpp` starter 和 `<stem>.rs` 末尾的注释骨架。
 
 **使用方式**：
 1. 查看 `meta/operator_shims.hpp`（自动生成的具名 C++ 包装函数）
 2. 在 `build.rs` 中添加 shim 目录的 include path
 3. 在 `hicc::cpp!` 块中引入 `operator_shims.hpp`
-4. `shim_ops.rs` 中的 `import_lib!` 绑定即可激活
+4. 解注释 `<stem>.rs` 末尾的注释骨架绑定即可激活
 
 详细工作流见 `examples/rapidjson/07-operator-shim/README.md`。
 

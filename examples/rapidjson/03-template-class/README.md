@@ -77,7 +77,7 @@ cat .cpp2rust/rj03/meta/init-interface-report.md
 
 ## 预期生成产物
 
-### `method/mtd_entry.rs`（节选）
+### `entry.rs`（节选）
 
 ```rust
 // Value class (extracted via GenericValue<UTF8<char>> alias)

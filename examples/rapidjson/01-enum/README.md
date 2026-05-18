@@ -1,7 +1,7 @@
 # 场景 01：枚举类型绑定（`enum` / `enum class`）
 
 本示例演示如何从 C++ `enum` 和 `enum class` 声明生成 Rust `#[repr(C)] enum`，
-对应 cpp2rust-demo 内部的 `EnumIR` → `types/mod.rs` 流水线。
+对应 cpp2rust-demo 内部的 `EnumIR` → `<stem>.rs` 流水线。
 
 ---
 
@@ -68,7 +68,7 @@ cat .cpp2rust/rj01/rust/src/lib.rs
 
 ## 预期生成产物
 
-### `types/mod.rs`（枚举类型定义）
+### `entry.rs`（枚举类型定义，节选）
 
 ```rust
 // ParseErrorCode（非 scoped enum）
@@ -118,7 +118,7 @@ pub enum Type {
 }
 ```
 
-### `free/fn_entry.rs`（枚举参数函数）
+### `entry.rs`（枚举参数函数，节选）
 
 ```rust
 hicc::import_lib! {

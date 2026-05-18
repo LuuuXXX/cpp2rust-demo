@@ -7,7 +7,7 @@
 // Step 2 of the three-step operator shim workflow:
 //   1. cpp2rust-demo generates this file automatically (starter)
 //   2. User reviews and adjusts (this file represents a reviewed version)
-//   3. User includes this in hicc::cpp! and activates shim_ops.rs bindings
+//   3. User includes this in hicc::cpp! and activates the commented-out bindings in entry.rs
 
 // Auto-generated operator shims by cpp2rust-demo.
 // Include this file in your hicc::cpp! block, then bind
