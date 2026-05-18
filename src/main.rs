@@ -618,24 +618,26 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     println!("  3. Adjust build.rs to point to your C++ library");
 
     if let Some(output_dir) = &args.output {
-        copy_merge_output(&lo.rust_dir, output_dir)?;
+        // Resolve to an absolute path once and reuse across all export steps.
+        let output_abs = if output_dir.is_absolute() {
+            output_dir.clone()
+        } else {
+            std::env::current_dir()
+                .map_err(|e| anyhow!("current_dir: {}", e))?
+                .join(output_dir)
+        };
+
+        copy_merge_output(&lo.rust_dir, &output_abs)?;
 
         // Also copy relevant meta files (operator_shims.hpp, init-interface-report.md)
         // into <output>/meta/ so users have everything they need in one place.
-        copy_meta_files(&lo.meta_dir, output_dir)?;
+        copy_meta_files(&lo.meta_dir, &output_abs)?;
 
         // When operator_shims.hpp was generated, the main build.rs uses an absolute
         // path to the original meta/ directory.  The exported copy must use the
         // relative path "meta" instead, because copy_meta_files placed the file in
         // <output>/meta/ — making the export self-contained for the shim header.
         if lo.meta_dir.join("operator_shims.hpp").exists() {
-            let output_abs = if output_dir.is_absolute() {
-                output_dir.clone()
-            } else {
-                std::env::current_dir()
-                    .map_err(|e| anyhow!("current_dir: {}", e))?
-                    .join(output_dir)
-            };
             let meta_abs = lo.meta_dir.display().to_string();
             let export_inc: Vec<String> = include_dirs
                 .iter()
