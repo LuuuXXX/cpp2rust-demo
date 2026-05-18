@@ -86,10 +86,12 @@ echo "=== Step 3: Preparing rapidjson project build (full-build, multi-TU) ==="
 
     # One translation unit per major rapidjson header so that each header's
     # FFI output is visible as a separate .rs file after cpp2rust-demo init.
-    # No main() — these files are pure header wrappers.  When hicc's build
-    # system later compiles all of them together (via #include "entry-*.cpp"
-    # inside a single hicc::cpp! block), having a main() in each file would
-    # produce "redefinition of 'int main()'" errors.
+    # These files are pure header wrappers with no main().  Each one is
+    # compiled independently by the cmake build (triggering the LD_PRELOAD
+    # hook once per TU), and the generated lib.rs later includes them all
+    # inside a single hicc::cpp! block.  Having a main() in each file would
+    # therefore produce "redefinition of 'int main()'" errors at hicc compile
+    # time.
     cat > entry-document.cpp << 'CPP_EOF'
 #include "rapidjson/document.h"
 CPP_EOF
@@ -115,10 +117,13 @@ CPP_EOF
 CPP_EOF
 
     # CMakeLists.txt with one OBJECT library per translation unit.
-    # add_library(OBJECT) compiles each .cpp (triggering the LD_PRELOAD hook)
-    # without requiring a main() in the source files.
-    # cmake --build will compile all six, and the LD_PRELOAD hook in
-    # cpp2rust-demo init will capture each compilation separately,
+    # add_library(OBJECT) produces object files without archiving or linking,
+    # so each .cpp is compiled individually (triggering the LD_PRELOAD hook
+    # once per TU) with no need for a main() or a linker step.  This is the
+    # right target type for a header-only library like rapidjson where no
+    # shared/static library needs to be produced.
+    # cmake --build will compile all six object libraries, and the LD_PRELOAD
+    # hook in cpp2rust-demo init will capture each compilation separately,
     # producing one .rs file per header.
     cat > CMakeLists.txt << 'CMAKE_EOF'
 cmake_minimum_required(VERSION 3.10)
