@@ -1717,14 +1717,18 @@ fn substitute_class_alias_in_cpp(cpp_type: &str, class_bare: &str, alias: &str) 
     } else {
         (false, trimmed)
     };
-    // Detect reference/pointer suffix.
+    // Detect reference/pointer suffix.  C++ allows both `T &&` (with space)
+    // and `T&&` (no space before `&&`); handle both forms and normalise the
+    // suffix to include a leading space in the reconstructed type string.
     let (core, suffix) = if let Some(s) = after_const.strip_suffix(" &&") {
         (s, " &&")
     } else if let Some(s) = after_const.strip_suffix(" &") {
         (s, " &")
     } else if let Some(s) = after_const.strip_suffix("&&") {
+        // No space before `&&` — normalise to " &&" in output.
         (s, " &&")
     } else if let Some(s) = after_const.strip_suffix('&') {
+        // No space before `&` — normalise to " &" in output.
         (s, " &")
     } else {
         (after_const, "")
@@ -1792,9 +1796,9 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         // it in fn signatures.
         let alias_name = shim.class_name.as_deref().unwrap_or(&class_bare);
 
-        // Helper: convert a raw Rust type string, substituting the alias for
-        // the bare class name wherever it appears.
-        let fix_rust_type = |s: &str| -> String {
+        // Helper: substitute the alias for the bare class name in a Rust type
+        // string.  Mirrors `substitute_class_alias_in_cpp` for the Rust side.
+        let substitute_alias_in_rust_type = |s: &str| -> String {
             if class_bare.is_empty() || alias_name == class_bare {
                 return s.to_string();
             }
@@ -1810,7 +1814,7 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         let ret = if shim.return_cpp_type.is_empty() || shim.return_cpp_type == "()" {
             "()".to_string()
         } else {
-            fix_rust_type(&crate::ast::cpp_to_rust_type(&shim.return_cpp_type))
+            substitute_alias_in_rust_type(&crate::ast::cpp_to_rust_type(&shim.return_cpp_type))
         };
 
         // Build Rust param list.
@@ -1827,7 +1831,7 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
             rust_params.push(format!(
                 "{}: {}",
                 sanitize_ident(&p.name),
-                fix_rust_type(&p.rust_type)
+                substitute_alias_in_rust_type(&p.rust_type)
             ));
         }
         let param_str = rust_params.join(", ");
