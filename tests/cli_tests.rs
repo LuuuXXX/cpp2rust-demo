@@ -531,13 +531,15 @@ fn init_no_link_skips_unsupported_members_and_reports_reasons() {
     assert!(free.contains("fn fill(out: *mut *mut i32, name: *mut *const i8) -> i32"));
     // In the flat layout, operator shims are appended after a section separator.
     // Verify operators are NOT extracted as regular bindings (before the shim section).
+    // Note: the hicc::cpp! include block may contain "operator_shims.hpp", so we check
+    // that no `operator` keyword appears inside an import_lib! or import_class! fn binding.
     let before_shims = free
         .split("// --- operator shims ---")
         .next()
         .unwrap_or(&free);
     assert!(
-        !before_shims.contains("operator"),
-        "operator should not appear as a regular binding"
+        !before_shims.contains("fn operator") && !before_shims.contains("method = \"operator"),
+        "operator should not appear as a regular fn/method binding before the shim section"
     );
 
     let report = std::fs::read_to_string(
@@ -2232,17 +2234,17 @@ fn init_operator_overload_generates_shim_files() {
         "shim functions should be declared in operator_shims.hpp: {shims_hpp}"
     );
 
-    // Shim bindings are appended to the flat ops2.rs file as commented-out starters.
-    // Users must include operator_shims.hpp first, then uncomment.
+    // Shim bindings are appended to the flat ops2.rs file as an active import_lib! block.
+    // The hicc::cpp! block also includes operator_shims.hpp automatically.
     let flat_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/ops2.rs")).unwrap();
     assert!(
-        flat_src.contains("// hicc::import_lib!") || flat_src.contains("// #[cpp(func"),
-        "flat ops2.rs should contain commented-out import_lib! shim bindings: {flat_src}"
+        flat_src.contains("hicc::import_lib!") && flat_src.contains("#[cpp(func"),
+        "flat ops2.rs should contain active import_lib! shim bindings: {flat_src}"
     );
     assert!(
         flat_src.contains("operator_shims.hpp"),
-        "flat ops2.rs should mention operator_shims.hpp in instructions: {flat_src}"
+        "flat ops2.rs should include operator_shims.hpp in the hicc::cpp! block: {flat_src}"
     );
 }
 

@@ -428,7 +428,12 @@ fn run_init(args: InitArgs) -> Result<()> {
         {
             let build_rs_path = lo.rust_dir.join("build.rs");
             let source_refs: Vec<&str> = build_rs_sources.iter().map(|s| s.as_str()).collect();
-            let include_dirs = middleware_include_dirs(&files_to_process);
+            let mut include_dirs = middleware_include_dirs(&files_to_process);
+            // When operator shims were generated, the meta/ directory must be on
+            // the C++ include path so that `#include "operator_shims.hpp"` resolves.
+            if had_any_shims {
+                include_dirs.push(lo.meta_dir.display().to_string());
+            }
             let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
             std::fs::write(
                 &build_rs_path,
@@ -484,7 +489,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         }
         if had_any_shims {
             println!(
-                "  operator shims  →  meta/operator_shims.hpp + <stem>.rs (commented-out section)"
+                "  operator shims  →  meta/operator_shims.hpp + <stem>.rs (active import_lib! section)"
             );
         }
         if had_any_dynamic_casts {

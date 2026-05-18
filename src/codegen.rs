@@ -89,6 +89,14 @@ pub fn render_flat_module(
     out.push_str(&render_include_module(source_file_path));
     writeln!(out).unwrap();
 
+    // 1b. Include operator_shims.hpp when operator shims are present.
+    if !decls.operator_shims.is_empty() {
+        writeln!(out, "hicc::cpp! {{").unwrap();
+        writeln!(out, "    #include \"operator_shims.hpp\"").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+    }
+
     // @make_proxy support header (when abstract / mixed classes are present).
     let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
     let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
@@ -1675,25 +1683,14 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
     }
 
     let mut out = String::new();
-    // The operator shim Rust bindings are emitted as **commented-out** starters.
-    // To activate them:
-    //   1. Add `#include "operator_shims.hpp"` to your `hicc::cpp! { ... }` block
-    //      (the file is generated at `meta/operator_shims.hpp`).
-    //   2. Uncomment the `hicc::import_lib!` block below.
     writeln!(
         out,
         "// Auto-generated operator shim Rust bindings by cpp2rust-demo."
     )
     .unwrap();
-    writeln!(
-        out,
-        "// To activate: include operator_shims.hpp in your hicc::cpp! block,"
-    )
-    .unwrap();
-    writeln!(out, "// then uncomment the import_lib! block below.").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "// hicc::import_lib! {{").unwrap();
-    writeln!(out, "//     #![link_name = \"{link_name}\"]").unwrap();
+    writeln!(out, "hicc::import_lib! {{").unwrap();
+    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
     writeln!(out).unwrap();
 
     for shim in shims {
@@ -1739,17 +1736,17 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         }
         let cpp_sig = format!("{} {}({})", cpp_ret, shim.shim_name, cpp_params.join(", "));
 
-        writeln!(out, "//     // Shim for `{}`", shim.operator_name).unwrap();
-        writeln!(out, "//     #[cpp(func = \"{}\")]", cpp_sig).unwrap();
+        writeln!(out, "    // Shim for `{}`", shim.operator_name).unwrap();
+        writeln!(out, "    #[cpp(func = \"{}\")]", cpp_sig).unwrap();
         writeln!(
             out,
-            "//     fn {}({}){};\n",
+            "    fn {}({}){};\n",
             shim.shim_name, param_str, ret_str
         )
         .unwrap();
     }
 
-    writeln!(out, "// }}").unwrap();
+    writeln!(out, "}}").unwrap();
     out
 }
 
