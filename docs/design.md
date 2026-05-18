@@ -13,7 +13,7 @@
 3. 通过 `LD_PRELOAD` 注入构建，拦截编译器调用
 4. 为项目内参与编译的 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`）生成 `.cpp2rust` 预处理中间件与 `.opts`（例如 `a.cpp -> a.cpp.cpp2rust`）；同时在 capture 目录下创建同名符号链接（`a.cpp → a.cpp.cpp2rust`），使生成的 `hicc::cpp! { #include "a.cpp" }` 可由 hicc-build 解析
 5. 扫描 `.cpp2rust/<feature>/cpp/**/*.cpp2rust`
-6. 交互式选择参与转换的中间件文件（非交互自动全选）
+6. 交互式选择参与转换的中间件文件（**非交互环境（CI/脚本）下自动全选所有捕获文件**，维持全量捕获原则：系统接口也通过预处理展开方式参与 FFI 提取）
 7. 对选中文件执行 `clang -ast-dump=json`
 8. 抽取函数/类/方法与类型信息，为每个选中的翻译单元生成一个平铺的 `<stem>.rs`（1:1 映射，包含完整 hicc 脚手架）
 9. 生成 `Cargo.toml` / `build.rs` / `src/lib.rs` 与接口报告
@@ -70,16 +70,15 @@
 ## v1 能力边界（当前实现）
 
 - 每个翻译单元的全部绑定内容集中在一个平铺的 `<stem>.rs` 文件中，按以下顺序排列：
-  1. `hicc::cpp!`：中间件 include 上下文
-  2. `#[repr(C)] pub enum`：提取的 C++ 枚举定义
-  3. `pub type`：typedef / using 别名
-  4. `hicc::import_class!`：每个 C++ 类一个块（含 `#[interface]` trait）
-  5. `hicc::import_lib!`：自由函数、静态方法、构造工厂函数、全局变量
-  6. 类级元数据常量（`CLASS_COUNT`、`CLASS_NAMES` 等，供检阅）
-  7. C++ 类型元数据（`CPP_TYPES`、`CPP_RUST_TYPE_MAPPINGS` 等，供检阅）
-  8. 注释掉的 operator shim 骨架（如有运算符重载）
-  9. 注释掉的 `@dynamic_cast` 骨架（如有继承关系）
-  10. 注释掉的 `@placement_new` 骨架（如有构造函数）
+  1. `hicc::cpp!`：中间件 include 上下文（`#include "<stem>.cpp"`）
+  2. `hicc::cpp! { #include <hicc/std/memory.hpp> }`：`@make_proxy` 支持头（仅当存在抽象类或混合类时生成）
+  3. `hicc::import_class!`：每个 C++ 类一个块（companion `#[interface]` trait 优先，其次是具体类块）
+  4. 类级元数据常量（`CLASS_COUNT`、`CLASS_NAMES` 等，供检阅，不进入 merge 输出）
+  5. C++ 类型元数据（`CPP_TYPES`、`CPP_RUST_TYPE_MAPPINGS` 等）+ `#[repr(C)] pub enum` 枚举定义 + `pub type` 别名（枚举/别名进入 merge 输出；原始元数据常量不进入）
+  6. `hicc::import_lib!`：自由函数、静态方法、构造工厂函数、全局变量
+  7. 注释掉的 operator shim 骨架（如有运算符重载）
+  8. 注释掉的 `@dynamic_cast` 骨架（如有继承关系）
+  9. 注释掉的 `@placement_new` 骨架（如有构造函数）
 - `common/types.rs`：跨 TU 聚合的枚举定义与类型别名（业务代码）参与 merge 输出；
   `CPP_TYPES`、`CLASS_NAMES` 等元数据常量与 `common/includes.rs`（路径元数据）**不**参与 merge 输出。
 

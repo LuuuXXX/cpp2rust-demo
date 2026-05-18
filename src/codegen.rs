@@ -56,13 +56,29 @@ pub fn render_ffi(decls: &ExtractedDecls, link_name: &str, source_file_path: &st
 /// Render a flat, self-contained hicc FFI module for a single translation unit.
 ///
 /// Produces one `.rs` file per C++ middleware file (1 : 1 cpp → rs mapping)
-/// that is fully compliant with hicc's macro-based API:
+/// that is fully compliant with hicc's macro-based API.  The sections are
+/// emitted in the following order:
 ///
 /// 1. `hicc::cpp!` — include block for the middleware source file.
-/// 2. `#[repr(C)] pub enum` — extracted C++ enum definitions.
-/// 3. `pub type` — extracted C++ typedef / using aliases.
-/// 4. `hicc::import_class!` — one block per extracted C++ class.
-/// 5. `hicc::import_lib!` — free functions, static methods, constructors.
+/// 2. `hicc::cpp! { #include <hicc/std/memory.hpp> }` — `@make_proxy` support
+///    header (emitted only when abstract or mixed classes are present).
+/// 3. `hicc::import_class!` — one block per extracted C++ class (companion
+///    `#[interface]` traits precede their corresponding concrete class blocks).
+/// 4. Class-level metadata constants — `CLASS_COUNT`, `CLASS_NAMES`, etc.
+///    (informational; not included in `merge` output).
+/// 5. C++ type metadata — `CPP_TYPES`, `CPP_RUST_TYPE_MAPPINGS`, plus
+///    extracted `#[repr(C)] pub enum` definitions, `pub type` aliases, and
+///    `hicc::RustAny` suggestions (enum/alias entries ARE included in `merge`
+///    output; raw metadata constants are not).
+/// 6. `hicc::import_lib!` — free functions, static methods, constructors,
+///    and global variable bindings.
+///
+/// Additionally, `main.rs` appends the following commented-out starter
+/// sections to the file after this function returns:
+///
+/// 7. Operator shim Rust bindings (when operator overloads are present).
+/// 8. `@dynamic_cast` binding skeletons (when inheritance is present).
+/// 9. `@placement_new` binding skeletons (when concrete constructors exist).
 ///
 /// This replaces the old multi-file grouped layout
 /// (`mod_<stem>/include|free|class|method|types/`) with a single flat file
@@ -89,7 +105,7 @@ pub fn render_flat_module(
     out.push_str(&render_include_module(source_file_path));
     writeln!(out).unwrap();
 
-    // @make_proxy support header (when abstract / mixed classes are present).
+    // 2. @make_proxy support header (when abstract / mixed classes are present).
     let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
     let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
     if has_abstract || has_mixed {
@@ -104,27 +120,27 @@ pub fn render_flat_module(
         writeln!(out).unwrap();
     }
 
-    // 2. import_class! blocks.
+    // 3. import_class! blocks (companion #[interface] traits first, then concrete classes).
     let method_part = render_method_module(decls);
     if !method_part.is_empty() {
         out.push_str(&method_part);
     }
 
-    // 4b. Class-level metadata constants (CLASS_COUNT, CLASS_NAMES, etc.).
+    // 4. Class-level metadata constants (CLASS_COUNT, CLASS_NAMES, etc.).
     let class_part = render_class_module(decls);
     if !class_part.is_empty() {
         out.push_str(&class_part);
         out.push('\n');
     }
 
-    // 4c. C++ type metadata (CPP_TYPES, CPP_RUST_TYPE_MAPPINGS, rust_type_for).
+    // 5. C++ type metadata (CPP_TYPES, CPP_RUST_TYPE_MAPPINGS) + enum defs + type aliases.
     let types_part = render_types_module(decls);
     if !types_part.is_empty() {
         out.push_str(&types_part);
         out.push('\n');
     }
 
-    // 5. import_lib! block (free fns, static methods, ctors, globals).
+    // 6. import_lib! block (free fns, static methods, ctors, globals).
     out.push_str(&render_free_module(decls, link_name));
 
     out
@@ -249,21 +265,6 @@ pub fn render_method_module(decls: &ExtractedDecls) -> String {
 
 pub fn render_free_module(decls: &ExtractedDecls, link_name: &str) -> String {
     let mut out = String::new();
-    // When abstract classes or mixed classes with companion interfaces are
-    // present we need @make_proxy support.
-    let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
-    let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
-    if has_abstract || has_mixed {
-        writeln!(
-            out,
-            "// @make_proxy support: required for wrapping Rust structs as C++ interfaces."
-        )
-        .unwrap();
-        writeln!(out, "hicc::cpp! {{").unwrap();
-        writeln!(out, "    #include <hicc/std/memory.hpp>").unwrap();
-        writeln!(out, "}}").unwrap();
-        writeln!(out).unwrap();
-    }
     render_import_lib(&mut out, decls, link_name);
     out
 }

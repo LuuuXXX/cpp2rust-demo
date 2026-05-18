@@ -10,7 +10,7 @@
 传统 C++ -> Rust 绑定常见痛点是手工维护头文件列表、手写大量 FFI 声明。  
 本项目通过两步流程减少手工工作：
 
-1. `init`：执行真实构建命令并捕获 `.cpp2rust` 中间件，再生成平铺的 Rust 绑定模块（每个 C++ 翻译单元对应一个 `<stem>.rs`）。
+1. `init`：执行真实构建命令并捕获 `.cpp2rust` 中间件，再生成平铺的 Rust 绑定模块（每个 C++ 翻译单元对应一个 `<stem>.rs`）。在非交互环境（CI/脚本）下自动全选所有捕获文件（**全量捕获原则**），系统接口通过预处理展开方式一并进入 FFI 提取流程。
 2. `merge`：把平铺模块整合，将所有 hicc 必要内容直接写入 `lib.rs`（消费端入口）。
 
 > 自动捕获对象是 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`），头文件内容通过预处理展开进入中间件。
@@ -158,11 +158,15 @@ cpp2rust-demo suggest-aliases --feature myfeature
 ```
 
 每个 `<stem>.rs` 是单个翻译单元的完整 hicc 脚手架，包含（按顺序）：
-1. `hicc::cpp!` — 引用中间件源文件
-2. C++ enum 定义（`#[repr(C)] pub enum`）
-3. `pub type` 别名
-4. `hicc::import_class!` — 每个 C++ 类一个块
-5. `hicc::import_lib!` — 自由函数、静态方法、构造工厂函数
+1. `hicc::cpp!` — 引用中间件源文件（`#include "<stem>.cpp"`）
+2. `hicc::cpp! { #include <hicc/std/memory.hpp> }` — `@make_proxy` 支持头（仅当存在抽象类或混合类时）
+3. `hicc::import_class!` — 每个 C++ 类一个块（companion `#[interface]` trait 在先）
+4. 类级元数据常量（`CLASS_COUNT`、`CLASS_NAMES` 等，供检阅）
+5. C++ 类型元数据 + `#[repr(C)] pub enum` 枚举定义 + `pub type` 别名
+6. `hicc::import_lib!` — 自由函数、静态方法、构造工厂函数、全局变量
+7. 注释掉的 operator shim 骨架（如有运算符重载）
+8. 注释掉的 `@dynamic_cast` 骨架（如有继承关系）
+9. 注释掉的 `@placement_new` 骨架（如有构造函数）
 
 `merge` 后新增：
 
