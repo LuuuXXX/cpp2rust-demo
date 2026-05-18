@@ -119,6 +119,7 @@ cpp2rust-demo merge --feature myfeature --output /tmp/merged-rust
   - 导出后的 `src` 会是实体目录（跟随 `src -> src.2` 符号链接复制）
   - 目标目录必须为空目录（或不存在）
   - 同时将 `operator_shims.hpp` 与 `init-interface-report.md` 复制到 `<output>/meta/`
+  - 若存在 `operator_shims.hpp`，导出的 `build.rs` 会将 meta/ 的包含路径改写为相对路径 `"meta"`，使导出目录对运算符 shim 头文件自包含；其余中间件路径仍为绝对路径，迁移到其他机器时需手动更新
 
 ### 3) 查看模板别名建议（`suggest-aliases`）
 
