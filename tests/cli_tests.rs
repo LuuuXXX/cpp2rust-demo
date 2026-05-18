@@ -2285,10 +2285,11 @@ fn merge_build_rs_includes_meta_dir_when_shims_exist() {
         .success();
 
     // Verify operator_shims.hpp was created by init.
-    let shims_hpp = tmp
-        .path()
-        .join(".cpp2rust/default/meta/operator_shims.hpp");
-    assert!(shims_hpp.exists(), "operator_shims.hpp should exist after init");
+    let shims_hpp = tmp.path().join(".cpp2rust/default/meta/operator_shims.hpp");
+    assert!(
+        shims_hpp.exists(),
+        "operator_shims.hpp should exist after init"
+    );
 
     bin()
         .current_dir(tmp.path())

@@ -1228,7 +1228,7 @@ fn walk_node(
                 return;
             }
             if is_operator_name(node.name.as_deref()) {
-                collect_operator_shim(node, namespace, None, None, result);
+                collect_operator_shim(node, namespace, None, None, result, class_map);
                 record_skipped(
                     result,
                     node,
@@ -1426,7 +1426,7 @@ fn walk_node(
                     continue;
                 }
                 if is_operator_name(child.name.as_deref()) {
-                    collect_operator_shim(child, namespace, None, None, result);
+                    collect_operator_shim(child, namespace, None, None, result, class_map);
                     record_skipped(
                         result,
                         child,
@@ -1767,6 +1767,7 @@ fn extract_class_body(
                         Some(class_name),
                         Some(qualified_name),
                         result,
+                        class_map,
                     );
                     record_skipped(
                         result,
@@ -1862,6 +1863,7 @@ fn extract_class_body(
                     Some(class_name),
                     Some(qualified_name),
                     result,
+                    class_map,
                 );
                 record_skipped(
                     result,
@@ -1897,6 +1899,7 @@ fn extract_class_body(
                     Some(class_name),
                     Some(qualified_name),
                     result,
+                    class_map,
                 );
                 record_skipped(
                     result,
@@ -1946,6 +1949,7 @@ fn collect_operator_shim(
     class_name: Option<&str>,
     qualified_class: Option<&str>,
     result: &mut ExtractedDecls,
+    class_map: &HashMap<String, String>,
 ) {
     let op_name = match node.name.as_deref() {
         Some(n) if n.starts_with("operator") => n,
@@ -1955,13 +1959,19 @@ fn collect_operator_shim(
     let (return_cpp_type, is_const) = if let Some(ref ti) = node.type_info {
         let qt = ti.qual_type.as_str();
         let is_c = qt.ends_with(") const");
-        let ret = parse_fn_qual_type(qt).map(|(r, _)| r).unwrap_or_default();
+        let ret = parse_fn_qual_type(qt)
+            .map(|(r, _)| qualify_cpp_type(&r, class_map))
+            .unwrap_or_default();
         (ret, is_c)
     } else {
         (String::new(), false)
     };
 
     // Collect parameters (best-effort; ignore type-gate issues here).
+    // Use qualify_cpp_type so that the generated C++ shim signatures use
+    // fully-qualified type names (e.g. `rapidjson::internal::DiyFp` instead
+    // of just `DiyFp`), which avoids "not declared in this scope" errors when
+    // the shim is compiled outside the original namespace context.
     let params: Vec<ParamIR> = node
         .inner
         .iter()
@@ -1975,11 +1985,12 @@ fn collect_operator_shim(
                 .filter(|n| !n.is_empty())
                 .unwrap_or("arg")
                 .to_string();
-            let cpp_type = p
+            let raw_cpp_type = p
                 .type_info
                 .as_ref()
                 .map(|t| t.qual_type.clone())
                 .unwrap_or_else(|| format!("/* unknown_type_{} */", i));
+            let cpp_type = qualify_cpp_type(&raw_cpp_type, class_map);
             let rust_type = cpp_to_rust_type(&cpp_type);
             ParamIR {
                 name: pname,
