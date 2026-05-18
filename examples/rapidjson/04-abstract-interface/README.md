@@ -52,7 +52,7 @@ cpp2rust-demo init --feature rj04 --link rapidjson --no-link \
 cpp2rust-demo merge --feature rj04
 
 # 第 3 步：查看产物
-cat .cpp2rust/rj04/rust/src/merged_ffi.rs
+cat .cpp2rust/rj04/rust/src/lib.rs
 ```
 
 ---

@@ -18,7 +18,7 @@
 | [`05-virtual-methods/`](05-virtual-methods/README.md) | 非纯虚方法 | vtable 透明调用 | `method/mtd_*.rs` |
 | [`06-inheritance/`](06-inheritance/README.md) | public 继承链 | `class Derived: Base` 语法 | `method/mtd_*.rs` |
 | [`07-operator-shim/`](07-operator-shim/README.md) | 运算符重载 | `operator_shims.hpp` 三步工作流 | `free/shim_ops.rs` + `meta/operator_shims.hpp` |
-| [`08-multi-tu/`](08-multi-tu/README.md) | 多编译单元 + header-only | `--no-link` + `merge` 全流程 | `merged_ffi.rs` |
+| [`08-multi-tu/`](08-multi-tu/README.md) | 多编译单元 + header-only | `--no-link` + `merge` 全流程 | `lib.rs` |
 
 ---
 

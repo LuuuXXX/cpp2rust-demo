@@ -65,7 +65,7 @@ cpp2rust-demo init --feature rj06 --link writer \
 cpp2rust-demo merge --feature rj06
 
 # 第 3 步：查看产物
-cat .cpp2rust/rj06/rust/src/merged_ffi.rs
+cat .cpp2rust/rj06/rust/src/lib.rs
 ```
 
 ---

@@ -93,7 +93,7 @@ cpp2rust-demo init --feature cond01 --link stack \
 
 cpp2rust-demo merge --feature cond01
 
-cat .cpp2rust/cond01/rust/src/merged_ffi.rs
+cat .cpp2rust/cond01/rust/src/lib.rs
 ```
 
 ---

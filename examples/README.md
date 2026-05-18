@@ -67,7 +67,7 @@ examples/
 | [`rapidjson/05-virtual-methods/`](rapidjson/05-virtual-methods/README.md) | 非纯虚方法 | `method/mtd_*.rs` |
 | [`rapidjson/06-inheritance/`](rapidjson/06-inheritance/README.md) | public 继承链 | `method/mtd_*.rs` |
 | [`rapidjson/07-operator-shim/`](rapidjson/07-operator-shim/README.md) | 运算符重载 shim（🔧 引导） | `free/shim_ops.rs` + `meta/operator_shims.hpp` |
-| [`rapidjson/08-multi-tu/`](rapidjson/08-multi-tu/README.md) | 多编译单元 + `--no-link` | `merged_ffi.rs` |
+| [`rapidjson/08-multi-tu/`](rapidjson/08-multi-tu/README.md) | 多编译单元 + `--no-link` | `lib.rs` |
 
 ---
 

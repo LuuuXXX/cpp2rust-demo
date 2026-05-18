@@ -89,7 +89,7 @@ cpp2rust-demo init --feature cond02 --link algorithms \
     -- clang -x c++ -fsyntax-only examples/conditional/02-function-template/entry.cpp
 
 cpp2rust-demo merge --feature cond02
-cat .cpp2rust/cond02/rust/src/merged_ffi.rs
+cat .cpp2rust/cond02/rust/src/lib.rs
 ```
 
 ---

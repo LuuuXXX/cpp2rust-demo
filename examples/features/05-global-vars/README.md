@@ -21,7 +21,7 @@ cpp2rust-demo init --feature feat05 --link metrics \
     -- clang -x c++ -fsyntax-only examples/features/05-global-vars/entry.cpp
 
 cpp2rust-demo merge --feature feat05
-cat .cpp2rust/feat05/rust/src/merged_ffi.rs
+cat .cpp2rust/feat05/rust/src/lib.rs
 ```
 
 ## 预期生成结果

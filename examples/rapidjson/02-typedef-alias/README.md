@@ -71,7 +71,7 @@ cpp2rust-demo merge --feature rj02
 
 # 第 3 步：查看产物
 cat .cpp2rust/rj02/meta/init-interface-report.md   # 接口报告（含 AliasRegistry 效果）
-cat .cpp2rust/rj02/rust/src/merged_ffi.rs          # 合并后 FFI
+cat .cpp2rust/rj02/rust/src/lib.rs          # 合并后 FFI
 ```
 
 ---

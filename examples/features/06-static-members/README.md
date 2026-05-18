@@ -23,7 +23,7 @@ cpp2rust-demo init --feature feat06 --link counter \
     -- clang -x c++ -fsyntax-only examples/features/06-static-members/entry.cpp
 
 cpp2rust-demo merge --feature feat06
-cat .cpp2rust/feat06/rust/src/merged_ffi.rs
+cat .cpp2rust/feat06/rust/src/lib.rs
 ```
 
 ## 预期生成结果

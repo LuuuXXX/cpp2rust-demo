@@ -51,7 +51,7 @@ cpp2rust-demo init --feature rj05 --link allocator \
 cpp2rust-demo merge --feature rj05
 
 # 第 3 步：查看产物
-cat .cpp2rust/rj05/rust/src/merged_ffi.rs
+cat .cpp2rust/rj05/rust/src/lib.rs
 ```
 
 ---

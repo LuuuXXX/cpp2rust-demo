@@ -26,7 +26,8 @@
 │   ├── ast.rs        # clang AST JSON 解析与声明抽取
 │   ├── codegen.rs    # 生成 hicc 所需 Rust 代码（render_flat_module / build.rs / Cargo.toml）
 │   ├── merge.rs      # 将 rust/src/<stem>.rs 平铺文件合并到 rust/src.2
-│   └── selector.rs   # 交互式/非交互式中间件选择
+│   ├── selector.rs   # 交互式/非交互式中间件选择
+│   └── error.rs      # 统一 Result/Error 类型封装
 ├── hook/
 │   ├── hook.c        # 编译拦截逻辑（识别编译器调用并输出 *2rust 中间件）
 │   └── Makefile      # 生成 libhook.so

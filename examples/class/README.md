@@ -21,7 +21,7 @@ cpp2rust-demo init --feature widget --link widget -- clang -x c++ -fsyntax-only 
 cpp2rust-demo merge --feature widget
 
 # 第 3 步：查看结果
-cat .cpp2rust/widget/rust/src/merged_ffi.rs
+cat .cpp2rust/widget/rust/src/lib.rs
 ```
 
 > 说明：交互终端下，`init` 会提示选择要纳入转换的中间件文件（`Space` 勾选，`Enter` 确认）；非交互环境会自动全选。

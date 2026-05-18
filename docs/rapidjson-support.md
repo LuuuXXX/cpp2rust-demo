@@ -50,7 +50,7 @@ RapidJSON 是纯 header-only 库，无预编译二进制，主要特点：
 | 析构函数 | 析构函数 | ❌ 跳过 | — |
 | `std::basic_ostream` 参数（`operator<<`）| `std::` 类型 | ❌ 跳过 | — |
 | `std::allocator` 模板参数 | 复杂模板参数 | ⚠️ 依赖别名 | — |
-| 多重继承（`SchemaValidator` 等） | 多重继承 | ⛔ 首个 base | — |
+| 多重继承（`SchemaValidator` 等） | 多重继承 | ⚠️ 全部 public 基类提取（骨架） | `entry.rs` |
 
 ---
 
@@ -379,10 +379,12 @@ static inline const char* value_get_string(const rapidjson::Value& val) {
 }
 ```
 
-### 5.4 多重继承（仅取首个 public 基类）
+### 5.4 多重继承
 
-RapidJSON 的 `SchemaValidator` 等少数类使用多重继承，当前工具只提取首个 public 基类。
-其余基类在接口报告中可见，待 `future-plan.md §2` 实现后解锁。
+RapidJSON 的 `SchemaValidator` 等少数类使用多重继承，工具会提取**所有** public 非虚基类，
+生成 `class C: A, B` 骨架（见 `future-plan.md §2`，已实现）。
+但 hicc 本身不支持多重继承运行时语义，该骨架无法直接编译；
+需手写 C++ 委托包装后以单继承绑定。
 
 ### 5.5 高度模板化的内部类型（partial support）
 

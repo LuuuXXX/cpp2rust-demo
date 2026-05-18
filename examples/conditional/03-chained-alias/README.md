@@ -109,7 +109,7 @@ cpp2rust-demo init --feature cond03 --link store \
 
 cpp2rust-demo merge --feature cond03
 
-cat .cpp2rust/cond03/rust/src/merged_ffi.rs
+cat .cpp2rust/cond03/rust/src/lib.rs
 ```
 
 ### STEP B2：链式别名（解锁 IntStore + MyStore）
@@ -123,7 +123,7 @@ cpp2rust-demo init --feature cond03 --link store \
 
 cpp2rust-demo merge --feature cond03
 
-cat .cpp2rust/cond03/rust/src/merged_ffi.rs
+cat .cpp2rust/cond03/rust/src/lib.rs
 ```
 
 ---
