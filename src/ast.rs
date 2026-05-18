@@ -2049,6 +2049,12 @@ fn operator_shim_fn_name(op: &str, class_name: Option<&str>) -> String {
         "operator bool" => "to_bool",
         "operator int" => "to_int",
         "operator double" => "to_double",
+        // Compound assignment operators each get a unique suffix so that overloads
+        // with different parameter types (e.g. `operator+=(uint64_t)` and
+        // `operator<<=(size_t)`) produce distinct C++ shim function names.
+        // Without distinct names, on 64-bit Linux where `uint64_t == size_t ==
+        // unsigned long`, two differently-named Rust shims would expand to the
+        // same C++ function signature, causing a "redefinition" compile error.
         "operator+=" => "add_assign",
         "operator-=" => "sub_assign",
         "operator*=" => "mul_assign",

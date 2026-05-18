@@ -1521,6 +1521,11 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 /// same resolved name — keeping per-TU `.rs` files and the global
 /// `operator_shims.hpp` consistent.
 fn resolve_shim_names(shims: &[OperatorShimIR]) -> Vec<String> {
+    // Build a helper closure that computes a stable param-type signature for a shim.
+    let param_sig = |s: &OperatorShimIR| -> String {
+        s.params.iter().map(|p| p.cpp_type.as_str()).collect::<Vec<_>>().join(",")
+    };
+
     // For each shim_name, collect all distinct param-type signatures in
     // first-seen order.  Two shims with identical (shim_name, param_sig) are
     // the same operator from different TUs and must map to the same name.
@@ -1528,10 +1533,10 @@ fn resolve_shim_names(shims: &[OperatorShimIR]) -> Vec<String> {
         std::collections::HashMap::new();
 
     for s in shims {
-        let param_sig: String = s.params.iter().map(|p| p.cpp_type.as_str()).collect::<Vec<_>>().join(",");
+        let sig = param_sig(s);
         let sigs = name_to_sigs.entry(s.shim_name.as_str()).or_default();
-        if !sigs.contains(&param_sig) {
-            sigs.push(param_sig);
+        if !sigs.contains(&sig) {
+            sigs.push(sig);
         }
     }
 
@@ -1546,8 +1551,8 @@ fn resolve_shim_names(shims: &[OperatorShimIR]) -> Vec<String> {
             } else {
                 // Multiple distinct overloads — append index of this overload's
                 // param signature in the first-seen order.
-                let param_sig: String = s.params.iter().map(|p| p.cpp_type.as_str()).collect::<Vec<_>>().join(",");
-                let idx = sigs.iter().position(|sig| sig == &param_sig).unwrap_or(0);
+                let sig = param_sig(s);
+                let idx = sigs.iter().position(|s| s == &sig).unwrap_or(0);
                 format!("{}_{}", s.shim_name, idx)
             }
         })
@@ -1567,7 +1572,6 @@ fn resolve_shim_names(shims: &[OperatorShimIR]) -> Vec<String> {
 pub fn render_operator_shims_hpp(
     shims: &[OperatorShimIR],
     skipped: &[SkippedDecl],
-    _middleware_files: &[&str],
 ) -> String {
     let string_shims: Vec<&SkippedDecl> = skipped
         .iter()
