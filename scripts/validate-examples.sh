@@ -375,7 +375,7 @@ check_any_rs  "${OUT}" 'class Cat'
 # ---------------------------------------------------------------------------
 # Step 15: semi-auto/02-placement-new/ — placement new commented skeleton
 # ---------------------------------------------------------------------------
-run_case "semi-auto/02-placement-new/ (FixedBuffer extracted; placement_new.rs skeleton generated)"
+run_case "semi-auto/02-placement-new/ (FixedBuffer extracted; placement-new skeleton appended to entry.rs)"
 (cd "${REPO_ROOT}" && "${BIN}" init \
     --feature sa02 \
     --link fixed_buffer \

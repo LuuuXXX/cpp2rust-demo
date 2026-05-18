@@ -128,7 +128,7 @@ inline int string_processor_join(
 }
 ```
 
-### shim_ops section in `entry.rs`（🔧 工具自动生成 Rust 骨架）
+### operator shims section in `entry.rs`（🔧 工具自动生成 Rust 骨架）
 
 ```rust
 hicc::import_lib! {
