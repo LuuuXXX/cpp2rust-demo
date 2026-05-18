@@ -1,10 +1,10 @@
 // value_with_ops.hpp — rapidjson-07-operator-shim
 //
 // A minimal JSON value class that models RapidJSON's GenericValue operator
-// surface.  Used to demonstrate the operator_shims.hpp three-step workflow:
-//   1. cpp2rust-demo auto-generates operator_shims.hpp starter + commented-out bindings in entry.rs
-//   2. User confirms / adjusts the C++ shim implementations
-//   3. User includes operator_shims.hpp in hicc::cpp! and activates bindings
+// surface.  Used to demonstrate the operator_shims.hpp fully-automated workflow:
+//   1. cpp2rust-demo auto-generates operator_shims.hpp with complete C++ shim bodies
+//   2. Active import_lib! Rust bindings and hicc::cpp! include are auto-inserted into entry.rs
+//   3. build.rs include paths are auto-configured — no user action required
 
 #pragma once
 

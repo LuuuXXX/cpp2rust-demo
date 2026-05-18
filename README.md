@@ -190,7 +190,7 @@ cpp2rust-demo suggest-aliases --feature myfeature
 
 - destructor（`HiccLimitation`：hicc 不支持显式析构绑定）
 - copy/move constructor（自动识别并跳过，避免生成无意义绑定）
-- operator overload（生成 `operator_shims.hpp` starter 辅助用户手写 C++ shim）
+- operator overload（自动生成完整 `operator_shims.hpp` C++ shim 函数体及激活的 Rust 绑定，无需用户干预）
 - 无别名的模板声明（`ToolConservative`：添加 `typedef`/`using` 别名后可解锁）
 - 函数模板（需有 concrete specialization 可见于 AST）
 - 含不支持类型的参数/返回值（`unsupported_type`：如函数指针、variadic、`auto`/`decltype`）

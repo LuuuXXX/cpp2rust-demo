@@ -531,13 +531,15 @@ fn init_no_link_skips_unsupported_members_and_reports_reasons() {
     assert!(free.contains("fn fill(out: *mut *mut i32, name: *mut *const i8) -> i32"));
     // In the flat layout, operator shims are appended after a section separator.
     // Verify operators are NOT extracted as regular bindings (before the shim section).
+    // Note: the hicc::cpp! include block may contain "operator_shims.hpp", so we check
+    // that no `operator` keyword appears inside an import_lib! or import_class! fn binding.
     let before_shims = free
         .split("// --- operator shims ---")
         .next()
         .unwrap_or(&free);
     assert!(
-        !before_shims.contains("operator"),
-        "operator should not appear as a regular binding"
+        !before_shims.contains("fn operator") && !before_shims.contains("method = \"operator"),
+        "operator should not appear as a regular fn/method binding before the shim section"
     );
 
     let report = std::fs::read_to_string(
@@ -2232,17 +2234,84 @@ fn init_operator_overload_generates_shim_files() {
         "shim functions should be declared in operator_shims.hpp: {shims_hpp}"
     );
 
-    // Shim bindings are appended to the flat ops2.rs file as commented-out starters.
-    // Users must include operator_shims.hpp first, then uncomment.
+    // Shim bindings are appended to the flat ops2.rs file as an active import_lib! block.
+    // The hicc::cpp! block also includes operator_shims.hpp automatically.
     let flat_src =
         std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/ops2.rs")).unwrap();
     assert!(
-        flat_src.contains("// hicc::import_lib!") || flat_src.contains("// #[cpp(func"),
-        "flat ops2.rs should contain commented-out import_lib! shim bindings: {flat_src}"
+        flat_src.contains("hicc::import_lib!") && flat_src.contains("#[cpp(func"),
+        "flat ops2.rs should contain active import_lib! shim bindings: {flat_src}"
     );
     assert!(
         flat_src.contains("operator_shims.hpp"),
-        "flat ops2.rs should mention operator_shims.hpp in instructions: {flat_src}"
+        "flat ops2.rs should include operator_shims.hpp in the hicc::cpp! block: {flat_src}"
+    );
+}
+
+/// After `merge`, `build.rs` must contain the meta/ include path when
+/// `operator_shims.hpp` was generated during `init`, so that the
+/// `#include "operator_shims.hpp"` in `lib.rs` resolves at compile time.
+#[test]
+fn merge_build_rs_includes_meta_dir_when_shims_exist() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "shimops.hpp",
+        r#"
+        class Calc {
+        public:
+            double operator()(int a, int b) const;
+            Calc& operator=(const Calc& rhs);
+            double add(int a, int b) const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "shimops.cpp", "shimops.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "calclib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Verify operator_shims.hpp was created by init.
+    let shims_hpp = tmp.path().join(".cpp2rust/default/meta/operator_shims.hpp");
+    assert!(
+        shims_hpp.exists(),
+        "operator_shims.hpp should exist after init"
+    );
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
+
+    // The meta/ directory must appear in the build.rs include list so that
+    // `#include "operator_shims.hpp"` in lib.rs resolves during cargo build.
+    let meta_dir = tmp
+        .path()
+        .join(".cpp2rust/default/meta")
+        .display()
+        .to_string();
+    assert!(
+        build_rs.contains(&meta_dir),
+        "build.rs after merge must include the meta/ dir when operator_shims.hpp exists.\n\
+         Expected to find: {meta_dir}\n\
+         build.rs content:\n{build_rs}"
     );
 }
 
@@ -4375,6 +4444,81 @@ fn example_instance_fields_generate_field_accessors() {
     assert!(
         merged.contains("cpp(field"),
         "#[cpp(field)] attribute must appear: {merged}"
+    );
+}
+
+/// Regression test: instance methods whose return type is a pointer (e.g.
+/// `void* Malloc(size_t)`) must be extracted into `import_class!` bindings.
+///
+/// Root cause: `parse_fn_qual_type` previously searched for `" ("` as the
+/// separator between return type and parameter list.  When the return type
+/// ends with `*`, clang serialises the function type without a space before
+/// `(` (e.g. `"void *(size_t)"`), so the separator was never found and the
+/// method was silently skipped with `unsupported_type`.
+#[test]
+fn instance_methods_with_pointer_return_type_are_extracted() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "allocators.hpp",
+        r#"
+        #include <cstddef>
+        class CrtAllocator {
+        public:
+            void* Malloc(size_t size);
+            void* Realloc(void* originalPtr, size_t originalSize, size_t newSize);
+            static void Free(void* ptr);
+            static const bool kNeedFree;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "entry.cpp", "allocators.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "allocators",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let generated =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs")).unwrap();
+
+    // Malloc and Realloc are instance methods returning void* — they must
+    // appear inside import_class! with the correct hicc attribute.
+    assert!(
+        generated.contains("fn malloc"),
+        "instance method Malloc must be extracted; got:\n{generated}"
+    );
+    assert!(
+        generated.contains("fn realloc"),
+        "instance method Realloc must be extracted; got:\n{generated}"
+    );
+    assert!(
+        generated.contains("*mut core::ffi::c_void"),
+        "void* return type must map to *mut c_void; got:\n{generated}"
+    );
+    assert!(
+        generated.contains("import_class!"),
+        "import_class! block must be emitted for the instance methods; got:\n{generated}"
+    );
+    // Static method Free and static data member kNeedFree go to import_lib!.
+    assert!(
+        generated.contains("fn crt_allocator_free"),
+        "static method Free must appear in import_lib!; got:\n{generated}"
+    );
+    assert!(
+        generated.contains("crt_allocator_k_need_free"),
+        "static data member kNeedFree must appear in import_lib!; got:\n{generated}"
     );
 }
 

@@ -43,7 +43,7 @@
 | 额外构造函数（重载） | ✅ | `<stem>.rs` | 作为工厂函数进入 `import_lib!` |
 | Copy / Move 构造函数 | ✅（自动跳过） | — | 自动识别 `const T&` / `T&&` 签名，跳过 |
 | 析构函数 | ❌ | — | `hicc_limitation`；hicc 不支持显式析构绑定；对象生命周期由 C++ 侧管理 |
-| 运算符重载 | 🔧 | `<stem>.rs`（注释骨架） | 工具自动生成 `operator_shims.hpp` starter 和 Rust 骨架；用户确认实现后激活 |
+| 运算符重载 | ✅ | `<stem>.rs` + `meta/operator_shims.hpp` | 自动生成完整 C++ shim 函数体 + 激活的 `import_lib!` 绑定；`hicc::cpp!` include 和 build.rs include 路径均自动配置 |
 | `private` / `protected` 成员 | ✅（自动跳过） | — | 设计上自动排除，不进入输出 |
 | 友元函数（`friend`） | ❌ | — | AST 提取不可靠（`FriendDecl` 解析受限）；跳过 |
 | 方法模板（类内函数模板） | ❌ | — | `hicc_limitation`；无法生成通用 Rust 泛型；跳过 |
@@ -153,6 +153,7 @@
 | 模板特化重复提取（E0428） | clang AST 会将同一 `ClassTemplateSpecializationDecl` 同时作为 `ClassTemplateDecl` 的子节点和命名空间顶层节点写入；`extract_declarations_with_strategy()` 现在在 `walk_node` 后按 Rust 结构体名去重（first-wins），防止生成两份同名 `ClassIR` |
 | merge 阶段 `import_class!` 重复定义（E0428） | `import_class_blocks` 由 `Vec<String>` 改为按 Rust 结构体名索引的有序 Map（first-wins）；`class_name_from_block()` 从块文本中提取结构体名作为去重键，确保同一类名在 `lib.rs` 中仅出现一次 |
 | allocator `rebind` 内嵌 typedef 误认为顶层别名 | `collect_alias_nodes()` 遇到 `CXXRecordDecl` / `ClassTemplateDecl` 等类节点时**不再递归**，防止 `typedef Alloc<U> other` 这类类内 typedef 被注册为顶层类型别名并污染模板特化的 Rust 结构体名 |
+| 指针返回类型的实例方法被静默跳过 | `parse_fn_qual_type()` 原本搜索 `" ("` 作为返回类型与参数列表的分隔符，但 clang 对指针返回类型省略空格（如 `void *(size_t)` 而非 `void (void *)`），导致 `Malloc`、`Realloc` 等返回 `void*` 的方法被误判为 `unsupported_type` 静默跳过；改为查找第一个 `(` 字符（始终是参数列表的起始分隔符）后问题消除 |
 
 ---
 

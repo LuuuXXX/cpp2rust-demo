@@ -255,6 +255,11 @@ check_any_rs  "${OUT}" 'BaseAllocator'
 # can_free() and align() return POD types — must be extracted
 check_any_rs  "${OUT}" 'fn can_free'
 check_any_rs  "${OUT}" 'fn align'
+# Malloc and Realloc return void* — instance methods with pointer return type
+# must be extracted (regression: parse_fn_qual_type previously missed pointer
+# return types like "void *(size_t)" because it searched for " (" not "(").
+check_any_rs  "${OUT}" 'fn malloc'
+check_any_rs  "${OUT}" 'fn realloc'
 
 # ---------------------------------------------------------------------------
 # Step 9: rapidjson/06-inheritance/ — public inheritance chain

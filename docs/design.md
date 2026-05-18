@@ -77,7 +77,7 @@
   5. `hicc::import_lib!`：自由函数、静态方法、构造工厂函数、全局变量
   6. 类级元数据常量（`CLASS_COUNT`、`CLASS_NAMES` 等，供检阅）
   7. C++ 类型元数据（`CPP_TYPES`、`CPP_RUST_TYPE_MAPPINGS` 等，供检阅）
-  8. 注释掉的 operator shim 骨架（如有运算符重载）
+  8. 激活的 operator shim Rust 绑定 + 自动插入的 `hicc::cpp!{#include "operator_shims.hpp"}` 块（如有运算符重载）
   9. 注释掉的 `@dynamic_cast` 骨架（如有继承关系）
   10. 注释掉的 `@placement_new` 骨架（如有构造函数）
 - `common/types.rs`：跨 TU 聚合的枚举定义与类型别名（业务代码）参与 merge 输出；
@@ -90,7 +90,7 @@
 | 非纯 virtual 方法（有实现）| 直接提取为 `#[cpp(method = "...")]`，hicc 通过 vtable 透明调用 |
 | 全纯虚类（所有公有方法均为 `= 0`）| 提取为 `hicc::import_class!` 中的 `#[interface]` trait |
 | 混合类（有普通方法 + 纯虚方法）| 普通方法正常提取；纯虚方法提取为 companion `#[interface]` trait，混合类自动继承该接口 |
-| operator 重载 | 跳过，但接口报告新增「Operator Overload Shim Hints」指导手写 C++ shim |
+| operator 重载 | 跳过提取到 `import_class!`，但自动生成完整 `operator_shims.hpp` C++ shim 函数体，并在 `<stem>.rs` 中插入激活的 `import_lib!` 绑定；`hicc::cpp!` include 和 build.rs include 路径均自动配置 |
 
 抽取阶段会跳过并报告：constructor、destructor、operator overload、无法解锁的 template declarations、部分 unsupported_type。
 
@@ -119,7 +119,7 @@ Rust 侧项目搭建统一使用：
 | 自由函数（非模板） | ✅ | `<stem>.rs` | `import_lib!` + `#[cpp(func = "...")]` |
 | 函数重载 | ✅ | `<stem>.rs` | 自动追加 `_2`, `_3`, … 后缀 |
 | 命名空间函数 | ✅ | `<stem>.rs` | 限定名嵌入 `#[cpp(func = "ns::foo(...)")]` |
-| 类实例方法 | ✅ | `<stem>.rs` | `import_class!` + `#[cpp(method = "...")]` |
+| 类实例方法（含 `void*` 等指针返回类型） | ✅ | `<stem>.rs` | `import_class!` + `#[cpp(method = "...")]`；指针返回类型（如 `void*(size_t)`）与非指针返回类型完全相同路径提取 |
 | `const` 方法 | ✅ | `<stem>.rs` | 映射为 `fn foo(&self)` |
 | 非 `const` 方法 | ✅ | `<stem>.rs` | 映射为 `fn foo(&mut self)` |
 | 非纯 `virtual` 方法 | ✅ | `<stem>.rs` | hicc 通过 vtable 透明调用 |
@@ -134,7 +134,7 @@ Rust 侧项目搭建统一使用：
 | `typedef`/`using` 别名 | ✅ | `<stem>.rs` | 注册到 AliasRegistry，解锁模板提取 |
 | 模板特化（有别名） | ⚠️ | `<stem>.rs` | 需要 `typedef`/`using` 别名；见下方 AliasRegistry 指南 |
 | 模板类（无别名） | ⚠️ | — | 跳过并标记 `tool_conservative`；添加别名后可解锁 |
-| 运算符重载 | ⚠️ | `<stem>.rs`（注释骨架）+ `meta/operator_shims.hpp` | 生成 `operator_shims.hpp` starter；需用户补全实现后使用 |
+| 运算符重载 | ✅ | `<stem>.rs`（激活的 `import_lib!` 绑定）+ `meta/operator_shims.hpp` | 自动生成完整 C++ shim 函数体；`hicc::cpp!` include、Rust 绑定、build.rs include 路径均全自动配置；标准运算符无需用户干预 |
 | 析构函数 | ❌ | — | hicc 不支持显式析构；跳过并标记 `hicc_limitation` |
 | 友元函数 | ❌ | — | AST 不可靠提取；跳过 |
 | 多重继承 | ✅（骨架）/ ❌（运行时） | `<stem>.rs` | 所有 public 基类均提取，生成 `class C: A, B`；hicc 不支持多重继承运行时语义，骨架无法直接使用 |
@@ -178,5 +178,5 @@ using FastDoc = rapidjson::GenericDocument<rapidjson::UTF8<char>,
 
 - **模板别名**：RapidJSON 核心类型（`Document`、`Value`、`Writer` 等）的 `typedef` 别名已内置于头文件，`#include` 后工具自动提取。
 - **虚函数**：非模板类的虚函数（含纯虚接口）可正常生成 hicc 绑定。
-- **operator 重载**：hicc 不支持运算符名称，需手写 C++ shim；工具自动生成 `operator_shims.hpp` starter 辅助填写。
+- **operator 重载**：hicc 不支持运算符名称；工具自动生成完整 `operator_shims.hpp` C++ shim 函数体，并在 `<stem>.rs` 中插入激活的 `import_lib!` 绑定——标准运算符（`=`、`[]`、`==`、`!=`、`<`、`+` 等）无需用户干预。
 - **多翻译单元**：使用 `init` 多编译单元模式一次捕获全部头文件，通过 `merge` 合并为统一 FFI，见 `examples/rapidjson/08-multi-tu/`。

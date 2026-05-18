@@ -66,7 +66,7 @@ examples/
 | [`rapidjson/04-abstract-interface/`](rapidjson/04-abstract-interface/README.md) | 全纯虚类 + `@make_proxy` | `entry.rs` |
 | [`rapidjson/05-virtual-methods/`](rapidjson/05-virtual-methods/README.md) | 非纯虚方法 | `entry.rs` |
 | [`rapidjson/06-inheritance/`](rapidjson/06-inheritance/README.md) | public 继承链 | `entry.rs` |
-| [`rapidjson/07-operator-shim/`](rapidjson/07-operator-shim/README.md) | 运算符重载 shim（🔧 引导） | `entry.rs`（注释骨架）+ `meta/operator_shims.hpp` |
+| [`rapidjson/07-operator-shim/`](rapidjson/07-operator-shim/README.md) | 运算符重载 shim（✅ 完全自动） | `entry.rs`（激活的 `import_lib!` 绑定）+ `meta/operator_shims.hpp` |
 | [`rapidjson/08-multi-tu/`](rapidjson/08-multi-tu/README.md) | 多编译单元 + `--no-link` | `lib.rs` |
 
 ---

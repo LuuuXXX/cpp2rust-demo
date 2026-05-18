@@ -89,6 +89,14 @@ pub fn render_flat_module(
     out.push_str(&render_include_module(source_file_path));
     writeln!(out).unwrap();
 
+    // 1b. Include operator_shims.hpp when operator shims are present.
+    if !decls.operator_shims.is_empty() {
+        writeln!(out, "hicc::cpp! {{").unwrap();
+        writeln!(out, "    #include \"operator_shims.hpp\"").unwrap();
+        writeln!(out, "}}").unwrap();
+        writeln!(out).unwrap();
+    }
+
     // @make_proxy support header (when abstract / mixed classes are present).
     let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
     let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
@@ -1501,6 +1509,60 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
     out
 }
 
+/// When multiple operator shims share the same `shim_name` (e.g. two overloads
+/// of `operator=` both become `big_integer_assign`), Rust cannot declare two
+/// symbols with the same name in the same `import_lib!` block.  This helper
+/// returns one resolved name per shim: unique names are preserved as-is;
+/// duplicate names (with different parameter signatures = true C++ overloads)
+/// get a numeric suffix `_0`, `_1`, …
+///
+/// Crucially, disambiguation is based on (shim_name, param-types) rather than
+/// position, so the same operator captured by multiple TUs always maps to the
+/// same resolved name — keeping per-TU `.rs` files and the global
+/// `operator_shims.hpp` consistent.
+fn resolve_shim_names(shims: &[OperatorShimIR]) -> Vec<String> {
+    // Build a helper closure that computes a stable param-type signature for a shim.
+    let param_sig = |s: &OperatorShimIR| -> String {
+        s.params
+            .iter()
+            .map(|p| p.cpp_type.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+
+    // For each shim_name, collect all distinct param-type signatures in
+    // first-seen order.  Two shims with identical (shim_name, param_sig) are
+    // the same operator from different TUs and must map to the same name.
+    let mut name_to_sigs: std::collections::HashMap<&str, Vec<String>> =
+        std::collections::HashMap::new();
+
+    for s in shims {
+        let sig = param_sig(s);
+        let sigs = name_to_sigs.entry(s.shim_name.as_str()).or_default();
+        if !sigs.contains(&sig) {
+            sigs.push(sig);
+        }
+    }
+
+    // Assign resolved names.
+    shims
+        .iter()
+        .map(|s| {
+            let sigs = &name_to_sigs[s.shim_name.as_str()];
+            if sigs.len() == 1 {
+                // Only one distinct overload — keep name as-is.
+                s.shim_name.clone()
+            } else {
+                // Multiple distinct overloads — append index of this overload's
+                // param signature in the first-seen order.
+                let sig = param_sig(s);
+                let idx = sigs.iter().position(|s| s == &sig).unwrap_or(0);
+                format!("{}_{}", s.shim_name, idx)
+            }
+        })
+        .collect()
+}
+
 /// Render the C++ shim header for operator overloads (主线四) and
 /// std::string / std::function shim suggestions (P2).
 ///
@@ -1511,11 +1573,7 @@ pub fn render_interface_report(decls: &ExtractedDecls, link_name: &str, header: 
 ///
 /// Additionally, any `suggested_shim` text from skipped declarations is
 /// appended to the file as commented-out prototype suggestions.
-pub fn render_operator_shims_hpp(
-    shims: &[OperatorShimIR],
-    skipped: &[SkippedDecl],
-    middleware_basename: &str,
-) -> String {
+pub fn render_operator_shims_hpp(shims: &[OperatorShimIR], skipped: &[SkippedDecl]) -> String {
     let string_shims: Vec<&SkippedDecl> = skipped
         .iter()
         .filter(|s| s.suggested_shim.is_some())
@@ -1530,22 +1588,37 @@ pub fn render_operator_shims_hpp(
     writeln!(out, "// Auto-generated operator shims by cpp2rust-demo.").unwrap();
     writeln!(
         out,
-        "// Include this file in your hicc::cpp! block, then bind"
+        "// Include this file in your hicc::cpp! block AFTER the middleware #include."
     )
     .unwrap();
     writeln!(
         out,
-        "// the functions below via #[cpp(func = \"...\")] in import_lib!."
+        "// Bind the functions below via #[cpp(func = \"...\")] in import_lib!."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// NOTE: Do NOT #include any middleware here; rely on the outer"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "// hicc::cpp! block to provide the required type definitions."
     )
     .unwrap();
     writeln!(out, "#pragma once").unwrap();
     writeln!(out, "#ifndef {}", guard).unwrap();
     writeln!(out, "#define {}", guard).unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "#include \"{}\"", middleware_basename).unwrap();
-    writeln!(out).unwrap();
 
-    for shim in shims {
+    // Disambiguate shim names (handles same C++ operator with different param types).
+    let resolved_names = resolve_shim_names(shims);
+
+    // Deduplicate by the full C++ declaration signature to avoid "redefinition"
+    // errors when the same operator is captured from multiple TUs.
+    let mut seen_sigs: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for (shim, resolved_name) in shims.iter().zip(resolved_names.iter()) {
         let class_ref = shim.qualified_class.as_deref().unwrap_or("");
         let self_param = if let Some(ref _cls) = shim.class_name {
             if !class_ref.is_empty() {
@@ -1575,6 +1648,14 @@ pub fn render_operator_shims_hpp(
         } else {
             shim.return_cpp_type.clone()
         };
+
+        // Build a deduplication key from the full C++ function declaration
+        // (using the resolved/disambiguated name).
+        let decl_sig = format!("{} {}({})", ret, resolved_name, all_params.join(", "));
+        if !seen_sigs.insert(decl_sig.clone()) {
+            // Already emitted this shim — skip to avoid redefinition errors.
+            continue;
+        }
 
         let call_self = if shim.class_name.is_some() {
             "self"
@@ -1624,11 +1705,8 @@ pub fn render_operator_shims_hpp(
         writeln!(out, "/// Shim for `{}`", shim.operator_name).unwrap();
         writeln!(
             out,
-            "static inline {} {}({}) {{ return {}; }}",
-            ret,
-            shim.shim_name,
-            all_params.join(", "),
-            call_expr
+            "static inline {} {{ return {}; }}",
+            decl_sig, call_expr
         )
         .unwrap();
         writeln!(out).unwrap();
@@ -1674,33 +1752,42 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         return String::new();
     }
 
+    // Disambiguate shim names: multiple overloads of the same operator produce
+    // the same base shim_name; apply `_0`, `_1`, … suffixes when needed so that
+    // the resulting Rust symbols in `import_lib!` are unique.
+    let resolved_names = resolve_shim_names(shims);
+
     let mut out = String::new();
-    // The operator shim Rust bindings are emitted as **commented-out** starters.
-    // To activate them:
-    //   1. Add `#include "operator_shims.hpp"` to your `hicc::cpp! { ... }` block
-    //      (the file is generated at `meta/operator_shims.hpp`).
-    //   2. Uncomment the `hicc::import_lib!` block below.
     writeln!(
         out,
         "// Auto-generated operator shim Rust bindings by cpp2rust-demo."
     )
     .unwrap();
-    writeln!(
-        out,
-        "// To activate: include operator_shims.hpp in your hicc::cpp! block,"
-    )
-    .unwrap();
-    writeln!(out, "// then uncomment the import_lib! block below.").unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "// hicc::import_lib! {{").unwrap();
-    writeln!(out, "//     #![link_name = \"{link_name}\"]").unwrap();
+    writeln!(out, "hicc::import_lib! {{").unwrap();
+    writeln!(out, "    #![link_name = \"{link_name}\"]").unwrap();
     writeln!(out).unwrap();
 
-    for shim in shims {
+    // Deduplicate by full item text (same function body across TUs).
+    let mut seen_items: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for (shim, resolved_name) in shims.iter().zip(resolved_names.iter()) {
         let ret = if shim.return_cpp_type.is_empty() || shim.return_cpp_type == "()" {
             "()".to_string()
         } else {
-            crate::ast::cpp_to_rust_type(&shim.return_cpp_type)
+            let rust_ret = crate::ast::cpp_to_rust_type(&shim.return_cpp_type);
+            // In hicc `import_lib!`, reference return types require explicit lifetime
+            // annotations that the macro does not support.  Convert `&mut T` → `*mut T`
+            // and `&T` → `*const T` to keep the FFI binding lifetime-free.
+            if let Some(inner) = rust_ret.strip_prefix("&mut ") {
+                format!("*mut {}", inner)
+            } else if let Some(inner) = rust_ret.strip_prefix("& ") {
+                format!("*const {}", inner)
+            } else if let Some(inner) = rust_ret.strip_prefix('&') {
+                format!("*const {}", inner)
+            } else {
+                rust_ret
+            }
         };
 
         // Build Rust param list.
@@ -1723,7 +1810,7 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
             format!(" -> {}", ret)
         };
 
-        // Compute C++ signature for the shim function.
+        // Compute C++ signature for the shim function using the resolved name.
         let cpp_ret = if shim.return_cpp_type.is_empty() {
             "void"
         } else {
@@ -1737,19 +1824,19 @@ pub fn render_operator_shims_rs(shims: &[OperatorShimIR], link_name: &str) -> St
         for p in &shim.params {
             cpp_params.push(p.cpp_type.clone());
         }
-        let cpp_sig = format!("{} {}({})", cpp_ret, shim.shim_name, cpp_params.join(", "));
+        let cpp_sig = format!("{} {}({})", cpp_ret, resolved_name, cpp_params.join(", "));
 
-        writeln!(out, "//     // Shim for `{}`", shim.operator_name).unwrap();
-        writeln!(out, "//     #[cpp(func = \"{}\")]", cpp_sig).unwrap();
-        writeln!(
-            out,
-            "//     fn {}({}){};\n",
-            shim.shim_name, param_str, ret_str
-        )
-        .unwrap();
+        let item = format!(
+            "    // Shim for `{}`\n    #[cpp(func = \"{}\")]\n    fn {}({}){};\n",
+            shim.operator_name, cpp_sig, resolved_name, param_str, ret_str
+        );
+        if seen_items.insert(item.clone()) {
+            out.push_str(&item);
+            writeln!(out).unwrap();
+        }
     }
 
-    writeln!(out, "// }}").unwrap();
+    writeln!(out, "}}").unwrap();
     out
 }
 

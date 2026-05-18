@@ -329,25 +329,6 @@ fn run_init(args: InitArgs) -> Result<()> {
             std::fs::write(&flat_path, &flat_src)
                 .map_err(|e| anyhow!("write {}: {}", flat_path.display(), e))?;
 
-            // Operator shims C++ header goes to meta/.
-            if has_shims {
-                let middleware_basename = selected_file
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("middleware.hpp");
-                let shims_hpp = codegen::render_operator_shims_hpp(
-                    &decls.operator_shims,
-                    &decls.skipped,
-                    middleware_basename,
-                );
-                if !shims_hpp.is_empty() {
-                    let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
-                    std::fs::write(&shims_hpp_path, &shims_hpp)
-                        .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
-                    println!("  → operator_shims.hpp");
-                }
-            }
-
             // Write meta.json for this stem.
             let group_meta = GroupMeta {
                 group: stem.to_string(),
@@ -413,6 +394,23 @@ fn run_init(args: InitArgs) -> Result<()> {
         all_decls.operator_shims.extend(decls.operator_shims);
     }
 
+    // Write operator_shims.hpp once after all TUs have been processed.
+    // Using all_decls ensures the file contains ALL shims from every TU, fixing
+    // multi-TU scenarios where different TUs define operators for different classes.
+    if !dry_run && had_any_shims {
+        let shims_hpp =
+            codegen::render_operator_shims_hpp(&all_decls.operator_shims, &all_decls.skipped);
+        if !shims_hpp.is_empty() {
+            let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
+            std::fs::write(&shims_hpp_path, &shims_hpp)
+                .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
+            println!(
+                "\n  → operator_shims.hpp ({} shim(s))",
+                all_decls.operator_shims.len()
+            );
+        }
+    }
+
     // Write interface report.
     let report = report_sections.join("\n---\n\n");
     if dry_run {
@@ -428,7 +426,12 @@ fn run_init(args: InitArgs) -> Result<()> {
         {
             let build_rs_path = lo.rust_dir.join("build.rs");
             let source_refs: Vec<&str> = build_rs_sources.iter().map(|s| s.as_str()).collect();
-            let include_dirs = middleware_include_dirs(&files_to_process);
+            let mut include_dirs = middleware_include_dirs(&files_to_process);
+            // When operator shims were generated, the meta/ directory must be on
+            // the C++ include path so that `#include "operator_shims.hpp"` resolves.
+            if had_any_shims {
+                include_dirs.push(lo.meta_dir.display().to_string());
+            }
             let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
             std::fs::write(
                 &build_rs_path,
@@ -484,7 +487,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         }
         if had_any_shims {
             println!(
-                "  operator shims  →  meta/operator_shims.hpp + <stem>.rs (commented-out section)"
+                "  operator shims  →  meta/operator_shims.hpp + <stem>.rs (active import_lib! section)"
             );
         }
         if had_any_dynamic_casts {
@@ -550,7 +553,12 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let merged = merge::merge_grouped_modules(&rust_src_dir, &merged_src2, &link_name)?;
 
     // Recompute unique include dirs from stored selected files.
-    let include_dirs = middleware_include_dirs(&stored_files);
+    let mut include_dirs = middleware_include_dirs(&stored_files);
+    // When operator shims were generated during init, the meta/ directory must be on
+    // the C++ include path so that `#include "operator_shims.hpp"` in lib.rs resolves.
+    if lo.meta_dir.join("operator_shims.hpp").exists() {
+        include_dirs.push(lo.meta_dir.display().to_string());
+    }
     let inc_refs: Vec<&str> = include_dirs.iter().map(|s| s.as_str()).collect();
 
     // Update build.rs to reference lib.rs through the active view path `src/`.
