@@ -86,37 +86,37 @@ echo "=== Step 3: Preparing rapidjson project build (full-build, multi-TU) ==="
 
     # One translation unit per major rapidjson header so that each header's
     # FFI output is visible as a separate .rs file after cpp2rust-demo init.
+    # No main() — these files are pure header wrappers.  When hicc's build
+    # system later compiles all of them together (via #include "entry-*.cpp"
+    # inside a single hicc::cpp! block), having a main() in each file would
+    # produce "redefinition of 'int main()'" errors.
     cat > entry-document.cpp << 'CPP_EOF'
 #include "rapidjson/document.h"
-int main() { return 0; }
 CPP_EOF
 
     cat > entry-reader.cpp << 'CPP_EOF'
 #include "rapidjson/reader.h"
-int main() { return 0; }
 CPP_EOF
 
     cat > entry-writer.cpp << 'CPP_EOF'
 #include "rapidjson/writer.h"
-int main() { return 0; }
 CPP_EOF
 
     cat > entry-prettywriter.cpp << 'CPP_EOF'
 #include "rapidjson/prettywriter.h"
-int main() { return 0; }
 CPP_EOF
 
     cat > entry-pointer.cpp << 'CPP_EOF'
 #include "rapidjson/pointer.h"
-int main() { return 0; }
 CPP_EOF
 
     cat > entry-schema.cpp << 'CPP_EOF'
 #include "rapidjson/schema.h"
-int main() { return 0; }
 CPP_EOF
 
-    # CMakeLists.txt with one executable per translation unit.
+    # CMakeLists.txt with one OBJECT library per translation unit.
+    # add_library(OBJECT) compiles each .cpp (triggering the LD_PRELOAD hook)
+    # without requiring a main() in the source files.
     # cmake --build will compile all six, and the LD_PRELOAD hook in
     # cpp2rust-demo init will capture each compilation separately,
     # producing one .rs file per header.
@@ -125,7 +125,7 @@ cmake_minimum_required(VERSION 3.10)
 project(cpp2rust_validate LANGUAGES CXX)
 set(RAPIDJSON_HEADERS document reader writer prettywriter pointer schema)
 foreach(h IN LISTS RAPIDJSON_HEADERS)
-    add_executable(cpp2rust_${h} entry-${h}.cpp)
+    add_library(cpp2rust_${h} OBJECT entry-${h}.cpp)
     target_include_directories(cpp2rust_${h} PRIVATE include)
     target_compile_features(cpp2rust_${h} PRIVATE cxx_std_11)
 endforeach()
@@ -140,7 +140,7 @@ echo "=== Step 4: Running cpp2rust-demo init (full cmake build, all headers) ===
 (
     cd "${RAPIDJSON_DIR}"
     # Use --no-link because rapidjson is a header-only library.
-    # cmake --build compiles all six entry-<header> executables.  The
+    # cmake --build compiles all six entry-<header> object libraries.  The
     # LD_PRELOAD hook intercepts each compilation and produces one
     # entry-<header>.cpp.cpp2rust middleware file per TU, which cpp2rust-demo
     # then turns into one entry_<header>.rs file.
