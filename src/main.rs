@@ -483,7 +483,9 @@ fn run_init(args: InitArgs) -> Result<()> {
             );
         }
         if had_any_shims {
-            println!("  operator shims  →  meta/operator_shims.hpp + <stem>.rs (commented-out section)");
+            println!(
+                "  operator shims  →  meta/operator_shims.hpp + <stem>.rs (commented-out section)"
+            );
         }
         if had_any_dynamic_casts {
             println!("  dynamic cast starters  →  <stem>.rs (commented-out section)");
