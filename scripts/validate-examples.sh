@@ -133,7 +133,7 @@ run_case "simple/ (free functions, namespace, overloads)"
 merge_and_export simple examples/simple
 
 OUT="${REPO_ROOT}/.cpp2rust/simple"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_file    "${OUT}/meta/init-interface-report.md"
 check_any_rs  "${OUT}" 'link_name = "mylib"'
 check_any_rs  "${OUT}" 'fn add'
@@ -153,7 +153,7 @@ run_case "class/ (classes, virtual methods, inheritance, @make_proxy)"
 merge_and_export widget examples/class
 
 OUT="${REPO_ROOT}/.cpp2rust/widget"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'import_class!'
 check_any_rs  "${OUT}" '#\[interface\]'
 check_any_rs  "${OUT}" 'class Shape'
@@ -173,7 +173,7 @@ run_case "rapidjson/01-enum/ (enum / enum class → #[repr(C)] enum)"
 merge_and_export rj01 examples/rapidjson/01-enum
 
 OUT="${REPO_ROOT}/.cpp2rust/rj01"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "rapidjson"'
 check_any_rs  "${OUT}" 'ParseErrorCode'
 check_any_rs  "${OUT}" 'WriteErrorCode'
@@ -192,7 +192,7 @@ run_case "rapidjson/02-typedef-alias/ (typedef/using → AliasRegistry)"
 merge_and_export rj02 examples/rapidjson/02-typedef-alias
 
 OUT="${REPO_ROOT}/.cpp2rust/rj02"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_file    "${OUT}/meta/init-interface-report.md"
 check_any_rs  "${OUT}" 'link_name = "rapidjson"'
 # documentOk: accepts a const rjson::Document& — passes the type gate
@@ -212,7 +212,7 @@ run_case "rapidjson/03-template-class/ (template class without explicit use → 
 merge_and_export rj03 examples/rapidjson/03-template-class
 
 OUT="${REPO_ROOT}/.cpp2rust/rj03"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_file    "${OUT}/meta/init-interface-report.md"
 check_any_rs  "${OUT}" 'link_name = "rapidjson"'
 # Template classes are skipped (tool_conservative) but the report must mention them
@@ -231,7 +231,7 @@ run_case "rapidjson/04-abstract-interface/ (pure-virtual class → #[interface] 
 merge_and_export rj04 examples/rapidjson/04-abstract-interface
 
 OUT="${REPO_ROOT}/.cpp2rust/rj04"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" '#\[interface\]'
 check_any_rs  "${OUT}" 'class IAllocator'
 check_any_rs  "${OUT}" 'make_proxy'
@@ -248,7 +248,7 @@ run_case "rapidjson/05-virtual-methods/ (non-pure virtual methods extracted like
 merge_and_export rj05 examples/rapidjson/05-virtual-methods
 
 OUT="${REPO_ROOT}/.cpp2rust/rj05"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'import_class!'
 check_any_rs  "${OUT}" 'link_name = "allocator"'
 check_any_rs  "${OUT}" 'BaseAllocator'
@@ -267,7 +267,7 @@ run_case "rapidjson/06-inheritance/ (public inheritance: PrettyWriterImpl: Write
 merge_and_export rj06 examples/rapidjson/06-inheritance
 
 OUT="${REPO_ROOT}/.cpp2rust/rj06"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'import_class!'
 check_any_rs  "${OUT}" 'link_name = "writer"'
 check_any_rs  "${OUT}" 'class WriterBase'
@@ -286,7 +286,7 @@ run_case "rapidjson/07-operator-shim/ (operator overload → shim_ops.rs + opera
 merge_and_export rj07 examples/rapidjson/07-operator-shim
 
 OUT="${REPO_ROOT}/.cpp2rust/rj07"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "jsonvalue"'
 # The C++ shim header must be generated
 check_file    "${OUT}/meta/operator_shims.hpp"
@@ -309,7 +309,7 @@ done
 merge_and_export "${FEATURE}" examples/rapidjson/08-multi-tu
 
 OUT="${REPO_ROOT}/.cpp2rust/${FEATURE}"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "rapidjson"'
 # Each TU must produce a distinct flat .rs file under src.1 (new flat layout)
 check_file    "${OUT}/rust/src.1/entry_document.rs"
@@ -331,7 +331,7 @@ merge_and_export cond01 examples/conditional/01-template-no-alias
 
 OUT="${REPO_ROOT}/.cpp2rust/cond01"
 check_file    "${OUT}/meta/init-interface-report.md"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "stack"'
 # Stack<T> has no alias → skipped with tool_conservative; must appear in report
 check_contains "${OUT}/meta/init-interface-report.md" 'Stack'
@@ -349,7 +349,7 @@ merge_and_export cond02 examples/conditional/02-function-template
 
 OUT="${REPO_ROOT}/.cpp2rust/cond02"
 check_file    "${OUT}/meta/init-interface-report.md"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "algorithms"'
 # Template functions are skipped; report must mention them
 check_contains "${OUT}/meta/init-interface-report.md" 'clamp'
@@ -366,7 +366,7 @@ run_case "semi-auto/01-dynamic-cast/ (Dog/Cat classes extracted; dynamic_cast sk
 merge_and_export sa01 examples/semi-auto/01-dynamic-cast
 
 OUT="${REPO_ROOT}/.cpp2rust/sa01"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "animals"'
 # Dog and Cat must appear in the class bindings
 check_any_rs  "${OUT}" 'class Dog'
@@ -384,7 +384,7 @@ run_case "semi-auto/02-placement-new/ (FixedBuffer extracted; placement_new.rs s
 merge_and_export sa02 examples/semi-auto/02-placement-new
 
 OUT="${REPO_ROOT}/.cpp2rust/sa02"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "fixed_buffer"'
 check_any_rs  "${OUT}" 'FixedBuffer'
 # The placement_new skeleton is generated inline in the flat module
@@ -402,7 +402,7 @@ run_case "guided/01-std-string/ (std::string params skipped; prefix() extracted)
 merge_and_export g01 examples/guided/01-std-string
 
 OUT="${REPO_ROOT}/.cpp2rust/g01"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "string_utils"'
 # StringProcessor class must be extracted (it has a POD ctor and std::string methods)
 check_any_rs  "${OUT}" 'class StringProcessor'
@@ -422,7 +422,7 @@ run_case "guided/02-std-function/ (std::function params skipped; emit/handler_co
 merge_and_export g02 examples/guided/02-std-function
 
 OUT="${REPO_ROOT}/.cpp2rust/g02"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "event_emitter"'
 # POD methods must be extracted even when other methods are skipped
 check_any_rs  "${OUT}" 'fn emit'
@@ -441,7 +441,7 @@ run_case "guided/03-function-pointer/ (function-pointer params skipped; dispatch
 merge_and_export g03 examples/guided/03-function-pointer
 
 OUT="${REPO_ROOT}/.cpp2rust/g03"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "dispatcher"'
 # dispatch() and reset() use only int/void params — must be extracted
 check_any_rs  "${OUT}" 'fn dispatch'
@@ -461,7 +461,7 @@ merge_and_export cond03a examples/conditional/03-chained-alias
 
 OUT="${REPO_ROOT}/.cpp2rust/cond03a"
 check_file    "${OUT}/meta/init-interface-report.md"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "store"'
 # Store<T> has no alias here → must appear in the skipped section of the report
 check_contains "${OUT}/meta/init-interface-report.md" 'Store'
@@ -478,7 +478,7 @@ run_case "conditional/03-chained-alias/ STEP B2 (chained alias → Store_i32 + I
 merge_and_export cond03b examples/conditional/03-chained-alias
 
 OUT="${REPO_ROOT}/.cpp2rust/cond03b"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "store"'
 # AliasRegistry::resolve_transitive() must produce both alias type entries
 check_any_rs  "${OUT}" 'IntStore'
@@ -501,7 +501,7 @@ run_case "features/01-inline-functions/ (inline functions extracted like non-inl
 merge_and_export feat01 examples/features/01-inline-functions
 
 OUT="${REPO_ROOT}/.cpp2rust/feat01"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "math"'
 # Both inline and non-inline functions must be extracted identically
 check_any_rs  "${OUT}" 'fn add'
@@ -523,7 +523,7 @@ run_case "features/02-default-params/ (default params extracted with full signat
 merge_and_export feat02 examples/features/02-default-params
 
 OUT="${REPO_ROOT}/.cpp2rust/feat02"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "config"'
 # Functions with default params must be extracted with full param list
 check_any_rs  "${OUT}" 'fn set_timeout'
@@ -541,7 +541,7 @@ run_case "features/03-rvalue-ref/ (rvalue-ref method && → fn build(self))"
 merge_and_export feat03 examples/features/03-rvalue-ref
 
 OUT="${REPO_ROOT}/.cpp2rust/feat03"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "builder"'
 # const method → &self
 check_any_rs  "${OUT}" 'fn get(&self)'
@@ -564,7 +564,7 @@ run_case "features/04-va-list/ (va_list last param → unsafe fn + trailing ...)
 merge_and_export feat04 examples/features/04-va-list
 
 OUT="${REPO_ROOT}/.cpp2rust/feat04"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "logger"'
 # va_list functions must be emitted as unsafe fn with trailing ...
 check_any_rs  "${OUT}" 'unsafe fn log_message'
@@ -585,7 +585,7 @@ run_case "features/05-global-vars/ (global variables → #[cpp(data = ...)] + &'
 merge_and_export feat05 examples/features/05-global-vars
 
 OUT="${REPO_ROOT}/.cpp2rust/feat05"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "metrics"'
 # Mutable global → &'static mut
 check_any_rs  "${OUT}" 'g_request_count'
@@ -605,7 +605,7 @@ run_case "features/06-static-members/ (static class members → #[cpp(data = \"C
 merge_and_export feat06 examples/features/06-static-members
 
 OUT="${REPO_ROOT}/.cpp2rust/feat06"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "counter"'
 # Static members must use fully-qualified class::member form
 check_any_rs  "${OUT}" 'Counter::instance_count'
@@ -623,7 +623,7 @@ run_case "features/07-instance-fields/ (public instance fields → #[cpp(field =
 merge_and_export feat07 examples/features/07-instance-fields
 
 OUT="${REPO_ROOT}/.cpp2rust/feat07"
-check_file    "${OUT}/rust/src/merged_ffi.rs"
+check_file    "${OUT}/rust/src/lib.rs"
 check_any_rs  "${OUT}" 'link_name = "point"'
 # Field accessors must be generated for x and y
 check_any_rs  "${OUT}" 'fn get_x'
@@ -638,10 +638,10 @@ echo ""
 echo "══════════════════════════════════════════════════════"
 echo "  Generated .cpp2rust feature summary"
 echo "══════════════════════════════════════════════════════"
-find "${REPO_ROOT}/.cpp2rust" -name "merged_ffi.rs" | sort | while read f; do
+find "${REPO_ROOT}/.cpp2rust" -name "lib.rs" -path "*/src/lib.rs" | sort | while read f; do
     feature=$(echo "$f" | sed "s|${REPO_ROOT}/.cpp2rust/||" | cut -d/ -f1)
     size=$(wc -l < "$f")
-    printf "  %-12s  merged_ffi.rs  %d lines\n" "$feature" "$size"
+    printf "  %-12s  lib.rs (FFI entry)  %d lines\n" "$feature" "$size"
 done
 
 if [ "${FAIL}" -ne 0 ]; then

@@ -121,7 +121,7 @@ jobs:
           test -f "${OUT}/meta/merge-report.md"
           test -f "${OUT}/cpp/${{ matrix.source_file }}.cpp2rust"
           test -f "${OUT}/rust/src.1/${{ matrix.expected_flat }}"
-          test -f "${OUT}/rust/src/merged_ffi.rs"
+          test -f "${OUT}/rust/src/lib.rs"
 
           grep -q "${{ matrix.source_file }}.cpp2rust" "${OUT}/meta/selected_files.json"
           grep -q 'import_lib!' "${OUT}/rust/src.1/${{ matrix.expected_flat }}"

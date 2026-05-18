@@ -3,14 +3,21 @@
 //! The `merge` command reads flat per-stem `.rs` files produced by `init`
 //! (`<stem>.rs`) and emits:
 //!
-//! 1. `rust/src.2/<stem>.rs` (merged per-stem view)
-//! 2. `rust/src.2/lib.rs`
-//! 3. `rust/src.2/merged_ffi.rs` (global consolidated view)
+//! 1. `rust/src.2/<stem>.rs` (per-stem stripped view, for reference)
+//! 2. `rust/src.2/lib.rs` (consolidated FFI entry point – replaces the old
+//!    `merged_ffi.rs`; contains all `hicc::cpp!` / `import_class!` /
+//!    `import_lib!` content aggregated from every translation unit)
 //!
-//! Current v1 merge semantics:
-//! - Each flat `<stem>.rs` contributes `hicc::cpp!` include lines,
-//!   `hicc::import_class!` method-binding blocks, and `hicc::import_lib!` fn items.
-//! - `global/` is explicitly deferred outside the current v1 closure scope
+//! Design rationale:
+//! Since compilation units are already flattened 1 : 1 (one `.rs` per `.cpp`),
+//! a separate `merged_ffi.rs` is redundant.  All hicc-essential content
+//! (includes, enum defs, type aliases, class bindings, free functions) is
+//! written directly into `lib.rs`.  Non-business metadata constants such as
+//! `CPP_TYPES`, `CPP_RUST_TYPE_MAPPINGS`, `CLASS_NAMES`, etc. are intentionally
+//! excluded from the merged output to keep the generated project lean.
+//!
+//! `build.rs` references `src/lib.rs` (which after `link_src_to_src2` points to
+//! `src.2/lib.rs`) so hicc-build processes the consolidated entry point.
 
 use crate::error::Result;
 use anyhow::anyhow;
@@ -19,7 +26,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct MergeOutput {
-    pub merged_path: PathBuf,
+    /// Path to the consolidated `lib.rs` produced by merge.
+    pub lib_path: PathBuf,
     pub group_modules: Vec<String>,
 }
 
@@ -72,12 +80,13 @@ pub fn merge_grouped_modules(
     let mut merged_all = ModuleFragments::default();
     let mut group_modules = Vec::new();
 
-    // Load the aggregate type block from common/types.rs so that the global
-    // merged_ffi.rs can include type-mapping helpers (CPP_TYPES, enum defs,
-    // etc.) without duplicating per-group blocks.  The includes_block
-    // (common/includes.rs) is intentionally omitted because it contains only
-    // internal path metadata (MIDDLEWARE_FILES, MIDDLEWARE_BASENAMES, …) that
-    // has no role in the FFI bindings.
+    // Load the aggregate type block from common/types.rs so that enum defs
+    // and type aliases (business code) can be included in lib.rs.  Only the
+    // business-relevant parts are extracted; CPP_TYPES / CPP_RUST_TYPE_MAPPINGS
+    // and similar non-business metadata are intentionally stripped.  The
+    // includes_block (common/includes.rs) is also omitted because it contains
+    // only internal path metadata (MIDDLEWARE_FILES, …) that has no role in
+    // the FFI bindings.
     let common_types_block = {
         let common_types_path = init_src_dir.join("common").join("types.rs");
         if common_types_path.exists() {
@@ -117,20 +126,31 @@ pub fn merge_grouped_modules(
         group_modules.push(stem);
     }
 
-    let mod_refs: Vec<&str> = group_modules.iter().map(|s| s.as_str()).collect();
-    fs::write(
-        out_src2_dir.join("lib.rs"),
-        crate::codegen::render_lib_rs(&mod_refs),
-    )
-    .map_err(|e| anyhow!("write {}/lib.rs: {}", out_src2_dir.display(), e))?;
+    // Per-stem reference files are written to src.2/<stem>.rs by merge_flat_file
+    // above.  They are NOT re-exported from lib.rs to avoid duplicate symbol
+    // definitions across translation units; users who need per-stem access can
+    // read src.2/<stem>.rs directly.
 
-    let merged_src = render_merged_module(&merged_all, common_types_block.as_deref(), link_name);
-    let merged_path = out_src2_dir.join("merged_ffi.rs");
-    fs::write(&merged_path, merged_src)
-        .map_err(|e| anyhow!("write {}: {}", merged_path.display(), e))?;
+    // Build the consolidated lib.rs that contains ALL hicc-essential content:
+    //   hicc::cpp! include block, enum defs, type aliases, import_class! blocks,
+    //   import_lib! block.  Non-business metadata constants (CPP_TYPES,
+    //   CPP_RUST_TYPE_MAPPINGS, CLASS_NAMES, …) are intentionally excluded.
+    let business_types_block = common_types_block
+        .as_deref()
+        .map(extract_business_types_block)
+        .filter(|s| !s.is_empty());
+
+    let lib_src = render_merged_module(
+        &merged_all,
+        business_types_block.as_deref(),
+        link_name,
+        true,
+    );
+    let lib_path = out_src2_dir.join("lib.rs");
+    fs::write(&lib_path, lib_src).map_err(|e| anyhow!("write {}: {}", lib_path.display(), e))?;
 
     Ok(MergeOutput {
-        merged_path,
+        lib_path,
         group_modules,
     })
 }
@@ -167,7 +187,13 @@ fn merge_flat_file(
         fragments.type_blocks.insert(enum_block);
     }
 
-    let rendered = render_merged_module(&fragments, None, link_name);
+    // Extract C++ typedef / using aliases (business code needed for FFI).
+    let alias_block = extract_type_aliases_block(&src);
+    if !alias_block.is_empty() {
+        fragments.type_blocks.insert(alias_block);
+    }
+
+    let rendered = render_merged_module(&fragments, None, link_name, false);
     fs::write(output_file, rendered)
         .map_err(|e| anyhow!("write {}: {}", output_file.display(), e))?;
 
@@ -176,27 +202,38 @@ fn merge_flat_file(
 
 /// Render the merged module content.
 ///
-/// `common_types_block` — when `Some`, the content of `common/types.rs` is
-/// emitted after the per-group include lines.  Pass `None` for per-group
-/// merged files; pass `Some(...)` for the global `merged_ffi.rs`.
+/// `business_types_block` — when `Some`, contains only the business-relevant
+/// types (enum defs and typedef/using aliases) extracted from `common/types.rs`.
+/// Non-business metadata constants (CPP_TYPES, CPP_RUST_TYPE_MAPPINGS, …) are
+/// intentionally excluded.  Pass `None` for per-stem reference files.
+///
+/// `is_lib` — when `true`, the output is destined for `lib.rs` (the
+/// consolidated crate entry point); when `false`, for a per-stem reference file
+/// in `src.2/<stem>.rs` (not compiled directly by the Rust toolchain).
 ///
 /// The `common/includes.rs` block (MIDDLEWARE_FILES, MIDDLEWARE_BASENAMES, …)
-/// is intentionally excluded from both per-group and global merged outputs
-/// because those constants are internal path bookkeeping that has no role in
-/// the actual FFI bindings.  Likewise, `class/` metadata constants
-/// (CLASS_NAMES, CLASS_METHOD_COUNTS, …) are excluded.  All of that
-/// information remains available in the non-merged per-group sources under
-/// `rust/src.1/` for inspection purposes.
+/// is intentionally excluded from all merged outputs because those constants are
+/// internal path bookkeeping that has no role in the actual FFI bindings.
+/// Likewise, `class/` metadata constants (CLASS_NAMES, CLASS_METHOD_COUNTS, …)
+/// are excluded.  All of that information remains available in the non-merged
+/// per-stem sources under `rust/src.1/` for inspection purposes.
 fn render_merged_module(
     fragments: &ModuleFragments,
-    common_types_block: Option<&str>,
+    business_types_block: Option<&str>,
     link_name: &str,
+    is_lib_rs: bool,
 ) -> String {
     let mut out = String::new();
-    if common_types_block.is_some() {
-        out.push_str("// Merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
+    if is_lib_rs {
+        out.push_str(
+            "// Consolidated FFI entry point – auto-generated by `cpp2rust-demo merge`.\n",
+        );
+        out.push_str("// Edit build.rs to adjust compiler settings; re-run merge to regenerate.\n");
     } else {
-        out.push_str("// Group-merged FFI – auto-generated by `cpp2rust-demo merge`.\n");
+        out.push_str("// Per-stem reference – auto-generated by `cpp2rust-demo merge`.\n");
+        out.push_str(
+            "// This file is kept for inspection; lib.rs is the active FFI entry point.\n",
+        );
     }
     out.push_str("#![allow(non_snake_case, dead_code)]\n\n");
 
@@ -208,9 +245,9 @@ fn render_merged_module(
         out.push_str("}\n\n");
     }
 
-    // Emit the aggregate type block (CPP_TYPES, enum defs, type aliases, …)
-    // for the global merged output.
-    if let Some(block) = common_types_block {
+    // Emit business-only type content (enum defs + type aliases) from
+    // common/types.rs when building lib.rs (consolidated output).
+    if let Some(block) = business_types_block {
         let trimmed = block.trim();
         if !trimmed.is_empty() {
             out.push_str(trimmed);
@@ -263,10 +300,10 @@ fn extract_import_class_blocks(src: &str) -> Vec<String> {
 /// inheritance or `{` for the opening brace).  Returns `None` when the block
 /// does not contain such a line.
 ///
-/// Used as the deduplication key when merging blocks across multiple groups so
-/// that the same class emitted from two different AST nodes (e.g. once as a
-/// child of `ClassTemplateDecl` and once as a standalone specialisation) only
-/// appears once in `merged_ffi.rs`.
+/// Used as the deduplication key when merging blocks across multiple translation
+/// units so that the same class emitted from two different AST nodes (e.g. once
+/// as a child of `ClassTemplateDecl` and once as a standalone specialisation)
+/// only appears once in `lib.rs`.
 fn class_name_from_block(block: &str) -> Option<String> {
     for line in block.lines() {
         let trimmed = line.trim();
@@ -366,6 +403,81 @@ fn extract_enum_defs_block(src: &str) -> String {
     }
 
     format!("{}\n{}", ENUM_MARKER, enum_body)
+}
+
+/// Extract the `// C++ typedef / using aliases.` section from a flat init module.
+///
+/// Only `pub type` alias declarations are extracted (business code needed for
+/// the FFI type hierarchy).  Non-business constants and functions that precede
+/// the typedef section in the source are skipped.
+fn extract_type_aliases_block(src: &str) -> String {
+    const ALIAS_MARKER: &str = "// C++ typedef / using aliases.";
+    let start = match src.find(ALIAS_MARKER) {
+        Some(pos) => pos,
+        None => return String::new(),
+    };
+
+    let after = &src[start + ALIAS_MARKER.len()..];
+    let mut lines_out = Vec::new();
+
+    for line in after.lines() {
+        let trimmed = line.trim();
+        // Stop when we hit a hicc macro, module declaration, or another section.
+        if trimmed.starts_with("hicc::")
+            || trimmed.starts_with("pub mod ")
+            || trimmed.starts_with("pub use ")
+            || trimmed.starts_with("pub fn ")
+            || trimmed.starts_with("pub const ")
+            || trimmed.starts_with("pub struct ")
+            || trimmed.starts_with("pub trait ")
+            || trimmed.starts_with("// Per-group")
+            || trimmed.starts_with("// C++ enum")
+        {
+            break;
+        }
+        lines_out.push(line);
+    }
+
+    // Drop trailing empty lines.
+    while lines_out
+        .last()
+        .map(|l| l.trim().is_empty())
+        .unwrap_or(false)
+    {
+        lines_out.pop();
+    }
+
+    let alias_body = lines_out.join("\n");
+    if alias_body.trim().is_empty() {
+        return String::new();
+    }
+
+    format!("{}\n{}", ALIAS_MARKER, alias_body)
+}
+
+/// Extract only the business-relevant content from `common/types.rs`:
+/// enum definitions and typedef/using alias declarations.
+///
+/// Strips non-business metadata constants (`CPP_TYPE_COUNT`, `CPP_TYPES`,
+/// `CPP_RUST_TYPE_MAPPINGS`, `rust_type_for`, `has_cpp_type`) so that the
+/// generated project remains lean.
+fn extract_business_types_block(common_types_src: &str) -> String {
+    let enum_block = extract_enum_defs_block(common_types_src);
+    let alias_block = extract_type_aliases_block(common_types_src);
+
+    let mut out = String::new();
+    if !enum_block.is_empty() {
+        out.push_str(enum_block.trim());
+        out.push('\n');
+    }
+    if !alias_block.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(alias_block.trim());
+        out.push('\n');
+    }
+    out
 }
 
 fn is_valid_include(line: &str) -> bool {
@@ -665,7 +777,7 @@ hicc::import_lib! {
             fragments.import_class_blocks.insert(key, block.to_string());
         }
 
-        let rendered = render_merged_module(&fragments, None, "mylib");
+        let rendered = render_merged_module(&fragments, None, "mylib", false);
 
         // Count occurrences of `class other` in the rendered output.
         let count = rendered.matches("class other").count();
@@ -709,7 +821,7 @@ hicc::import_lib! {
     }
 
     /// `parse_lib_block_contents` must preserve `@make_proxy skeleton` comment
-    /// blocks so they survive the merge step and appear in `merged_ffi.rs`.
+    /// blocks so they survive the merge step and appear in `lib.rs`.
     #[test]
     fn parse_lib_block_preserves_make_proxy_skeleton() {
         let src = r#"hicc::import_lib! {

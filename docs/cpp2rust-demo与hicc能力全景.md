@@ -62,7 +62,7 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 `cpp2rust-demo` 是一个 **hicc FFI 脚手架自动生成工具**（不是语义翻译器）：
 
 1. **`init` 阶段**：通过 `LD_PRELOAD` 注入 `hook/libhook.so` 拦截真实 C++ 构建命令，捕获编译单元并生成 `.cpp2rust` 预处理中间件；对选中文件执行 `clang -ast-dump=json`，解析 AST 后通过 `codegen.rs` 输出分组的 Rust 绑定脚手架（`include/types/free/class/method` 分层）
-2. **`merge` 阶段**：将多个 `mod_<group>` 模块合并为统一的 `merged_ffi.rs`
+2. **`merge` 阶段**：将多个 `mod_<group>` 模块合并为统一的 `lib.rs`
 
 ## 2.2 cpp2rust-demo 支持 / 不支持特性及对应 hicc 状态
 

@@ -11,7 +11,7 @@
 本项目通过两步流程减少手工工作：
 
 1. `init`：执行真实构建命令并捕获 `.cpp2rust` 中间件，再生成平铺的 Rust 绑定模块（每个 C++ 翻译单元对应一个 `<stem>.rs`）。
-2. `merge`：把平铺模块整合为更易消费的 `merged_ffi.rs`。
+2. `merge`：把平铺模块整合，将所有 hicc 必要内容直接写入 `lib.rs`（消费端入口）。
 
 > 自动捕获对象是 C++ 编译单元（`.cc/.cpp/.cxx/.c++/.C`），头文件内容通过预处理展开进入中间件。
 
@@ -162,9 +162,8 @@ cpp2rust-demo suggest-aliases --feature myfeature
     ├── src.1/     # init 原始平铺输出备份
     ├── src -> src.2
     └── src.2/
-        ├── lib.rs
-        ├── <stem>.rs      # 每个 init 翻译单元对应一个合并后的模块文件
-        └── merged_ffi.rs  # 所有翻译单元合并后的全局视图
+        ├── lib.rs          # 合并后的 FFI 入口（hicc::cpp! + import_class! + import_lib!）
+        └── <stem>.rs       # 每个翻译单元的参考文件（不直接编译）
 ```
 
 ## C++ 与 Rust 代码关系
@@ -172,10 +171,8 @@ cpp2rust-demo suggest-aliases --feature myfeature
 - **C++ 侧输入**：`hook/hook.c` 拦截编译器调用，生成 `*.cpp2rust` 中间件；`init` 同时在 capture 目录下创建同名符号链接（`entry.cpp → entry.cpp.cpp2rust`）。
 - **中间表示**：`*.cpp2rust` + clang AST JSON（`ast.rs` 解析）。
 - **Rust 侧输出**：`codegen.rs` 生成平铺的 `<stem>.rs`，包含 `hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!` 三段式绑定；每个 C++ 翻译单元对应一个 RS 文件（1:1 映射）。`hicc::cpp!` 中的 `#include` 引用原始源文件名（如 `"entry.cpp"`）而非 `.cpp2rust` 后缀名。
-- **合并阶段**：`merge.rs` 扫描 `src.1/` 中的平铺 `*.rs` 文件（跳过 `lib.rs` 和 `common/`），将各文件中的 `hicc::cpp!`/`hicc::import_class!`/`hicc::import_lib!` 块整合为 `merged_ffi.rs`（全局视图）和每个翻译单元对应的 `<stem>.rs`（局部视图）。
-- `class/`：类级语义结构（类名、关系、计数等）；仅存在于 per-group 产物，不进入合并输出
-- `types/`：类型清单、C++→Rust 映射与查询函数
-- `common/types.rs`：跨 group 聚合类型块（写入全局 `merged_ffi.rs`）
+- **合并阶段**：`merge.rs` 扫描 `src.1/` 中的平铺 `*.rs` 文件（跳过 `lib.rs` 和 `common/`），将各文件中的 `hicc::cpp!`/`hicc::import_class!`/`hicc::import_lib!` 块汇聚，直接写入 `lib.rs`。不生成独立的 `merged_ffi.rs`——因为编译单元已经 1:1 平铺，`lib.rs` 即是消费端唯一入口。非业务元数据常量（`CPP_TYPES`、`CLASS_NAMES` 等）不写入合并输出，保持生成项目精简。
+- `common/types.rs`：跨 group 聚合类型块（仅 enum 定义和类型别名写入 `lib.rs`；`CPP_TYPES` 等元数据常量**不**写入合并输出）
 - `common/includes.rs`：路径元数据（**不**写入合并输出）
 
 跳过规则（记录在 `init-interface-report.md`）：
