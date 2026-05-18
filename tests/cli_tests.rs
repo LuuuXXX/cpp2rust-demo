@@ -4378,6 +4378,81 @@ fn example_instance_fields_generate_field_accessors() {
     );
 }
 
+/// Regression test: instance methods whose return type is a pointer (e.g.
+/// `void* Malloc(size_t)`) must be extracted into `import_class!` bindings.
+///
+/// Root cause: `parse_fn_qual_type` previously searched for `" ("` as the
+/// separator between return type and parameter list.  When the return type
+/// ends with `*`, clang serialises the function type without a space before
+/// `(` (e.g. `"void *(size_t)"`), so the separator was never found and the
+/// method was silently skipped with `unsupported_type`.
+#[test]
+fn instance_methods_with_pointer_return_type_are_extracted() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "allocators.hpp",
+        r#"
+        #include <cstddef>
+        class CrtAllocator {
+        public:
+            void* Malloc(size_t size);
+            void* Realloc(void* originalPtr, size_t originalSize, size_t newSize);
+            static void Free(void* ptr);
+            static const bool kNeedFree;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "entry.cpp", "allocators.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "allocators",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let generated =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/src/entry.rs")).unwrap();
+
+    // Malloc and Realloc are instance methods returning void* — they must
+    // appear inside import_class! with the correct hicc attribute.
+    assert!(
+        generated.contains("fn malloc"),
+        "instance method Malloc must be extracted; got:\n{generated}"
+    );
+    assert!(
+        generated.contains("fn realloc"),
+        "instance method Realloc must be extracted; got:\n{generated}"
+    );
+    assert!(
+        generated.contains("*mut core::ffi::c_void"),
+        "void* return type must map to *mut c_void; got:\n{generated}"
+    );
+    assert!(
+        generated.contains("import_class!"),
+        "import_class! block must be emitted for the instance methods; got:\n{generated}"
+    );
+    // Static method Free and static data member kNeedFree go to import_lib!.
+    assert!(
+        generated.contains("fn crt_allocator_free"),
+        "static method Free must appear in import_lib!; got:\n{generated}"
+    );
+    assert!(
+        generated.contains("crt_allocator_k_need_free"),
+        "static data member kNeedFree must appear in import_lib!; got:\n{generated}"
+    );
+}
+
 /// Regression test: `collect_alias_nodes` must not register class-scope
 /// typedefs (e.g. `typedef StdAllocator<U> other` inside an allocator
 /// `rebind` struct) as top-level type aliases in the `AliasRegistry`.
