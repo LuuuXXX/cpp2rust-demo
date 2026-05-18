@@ -89,14 +89,14 @@ cpp2rust-demo init --feature cond02 --link algorithms \
     -- clang -x c++ -fsyntax-only examples/conditional/02-function-template/entry.cpp
 
 cpp2rust-demo merge --feature cond02
-cat .cpp2rust/cond02/rust/src/merged_ffi.rs
+cat .cpp2rust/cond02/rust/src/lib.rs
 ```
 
 ---
 
 ## 预期生成产物（STEP B 后）
 
-### `free/fn_entry.rs`（具体特化函数绑定）
+### `entry.rs`（具体特化函数绑定，节选）
 
 ```rust
 hicc::import_lib! {
@@ -146,7 +146,7 @@ FunctionDecl（clamp, template_specialization = true）
 FunctionIR { name: "clamp", params: [(i32, i32, i32)], ret: i32 }
     │  codegen
     ▼
-free/fn_entry.rs ─── import_lib! { fn clamp(...) -> i32; }
+entry.rs ─── import_lib! { fn clamp(...) -> i32; }
 ```
 
 ---

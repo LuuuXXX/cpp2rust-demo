@@ -11,8 +11,8 @@
 
 | 示例 | C++ 特性 | 解锁方式 |
 |------|---------|---------|
-| [`01-dynamic-cast/`](01-dynamic-cast/README.md) | `dynamic_cast` 向下转型 | 解注释 `free/dynamic_casts.rs` |
-| [`02-placement-new/`](02-placement-new/README.md) | Placement New（Rust 内存中构造 C++ 对象） | 解注释 `free/placement_new.rs` |
+| [`01-dynamic-cast/`](01-dynamic-cast/README.md) | `dynamic_cast` 向下转型 | 解注释 `entry.rs` 末尾骨架 |
+| [`02-placement-new/`](02-placement-new/README.md) | Placement New（Rust 内存中构造 C++ 对象） | 解注释 `entry.rs` 末尾骨架 |
 
 ---
 

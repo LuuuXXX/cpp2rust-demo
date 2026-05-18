@@ -22,7 +22,7 @@ cpp2rust-demo init --feature feat04 --link logger --no-link \
     -- clang -x c++ -fsyntax-only examples/features/04-va-list/entry.cpp
 
 cpp2rust-demo merge --feature feat04
-cat .cpp2rust/feat04/rust/src/merged_ffi.rs
+cat .cpp2rust/feat04/rust/src/lib.rs
 ```
 
 ## 预期生成结果

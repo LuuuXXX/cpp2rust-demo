@@ -52,14 +52,14 @@ cpp2rust-demo init --feature rj04 --link rapidjson --no-link \
 cpp2rust-demo merge --feature rj04
 
 # 第 3 步：查看产物
-cat .cpp2rust/rj04/rust/src/merged_ffi.rs
+cat .cpp2rust/rj04/rust/src/lib.rs
 ```
 
 ---
 
 ## 预期生成产物
 
-### `method/mtd_entry.rs`（`#[interface]` trait）
+### `entry.rs`（`#[interface]` trait，节选）
 
 ```rust
 hicc::import_class! {
@@ -85,7 +85,7 @@ hicc::import_class! {
 }
 ```
 
-### `free/fn_entry.rs`（`@make_proxy` 绑定）
+### `entry.rs`（`@make_proxy` 绑定，节选）
 
 ```rust
 hicc::import_lib! {

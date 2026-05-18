@@ -278,7 +278,7 @@ check_any_rs  "${OUT}" 'PrettyWriterImpl: WriterBase'
 # ---------------------------------------------------------------------------
 # Step 10: rapidjson/07-operator-shim/ — operator overload shim generation
 # ---------------------------------------------------------------------------
-run_case "rapidjson/07-operator-shim/ (operator overload → shim_ops.rs + operator_shims.hpp)"
+run_case "rapidjson/07-operator-shim/ (operator overload → entry.rs shim stubs + operator_shims.hpp)"
 (cd "${REPO_ROOT}" && "${BIN}" init \
     --feature rj07 \
     --link jsonvalue \
@@ -375,7 +375,7 @@ check_any_rs  "${OUT}" 'class Cat'
 # ---------------------------------------------------------------------------
 # Step 15: semi-auto/02-placement-new/ — placement new commented skeleton
 # ---------------------------------------------------------------------------
-run_case "semi-auto/02-placement-new/ (FixedBuffer extracted; placement_new.rs skeleton generated)"
+run_case "semi-auto/02-placement-new/ (FixedBuffer extracted; placement-new skeleton appended to entry.rs)"
 (cd "${REPO_ROOT}" && "${BIN}" init \
     --feature sa02 \
     --link fixed_buffer \

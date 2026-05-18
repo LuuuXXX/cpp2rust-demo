@@ -18,7 +18,7 @@ cpp2rust-demo init --feature feat01 --link math --no-link \
     -- clang -x c++ -fsyntax-only examples/features/01-inline-functions/entry.cpp
 
 cpp2rust-demo merge --feature feat01
-cat .cpp2rust/feat01/rust/src/merged_ffi.rs
+cat .cpp2rust/feat01/rust/src/lib.rs
 ```
 
 ## 预期生成结果

@@ -26,7 +26,8 @@
 │   ├── ast.rs        # clang AST JSON 解析与声明抽取
 │   ├── codegen.rs    # 生成 hicc 所需 Rust 代码（render_flat_module / build.rs / Cargo.toml）
 │   ├── merge.rs      # 将 rust/src/<stem>.rs 平铺文件合并到 rust/src.2
-│   └── selector.rs   # 交互式/非交互式中间件选择
+│   ├── selector.rs   # 交互式/非交互式中间件选择
+│   └── error.rs      # 统一 Result/Error 类型封装
 ├── hook/
 │   ├── hook.c        # 编译拦截逻辑（识别编译器调用并输出 *2rust 中间件）
 │   └── Makefile      # 生成 libhook.so
@@ -34,11 +35,21 @@
 │   └── cli_tests.rs  # 端到端与生成结果校验
 ├── examples/
 │   ├── simple/       # 自由函数示例
-│   └── class/        # 类与方法示例
+│   ├── class/        # 类与方法示例
+│   ├── features/     # 特性粒度单示例（inline、默认参数、&&方法、va_list、全局变量、静态成员、实例字段）
+│   ├── rapidjson/    # RapidJSON 场景（枚举/别名/模板类/接口/虚方法/继承/运算符shim/多TU）
+│   ├── semi-auto/    # 半自动示例（dynamic_cast、placement new）
+│   ├── conditional/  # 条件支持示例（无别名模板、无特化函数模板、链式别名）
+│   └── guided/       # 引导支持示例（std::string、std::function、函数指针）
 ├── docs/
-│   ├── design.md     # 设计与语义边界说明
-│   ├── clang-ast.md  # AST 提取说明
-│   └── hicc-usage.md # hicc 生成约定
+│   ├── design.md               # 设计与语义边界说明
+│   ├── clang-ast.md            # AST 提取说明（节点类型、过滤规则、AliasRegistry）
+│   ├── hicc-usage.md           # hicc 生成约定（关键约定与特性用法）
+│   ├── cpp-features.md         # C++ 特性支持矩阵（含不支持原因）
+│   ├── 特性支持全景图.md        # 完整特性全景表（汇总统计与示例链接）
+│   ├── cpp2rust-demo与hicc能力全景.md  # hicc 全览 + cpp2rust-demo 工具层全览
+│   ├── future-plan.md          # 工具层功能改进计划（已全部落地）
+│   └── rapidjson-support.md    # RapidJSON 完整验证流程与特性矩阵
 └── scripts/
     └── validate-rapidjson.sh # CI 对应本地复现实验脚本
 ```

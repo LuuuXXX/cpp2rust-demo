@@ -65,14 +65,14 @@ cpp2rust-demo init --feature rj06 --link writer \
 cpp2rust-demo merge --feature rj06
 
 # 第 3 步：查看产物
-cat .cpp2rust/rj06/rust/src/merged_ffi.rs
+cat .cpp2rust/rj06/rust/src/lib.rs
 ```
 
 ---
 
 ## 预期生成产物
 
-### `method/mtd_entry.rs`（两个类的绑定）
+### `entry.rs`（两个类的绑定，节选）
 
 ```rust
 // 全纯虚基类 → #[interface] trait
@@ -125,7 +125,7 @@ hicc::import_class! {
 }
 ```
 
-### `free/fn_entry.rs`（`@make_proxy` + 静态方法入口）
+### `entry.rs`（`@make_proxy` 绑定，节选）
 
 ```rust
 hicc::import_lib! {
@@ -196,7 +196,7 @@ hicc 中 `class Derived: Base` 语法的含义：
 
 | 限制 | 说明 |
 |------|------|
-| 仅首个 public 基类 | `class C: public A, public B` 只处理 `A` |
+| 多重继承 | `class C: public A, public B` 时，所有 public 基类均被提取，生成 `class C: A, B` 骨架；但 hicc 不支持多重继承运行时语义，骨架无法直接编译，需手写 C++ 委托包装后以单继承绑定 |
 | 虚析构函数 | 跳过（`HiccLimitation`）|
 | `size_t` 参数 | 映射为 `usize` |
 | `protected` 继承 | 跳过（仅处理 `public` 基类）|

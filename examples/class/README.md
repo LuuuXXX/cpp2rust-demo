@@ -21,7 +21,7 @@ cpp2rust-demo init --feature widget --link widget -- clang -x c++ -fsyntax-only 
 cpp2rust-demo merge --feature widget
 
 # 第 3 步：查看结果
-cat .cpp2rust/widget/rust/src/merged_ffi.rs
+cat .cpp2rust/widget/rust/src/lib.rs
 ```
 
 > 说明：交互终端下，`init` 会提示选择要纳入转换的中间件文件（`Space` 勾选，`Enter` 确认）；非交互环境会自动全选。
@@ -31,7 +31,7 @@ cat .cpp2rust/widget/rust/src/merged_ffi.rs
 ### 抽象基类 `Shape`（全纯虚 → `#[interface]`）
 
 ```rust
-// method/mtd_widget.rs
+// widget.rs
 hicc::import_class! {
     #[interface]
     class Shape {
@@ -80,7 +80,7 @@ hicc::import_class! {
 ### 静态方法与前置声明进入 `import_lib!`
 
 ```rust
-// free/fn_widget.rs
+// widget.rs
 hicc::import_lib! {
     #![link_name = "widget"]
 
@@ -94,7 +94,7 @@ hicc::import_lib! {
 ### `@make_proxy`（为 `Shape` 接口生成 Rust 实现桩）
 
 ```rust
-// free/fn_widget.rs（续）
+// widget.rs（续）
 hicc::import_lib! {
     #![link_name = "widget"]
     // ...
@@ -108,17 +108,17 @@ hicc::import_lib! {
 
 | C++ 构造 | 生成位置 | hicc 语法 |
 |----------|---------|----------|
-| 全纯虚类 | `method/` | `#[interface] class Foo { ... }` |
-| 普通/virtual 方法 | `method/` | `#[cpp(method = "...")]` |
-| `const` 方法 | `method/` | `fn foo(&self)` |
-| 非 `const` 方法 | `method/` | `fn foo(&mut self)` |
-| 构造函数（主） | `method/` | `#[cpp(class = "Foo", ctor = "...")]` |
-| 额外构造函数 | `free/` | `import_lib!` + `class Foo;` forward decl |
-| `static` 方法 | `free/` | `#[cpp(func = "T Foo::bar(...)")]` |
-| 公有基类 | `method/` | `class Foo: Base` 继承语法 |
-| `@make_proxy` | `free/` | `#[interface(name = "...")] fn new_foo_proxy(...)` |
+| 全纯虚类 | `<stem>.rs` | `#[interface] class Foo { ... }` |
+| 普通/virtual 方法 | `<stem>.rs` | `#[cpp(method = "...")]` |
+| `const` 方法 | `<stem>.rs` | `fn foo(&self)` |
+| 非 `const` 方法 | `<stem>.rs` | `fn foo(&mut self)` |
+| 构造函数（主） | `<stem>.rs` | `#[cpp(class = "Foo", ctor = "...")]` |
+| 额外构造函数 | `<stem>.rs` | `import_lib!` + `class Foo;` forward decl |
+| `static` 方法 | `<stem>.rs` | `#[cpp(func = "T Foo::bar(...)")]` |
+| 公有基类 | `<stem>.rs` | `class Foo: Base` 继承语法 |
+| `@make_proxy` | `<stem>.rs` | `#[interface(name = "...")] fn new_foo_proxy(...)` |
 | 析构函数 | — | 跳过（hicc 限制，见下方能力表） |
-| `operator` 重载 | `free/shim_ops.rs` | 生成 C++ shim starter，需手写实现 |
+| `operator` 重载 | `<stem>.rs`（注释骨架）+ `meta/operator_shims.hpp` | 生成 C++ shim starter，需手写实现 |
 
 ## 当前能力全览
 

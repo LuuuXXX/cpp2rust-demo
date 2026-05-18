@@ -2,7 +2,7 @@
 //
 // A minimal JSON value class that models RapidJSON's GenericValue operator
 // surface.  Used to demonstrate the operator_shims.hpp three-step workflow:
-//   1. cpp2rust-demo auto-generates operator_shims.hpp starter + shim_ops.rs
+//   1. cpp2rust-demo auto-generates operator_shims.hpp starter + commented-out bindings in entry.rs
 //   2. User confirms / adjusts the C++ shim implementations
 //   3. User includes operator_shims.hpp in hicc::cpp! and activates bindings
 

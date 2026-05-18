@@ -1,7 +1,7 @@
 # 场景 07：运算符重载 → `operator_shims.hpp` 三步工作流
 
 本示例演示 cpp2rust-demo 处理 **C++ 运算符重载**的完整工作流：
-工具自动生成 `operator_shims.hpp` starter 文件和 `shim_ops.rs` 骨架，
+工具自动生成 `operator_shims.hpp` starter 文件和 `entry.rs` 末尾的注释骨架，
 用户确认/调整后通过 `hicc::cpp!` 使用。
 
 ---
@@ -56,7 +56,7 @@ public:
 ## 运行步骤
 
 ```bash
-# 第 1 步：生成分组 FFI（工具自动生成 operator_shims.hpp 和 shim_ops.rs）
+# 第 1 步：生成分组 FFI（工具自动生成 operator_shims.hpp 和 entry.rs 末尾注释骨架）
 cpp2rust-demo init --feature rj07 --link jsonvalue \
     -- clang -x c++ -fsyntax-only examples/rapidjson/07-operator-shim/entry.cpp
 
@@ -118,7 +118,7 @@ static inline bool json_value_ne(const JsonValue& self, const JsonValue& rhs) {
 #endif // OPERATOR_SHIMS_HPP
 ```
 
-### 自动生成：`free/shim_ops.rs`（Rust 绑定骨架）
+### 自动生成：`entry.rs` 末尾的 operator shim 注释骨架（节选）
 
 ```rust
 // Auto-generated operator shim Rust bindings by cpp2rust-demo.
@@ -154,7 +154,7 @@ hicc::import_lib! {
 }
 ```
 
-### 普通方法仍然提取：`method/mtd_entry.rs`（节选）
+### 普通方法仍然提取：`entry.rs`（节选）
 
 ```rust
 hicc::import_class! {
@@ -207,7 +207,7 @@ directly.  Auto-generated C++ shims have been written to `meta/operator_shims.hp
 
 init 结束后：
 - `render_operator_shims_hpp()` → `meta/operator_shims.hpp`（C++ shim 函数定义）
-- `render_operator_shims_rs()` → `free/shim_ops.rs`（Rust `import_lib!` 绑定骨架）
+- `render_operator_shims_rs()` → `<stem>.rs` 末尾的注释骨架（`// --- operator shims ---` 段落）
 
 **第 2 步：用户确认/调整 C++ 实现**
 
@@ -230,7 +230,7 @@ hicc::cpp! {
     #include "operator_shims.hpp"       // ← 手动添加此行
 }
 
-// 然后 shim_ops.rs 中的绑定即可激活（已是有效的 import_lib!）
+// 然后解注释 entry.rs 末尾 `// --- operator shims ---` 段落的绑定即可激活
 ```
 
 ### 运算符命名规则

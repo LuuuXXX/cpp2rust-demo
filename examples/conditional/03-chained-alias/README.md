@@ -109,7 +109,7 @@ cpp2rust-demo init --feature cond03 --link store \
 
 cpp2rust-demo merge --feature cond03
 
-cat .cpp2rust/cond03/rust/src/merged_ffi.rs
+cat .cpp2rust/cond03/rust/src/lib.rs
 ```
 
 ### STEP B2：链式别名（解锁 IntStore + MyStore）
@@ -123,14 +123,14 @@ cpp2rust-demo init --feature cond03 --link store \
 
 cpp2rust-demo merge --feature cond03
 
-cat .cpp2rust/cond03/rust/src/merged_ffi.rs
+cat .cpp2rust/cond03/rust/src/lib.rs
 ```
 
 ---
 
 ## 预期生成产物（STEP B2 后）
 
-### `types/mod.rs`（别名映射）
+### `entry.rs`（类型别名，节选）
 
 ```rust
 // AliasRegistry 传递性解析：MyStore → IntStore → Store<int>
@@ -138,7 +138,7 @@ cat .cpp2rust/cond03/rust/src/merged_ffi.rs
 pub type MyStore = IntStore;  // 链式别名，映射到 IntStore（首选别名名称）
 ```
 
-### `method/mtd_entry-chained.rs`（具体特化类绑定）
+### `entry.rs`（具体特化类绑定，节选）
 
 ```rust
 // Store<int> 由 IntStore 别名解锁（首选别名，template_to_alias 中优先注册）
@@ -153,7 +153,7 @@ hicc::import_class! {
 }
 ```
 
-### `free/`（自由函数绑定）
+### `entry.rs`（自由函数绑定，节选）
 
 ```rust
 // 使用 IntStore/MyStore 为参数的自由函数
@@ -189,9 +189,9 @@ template_to_alias: { Store → IntStore }  ← 首选别名（注册顺序优先
 ClassIR { name: "IntStore", is_template_specialization: true, ... }
     │  codegen
     ▼
-types/mod.rs    ─── pub type MyStore = IntStore;
-method/mtd_*.rs ─── import_class! { class IntStore { ... } }
-free/           ─── fn has_entry(...); fn count_entries(...);
+entry.rs       ─── pub type MyStore = IntStore;
+entry.rs       ─── import_class! { class IntStore { ... } }
+entry.rs       ─── fn has_entry(...); fn count_entries(...);
 ```
 
 ---

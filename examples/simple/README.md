@@ -20,12 +20,12 @@ cpp2rust-demo merge
 
 # 第 3 步：查看结果
 ls .cpp2rust/default/rust/src/
-cat .cpp2rust/default/rust/src/merged_ffi.rs
+cat .cpp2rust/default/rust/src/lib.rs
 ```
 
 ## 预期生成结果
 
-执行后可在 `merged_ffi.rs` 中看到类似内容：
+执行后可在 `lib.rs`（merge 后的合并入口）中看到类似内容：
 
 ```rust
 hicc::import_lib! {

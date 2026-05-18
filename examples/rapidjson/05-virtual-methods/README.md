@@ -51,14 +51,14 @@ cpp2rust-demo init --feature rj05 --link allocator \
 cpp2rust-demo merge --feature rj05
 
 # 第 3 步：查看产物
-cat .cpp2rust/rj05/rust/src/merged_ffi.rs
+cat .cpp2rust/rj05/rust/src/lib.rs
 ```
 
 ---
 
 ## 预期生成产物
 
-### `method/mtd_entry.rs`
+### `entry.rs`（非纯虚方法绑定，节选）
 
 ```rust
 hicc::import_class! {
@@ -89,7 +89,7 @@ hicc::import_class! {
 }
 ```
 
-### `free/fn_entry.rs`（静态成员）
+### `entry.rs`（静态成员，节选）
 
 ```rust
 hicc::import_lib! {

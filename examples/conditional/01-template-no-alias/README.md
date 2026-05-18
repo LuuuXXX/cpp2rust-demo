@@ -93,14 +93,14 @@ cpp2rust-demo init --feature cond01 --link stack \
 
 cpp2rust-demo merge --feature cond01
 
-cat .cpp2rust/cond01/rust/src/merged_ffi.rs
+cat .cpp2rust/cond01/rust/src/lib.rs
 ```
 
 ---
 
 ## 预期生成产物（STEP B 后）
 
-### `types/mod.rs`（别名映射）
+### `entry.rs`（类型别名，节选）
 
 ```rust
 // Stack<int> → IntStack 别名注册
@@ -108,7 +108,7 @@ pub type IntStack    = Stack_i32;
 pub type DoubleStack = Stack_f64;
 ```
 
-### `method/mtd_entry.rs`（具体特化类绑定）
+### `entry.rs`（具体特化类绑定，节选）
 
 ```rust
 // IntStack = Stack<int>
@@ -169,8 +169,8 @@ bare_template_name("Stack") → alias "IntStack"
 ClassIR { name: "Stack_i32", canonical_name: Some("IntStack"), ... }
     │  codegen
     ▼
-types/mod.rs       ─── pub type IntStack = Stack_i32;
-method/mtd_*.rs    ─── import_class! { class Stack_i32 { ... } }
+entry.rs          ─── pub type IntStack = Stack_i32;
+entry.rs          ─── import_class! { class Stack_i32 { ... } }
 ```
 
 ---

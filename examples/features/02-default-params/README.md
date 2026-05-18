@@ -22,7 +22,7 @@ cpp2rust-demo init --feature feat02 --link config --no-link \
     -- clang -x c++ -fsyntax-only examples/features/02-default-params/entry.cpp
 
 cpp2rust-demo merge --feature feat02
-cat .cpp2rust/feat02/rust/src/merged_ffi.rs
+cat .cpp2rust/feat02/rust/src/lib.rs
 ```
 
 ## 预期生成结果

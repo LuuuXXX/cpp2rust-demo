@@ -71,7 +71,7 @@ cpp2rust-demo merge --feature rj02
 
 # 第 3 步：查看产物
 cat .cpp2rust/rj02/meta/init-interface-report.md   # 接口报告（含 AliasRegistry 效果）
-cat .cpp2rust/rj02/rust/src/merged_ffi.rs          # 合并后 FFI
+cat .cpp2rust/rj02/rust/src/lib.rs          # 合并后 FFI
 ```
 
 ---
@@ -97,25 +97,16 @@ cat .cpp2rust/rj02/rust/src/merged_ffi.rs          # 合并后 FFI
 | `documentOk`    | `document_ok`     | `bool documentOk(const rjson::Document &)` |
 ```
 
-### `types/mod.rs`（节选）
+### `entry.rs`（类型别名定义，节选）
 
 ```rust
-// Type alias mappings registered from the AST.
-// "GenericValue"    → alias "Value"
-// "GenericDocument" → alias "Document"
-// "GenericDocument" → alias "ScopedDoc"
-
-pub fn rust_type_for(cpp_type: &str) -> Option<&'static str> {
-    match cpp_type {
-        "rjson::GenericValue<rjson::UTF8<char>>" => Some("Value"),
-        "rjson::GenericDocument<rjson::UTF8<char>>" => Some("Document"),
-        "rjson::GenericDocument<rjson::ASCII<char>>" => Some("ScopedDoc"),
-        _ => None,
-    }
-}
+// Type aliases (pub type) — registered from typedef/using declarations in the AST.
+pub type Value = /* rjson::GenericValue<rjson::UTF8<char>> */;
+pub type Document = /* rjson::GenericDocument<rjson::UTF8<char>> */;
+pub type ScopedDoc = /* rjson::GenericDocument<rjson::ASCII<char>> */;
 ```
 
-### `free/fn_entry.rs`（节选）
+### `entry.rs`（自由函数 import_lib!，节选）
 
 ```rust
 hicc::import_lib! {
@@ -191,6 +182,6 @@ bare = "GenericDocument"                 ← 映射正确建立 ✅
 | 限制 | 说明 |
 |------|------|
 | 多个别名取第一个 | 若 `GenericDocument` 有多个 typedef，只有最先出现的别名名被注册为 canonical |
-| 别名仅一层 | 不支持链式别名（`using A = B<T>; using C = A;`），`C` 不会映射回模板 |
+| 链式别名 | ✅ 已支持：`AliasRegistry::resolve_transitive()` 传递性闭合解析，`using A = B<T>; using C = A;` 时 `C` 可正确映射回模板；详见 `conditional/03-chained-alias/` |
 | 部分特化无法提取 | `template<> class GenericValue<MyEncoding>` 仍需要 typedef 配合 |
 | 函数模板 | 函数级模板仍跳过；别名机制仅解锁类模板特化 |
