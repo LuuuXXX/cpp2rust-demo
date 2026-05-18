@@ -9,9 +9,12 @@
 # The script:
 #   1. Builds cpp2rust-demo (debug by default, --release for release build).
 #   2. Clones Tencent/rapidjson into /tmp/rapidjson (re-uses existing clone).
-#   3. Creates a single entry.cpp that includes all main rapidjson headers,
-#      builds the whole project using CMake, and runs cpp2rust-demo init.
-#      Using one translation unit means one .cpp -> one .rs (1:1 mapping).
+#   3. Creates one entry-<header>.cpp per major rapidjson header and a
+#      CMakeLists.txt that builds each as a separate executable.  The full
+#      cmake build is run under cpp2rust-demo init so that every translation
+#      unit is captured by the LD_PRELOAD hook.  This produces one .rs file
+#      per header (full-build, multi-TU, 1:1 mapping), allowing each header's
+#      FFI output to be inspected individually.
 #      --no-link is used because rapidjson is a header-only library.
 #   4. Runs cpp2rust-demo merge.
 #   5. Validates the expected output files exist and contain expected content.
@@ -73,34 +76,59 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 3: Prepare the project -- one entry.cpp for all major headers + CMake
+# Step 3: Prepare the project -- one entry-<header>.cpp per major header + CMake
 # ---------------------------------------------------------------------------
-echo "=== Step 3: Preparing rapidjson project build ==="
+echo "=== Step 3: Preparing rapidjson project build (full-build, multi-TU) ==="
 (
     cd "${RAPIDJSON_DIR}"
     # Remove previous output so this script is idempotent.
     rm -rf .cpp2rust build
 
-    # Single translation unit that covers the whole library surface.
-    # Using one entry.cpp gives a clean 1 cpp -> 1 rs output file.
-    cat > entry.cpp << 'CPP_EOF'
+    # One translation unit per major rapidjson header so that each header's
+    # FFI output is visible as a separate .rs file after cpp2rust-demo init.
+    cat > entry-document.cpp << 'CPP_EOF'
 #include "rapidjson/document.h"
-#include "rapidjson/reader.h"
-#include "rapidjson/writer.h"
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/pointer.h"
-#include "rapidjson/schema.h"
-
 int main() { return 0; }
 CPP_EOF
 
-    # Minimal CMakeLists.txt that compiles entry.cpp with include/ on the path.
+    cat > entry-reader.cpp << 'CPP_EOF'
+#include "rapidjson/reader.h"
+int main() { return 0; }
+CPP_EOF
+
+    cat > entry-writer.cpp << 'CPP_EOF'
+#include "rapidjson/writer.h"
+int main() { return 0; }
+CPP_EOF
+
+    cat > entry-prettywriter.cpp << 'CPP_EOF'
+#include "rapidjson/prettywriter.h"
+int main() { return 0; }
+CPP_EOF
+
+    cat > entry-pointer.cpp << 'CPP_EOF'
+#include "rapidjson/pointer.h"
+int main() { return 0; }
+CPP_EOF
+
+    cat > entry-schema.cpp << 'CPP_EOF'
+#include "rapidjson/schema.h"
+int main() { return 0; }
+CPP_EOF
+
+    # CMakeLists.txt with one executable per translation unit.
+    # cmake --build will compile all six, and the LD_PRELOAD hook in
+    # cpp2rust-demo init will capture each compilation separately,
+    # producing one .rs file per header.
     cat > CMakeLists.txt << 'CMAKE_EOF'
 cmake_minimum_required(VERSION 3.10)
 project(cpp2rust_validate LANGUAGES CXX)
-add_executable(cpp2rust_entry entry.cpp)
-target_include_directories(cpp2rust_entry PRIVATE include)
-target_compile_features(cpp2rust_entry PRIVATE cxx_std_11)
+set(RAPIDJSON_HEADERS document reader writer prettywriter pointer schema)
+foreach(h IN LISTS RAPIDJSON_HEADERS)
+    add_executable(cpp2rust_${h} entry-${h}.cpp)
+    target_include_directories(cpp2rust_${h} PRIVATE include)
+    target_compile_features(cpp2rust_${h} PRIVATE cxx_std_11)
+endforeach()
 CMAKE_EOF
 )
 echo ""
@@ -108,11 +136,14 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 4: Run cpp2rust-demo init
 # ---------------------------------------------------------------------------
-echo "=== Step 4: Running cpp2rust-demo init ==="
+echo "=== Step 4: Running cpp2rust-demo init (full cmake build, all headers) ==="
 (
     cd "${RAPIDJSON_DIR}"
     # Use --no-link because rapidjson is a header-only library.
-    # The CMake build supplies the correct -Iinclude flag automatically.
+    # cmake --build compiles all six entry-<header> executables.  The
+    # LD_PRELOAD hook intercepts each compilation and produces one
+    # entry-<header>.cpp.cpp2rust middleware file per TU, which cpp2rust-demo
+    # then turns into one entry_<header>.rs file.
     "${BIN}" init \
         --feature "${FEATURE}" \
         --link rapidjson \
@@ -159,21 +190,29 @@ check_contains() {
 
 OUT="${RAPIDJSON_DIR}/.cpp2rust/${FEATURE}"
 
-# The single entry.cpp produces one flat entry.rs (1:1 mapping).
-MIDDLEWARE="entry.cpp.cpp2rust"
-ORIGINAL="entry.cpp"
-FLAT_RS="${OUT}/rust/src/entry.rs"
+# Each major header produces its own middleware + .rs file (multi-TU, 1:1 mapping).
+# entry-<header>.cpp  ->  entry-<header>.cpp.cpp2rust  ->  entry_<header>.rs
+HEADERS=(document reader writer prettywriter pointer schema)
 
-check_file  "${OUT}/cpp/${MIDDLEWARE}"
-check_file  "${OUT}/cpp/${MIDDLEWARE}.opts"
-check_file  "${OUT}/rust/src/entry.rs"
-check_file  "${OUT}/rust/src.1/entry.meta.json"
-check_contains "${OUT}/meta/selected_files.json" "${MIDDLEWARE}"
-check_contains "${FLAT_RS}" "hicc::cpp!"
-check_contains "${FLAT_RS}" "#include \"${ORIGINAL}\""
-check_contains "${FLAT_RS}" "import_lib!"
-check_contains "${FLAT_RS}" 'link_name = "rapidjson"'
+for HEADER in "${HEADERS[@]}"; do
+    MIDDLEWARE="entry-${HEADER}.cpp.cpp2rust"
+    ORIGINAL="entry-${HEADER}.cpp"
+    FLAT_RS="${OUT}/rust/src/entry_${HEADER}.rs"
 
+    echo ""
+    echo "--- ${HEADER} ---"
+    check_file  "${OUT}/cpp/${MIDDLEWARE}"
+    check_file  "${OUT}/cpp/${MIDDLEWARE}.opts"
+    check_file  "${FLAT_RS}"
+    check_file  "${OUT}/rust/src.1/entry_${HEADER}.meta.json"
+    check_contains "${OUT}/meta/selected_files.json" "${MIDDLEWARE}"
+    check_contains "${FLAT_RS}" "hicc::cpp!"
+    check_contains "${FLAT_RS}" "#include \"${ORIGINAL}\""
+    check_contains "${FLAT_RS}" "import_lib!"
+    check_contains "${FLAT_RS}" 'link_name = "rapidjson"'
+done
+
+echo ""
 check_file  "${OUT}/meta/build_cmd.txt"
 check_file  "${OUT}/meta/selected_files.json"
 check_file  "${OUT}/meta/headers.json"
@@ -188,7 +227,8 @@ check_file  "${OUT}/meta/merge-report.md"
 # It must contain the hicc::import_lib! block and all required declarations.
 check_contains "${OUT}/rust/src/lib.rs" "import_lib!"
 check_contains "${OUT}/rust/src/lib.rs" 'link_name = "rapidjson"'
-check_contains "${OUT}/rust/src/lib.rs" "#include \"${ORIGINAL}\""
+# lib.rs must reference at least one of the per-header middleware files.
+check_contains "${OUT}/rust/src/lib.rs" "#include \"entry-document.cpp\""
 
 # build.rs must reference lib.rs as the consolidated FFI entry point.
 check_contains "${OUT}/rust/build.rs" "src/lib.rs"
