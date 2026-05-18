@@ -181,15 +181,17 @@ check_file  "${OUT}/meta/init-interface-report.md"
 check_file  "${OUT}/rust/Cargo.toml"
 check_file  "${OUT}/rust/build.rs"
 check_file  "${OUT}/rust/src/lib.rs"
-check_file  "${OUT}/rust/src/merged_ffi.rs"
+# Note: no separate merged_ffi.rs – consolidated FFI content lives in lib.rs.
 check_file  "${OUT}/meta/merge-report.md"
 
-check_contains "${OUT}/rust/src/merged_ffi.rs" "import_lib!"
-check_contains "${OUT}/rust/src/merged_ffi.rs" 'link_name = "rapidjson"'
-check_contains "${OUT}/rust/src/merged_ffi.rs" "#include \"${ORIGINAL}\""
+# lib.rs is the consolidated FFI entry point (replaces the old merged_ffi.rs).
+# It must contain the hicc::import_lib! block and all required declarations.
+check_contains "${OUT}/rust/src/lib.rs" "import_lib!"
+check_contains "${OUT}/rust/src/lib.rs" 'link_name = "rapidjson"'
+check_contains "${OUT}/rust/src/lib.rs" "#include \"${ORIGINAL}\""
 
-# build.rs must reference the merged FFI file (merge updates build.rs to src/merged_ffi.rs).
-check_contains "${OUT}/rust/build.rs" "src/merged_ffi.rs"
+# build.rs must reference lib.rs as the consolidated FFI entry point.
+check_contains "${OUT}/rust/build.rs" "src/lib.rs"
 # build.rs must be in no-link mode (header-only library).
 check_contains "${OUT}/rust/build.rs" "Header-only"
 

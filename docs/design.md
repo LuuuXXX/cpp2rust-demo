@@ -56,20 +56,20 @@
         ├── (merge 后) -> src.2
         ├── src.1/
         └── src.2/
-            ├── lib.rs
-            ├── mod_<group>.rs
-            └── merged_ffi.rs
+            ├── lib.rs          # 合并后 FFI 入口（汇聚所有翻译单元）
+            └── <stem>.rs       # 各翻译单元参考文件（不直接编译）
 ```
 
 ## merge 流程
 
-`merge` 会读取 `rust/src/mod_<group>/` 并合并：
+`merge` 会读取 `rust/src/` 中的平铺 `<stem>.rs` 文件并合并：
 
-- 按 group 生成 `rust/src.2/mod_<group>.rs`
-- 额外生成全局 `rust/src.2/merged_ffi.rs`（仅含 include/free/method 及 `common/types.rs` 类型块；`class/` 元信息与 `common/includes.rs` 路径元数据不写入合并输出）
-- 同时生成 `rust/src.2/lib.rs`
+- 将所有翻译单元的 `hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 内容聚合，直接写入 `rust/src.2/lib.rs`
+- 同时按 stem 生成 `rust/src.2/<stem>.rs`（参考文件，不直接编译）
+- **不再生成单独的 `merged_ffi.rs`**——因编译单元已 1:1 平铺，`lib.rs` 即全局视图
+- 非业务元数据（`CPP_TYPES`、`CPP_RUST_TYPE_MAPPINGS`、`CLASS_NAMES` 等）**不**写入 `lib.rs`，仅枚举定义与类型别名（业务代码）保留
 - 完成后将 init 原始 `rust/src` 备份为 `rust/src.1`，并将 `rust/src` 切换为指向 `src.2` 的符号链接
-- `build.rs` 持续引用 `src/...` 路径，依赖该活跃视图机制在 merge 后自动指向 `src.2` 产物
+- `build.rs` 持续引用 `src/lib.rs`，依赖该活跃视图机制在 merge 后自动指向 `src.2/lib.rs`
 - 使用 `merge --output <dir>` 导出时，同时将 `meta/operator_shims.hpp` 与 `meta/init-interface-report.md` 复制到 `<output>/meta/`
 
 ## v1 能力边界（当前实现）
@@ -80,7 +80,7 @@
   - `method/`：类实例方法（包含 virtual 与 abstract 两种路径）
 - `class/`：类级语义结构层（类名、方法计数、类-方法关系 + 访问函数），不是方法绑定层；仅保留于 per-group 产物供检阅，不参与 merge 输出。
 - `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），per-group 块参与 merge 语义组织。
-- `common/*`：共享语义层；`types.rs`（聚合类型块）参与全局 merged_ffi 输出；`includes.rs`（路径元数据）不参与 merge 输出。
+- `common/*`：共享语义层；`types.rs` 中的枚举定义与类型别名（业务代码）参与 merge 输出；`CPP_TYPES` 等元数据常量与 `includes.rs`（路径元数据）**不**参与 merge 输出。
 - `global/`：当前版本不生成，保留为预留扩展点。
 
 **虚函数与抽象类支持**：
@@ -95,10 +95,10 @@
 抽取阶段会跳过并报告：constructor、destructor、operator overload、无法解锁的 template declarations、部分 unsupported_type。
 
 merge 语义边界（当前）：
-- 参与 merged 输出的目录：`include/`、`types/`（per-group）、`method/`、`free/`。
+- 参与 `lib.rs` 输出的内容：hicc::cpp! includes、枚举定义、类型别名、`import_class!`、`import_lib!`。
 - `method/` 贡献 `import_class!`（包括 `#[interface]`）；`free/` 贡献 `import_lib!`。
-- `class/` 仅生成在 per-group `src.1/mod_<group>/class/` 中供检阅，**不**进入 merged 输出（CLASS_NAMES、CLASS_METHOD_COUNTS 等元信息常量对 FFI 绑定无意义）。
-- `common/types.rs`（CPP_TYPES、enum 定义等聚合类型块）会写入全局 `merged_ffi.rs`；`common/includes.rs`（MIDDLEWARE_FILES、MIDDLEWARE_BASENAMES 等路径元数据）**不**进入 merged 输出。
+- `class/` 仅生成在 per-group `src.1/<stem>/class/` 中供检阅，**不**进入 merge 输出（CLASS_NAMES、CLASS_METHOD_COUNTS 等元信息常量对 FFI 绑定无意义）。
+- `common/types.rs` 中的**枚举定义和类型别名**写入 `lib.rs`；`CPP_TYPES`、`CPP_RUST_TYPE_MAPPINGS` 等元数据和 `common/includes.rs`（路径元数据）**不**进入 merge 输出。
 - `global/` 当前不参与 merge 产物，为预留扩展点。
 
 ## hicc 约束
