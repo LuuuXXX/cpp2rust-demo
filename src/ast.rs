@@ -2049,6 +2049,16 @@ fn operator_shim_fn_name(op: &str, class_name: Option<&str>) -> String {
         "operator bool" => "to_bool",
         "operator int" => "to_int",
         "operator double" => "to_double",
+        "operator+=" => "add_assign",
+        "operator-=" => "sub_assign",
+        "operator*=" => "mul_assign",
+        "operator/=" => "div_assign",
+        "operator%=" => "rem_assign",
+        "operator<<=" => "shl_assign",
+        "operator>>=" => "shr_assign",
+        "operator&=" => "and_assign",
+        "operator|=" => "or_assign",
+        "operator^=" => "xor_assign",
         _ => "op",
     };
     if let Some(cls) = class_name {

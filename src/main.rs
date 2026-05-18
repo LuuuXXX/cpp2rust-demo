@@ -250,6 +250,10 @@ fn run_init(args: InitArgs) -> Result<()> {
     let mut had_any_shims = false;
     let mut had_any_dynamic_casts = false;
     let mut had_any_placement_new = false;
+    // Track middleware file basenames for each TU that contributed operator shims.
+    // Used after the loop to generate a single operator_shims.hpp that includes
+    // all relevant middlewares (multi-TU correctness).
+    let mut shim_middleware_files: Vec<String> = Vec::new();
 
     for (selected_file, stem) in files_to_process.iter().zip(stems.iter()) {
         let file_basename = selected_file
@@ -329,23 +333,15 @@ fn run_init(args: InitArgs) -> Result<()> {
             std::fs::write(&flat_path, &flat_src)
                 .map_err(|e| anyhow!("write {}: {}", flat_path.display(), e))?;
 
-            // Operator shims C++ header goes to meta/.
-            if has_shims {
+            // Track which middlewares have operator shims so we can write a single
+            // operator_shims.hpp after the loop that covers all TUs (multi-TU fix).
+            if !decls.operator_shims.is_empty() {
                 let middleware_basename = selected_file
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("middleware.hpp");
-                let shims_hpp = codegen::render_operator_shims_hpp(
-                    &decls.operator_shims,
-                    &decls.skipped,
-                    middleware_basename,
-                );
-                if !shims_hpp.is_empty() {
-                    let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
-                    std::fs::write(&shims_hpp_path, &shims_hpp)
-                        .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
-                    println!("  → operator_shims.hpp");
-                }
+                    .unwrap_or("middleware.hpp")
+                    .to_string();
+                shim_middleware_files.push(middleware_basename);
             }
 
             // Write meta.json for this stem.
@@ -411,6 +407,25 @@ fn run_init(args: InitArgs) -> Result<()> {
         all_decls.aliases.extend(decls.aliases);
         all_decls.skipped.extend(decls.skipped);
         all_decls.operator_shims.extend(decls.operator_shims);
+    }
+
+    // Write operator_shims.hpp once after all TUs have been processed.
+    // This ensures the file includes ALL middlewares that contributed shims
+    // (not just the last one), fixing multi-TU scenarios where different TUs
+    // define operators for different classes.
+    if !dry_run && had_any_shims {
+        let mw_refs: Vec<&str> = shim_middleware_files.iter().map(|s| s.as_str()).collect();
+        let shims_hpp = codegen::render_operator_shims_hpp(
+            &all_decls.operator_shims,
+            &all_decls.skipped,
+            &mw_refs,
+        );
+        if !shims_hpp.is_empty() {
+            let shims_hpp_path = lo.meta_dir.join("operator_shims.hpp");
+            std::fs::write(&shims_hpp_path, &shims_hpp)
+                .map_err(|e| anyhow!("write operator_shims.hpp: {}", e))?;
+            println!("\n  → operator_shims.hpp ({} shim(s))", all_decls.operator_shims.len());
+        }
     }
 
     // Write interface report.
