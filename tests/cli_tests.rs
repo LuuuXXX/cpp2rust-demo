@@ -2248,6 +2248,72 @@ fn init_operator_overload_generates_shim_files() {
     );
 }
 
+/// After `merge`, `build.rs` must contain the meta/ include path when
+/// `operator_shims.hpp` was generated during `init`, so that the
+/// `#include "operator_shims.hpp"` in `lib.rs` resolves at compile time.
+#[test]
+fn merge_build_rs_includes_meta_dir_when_shims_exist() {
+    let tmp = TempDir::new().unwrap();
+    write_header(
+        &tmp,
+        "shimops.hpp",
+        r#"
+        class Calc {
+        public:
+            double operator()(int a, int b) const;
+            Calc& operator=(const Calc& rhs);
+            double add(int a, int b) const;
+        };
+        "#,
+    );
+    let tu = write_translation_unit(&tmp, "shimops.cpp", "shimops.hpp");
+
+    bin()
+        .current_dir(tmp.path())
+        .args([
+            "init",
+            "--link",
+            "calclib",
+            "--",
+            "clang",
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            tu.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Verify operator_shims.hpp was created by init.
+    let shims_hpp = tmp
+        .path()
+        .join(".cpp2rust/default/meta/operator_shims.hpp");
+    assert!(shims_hpp.exists(), "operator_shims.hpp should exist after init");
+
+    bin()
+        .current_dir(tmp.path())
+        .args(["merge"])
+        .assert()
+        .success();
+
+    let build_rs =
+        std::fs::read_to_string(tmp.path().join(".cpp2rust/default/rust/build.rs")).unwrap();
+
+    // The meta/ directory must appear in the build.rs include list so that
+    // `#include "operator_shims.hpp"` in lib.rs resolves during cargo build.
+    let meta_dir = tmp
+        .path()
+        .join(".cpp2rust/default/meta")
+        .display()
+        .to_string();
+    assert!(
+        build_rs.contains(&meta_dir),
+        "build.rs after merge must include the meta/ dir when operator_shims.hpp exists.\n\
+         Expected to find: {meta_dir}\n\
+         build.rs content:\n{build_rs}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // v2 主线六: Categorised skip sections in the report
 // ---------------------------------------------------------------------------
