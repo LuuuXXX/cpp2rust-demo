@@ -9,8 +9,11 @@
 # locally by running that script.
 #
 # Key design choices:
-#  - A single entry.cpp includes all main rapidjson headers so that the tool
-#    produces exactly one .rs file per .cpp file (1:1 mapping).
+#  - One entry-<header>.cpp per major rapidjson header (document, reader,
+#    writer, prettywriter, pointer, schema).  cmake --build compiles all six
+#    targets; the LD_PRELOAD hook captures each compilation, and cpp2rust-demo
+#    init produces one .rs file per header (full-build, multi-TU, 1:1 mapping).
+#    Each header's FFI output is visible as a separate .rs file.
 #  - --no-link is used because rapidjson is header-only.
 #  - The project is built via CMake to exercise a realistic build flow.
 #  - cargo check is run on the generated Rust project to verify that the

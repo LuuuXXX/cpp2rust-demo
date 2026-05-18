@@ -321,9 +321,23 @@ pub fn render_types_module(decls: &ExtractedDecls) -> String {
     ));
 
     // Emit extracted C++ enum definitions as #[repr(C)] Rust enums.
-    if !decls.enums.is_empty() {
+    // Deduplicate by qualified_name: in multi-TU builds the same enum (e.g.
+    // `UTFType` from `rapidjson/rapidjson.h`) can appear once per translation
+    // unit that includes the shared header.  Emitting it multiple times causes
+    // `E0119 conflicting implementations` for the derived `PartialEq`/`Eq`
+    // traits.  First-seen ordering is preserved via the iteration order of the
+    // input slice.
+    let unique_enums: Vec<&crate::ast::EnumIR> = {
+        let mut seen = std::collections::HashSet::new();
+        decls
+            .enums
+            .iter()
+            .filter(|e| seen.insert(e.qualified_name.as_str()))
+            .collect()
+    };
+    if !unique_enums.is_empty() {
         out.push_str("\n// C++ enum / enum class definitions.\n");
-        for enum_ir in &decls.enums {
+        for enum_ir in &unique_enums {
             out.push_str("#[repr(C)]\n");
             out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n");
             out.push_str(&format!("pub enum {} {{\n", enum_ir.name));
@@ -370,9 +384,18 @@ pub fn render_types_module(decls: &ExtractedDecls) -> String {
     }
 
     // Emit simple typedef / using aliases for supported types.
-    if !decls.aliases.is_empty() {
+    // Deduplicate by qualified_name for the same reason as enums above.
+    let unique_aliases: Vec<&crate::ast::AliasIR> = {
+        let mut seen = std::collections::HashSet::new();
+        decls
+            .aliases
+            .iter()
+            .filter(|a| seen.insert(a.qualified_name.as_str()))
+            .collect()
+    };
+    if !unique_aliases.is_empty() {
         out.push_str("// C++ typedef / using aliases.\n");
-        for alias in &decls.aliases {
+        for alias in &unique_aliases {
             out.push_str(&format!(
                 "pub type {} = {};\n",
                 alias.name, alias.aliased_rust_type

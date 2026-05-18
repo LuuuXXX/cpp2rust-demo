@@ -38,7 +38,12 @@ struct ModuleFragments {
     /// Key = Rust struct name; value = full block text.
     import_class_blocks: indexmap::IndexMap<String, String>,
     forward_decls: indexmap::IndexSet<String>,
-    fn_items: Vec<String>,
+    /// `import_lib!` fn/data items, deduplicated by full text (first-wins).
+    /// Using IndexSet ensures that the same function or global-variable binding
+    /// emitted by multiple translation units (because they all include the same
+    /// shared header) is written to lib.rs only once, preventing E0124
+    /// "field already declared" errors from the Rust compiler.
+    fn_items: indexmap::IndexSet<String>,
     type_blocks: indexmap::IndexSet<String>,
 }
 
@@ -119,9 +124,9 @@ pub fn merge_grouped_modules(
         for decl in fragments.forward_decls.iter() {
             merged_all.forward_decls.insert(decl.clone());
         }
-        merged_all
-            .fn_items
-            .extend(fragments.fn_items.iter().cloned());
+        for item in fragments.fn_items.iter() {
+            merged_all.fn_items.insert(item.clone());
+        }
 
         group_modules.push(stem);
     }
@@ -176,7 +181,9 @@ fn merge_flat_file(
         for f in fwd {
             fragments.forward_decls.insert(f);
         }
-        fragments.fn_items.extend(fns);
+        for item in fns {
+            fragments.fn_items.insert(item);
+        }
     }
 
     // Extract enum definitions and emit them before import_class! blocks so
@@ -273,7 +280,7 @@ fn render_merged_module(
     if !fragments.forward_decls.is_empty() && !fragments.fn_items.is_empty() {
         out.push('\n');
     }
-    for item in &fragments.fn_items {
+    for item in fragments.fn_items.iter() {
         for line in item.lines() {
             out.push_str("    ");
             out.push_str(line);
