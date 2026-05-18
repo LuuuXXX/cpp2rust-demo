@@ -61,49 +61,49 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 
 `cpp2rust-demo` 是一个 **hicc FFI 脚手架自动生成工具**（不是语义翻译器）：
 
-1. **`init` 阶段**：通过 `LD_PRELOAD` 注入 `hook/libhook.so` 拦截真实 C++ 构建命令，捕获编译单元并生成 `.cpp2rust` 预处理中间件；对选中文件执行 `clang -ast-dump=json`，解析 AST 后通过 `codegen.rs` 输出分组的 Rust 绑定脚手架（`include/types/free/class/method` 分层）
-2. **`merge` 阶段**：将多个 `mod_<group>` 模块合并为统一的 `lib.rs`
+1. **`init` 阶段**：通过 `LD_PRELOAD` 注入 `hook/libhook.so` 拦截真实 C++ 构建命令，捕获编译单元并生成 `.cpp2rust` 预处理中间件；对选中文件执行 `clang -ast-dump=json`，解析 AST 后通过 `codegen.rs` 为每个翻译单元输出一个平铺的 `<stem>.rs`（含 `hicc::cpp!`、枚举/别名、`import_class!`、`import_lib!`）
+2. **`merge` 阶段**：扫描 `src/` 中的平铺 `<stem>.rs` 文件并合并为统一的 `lib.rs`
 
 ## 2.2 cpp2rust-demo 支持 / 不支持特性及对应 hicc 状态
 
 | C++ 特性 | cpp2rust-demo 状态 | 输出位置 | hicc 是否支持 | 说明 |
 |---------|:-----------------:|---------|:------------:|------|
-| 自由函数（非模板） | ✅ 自动提取 | `free/fn_*.rs` | ✅ | `import_lib!` + `#[cpp(func)]` |
-| 函数重载 | ✅ 自动提取 | `free/fn_*.rs` | ✅ | 自动追加 `_2`, `_3` 后缀 |
-| 命名空间函数 | ✅ 自动提取 | `free/fn_*.rs` | ✅ | 限定名嵌入 `#[cpp(func)]` |
-| 类实例方法（非虚） | ✅ 自动提取 | `method/mtd_*.rs` | ✅ | `import_class!` + `#[cpp(method)]` |
-| `const` 方法 | ✅ 自动提取 | `method/mtd_*.rs` | ✅ | 映射为 `&self` |
-| 非 `const` 方法 | ✅ 自动提取 | `method/mtd_*.rs` | ✅ | 映射为 `&mut self` |
-| 非纯 `virtual` 方法 | ✅ 自动提取 | `method/mtd_*.rs` | ✅ | vtable 透明调用 |
-| 全纯虚抽象类 | ✅ 自动提取 | `method/mtd_*.rs` | ✅ | `#[interface]` + `@make_proxy` |
-| 混合类（纯虚 + 普通方法） | ✅ 自动提取 | `method/mtd_*.rs` | ✅ | 普通方法正常提取；纯虚方法生成 companion interface |
-| 构造函数 | ✅ 自动提取 | `method/mtd_*.rs` | ✅ | 主构造函数 `ctor="..."`；额外构造为工厂函数 |
-| 静态方法 | ✅ 自动提取 | `free/fn_*.rs` | ✅ | `#[cpp(func = "ClassName::method(...)")]` |
-| public 单继承 | ✅ 自动提取 | `method/mtd_*.rs` | ✅ | `class Derived: Base` |
-| `@make_proxy` 反向绑定 | ✅ 自动生成 | `free/fn_*.rs` | ✅ | 全纯虚类自动生成 |
-| 全局变量 | ✅ 自动提取 | `free/fn_*.rs` | ✅ | `#[cpp(data)]` |
-| 枚举 `enum` / `enum class` | ✅ 自动提取 | `types/mod.rs` | ✅ | `#[repr(C)] enum` |
-| `typedef` / `using` 别名 | ✅ 自动提取 | `types/mod.rs` | ✅ | AliasRegistry，解锁模板提取 |
-| 模板特化类（有 typedef/using 别名） | ⚠️ 有条件支持 | `method/mtd_*.rs` | ✅ | 需要别名存在于 AST；`ToolConservative` |
+| 自由函数（非模板） | ✅ 自动提取 | `<stem>.rs` | ✅ | `import_lib!` + `#[cpp(func)]` |
+| 函数重载 | ✅ 自动提取 | `<stem>.rs` | ✅ | 自动追加 `_2`, `_3` 后缀 |
+| 命名空间函数 | ✅ 自动提取 | `<stem>.rs` | ✅ | 限定名嵌入 `#[cpp(func)]` |
+| 类实例方法（非虚） | ✅ 自动提取 | `<stem>.rs` | ✅ | `import_class!` + `#[cpp(method)]` |
+| `const` 方法 | ✅ 自动提取 | `<stem>.rs` | ✅ | 映射为 `&self` |
+| 非 `const` 方法 | ✅ 自动提取 | `<stem>.rs` | ✅ | 映射为 `&mut self` |
+| 非纯 `virtual` 方法 | ✅ 自动提取 | `<stem>.rs` | ✅ | vtable 透明调用 |
+| 全纯虚抽象类 | ✅ 自动提取 | `<stem>.rs` | ✅ | `#[interface]` + `@make_proxy` |
+| 混合类（纯虚 + 普通方法） | ✅ 自动提取 | `<stem>.rs` | ✅ | 普通方法正常提取；纯虚方法生成 companion interface |
+| 构造函数 | ✅ 自动提取 | `<stem>.rs` | ✅ | 主构造函数 `ctor="..."`；额外构造为工厂函数 |
+| 静态方法 | ✅ 自动提取 | `<stem>.rs` | ✅ | `#[cpp(func = "ClassName::method(...)")]` |
+| public 单继承 | ✅ 自动提取 | `<stem>.rs` | ✅ | `class Derived: Base` |
+| `@make_proxy` 反向绑定 | ✅ 自动生成 | `<stem>.rs` | ✅ | 全纯虚类自动生成 |
+| 全局变量 | ✅ 自动提取 | `<stem>.rs` | ✅ | `#[cpp(data)]` |
+| 枚举 `enum` / `enum class` | ✅ 自动提取 | `<stem>.rs` | ✅ | `#[repr(C)] enum` |
+| `typedef` / `using` 别名 | ✅ 自动提取 | `<stem>.rs` | ✅ | AliasRegistry，解锁模板提取 |
+| 模板特化类（有 typedef/using 别名） | ⚠️ 有条件支持 | `<stem>.rs` | ✅ | 需要别名存在于 AST；`ToolConservative` |
 | 模板类（无别名） | ⚠️ 跳过 | — | ✅（hicc 支持） | 添加 `typedef`/`using` 别名后可解锁；`ToolConservative` |
 | `std::` 容器参数（无别名） | ⚠️ 跳过 | — | ✅（hicc-std 支持） | 添加 `using` 别名可解锁；`ToolConservative` |
 | 函数模板（无显式特化） | ⚠️ 跳过 | — | ⚠️（需实例化） | AST 中需有 concrete specialization；`ToolConservative` |
-| 运算符重载 | ⚠️ 半自动 | `free/shim_ops.rs` | ❌ | 生成 `operator_shims.hpp` starter；需手写 C++ shim 再绑定 |
+| 运算符重载 | ⚠️ 半自动 | `<stem>.rs`（注释骨架） | ❌ | 生成 `operator_shims.hpp` starter；需手写 C++ shim 再绑定 |
 | 析构函数 | ❌ 跳过 | — | ❌ | `HiccLimitation`；由 RAII 管理 |
-| 多重继承 | ✅ 全部 public 基类提取 | `method/mtd_*.rs` | ❌ | 所有 public 基类均提取至 `ClassIR.bases`，`render_import_class()` 以 `, ` 分隔列出（P3 已实现） |
+| 多重继承 | ✅ 全部 public 基类提取 | `<stem>.rs` | ❌ | 所有 public 基类均提取至 `ClassIR.bases`，`render_import_class()` 以 `, ` 分隔列出（P3 已实现） |
 | 虚继承（菱形继承） | ⚠️ 跳过并报告 | 接口报告 | ❌ | 虚基类被跳过，接口报告列出警告（P3 已实现） |
 | 友元函数 | ❌ 跳过 | — | ❌ | AST 不可靠提取；`HiccLimitation` |
 | 函数指针参数 | ⚠️ 跳过并生成接口建议 | 接口报告 | ❌ | `ToolConservative`；接口报告自动生成虚函数接口骨架 + `@make_proxy` 使用提示（P3 已实现） |
 | `std::string` 参数/返回值 | ⚠️ 跳过并生成 shim 建议 | 接口报告 / `operator_shims.hpp` | ❌ | 跳过；接口报告和 `operator_shims.hpp` 自动生成 `const char*` shim 原型（P2 已实现） |
 | `std::function` / lambda 参数 | ⚠️ 跳过并生成接口建议 | 接口报告 | ✅（hicc 支持） | 跳过；接口报告自动生成虚函数接口 + `@make_proxy` 使用骨架（P2 已实现） |
 | `auto` / `decltype` 返回类型 | ❌ 跳过 | — | ❌ | `HiccLimitation`；需手写包装函数 |
-| `va_list` / variadic `...` | ✅ 自动提取（`va_list` 最后参数） | `free/fn_*.rs` | ⚠️（hicc 部分支持） | `va_list` 作为最后参数时提取为 `unsafe fn`，Rust 绑定追加 `...`（P3 已实现） |
+| `va_list` / variadic `...` | ✅ 自动提取（`va_list` 最后参数） | `<stem>.rs` | ⚠️（hicc 部分支持） | `va_list` 作为最后参数时提取为 `unsafe fn`，Rust 绑定追加 `...`（P3 已实现） |
 | 链式类型别名（`using B = A; using A = T<...>`） | ✅ 已支持 | — | ✅（hicc 支持） | AliasRegistry 传递性闭合解析（P1 已实现） |
 | 方法模板（类内函数模板） | ❌ 跳过 | — | ❌ | `HiccLimitation` |
-| `dynamic_cast` | ✅ 骨架自动生成 | `free/dynamic_casts.rs` | ✅（hicc 支持） | 识别继承关系，在 `free/dynamic_casts.rs` 输出注释掉的 `@dynamic_cast` 绑定骨架供用户解注释使用（P3 已实现） |
-| 类成员变量 / 静态变量 | ✅ 自动提取（非静态字段） | `method/mtd_*.rs` | ✅ | `#[cpp(field=...)]` 生成 `get_<name>` / `get_<name>_mut` 访问器（P2 已实现） |
-| placement new（Rust 内存构造 C++ 对象） | ✅ 已实现 | `free/placement_new.rs` | ✅（hicc 支持） | 识别构造函数签名，在 `free/placement_new.rs` 输出注释掉的 `@placement_new` 绑定骨架供用户解注释使用（P4 已实现） |
-| C++ 容器存储 Rust 数据（RustAny） | ✅ 已实现 | `types/mod.rs` + 接口报告 | ✅（hicc 支持） | 识别 STL 容器实例化类型（`std::vector<T>` 等），在 `types/mod.rs` 末尾和接口报告中生成 `hicc::RustAny<T>` 类型映射建议（P4 已实现） |
+| `dynamic_cast` | ✅ 骨架自动生成 | `<stem>.rs`（注释骨架） | ✅（hicc 支持） | 识别继承关系，在 `<stem>.rs`（注释骨架） 输出注释掉的 `@dynamic_cast` 绑定骨架供用户解注释使用（P3 已实现） |
+| 类成员变量 / 静态变量 | ✅ 自动提取（非静态字段） | `<stem>.rs` | ✅ | `#[cpp(field=...)]` 生成 `get_<name>` / `get_<name>_mut` 访问器（P2 已实现） |
+| placement new（Rust 内存构造 C++ 对象） | ✅ 已实现 | `<stem>.rs`（注释骨架） | ✅（hicc 支持） | 识别构造函数签名，在 `<stem>.rs`（注释骨架） 输出注释掉的 `@placement_new` 绑定骨架供用户解注释使用（P4 已实现） |
+| C++ 容器存储 Rust 数据（RustAny） | ✅ 已实现 | `<stem>.rs` + 接口报告 | ✅（hicc 支持） | 识别 STL 容器实例化类型（`std::vector<T>` 等），在 `<stem>.rs` 末尾和接口报告中生成 `hicc::RustAny<T>` 类型映射建议（P4 已实现） |
 | `hicc::cpp!` 灵活适配 | ❌ 未生成 | — | ✅（hicc 支持） | 工具不自动生成，需手写 |
 
 ---
@@ -117,16 +117,16 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 | **模板类（无别名）** | 跳过（`tool_conservative`）；接口报告和 `suggest-aliases` 子命令自动输出 `using` 别名建议 ✅ 已实现 | ToolConservative | 新增 `suggest-aliases` 子命令；在接口报告中自动输出 `using Alias = FullType<...>;` 建议；用户补充后重跑解锁 | `ast.rs` `SkippedDecl.suggested_alias` + `codegen.rs` 报告渲染 + `main.rs` 新子命令 | P1 ✅ |
 | **链式类型别名** (`using B = A`) | ✅ 已支持；AliasRegistry 传递性闭合解析 | ToolLimit | AliasRegistry 传递性解析（transitive closure），收集完毕后迭代闭合直到稳定 | `ast.rs` `AliasRegistry::resolve_transitive()` + `is_alias_of_template()` + `is_supported_cpp_type()` | P1 ✅ |
 | **`std::function` / lambda 参数** | ✅ 已实现：跳过并自动生成虚函数接口骨架 + `@make_proxy` 使用提示写入接口报告 | ToolLimit | AST 中识别 `std::function<R(Args)>` 类型，生成对应虚函数接口 + `@make_proxy` 绑定骨架建议到接口报告 | `ast.rs` 类型识别 + `codegen.rs` 报告输出 | P2 ✅ |
-| **类成员变量 / 静态变量** | ✅ 已实现：非静态字段提取为 `FieldIR`，生成 `#[cpp(field)]` 读写访问器 | ToolLimit | AST 中提取 `FieldDecl` / `VarDecl`（static），生成 `#[cpp(field)]` / `#[cpp(data)]` 绑定到 `free/` 或 `method/` | `ast.rs` 新增 `FieldIR` + `codegen.rs` render | P2 ✅ |
+| **类成员变量 / 静态变量** | ✅ 已实现：非静态字段提取为 `FieldIR`，生成 `#[cpp(field)]` 读写访问器 | ToolLimit | AST 中提取 `FieldDecl` / `VarDecl`（static），生成 `#[cpp(field)]` / `#[cpp(data)]` 绑定到 `<stem>.rs` | `ast.rs` 新增 `FieldIR` + `codegen.rs` render | P2 ✅ |
 | **`std::string` 参数/返回（shim 建议）** | ✅ 已实现：跳过并自动生成 `const char*` shim 原型写入接口报告和 `operator_shims.hpp` | ToolConservative | 在接口报告和 `operator_shims.hpp` 中自动生成可复制的 C++ shim 函数原型 | `ast.rs` `SkippedDecl.suggested_shim` + `codegen.rs` | P2 ✅ |
 | **多重继承（全部 public 基类）** | ✅ 已实现：`ClassIR.bases` 为 `Vec<String>`，所有 public 基类均提取，`render_import_class()` 以 `, ` 分隔列出 | ToolLimit | `ClassIR.bases` 改为 `Vec<String>` 存全部 public 基类，`render_import_class()` 生成 `class C: A, B`（hicc 多重继承不支持，骨架仍有参考价值） | `ast.rs` `ClassIR` + `codegen.rs` | P3 ✅ |
 | **虚继承检测与提示** | ✅ 已实现：`BaseSpecifier.is_virtual` 跳过虚基类，接口报告列出警告 | ToolLimit | `BaseSpecifier` 增加 `is_virtual: bool`，跳过虚基类并在接口报告中列出 `Virtual bases (skipped)` | `ast.rs` `BaseSpecifier` + `codegen.rs` | P3 ✅ |
 | **函数指针参数（接口建议）** | ✅ 已实现：识别含 `(*)` 的类型，分类为 `ToolConservative`，在接口报告中生成虚函数接口骨架 + `@make_proxy` 调用示例 | ToolConservative | 识别含 `(*)` 的类型，在接口报告中生成对应纯虚接口类模板 + `@make_proxy` 调用示例 | `ast.rs` skip 分支 + `codegen.rs` | P3 ✅ |
-| **`dynamic_cast` 绑定** | ✅ 已实现：识别继承关系中可做 downcast 的类对，在 `free/dynamic_casts.rs` 生成注释掉的 `@dynamic_cast` 绑定骨架 | ToolLimit | 识别继承关系中可做 downcast 的类对，在 `free/` 生成 `@dynamic_cast` 绑定骨架 | `ast.rs` 继承链分析 + `codegen.rs` | P3 ✅ |
+| **`dynamic_cast` 绑定** | ✅ 已实现：识别继承关系中可做 downcast 的类对，在 `<stem>.rs`（注释骨架） 生成注释掉的 `@dynamic_cast` 绑定骨架 | ToolLimit | 识别继承关系中可做 downcast 的类对，在 `<stem>.rs` 末尾追加注释掉的 `@dynamic_cast` 绑定骨架 | `ast.rs` 继承链分析 + `codegen.rs` | P3 ✅ |
 | **`va_list` / variadic 函数** | ✅ 已实现：识别 `va_list` 最后参数，提取为 `unsafe fn foo(fixed_params, ...) -> T` 绑定；`is_variadic = true` 标记在 `FunctionIR` | ToolConservative | 识别 `va_list` 最后参数，生成对应 `unsafe fn foo(name: &T, ...)` 绑定（hicc 支持，参数/返回无类类型限制需校验） | `ast.rs` 参数类型识别 + `codegen.rs` | P3 ✅ |
 | **`--dry-run` 模式** | ✅ 已实现：`init` 增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，接口报告打印到 stdout | ToolLimit | `init` 子命令增加 `--dry-run` flag，执行编译和 AST 但不写 `rust/src/`，仅打印接口报告到 stdout | `main.rs` CLI + init 主流程 | P2 ✅ |
-| **placement new 绑定** | ✅ 已实现：识别有构造函数的非抽象类，在 `free/placement_new.rs` 生成注释掉的 `@placement_new` 绑定骨架 | ToolLimit | 识别构造函数签名，在 codegen 阶段对需要 placement new 场景生成对应 Rust 接口骨架 | `ast.rs` + `codegen.rs` | P4 ✅ |
-| **C++ 容器存储 Rust 数据（RustAny 模板）** | ✅ 已实现：识别 STL 容器类型，在 `types/mod.rs` 末尾和接口报告中生成 `hicc::RustAny<T>` 使用建议 | ToolLimit | 识别 STL 容器实例化类型，在 `types/` 中生成 `hicc::RustAny<T>` 类型映射建议 | `ast.rs` + `codegen.rs` | P4 ✅ |
+| **placement new 绑定** | ✅ 已实现：识别有构造函数的非抽象类，在 `<stem>.rs`（注释骨架） 生成注释掉的 `@placement_new` 绑定骨架 | ToolLimit | 识别构造函数签名，在 codegen 阶段对需要 placement new 场景生成对应 Rust 接口骨架 | `ast.rs` + `codegen.rs` | P4 ✅ |
+| **C++ 容器存储 Rust 数据（RustAny 模板）** | ✅ 已实现：识别 STL 容器类型，在 `<stem>.rs` 末尾和接口报告中生成 `hicc::RustAny<T>` 使用建议 | ToolLimit | 识别 STL 容器实例化类型，在 `<stem>.rs` 末尾和接口报告中生成 `hicc::RustAny<T>` 类型映射建议 | `ast.rs` + `codegen.rs` | P4 ✅ |
 
 ---
 
@@ -159,12 +159,12 @@ hicc 是一个 **C++ → Rust FFI 互操作框架**，核心思路：
 |-------|:----:|------|
 | P3 多重继承（全部 public 基类） | ✅ 已实现 | `ClassIR.bases: Vec<String>` 存储所有 public 基类；`render_import_class()` 以 `, ` 分隔列出（hicc 不支持多重继承，骨架仅作参考） |
 | P3 函数指针参数（接口建议） | ✅ 已实现 | `is_function_pointer_type()` 检测含 `(*)` 类型；`categorize_unsupported_type()` 分类为 `ToolConservative`；`generate_unsupported_type_shim()` 生成虚函数接口骨架（`FooHandler`）+ `@make_proxy` 使用提示；接口报告显示 `Shim Suggestions` |
-| P3 `@dynamic_cast` 绑定骨架 | ✅ 已实现 | `render_dynamic_casts_module()` 遍历有基类的类，在 `free/dynamic_casts.rs` 输出注释掉的 `@dynamic_cast<Derived>(Base *)` 绑定供用户按需解注释；`free/mod.rs` 自动注册 `dynamic_casts` 子模块 |
+| P3 `@dynamic_cast` 绑定骨架 | ✅ 已实现 | `render_dynamic_casts_module()` 遍历有基类的类，在 `<stem>.rs`（注释骨架） 输出注释掉的 `@dynamic_cast<Derived>(Base *)` 绑定供用户按需解注释；内容以 `// --- dynamic cast starters ---` 分隔符追加到 `<stem>.rs` |
 | P3 `va_list` / variadic 函数 | ✅ 已实现 | `is_va_list_type()` 检测 `va_list` / `__va_list_tag *` 等变体；`FunctionIR.is_variadic: bool` 标记；`extract_function()` 检测最后参数为 `va_list` 时跳过该参数并置 `is_variadic = true`；`render_free_function_with_name()` / `render_method()` 生成 `unsafe fn foo(fixed_params, ...) -> T` 绑定；接口报告增加 `Variadic Functions` 和 `@dynamic_cast Skeletons` 章节 |
 
 **批次四改进状态（P4，已完成）：**
 
 | 改进项 | 状态 | 说明 |
 |-------|:----:|------|
-| P4.1 placement new 绑定骨架 | ✅ 已实现 | 新增 `render_placement_new_module()`；对每个有提取到构造函数（`CtorIR`）的非抽象类，在 `free/placement_new.rs` 输出注释掉的 `@placement_new<ClassName>(args...)` 绑定骨架，包含 `hicc::AlignedStorage<T>` 内存参数和生命周期关联返回值（`-> &'a mut T`）；`free/mod.rs` 自动注册 `placement_new` 子模块；`build.rs` 源列表同步更新；接口报告增加 `Placement-New Skeletons (P4)` 章节列出所有可 placement new 的类及构造函数签名 |
+| P4.1 placement new 绑定骨架 | ✅ 已实现 | 新增 `render_placement_new_module()`；对每个有提取到构造函数（`CtorIR`）的非抽象类，在 `<stem>.rs`（注释骨架） 输出注释掉的 `@placement_new<ClassName>(args...)` 绑定骨架，包含 `hicc::AlignedStorage<T>` 内存参数和生命周期关联返回值（`-> &'a mut T`）；内容以 `// --- placement-new starters ---` 分隔符追加到 `<stem>.rs`；`build.rs` 无需额外源文件；接口报告增加 `Placement-New Skeletons (P4)` 章节列出所有可 placement new 的类及构造函数签名 |
 | P4.2 STL 容器 `hicc::RustAny` 类型映射建议 | ✅ 已实现 | 新增 `SkippedDecl.stl_container_type: Option<String>` 字段；`is_stl_container_type()` 检测 15 种标准容器（`std::vector` / `std::map` / `std::set` 等）；`find_stl_container_type()` 在 `extract_function()` 跳过函数时提取首个 STL 容器类型；新增 `render_rust_any_suggestions()` 去重后输出 `hicc_std::Vector<T>` / `hicc_std::Map<T>` 等建议注释；`render_types_module()` 末尾追加建议块；接口报告增加 `hicc::RustAny Suggestions for STL Containers (P4)` 章节 |

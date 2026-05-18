@@ -2,7 +2,7 @@
 
 `cpp2rust-demo` 生成的 Rust 代码统一基于 `hicc`：
 
-- `hicc::cpp!`：引入 `*.cpp2rust` 中间件（例如 `a.cpp.cpp2rust`）
+- `hicc::cpp!`：引入原始源文件（例如 `a.cpp`，不含 `.cpp2rust` 后缀）；`init` 在 capture 目录下创建同名 wrapper 文件，使 `#include "a.cpp"` 可由 hicc-build 解析
 - `hicc::import_class!`：映射 C++ 类实例方法，支持构造函数（`ctor = "..."`）和继承（`class Foo: Bar`）
 - `hicc::import_lib!`：映射自由函数、静态方法、全局变量（`#[cpp(data = "...")]`）以及 `@make_proxy` 反向继承绑定
 - `hicc_build::Build`：在 `build.rs` 中驱动适配层生成与编译
@@ -143,10 +143,11 @@ unsafe fn log_message(level: i32, ...);
 
 ### `@dynamic_cast` 骨架（P3）
 
-当存在类继承关系时，工具自动在 `free/dynamic_casts.rs` 生成注释掉的 `@dynamic_cast` 绑定骨架。解注释所需的行并重新构建即可：
+当存在类继承关系时，工具自动在 `<stem>.rs` 末尾追加注释掉的 `@dynamic_cast` 绑定骨架（通过 `// --- dynamic cast starters ---` 分隔）。解注释所需的行并重新构建即可：
 
 ```rust
-// free/dynamic_casts.rs（自动生成，解注释你需要的部分）
+// <stem>.rs（自动追加，解注释你需要的部分）
+// --- dynamic cast starters ---
 hicc::import_lib! {
     #![link_name = "mylib"]
 
@@ -194,8 +195,8 @@ cpp2rust-demo init --link rapidjson --no-link \
 
 ### operator shim 工作流
 
-1. **工具自动生成 starter**（`.cpp2rust/<feature>/meta/operator_shims.hpp` 和 `free/shim_ops.rs`）
-2. **检查/补全实现**：对复杂场景在 `operator_shims.hpp` 中补充逻辑
+1. **工具自动生成 starter**：`.cpp2rust/<feature>/meta/operator_shims.hpp`（C++ shim 头文件）和 `<stem>.rs` 末尾的注释骨架（`// --- operator shims ---`）
+2. **检查/补全实现**：在 `operator_shims.hpp` 中补充运算符逻辑
 3. **引入并使用**：
    ```rust
    // build.rs 中加入 shim header 的 include 路径
@@ -203,7 +204,6 @@ cpp2rust-demo init --link rapidjson --no-link \
        .include(".cpp2rust/default/meta")
        .compile(...);
 
-   // Rust 侧引用 shim_ops.rs 的绑定
-   use crate::mod_entry::free::shim_ops::*;
+   // Rust 侧解注释 <stem>.rs 中 operator shims 段落的绑定，或在 lib.rs 中直接使用
    ```
 

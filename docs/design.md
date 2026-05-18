@@ -15,7 +15,7 @@
 5. 扫描 `.cpp2rust/<feature>/cpp/**/*.cpp2rust`
 6. 交互式选择参与转换的中间件文件（非交互自动全选）
 7. 对选中文件执行 `clang -ast-dump=json`
-8. 抽取函数/类/方法与类型信息，生成按 `mod_<group>` 组织的语义模块（include/types/free/class/method）
+8. 抽取函数/类/方法与类型信息，为每个选中的翻译单元生成一个平铺的 `<stem>.rs`（1:1 映射，包含完整 hicc 脚手架）
 9. 生成 `Cargo.toml` / `build.rs` / `src/lib.rs` 与接口报告
 
 说明：
@@ -43,17 +43,12 @@
         ├── lib.rs
         ├── common/
         │   ├── mod.rs
-        │   ├── includes.rs
-        │   └── types.rs
-        ├── mod_<group>/
-        │   ├── mod.rs
-        │   ├── include/mod.rs
-        │   ├── types/mod.rs
-        │   ├── free/mod.rs + fn_*.rs
-        │   ├── class/mod.rs + cls_*.rs（类级语义结构/元信息）
-        │   ├── method/mod.rs + mtd_*.rs（实例方法）
-        │   └── meta.json
-        ├── (merge 后) -> src.2
+        │   ├── includes.rs  # 中间件路径元数据（不参与 merge 输出）
+        │   └── types.rs     # 聚合枚举定义与类型别名（参与 merge 输出）
+        ├── <stem>.rs          # 平铺模块（1:1 对应翻译单元），含完整 hicc 脚手架
+        │                      # （hicc::cpp! + import_class! + import_lib! + 元数据常量）
+        ├── <stem>.meta.json   # 该翻译单元的元数据清单
+        ├── (merge 后) src -> src.2
         ├── src.1/
         └── src.2/
             ├── lib.rs          # 合并后 FFI 入口（汇聚所有翻译单元）
@@ -74,14 +69,19 @@
 
 ## v1 能力边界（当前实现）
 
-- 当前语义拆分的实际绑定内容主要是：
-  - `include/`：`hicc::cpp!` include 上下文
-  - `free/`：自由函数与静态方法
-  - `method/`：类实例方法（包含 virtual 与 abstract 两种路径）
-- `class/`：类级语义结构层（类名、方法计数、类-方法关系 + 访问函数），不是方法绑定层；仅保留于 per-group 产物供检阅，不参与 merge 输出。
-- `types/`：类型语义层（类型清单 + C++→Rust 映射 + 查询函数），per-group 块参与 merge 语义组织。
-- `common/*`：共享语义层；`types.rs` 中的枚举定义与类型别名（业务代码）参与 merge 输出；`CPP_TYPES` 等元数据常量与 `includes.rs`（路径元数据）**不**参与 merge 输出。
-- `global/`：当前版本不生成，保留为预留扩展点。
+- 每个翻译单元的全部绑定内容集中在一个平铺的 `<stem>.rs` 文件中，按以下顺序排列：
+  1. `hicc::cpp!`：中间件 include 上下文
+  2. `#[repr(C)] pub enum`：提取的 C++ 枚举定义
+  3. `pub type`：typedef / using 别名
+  4. `hicc::import_class!`：每个 C++ 类一个块（含 `#[interface]` trait）
+  5. `hicc::import_lib!`：自由函数、静态方法、构造工厂函数、全局变量
+  6. 类级元数据常量（`CLASS_COUNT`、`CLASS_NAMES` 等，供检阅）
+  7. C++ 类型元数据（`CPP_TYPES`、`CPP_RUST_TYPE_MAPPINGS` 等，供检阅）
+  8. 注释掉的 operator shim 骨架（如有运算符重载）
+  9. 注释掉的 `@dynamic_cast` 骨架（如有继承关系）
+  10. 注释掉的 `@placement_new` 骨架（如有构造函数）
+- `common/types.rs`：跨 TU 聚合的枚举定义与类型别名（业务代码）参与 merge 输出；
+  `CPP_TYPES`、`CLASS_NAMES` 等元数据常量与 `common/includes.rs`（路径元数据）**不**参与 merge 输出。
 
 **虚函数与抽象类支持**：
 
@@ -95,11 +95,9 @@
 抽取阶段会跳过并报告：constructor、destructor、operator overload、无法解锁的 template declarations、部分 unsupported_type。
 
 merge 语义边界（当前）：
-- 参与 `lib.rs` 输出的内容：hicc::cpp! includes、枚举定义、类型别名、`import_class!`、`import_lib!`。
-- `method/` 贡献 `import_class!`（包括 `#[interface]`）；`free/` 贡献 `import_lib!`。
-- `class/` 仅生成在 per-group `src.1/<stem>/class/` 中供检阅，**不**进入 merge 输出（CLASS_NAMES、CLASS_METHOD_COUNTS 等元信息常量对 FFI 绑定无意义）。
-- `common/types.rs` 中的**枚举定义和类型别名**写入 `lib.rs`；`CPP_TYPES`、`CPP_RUST_TYPE_MAPPINGS` 等元数据和 `common/includes.rs`（路径元数据）**不**进入 merge 输出。
-- `global/` 当前不参与 merge 产物，为预留扩展点。
+- 参与 `lib.rs` 输出的内容：`hicc::cpp!` includes、枚举定义、类型别名、`import_class!`、`import_lib!`。
+- 类级元数据常量（`CLASS_NAMES`、`CLASS_METHOD_COUNTS` 等）以及类型元数据（`CPP_TYPES`、`CPP_RUST_TYPE_MAPPINGS` 等）**不**进入 merge 输出（对 FFI 绑定无意义）。
+- `common/types.rs` 中的**枚举定义和类型别名**写入 `lib.rs`；`common/includes.rs`（路径元数据）**不**进入 merge 输出。
 
 ## hicc 约束
 
@@ -118,28 +116,28 @@ Rust 侧项目搭建统一使用：
 
 | C++ 特性 | 状态 | 输出位置 | 说明 |
 |----------|------|---------|------|
-| 自由函数（非模板） | ✅ | `free/fn_*.rs` | `import_lib!` + `#[cpp(func = "...")]` |
-| 函数重载 | ✅ | `free/fn_*.rs` | 自动追加 `_2`, `_3`, … 后缀 |
-| 命名空间函数 | ✅ | `free/fn_*.rs` | 限定名嵌入 `#[cpp(func = "ns::foo(...)")]` |
-| 类实例方法 | ✅ | `method/mtd_*.rs` | `import_class!` + `#[cpp(method = "...")]` |
-| `const` 方法 | ✅ | `method/mtd_*.rs` | 映射为 `fn foo(&self)` |
-| 非 `const` 方法 | ✅ | `method/mtd_*.rs` | 映射为 `fn foo(&mut self)` |
-| 非纯 `virtual` 方法 | ✅ | `method/mtd_*.rs` | hicc 通过 vtable 透明调用 |
-| 全纯虚类（抽象接口）| ✅ | `method/mtd_*.rs` | `#[interface]` trait 语法 |
-| 混合类（部分纯虚）| ✅ | `method/mtd_*.rs` | 普通方法正常提取；纯虚方法生成 companion interface |
-| 构造函数 | ✅ | `method/mtd_*.rs` | 主构造函数 `ctor="..."`；额外构造函数为工厂函数 |
-| `static` 方法 | ✅ | `free/fn_*.rs` | `import_lib!` + `#[cpp(func = "ClassName::method(...)")]` |
-| public 继承 | ✅ | `method/mtd_*.rs` | `class Derived: Base` 语法 |
-| `@make_proxy` | ✅ | `free/fn_*.rs` | 全纯虚类自动生成；支持 Rust 实现 C++ 接口 |
-| 全局变量 | ✅ | `free/fn_*.rs` | `#[cpp(data = "...")]` 绑定 |
-| 枚举（`enum`/`enum class`）| ✅ | `types/mod.rs` | `#[repr(C)] enum` |
-| `typedef`/`using` 别名 | ✅ | `types/mod.rs` | 注册到 AliasRegistry，解锁模板提取 |
-| 模板特化（有别名） | ⚠️ | `method/mtd_*.rs` | 需要 `typedef`/`using` 别名；见下方 AliasRegistry 指南 |
+| 自由函数（非模板） | ✅ | `<stem>.rs` | `import_lib!` + `#[cpp(func = "...")]` |
+| 函数重载 | ✅ | `<stem>.rs` | 自动追加 `_2`, `_3`, … 后缀 |
+| 命名空间函数 | ✅ | `<stem>.rs` | 限定名嵌入 `#[cpp(func = "ns::foo(...)")]` |
+| 类实例方法 | ✅ | `<stem>.rs` | `import_class!` + `#[cpp(method = "...")]` |
+| `const` 方法 | ✅ | `<stem>.rs` | 映射为 `fn foo(&self)` |
+| 非 `const` 方法 | ✅ | `<stem>.rs` | 映射为 `fn foo(&mut self)` |
+| 非纯 `virtual` 方法 | ✅ | `<stem>.rs` | hicc 通过 vtable 透明调用 |
+| 全纯虚类（抽象接口）| ✅ | `<stem>.rs` | `#[interface]` trait 语法 |
+| 混合类（部分纯虚）| ✅ | `<stem>.rs` | 普通方法正常提取；纯虚方法生成 companion interface |
+| 构造函数 | ✅ | `<stem>.rs` | 主构造函数 `ctor="..."`；额外构造函数为工厂函数 |
+| `static` 方法 | ✅ | `<stem>.rs` | `import_lib!` + `#[cpp(func = "ClassName::method(...)")]` |
+| public 继承 | ✅ | `<stem>.rs` | `class Derived: Base` 语法 |
+| `@make_proxy` | ✅ | `<stem>.rs` | 全纯虚类自动生成；支持 Rust 实现 C++ 接口 |
+| 全局变量 | ✅ | `<stem>.rs` | `#[cpp(data = "...")]` 绑定 |
+| 枚举（`enum`/`enum class`）| ✅ | `<stem>.rs` | `#[repr(C)] enum` |
+| `typedef`/`using` 别名 | ✅ | `<stem>.rs` | 注册到 AliasRegistry，解锁模板提取 |
+| 模板特化（有别名） | ⚠️ | `<stem>.rs` | 需要 `typedef`/`using` 别名；见下方 AliasRegistry 指南 |
 | 模板类（无别名） | ⚠️ | — | 跳过并标记 `tool_conservative`；添加别名后可解锁 |
-| 运算符重载 | ⚠️ | `free/shim_ops.rs` | 生成 `operator_shims.hpp` starter；需用户补全实现后使用 |
+| 运算符重载 | ⚠️ | `<stem>.rs`（注释骨架）+ `meta/operator_shims.hpp` | 生成 `operator_shims.hpp` starter；需用户补全实现后使用 |
 | 析构函数 | ❌ | — | hicc 不支持显式析构；跳过并标记 `hicc_limitation` |
 | 友元函数 | ❌ | — | AST 不可靠提取；跳过 |
-| 多重继承 | ✅（骨架）/ ❌（运行时） | `method/mtd_*.rs` | 所有 public 基类均提取，生成 `class C: A, B`；hicc 不支持多重继承运行时语义，骨架无法直接使用 |
+| 多重继承 | ✅（骨架）/ ❌（运行时） | `<stem>.rs` | 所有 public 基类均提取，生成 `class C: A, B`；hicc 不支持多重继承运行时语义，骨架无法直接使用 |
 | 函数指针参数 | ❌ | — | 含 `(*)` 的类型跳过，标记 `hicc_limitation` |
 | `std::` 容器参数 | ⚠️ | — | 无别名时跳过；为容器类型添加 `using` 别名可解锁 |
 | variadic 函数 (`...`) | ❌ | — | 跳过，标记 `hicc_limitation` |
