@@ -85,29 +85,29 @@ pub fn render_flat_module(
     writeln!(out, "#![allow(non_snake_case, dead_code)]").unwrap();
     writeln!(out).unwrap();
 
-    // 1. hicc::cpp! include block.
-    out.push_str(&render_include_module(source_file_path));
-    writeln!(out).unwrap();
-
-    // 1b. Include operator_shims.hpp when operator shims are present.
-    if !decls.operator_shims.is_empty() {
+    // 1. Consolidated hicc::cpp! include block.
+    //    All C++ headers that hicc needs are placed in a single block:
+    //      - the middleware source file
+    //      - operator_shims.hpp (when operator shims are present)
+    //      - <hicc/std/memory.hpp> (when abstract / mixed classes need @make_proxy)
+    {
+        let raw_basename = std::path::Path::new(source_file_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(source_file_path);
+        let include_basename = raw_basename
+            .strip_suffix(".cpp2rust")
+            .unwrap_or(raw_basename);
+        let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
+        let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
         writeln!(out, "hicc::cpp! {{").unwrap();
-        writeln!(out, "    #include \"operator_shims.hpp\"").unwrap();
-        writeln!(out, "}}").unwrap();
-        writeln!(out).unwrap();
-    }
-
-    // @make_proxy support header (when abstract / mixed classes are present).
-    let has_abstract = decls.classes.iter().any(|c| c.is_abstract);
-    let has_mixed = decls.classes.iter().any(|c| c.has_pure_virtual);
-    if has_abstract || has_mixed {
-        writeln!(
-            out,
-            "// @make_proxy support: required for wrapping Rust structs as C++ interfaces."
-        )
-        .unwrap();
-        writeln!(out, "hicc::cpp! {{").unwrap();
-        writeln!(out, "    #include <hicc/std/memory.hpp>").unwrap();
+        writeln!(out, "    #include \"{}\"", include_basename).unwrap();
+        if !decls.operator_shims.is_empty() {
+            writeln!(out, "    #include \"operator_shims.hpp\"").unwrap();
+        }
+        if has_abstract || has_mixed {
+            writeln!(out, "    #include <hicc/std/memory.hpp>").unwrap();
+        }
         writeln!(out, "}}").unwrap();
         writeln!(out).unwrap();
     }
@@ -133,7 +133,9 @@ pub fn render_flat_module(
     }
 
     // 5. import_lib! block (free fns, static methods, ctors, globals).
-    out.push_str(&render_free_module(decls, link_name));
+    // Call render_import_lib directly to avoid a duplicate hicc::cpp! block
+    // (render_free_module also emits one for abstract/mixed classes).
+    render_import_lib(&mut out, decls, link_name);
 
     out
 }
