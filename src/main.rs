@@ -483,13 +483,13 @@ fn run_init(args: InitArgs) -> Result<()> {
             );
         }
         if had_any_shims {
-            println!("  operator shims  →  meta/operator_shims.hpp + free/shim_ops.rs");
+            println!("  operator shims  →  meta/operator_shims.hpp + <stem>.rs (commented-out section)");
         }
         if had_any_dynamic_casts {
-            println!("  dynamic cast starters  →  free/dynamic_casts.rs");
+            println!("  dynamic cast starters  →  <stem>.rs (commented-out section)");
         }
         if had_any_placement_new {
-            println!("  placement-new starters  →  free/placement_new.rs");
+            println!("  placement-new starters  →  <stem>.rs (commented-out section)");
         }
         if total_skipped > 0 {
             println!(

@@ -197,7 +197,7 @@ check_file    "${OUT}/meta/init-interface-report.md"
 check_any_rs  "${OUT}" 'link_name = "rapidjson"'
 # documentOk: accepts a const rjson::Document& — passes the type gate
 check_any_rs  "${OUT}" 'fn document_ok'
-# The types/mod.rs should have type-alias mappings for Document
+# The flat <stem>.rs should have type-alias mappings for Document
 check_any_rs  "${OUT}" 'Document'
 
 # ---------------------------------------------------------------------------
