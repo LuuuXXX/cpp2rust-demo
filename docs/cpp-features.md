@@ -8,9 +8,8 @@
 |------|------|
 | ✅ **已支持** | 工具自动提取，无需用户干预 |
 | ⚠️ **条件支持（ToolConservative）** | 满足特定条件时自动支持；不满足时跳过并在报告中标记 `tool_conservative`，可通过用户操作解锁 |
-| 🔧 **半自动（需用户补全）** | 工具生成 starter 骨架，用户确认/调整后可激活绑定 |
+| 🔧 **引导支持（需用户补全）** | 工具生成 starter 骨架或接口建议，用户据此填写 C++ shim 或 Rust impl 后可激活绑定 |
 | ❌ **不支持—hicc 限制（HiccLimitation）** | hicc 本身不支持，cpp2rust-demo 跳过并在报告中标记 `hicc_limitation` |
-| ⛔ **不支持—工具限制（ToolLimit）** | 当前 cpp2rust-demo 实现层面的技术债或架构限制，与 hicc 无关；原则上可在工具侧解决（见 `future-plan.md`） |
 
 ---
 
@@ -25,8 +24,8 @@
 | 函数模板（无显式特化） | ⚠️ | — | 需 AST 中有 concrete specialization 可见；否则跳过标记 `tool_conservative` |
 | Variadic 函数（`...`） | ❌ | — | `hicc_limitation`；跳过，建议手写固定参数 C++ 包装 |
 | `auto`/`decltype` 返回类型 | ❌ | — | `hicc_limitation`；跳过 |
-| 函数指针参数 | ❌ | — | `hicc_limitation`；含 `(*)` 的参数类型跳过 |
-| `std::function` / lambda 参数 | ❌ | — | `hicc_limitation`；建议封装为虚函数接口 + `@make_proxy` |
+| 函数指针参数 | 🔧 | 接口报告 | 跳过提取；工具自动生成纯虚接口骨架（`FooHandler`）+ `@make_proxy` 调用示例写入接口报告；用户据此手写 C++ 接口类 + Rust `impl XxxHandler for MyStruct` |
+| `std::function` / lambda 参数 | 🔧 | 接口报告 | 跳过提取；工具自动生成虚函数接口 + `@make_proxy` 骨架写入接口报告；用户据此手写 C++ 接口类 + Rust impl（hicc 本身支持通过 `@make_proxy` 反向绑定） |
 
 ---
 
@@ -134,10 +133,10 @@
 |------|---------|---------|
 | 析构函数 | hicc 无析构绑定语法 | 由 C++ 侧/RAII 管理生命周期；若需要通知 Rust，使用普通方法 |
 | `std::string` 参数/返回 | hicc 无 `std::string` ABI 支持 | C++ shim：返回 `const char*` 或接受 `const char*` 输入 |
-| `std::function` / lambda 参数 | 无法映射到 Rust 闭包 | 封装为虚函数接口，再用 `@make_proxy` 反向绑定 |
+| `std::function` / lambda 参数 | 无法映射到 Rust 闭包（需 @make_proxy 间接绑定） | 工具自动在接口报告中生成虚函数接口骨架 + `@make_proxy` 调用示例（🔧 引导支持）；据此手写 C++ 接口类 + Rust impl |
 | Variadic 函数 (`...`) | hicc 不支持可变参数 | 手写固定参数 C++ 包装函数 |
 | `auto`/`decltype` 返回类型 | 无法在 hicc 签名中表达 | 手写包装函数，显式写出返回类型 |
-| 函数指针参数 | Rust 函数指针 ABI 与 C++ 不兼容 | 封装为接口 + `@make_proxy` |
+| 函数指针参数 | Rust 函数指针 ABI 与 C++ 不兼容 | 工具自动在接口报告中生成纯虚接口骨架（`FooHandler`）+ `@make_proxy` 调用示例（🔧 引导支持）；据此手写 C++ 接口类 + Rust impl |
 | 右值引用（`T&&`，非 move ctor） | hicc 不支持 `&&` 语义 | 手写接受 `const T&` 或按值传递的 shim |
 | 方法模板 | 无法在 hicc 中表达泛型方法 | 针对具体实例化写 shim 函数 |
 | 友元函数 | AST `FriendDecl` 提取受限 | 将友元函数以普通自由函数形式重写为 shim |
