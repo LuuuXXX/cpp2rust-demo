@@ -91,7 +91,7 @@ print('  validated', sys.argv[1])
     cargo_check_pass=$((cargo_check_pass + 1))
   elif is_known_failing "$example_name"; then
     echo "  [KNOWN FAIL] cargo check $example_name (open codegen bug — see CARGO_CHECK_KNOWN_FAILING)" >&2
-    echo "$check_output" | { head -5; true; } >&2
+    echo "$check_output" | head -5 >&2 || true
     cargo_check_known_fail=$((cargo_check_known_fail + 1))
   else
     echo "FAIL: cargo check $example_name (unexpected failure)" >&2
