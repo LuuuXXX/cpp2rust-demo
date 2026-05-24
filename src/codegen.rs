@@ -28,25 +28,8 @@ pub fn generate_feature_project(layout: &FeatureLayout, units: &[TranslationUnit
 
 pub fn render_generated_cargo_toml(feature_name: &str) -> String {
     let pkg = sanitize_feature_name(feature_name);
-    // hicc is not published to crates.io; it is available at
-    //   https://gitcode.com/xuanwu/hicc
-    // Update the path below to point at your local checkout of hicc.
     format!(
-        r#"[package]
-name = "{pkg}"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["staticlib"]
-
-[dependencies]
-# hicc is sourced from https://gitcode.com/xuanwu/hicc — update the path below.
-hicc = {{ path = "/path/to/hicc/hicc", version = "0.2" }}
-
-[build-dependencies]
-hicc-build = {{ path = "/path/to/hicc/hicc-build", version = "0.2" }}
-"#
+        "[package]\nname = \"{pkg}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\ncrate-type = [\"staticlib\"]\n\n[dependencies]\nhicc = \"0.2\"\n\n[build-dependencies]\nhicc-build = \"0.2\"\n"
     )
 }
 
