@@ -1,0 +1,16 @@
+[package]
+name = "hicc-build"
+version = "0.2.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = [ "hantingjun <hantingjun@huawei.com>" ]
+repository = "https://gitcode.com/xuanwu/hicc"
+description = "c++ code build tool used with hicc crate"
+keywords = ["ffi", "build-dependencies", "hicc"]
+
+[dependencies]
+cc = { version = "^1.2.19", features = ["parallel"] }
+quote = "1"
+proc-macro2 = "1"
+syn = { version = "2", features = [ "full", "extra-traits" ] }
+hicc_autogen = { workspace = true }

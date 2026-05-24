@@ -1,0 +1,11 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hicc = { path = "../../hicc", version = "0.2" }
+hicc-std = { path = "../../hicc-std", version = "0.2" }
+
+[build-dependencies]
+hicc-build = { path = "../../hicc-build", version = "0.2" }

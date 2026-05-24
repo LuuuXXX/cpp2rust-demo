@@ -1,0 +1,14 @@
+[package]
+name = "hicc-rs-macros"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits", "fold"] }
+quote = "1"
+proc-macro2 = "1"
+
+regex-lite = "0.1"

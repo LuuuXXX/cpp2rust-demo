@@ -1,0 +1,18 @@
+[package]
+name = "hicc_autogen"
+version = "0.2.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = [ "hantingjun <hantingjun@huawei.com>" ]
+repository = "https://gitcode.com/xuanwu/hicc"
+description = "for hicc-macro/hicc-build"
+keywords = ["ffi", "c++", "cpp", "cxx", "cc"]
+
+[lib]
+
+[dependencies]
+quote = "1"
+proc-macro2 = { version = "1", features = [ "span-locations" ] }
+syn = { version = "2", features = [ "full", "extra-traits" ] }
+rustversion = "1.0"
+md5 = "0.8"

@@ -1,0 +1,20 @@
+[package]
+name = "hicc"
+version = "0.2.3"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = [ "hantingjun <hantingjun@huawei.com>" ]
+repository = "https://gitcode.com/xuanwu/hicc"
+description = "Safe, efficient, full-featured FFI between Rust and C++"
+keywords = ["ffi", "c++", "cpp", "cxx", "cc"]
+links = "hicc"
+
+[lib]
+
+[dependencies]
+hicc_macros = { workspace = true }
+rustversion = "0.1"
+
+[build-dependencies]
+hicc-build = { workspace = true }
+

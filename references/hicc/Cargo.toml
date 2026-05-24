@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "hicc",
+    "hicc-autogen",
+    "hicc-build",
+    "hicc-macros",
+    "hicc-std",
+]
+
+exclude = [
+    "examples/class",
+    "examples/datas",
+    "examples/destroy",
+    "examples/dynamic_cast",
+    "examples/functional",
+    "examples/functions",
+    "examples/hello-world",
+    "examples/hicc-std",
+    "examples/interface",
+    "examples/memory",
+    "examples/rust_any",
+    "examples/placement_new",
+    "examples/stl",
+]
+
+# 定义 workspace 共享依赖, 需要随时和具体子项目的版本号同步, 否则可能会导致版本发布后版本号依赖错误.
+[workspace.dependencies]
+hicc = { path = "hicc", version = "0.2.3" }
+hicc_autogen = { path = "hicc-autogen", version = "0.2.1" }
+hicc-build = { path = "hicc-build", version = "0.2.1" }
+hicc_macros = { path = "hicc-macros", version = "0.2.0" }
+hicc-std = { path = "hicc-std", version = "0.2.2" }
