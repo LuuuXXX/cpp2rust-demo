@@ -56,32 +56,49 @@ pub fn render_module(layout: &FeatureLayout, unit: &TranslationUnit, source_text
     out.push_str(&render_cpp_helpers(unit, &hints));
     out.push_str("}\n\n");
 
+    // Build set of abstract (interface) class simple names for base-class filtering.
+    let known_abstract: std::collections::HashSet<String> = unit
+        .classes
+        .iter()
+        .filter(|c| c.is_abstract)
+        .map(|c| simple_cpp_name(&c.qualified_name))
+        .collect();
+
+    // Non-template classes only.
+    let visible_classes: Vec<&ClassDecl> = unit.classes.iter().filter(|c| !c.is_template).collect();
+
     out.push_str("hicc::import_class! {\n");
-    for class in &unit.classes {
-        out.push_str(&render_class_decl(class));
+    for class in &visible_classes {
+        out.push_str(&render_class_decl(class, &known_abstract));
     }
     out.push_str("}\n\n");
 
     out.push_str("hicc::import_lib! {\n");
     out.push_str(&format!("    #![link_name = \"{}\"]\n\n", sanitize_feature_name(&layout.feature)));
-    for class in &unit.classes {
+    for class in &visible_classes {
         out.push_str(&format!("    class {};\n", simple_cpp_name(&class.qualified_name)));
     }
-    if !unit.classes.is_empty() {
+    if !visible_classes.is_empty() {
         out.push('\n');
     }
 
     let mut used_names = HashMap::<String, usize>::new();
-    for class in &unit.classes {
+    for class in &visible_classes {
         if let Some(constructor) = class.constructors.first() {
-            out.push_str(&render_constructor_fn(class, constructor, &mut used_names));
+            if !has_unmappable_types(&class.qualified_name, &constructor.params) {
+                out.push_str(&render_constructor_fn(class, constructor, &mut used_names));
+            }
         }
-        for method in class.methods.iter().filter(|method| method.is_static) {
-            out.push_str(&render_static_method_fn(class, method, &mut used_names));
+        for method in class.methods.iter().filter(|m| m.is_static && !m.is_template) {
+            if !has_unmappable_types(&method.return_type, &method.params) {
+                out.push_str(&render_static_method_fn(class, method, &mut used_names));
+            }
         }
     }
-    for function in &unit.functions {
-        out.push_str(&render_global_fn(function, &mut used_names));
+    for function in unit.functions.iter().filter(|f| !f.is_template) {
+        if !has_unmappable_types(&function.return_type, &function.params) {
+            out.push_str(&render_global_fn(function, &mut used_names));
+        }
     }
     out.push_str(&render_feature_comments(&hints));
     out.push_str("}\n");
@@ -130,7 +147,7 @@ fn render_cpp_helpers(unit: &TranslationUnit, hints: &indexmap::IndexMap<&'stati
     out
 }
 
-fn render_class_decl(class: &ClassDecl) -> String {
+fn render_class_decl(class: &ClassDecl, known_abstract: &std::collections::HashSet<String>) -> String {
     let mut out = String::new();
     if class.is_abstract {
         out.push_str("    #[interface]\n");
@@ -139,21 +156,16 @@ fn render_class_decl(class: &ClassDecl) -> String {
     } else {
         out.push_str(&format!("    #[cpp(class = \"{}\")]\n", class.qualified_name));
     }
-    out.push_str(&format!("    class {}{} {{\n", simple_cpp_name(&class.qualified_name), render_bases(&class.bases)));
-    let mut emitted = 0usize;
-    for method in class.methods.iter().filter(|method| !method.is_static) {
-        out.push_str(&render_method(method));
-        emitted += 1;
+    out.push_str(&format!("    class {}{} {{\n", simple_cpp_name(&class.qualified_name), render_bases(&class.bases, known_abstract)));
+    let mut method_names = HashMap::<String, usize>::new();
+    for method in class.methods.iter().filter(|m| !m.is_static && !m.is_template) {
+        out.push_str(&render_method(method, &mut method_names));
     }
-    if emitted == 0 {
-        out.push_str("    }\n\n");
-    } else {
-        out.push_str("    }\n\n");
-    }
+    out.push_str("    }\n\n");
     out
 }
 
-fn render_method(method: &MethodDecl) -> String {
+fn render_method(method: &MethodDecl, used_names: &mut HashMap<String, usize>) -> String {
     let receiver = if method.ref_qualifier.as_deref() == Some("&&") {
         "self".to_string()
     } else if method.is_const {
@@ -161,7 +173,7 @@ fn render_method(method: &MethodDecl) -> String {
     } else {
         "&mut self".to_string()
     };
-    let rust_name = rust_method_name(&method.name);
+    let rust_name = unique_name(used_names, &rust_method_name(&method.name));
     let args = method
         .params
         .iter()
@@ -269,15 +281,16 @@ fn render_enum(enm: &EnumDecl) -> String {
     out
 }
 
-fn render_bases(bases: &[String]) -> String {
-    let names = bases
+fn render_bases(bases: &[String], known_abstract: &std::collections::HashSet<String>) -> String {
+    // import_class! only supports extending a single #[interface] (abstract) base.
+    // Skip bases that are not locally declared abstract classes.
+    let name = bases
         .iter()
         .map(|base| simple_cpp_name(base))
-        .collect::<Vec<_>>();
-    if names.is_empty() {
-        String::new()
-    } else {
-        format!(": {}", names.join(", "))
+        .find(|n| known_abstract.contains(n));
+    match name {
+        Some(n) => format!(": {n}"),
+        None => String::new(),
     }
 }
 
@@ -293,12 +306,14 @@ fn map_cpp_type(cpp_type: &str, position: TypePosition) -> String {
     let normalized = ty.replace("class ", "").replace("struct ", "");
     let normalized = normalized.trim();
     match normalized {
-        "int" => "i32".into(),
-        "unsigned int" => "u32".into(),
-        "long" | "long int" => "i64".into(),
+        "int" | "signed int" => "i32".into(),
+        "unsigned int" | "uint" => "u32".into(),
+        "long" | "long int" | "signed long" | "signed long int" => "i64".into(),
         "unsigned long" | "unsigned long int" => "u64".into(),
-        "long long" | "long long int" => "i64".into(),
-        "short" | "short int" => "i16".into(),
+        "long long" | "long long int" | "signed long long" | "signed long long int" => "i64".into(),
+        "unsigned long long" | "unsigned long long int" | "long long unsigned int" => "u64".into(),
+        "short" | "short int" | "signed short" | "signed short int" => "i16".into(),
+        "unsigned short" | "unsigned short int" => "u16".into(),
         "char" | "signed char" => "i8".into(),
         "unsigned char" => "u8".into(),
         "float" => "f32".into(),
@@ -306,6 +321,17 @@ fn map_cpp_type(cpp_type: &str, position: TypePosition) -> String {
         "bool" => "bool".into(),
         "void" => "()".into(),
         "size_t" | "std::size_t" => "usize".into(),
+        "intptr_t" | "std::intptr_t" | "ssize_t" => "isize".into(),
+        "uintptr_t" | "std::uintptr_t" => "usize".into(),
+        "ptrdiff_t" | "std::ptrdiff_t" => "isize".into(),
+        "int8_t" | "std::int8_t" => "i8".into(),
+        "uint8_t" | "std::uint8_t" => "u8".into(),
+        "int16_t" | "std::int16_t" => "i16".into(),
+        "uint16_t" | "std::uint16_t" => "u16".into(),
+        "int32_t" | "std::int32_t" => "i32".into(),
+        "uint32_t" | "std::uint32_t" => "u32".into(),
+        "int64_t" | "std::int64_t" => "i64".into(),
+        "uint64_t" | "std::uint64_t" => "u64".into(),
         "const char *" | "const char*" => "*const u8".into(),
         "char *" | "char*" => "*mut u8".into(),
         "void *" | "void*" => "*mut std::ffi::c_void".into(),
@@ -315,24 +341,68 @@ fn map_cpp_type(cpp_type: &str, position: TypePosition) -> String {
 }
 
 fn map_complex_type(cpp_type: &str, position: TypePosition) -> String {
+    // Normalize "T *const" (const-qualified pointer, e.g. "const Foo *const") → "T *"
+    if let Some(base) = cpp_type.strip_suffix("*const") {
+        return map_complex_type(&format!("{}*", base.trim_end()), position);
+    }
+
     if let Some(inner) = strip_wrapper(cpp_type, "std::unique_ptr<") {
+        return simple_cpp_name(inner);
+    }
+    if let Some(inner) = strip_wrapper(cpp_type, "unique_ptr<") {
         return simple_cpp_name(inner);
     }
     if let Some(inner) = strip_wrapper(cpp_type, "std::shared_ptr<") {
         return format!("hicc::shared_ptr<{}>", map_cpp_type(inner, position));
     }
+    if let Some(inner) = strip_wrapper(cpp_type, "shared_ptr<") {
+        return simple_cpp_name(inner);
+    }
     if let Some(inner) = strip_wrapper(cpp_type, "std::function<") {
         return format!("hicc::Function<{}>", render_function_signature(inner));
     }
+
+    // Function pointer types: "RetType (*)(ArgTypes...)"
+    if let Some(fp_pos) = cpp_type.find("(*)") {
+        let ret_str = cpp_type[..fp_pos].trim();
+        let after = &cpp_type[fp_pos + 3..];
+        let args_str = after.trim_start_matches('(').trim_end_matches(')');
+        let ret = map_cpp_type(ret_str, TypePosition::Return);
+        let mapped_args = if args_str.trim().is_empty() {
+            String::new()
+        } else {
+            args_str
+                .split(',')
+                .map(|a| map_cpp_type(a.trim(), TypePosition::Param))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let ret_suffix = if ret == "()" { String::new() } else { format!(" -> {ret}") };
+        return format!("Option<unsafe extern \"C\" fn({mapped_args}){ret_suffix}>");
+    }
+
     if cpp_type.ends_with("&&") {
         return map_cpp_type(cpp_type.trim_end_matches("&&").trim(), position);
     }
     if cpp_type.ends_with('&') {
         let inner = cpp_type.trim_end_matches('&').trim();
-        if inner.starts_with("const ") {
-            return format!("&{}", simple_cpp_name(inner.trim_start_matches("const ").trim()));
-        }
-        return format!("&mut {}", simple_cpp_name(inner));
+        let (is_const, base) = if inner.starts_with("const ") {
+            (true, inner.trim_start_matches("const ").trim())
+        } else {
+            (false, inner)
+        };
+        let mapped_base = if is_primitive(base) {
+            map_cpp_type(base, TypePosition::Param)
+        } else {
+            simple_cpp_name(base)
+        };
+        return match (is_const, position) {
+            // Use raw pointers for reference returns to avoid lifetime annotation issues.
+            (true, TypePosition::Return) => format!("*const {mapped_base}"),
+            (false, TypePosition::Return) => format!("*mut {mapped_base}"),
+            (true, _) => format!("&{mapped_base}"),
+            (false, _) => format!("&mut {mapped_base}"),
+        };
     }
     if cpp_type.ends_with('*') {
         let inner = cpp_type.trim_end_matches('*').trim();
@@ -387,7 +457,111 @@ fn render_function_signature(signature: &str) -> String {
 }
 
 fn is_primitive(ty: &str) -> bool {
-    matches!(ty.trim(), "int" | "unsigned int" | "long" | "unsigned long" | "long long" | "short" | "char" | "unsigned char" | "float" | "double" | "bool" | "size_t" | "std::size_t")
+    matches!(
+        ty.trim(),
+        "int"
+            | "signed int"
+            | "unsigned int"
+            | "long"
+            | "unsigned long"
+            | "long long"
+            | "unsigned long long"
+            | "long long unsigned int"
+            | "short"
+            | "unsigned short"
+            | "char"
+            | "signed char"
+            | "unsigned char"
+            | "float"
+            | "double"
+            | "bool"
+            | "size_t"
+            | "std::size_t"
+            | "intptr_t"
+            | "uintptr_t"
+            | "ptrdiff_t"
+            | "int8_t"
+            | "uint8_t"
+            | "int16_t"
+            | "uint16_t"
+            | "int32_t"
+            | "uint32_t"
+            | "int64_t"
+            | "uint64_t"
+    )
+}
+
+/// Returns `true` for C++ types that cannot be mapped to valid Rust FFI types and
+/// whose functions/methods should be omitted from the generated bindings.
+fn is_unmappable_cpp_type(cpp_type: &str) -> bool {
+    let ty = cpp_type.trim();
+
+    // Empty or auto (deduced/lambda) return types
+    if ty.is_empty() || ty == "auto" {
+        return true;
+    }
+
+    // Variadic template packs
+    if ty.contains("...") {
+        return true;
+    }
+
+    // C++ standard library types that require special handling (typename/decltype)
+    if ty.contains("typename") || ty.contains("decltype") || ty.contains("::type") {
+        return true;
+    }
+
+    // System types without a simple Rust mapping
+    if ty.contains("nothrow_t") || ty.contains("align_val_t") || ty.contains("va_list") {
+        return true;
+    }
+
+    // STL sequence/associative containers (not smart pointers)
+    const CONTAINER_MARKERS: &[&str] = &[
+        "std::vector", "std::list", "std::deque", "std::forward_list",
+        "std::map", "std::set", "std::multimap", "std::multiset",
+        "std::unordered_map", "std::unordered_set", "std::unordered_multimap",
+        "std::priority_queue", "std::stack", "std::queue",
+        "std::pair", "std::tuple",
+        // Without std:: prefix (after simple_cpp_name stripping)
+        "vector<", "list<", "deque<", "map<", "set<", "pair<", "tuple<",
+        "multimap<", "unordered_map<", "unordered_set<",
+    ];
+    for marker in CONTAINER_MARKERS {
+        if ty.contains(marker) {
+            return true;
+        }
+    }
+
+    // smart pointer references (by-value smart pointers are OK, references are not)
+    if (ty.contains("shared_ptr") || ty.contains("unique_ptr"))
+        && ty.trim_end_matches(|c: char| c == ' ').ends_with('&')
+    {
+        return true;
+    }
+
+    // Template parameters: bare single/double uppercase letters (T, U, V, K, etc.)
+    let base = ty
+        .trim_start_matches("const ")
+        .trim()
+        .trim_end_matches("&&")
+        .trim()
+        .trim_end_matches('&')
+        .trim()
+        .trim_end_matches("*const")
+        .trim()
+        .trim_end_matches('*')
+        .trim();
+    if !base.is_empty() && base.len() <= 2 && base.chars().all(|c| c.is_ascii_uppercase()) {
+        return true;
+    }
+
+    false
+}
+
+fn has_unmappable_types(return_type: &str, params: &[crate::ast::ParameterDecl]) -> bool {
+    is_unmappable_cpp_type(return_type)
+        || params.iter().any(|p| is_unmappable_cpp_type(&p.qual_type))
 }
 
 fn render_rust_params(params: &[ParameterDecl]) -> String {
@@ -509,7 +683,9 @@ mod tests {
             }],
             ..ClassDecl::default()
         };
-        let rendered = render_class_decl(&class);
+        let known_abstract: std::collections::HashSet<String> =
+            std::iter::once("Shape".to_string()).collect();
+        let rendered = render_class_decl(&class, &known_abstract);
         assert!(rendered.contains("#[interface]"));
         assert!(rendered.contains("fn area(&self) -> f64;"));
     }

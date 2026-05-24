@@ -8,23 +8,6 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 # not fail the script (tracked as known issues).  Remove an entry here once
 # the underlying bug is fixed.
 CARGO_CHECK_KNOWN_FAILING=(
-  02-pointers-references   # typedef function-pointer type aliases not mapped
-  03-classes-basic         # nested/forward-declared class types not resolved
-  04-inheritance           # base-class initialisation codegen incomplete
-  05-virtual-polymorphism  # trait objects used where concrete types required; duplicate fields
-  06-operator-overload     # operator methods emitted twice (duplicate definitions)
-  07-templates-function    # template type parameters (T, V) not erased in output
-  08-templates-class       # template type parameters not erased in output
-  10-stl-containers        # STL container types (vector, pair) not mapped
-  11-smart-pointers        # shared_ptr / unique_ptr type mapping gaps
-  12-move-semantics        # rvalue/move type mapping issues
-  13-lambdas-functional    # std::function / closure type mapping incomplete
-  14-type-casting          # cast-result types not fully mapped
-  15-exceptions            # std::nothrow_t / std::align_val_t not filtered
-  16-static-members        # static member codegen issues
-  18-const-correctness     # const-qualified reference lifetime issues
-  19-memory-management     # operator new overloads (nothrow_t) not filtered
-  20-template-specialization # template specialisation types not resolved
 )
 
 is_known_failing() {

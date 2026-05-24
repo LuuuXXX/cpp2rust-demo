@@ -76,6 +76,8 @@ pub struct MethodDecl {
     pub is_static: bool,
     pub is_virtual: bool,
     pub throws: bool,
+    #[serde(default)]
+    pub is_template: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -334,9 +336,20 @@ impl Parser {
                 Some("FunctionTemplateDecl") => {
                     for grand in children(child) {
                         if kind(grand) == Some("CXXMethodDecl") {
-                            if let Some(method) = self.parse_method(grand, namespaces, raw_name) {
+                            if let Some(mut method) = self.parse_method(grand, namespaces, raw_name) {
+                                method.is_template = true;
                                 class.methods.push(method);
                             }
+                        }
+                    }
+                }
+                Some("CXXRecordDecl") | Some("ClassTemplateSpecializationDecl") => {
+                    // Parse nested class definitions and add them to the translation unit.
+                    let mut nested_ns = namespaces.to_vec();
+                    nested_ns.push(raw_name.to_string());
+                    if let Some(nested) = self.parse_class(child, &nested_ns) {
+                        if self.seen_classes.insert(nested.qualified_name.clone()) {
+                            self.tu.classes.push(nested);
                         }
                     }
                 }
@@ -397,6 +410,7 @@ impl Parser {
             is_virtual: node.get("virtual").and_then(Value::as_bool).unwrap_or(false)
                 || qual_type.contains("virtual"),
             throws: source_slice(&self.source_text, range(node)).contains("throw"),
+            is_template: false,
         })
     }
 
@@ -526,10 +540,39 @@ fn signature_key(name: &str, params: &[ParameterDecl]) -> String {
 }
 
 fn function_return_from_qualtype(qual_type: &str) -> String {
-    qual_type
-        .split_once('(')
-        .map(|(ret, _)| ret.trim().to_string())
-        .unwrap_or_else(|| qual_type.trim().to_string())
+    // Find the function argument list by scanning for the last '(' at top-level
+    // (i.e. not inside '<>' or '()'), so "std::function<int (int)> (int)" → "std::function<int (int)>"
+    let bytes = qual_type.as_bytes();
+    let mut paren_depth: i32 = 0;
+    let mut angle_depth: i32 = 0;
+    let mut last_top_open: Option<usize> = None;
+    for (i, &ch) in bytes.iter().enumerate() {
+        match ch {
+            b'<' => angle_depth += 1,
+            b'>' => {
+                if angle_depth > 0 {
+                    angle_depth -= 1;
+                }
+            }
+            b'(' if angle_depth == 0 => {
+                if paren_depth == 0 {
+                    last_top_open = Some(i);
+                }
+                paren_depth += 1;
+            }
+            b')' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(pos) = last_top_open {
+        qual_type[..pos].trim().to_string()
+    } else {
+        qual_type.trim().to_string()
+    }
 }
 
 fn range(node: &Value) -> Option<SourceRange> {
