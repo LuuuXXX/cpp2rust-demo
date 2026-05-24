@@ -469,6 +469,10 @@ impl FileMatcher {
     }
 
     fn matches(&self, loc: &str) -> bool {
+        // Nodes whose location was inherited from the main TU file always match.
+        if loc == MAIN_TU_FILE {
+            return true;
+        }
         if is_system_path(loc) {
             return false;
         }
@@ -570,6 +574,12 @@ fn children(node: &Value) -> &[Value] {
         .unwrap_or(&[])
 }
 
+/// Sentinel returned when a node has position info but no explicit file in its loc.
+/// Clang AST JSON inherits the current file in context and only emits `loc.file`
+/// when the file changes.  Nodes without a `file` key but with an `offset` or `line`
+/// are therefore in the translation-unit root file.
+const MAIN_TU_FILE: &str = "<main>";
+
 fn node_location(node: &Value) -> Option<String> {
     let loc = node.get("loc")?;
     if let Some(file) = loc.get("file").and_then(Value::as_str) {
@@ -589,6 +599,11 @@ fn node_location(node: &Value) -> Option<String> {
         .and_then(Value::as_str)
     {
         return Some(file.into());
+    }
+    // loc exists but no `file` key: the node is at an offset/line within the
+    // currently-active file.  In the root TU that is the main source file.
+    if loc.get("offset").is_some() || loc.get("line").is_some() {
+        return Some(MAIN_TU_FILE.into());
     }
     None
 }
@@ -731,5 +746,37 @@ mod tests {
         assert_eq!(hints["dynamic_cast"], true);
         assert_eq!(hints["std_function"], true);
         assert_eq!(hints["placement_new"], true);
+    }
+
+    /// Clang AST JSON omits `loc.file` for nodes in the TU root file (only
+    /// emits it when the file changes). This test verifies that such nodes
+    /// are parsed correctly using the MAIN_TU_FILE sentinel.
+    #[test]
+    fn parses_functions_without_loc_file() {
+        let dir = test_dir("no-loc-file");
+        let source = dir.join("main.cpp");
+        fs::write(&source, "int add(int a, int b) { return a + b; }").unwrap();
+        // Simulate real Clang JSON: loc has offset/line but no "file" key.
+        let ast = serde_json::json!({
+            "kind": "TranslationUnitDecl",
+            "inner": [
+                {
+                    "kind": "FunctionDecl",
+                    "name": "add",
+                    "loc": { "offset": 0, "line": 1, "col": 1, "tokLen": 3 },
+                    "range": { "begin": { "offset": 0, "col": 1 }, "end": { "offset": 38, "col": 39 } },
+                    "type": { "qualType": "int (int, int)" },
+                    "inner": [
+                        { "kind": "ParmVarDecl", "name": "a", "type": { "qualType": "int" } },
+                        { "kind": "ParmVarDecl", "name": "b", "type": { "qualType": "int" } }
+                    ]
+                }
+            ]
+        });
+        let ast_path = dir.join("main.cpp.json");
+        fs::write(&ast_path, serde_json::to_string(&ast).unwrap()).unwrap();
+        let unit = parse_translation_unit(&ast_path, &source).unwrap();
+        assert_eq!(unit.functions.len(), 1, "function with offset-only loc must be captured");
+        assert_eq!(unit.functions[0].name, "add");
     }
 }

@@ -11,6 +11,18 @@ cargo build --release
 
 Requirements: Linux, `g++`/`clang++`, `make`, and `clang++` with JSON AST dump support.
 
+### hicc dependency
+
+The generated Rust project depends on [hicc](https://gitcode.com/xuanwu/hicc) — a safe C++/Rust FFI library that is **not** published to crates.io.  After running `cpp2rust-demo init`, update the `hicc` and `hicc-build` path entries in the generated `.cpp2rust/<feature>/rust/Cargo.toml` to point at your local clone of the hicc repository:
+
+```toml
+[dependencies]
+hicc = { path = "/your/local/hicc/hicc" }
+
+[build-dependencies]
+hicc-build = { path = "/your/local/hicc/hicc-build" }
+```
+
 ## Usage
 
 ```bash

@@ -28,8 +28,25 @@ pub fn generate_feature_project(layout: &FeatureLayout, units: &[TranslationUnit
 
 pub fn render_generated_cargo_toml(feature_name: &str) -> String {
     let pkg = sanitize_feature_name(feature_name);
+    // hicc is not published to crates.io; it is available at
+    //   https://gitcode.com/xuanwu/hicc
+    // Update the path below to point at your local checkout of hicc.
     format!(
-        "[package]\nname = \"{pkg}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\ncrate-type = [\"staticlib\"]\n\n[dependencies]\nhicc = \"0.2\"\n\n[build-dependencies]\nhicc-build = \"0.2\"\n"
+        r#"[package]
+name = "{pkg}"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# hicc is sourced from https://gitcode.com/xuanwu/hicc — update the path below.
+hicc = {{ path = "/path/to/hicc/hicc", version = "0.2" }}
+
+[build-dependencies]
+hicc-build = {{ path = "/path/to/hicc/hicc-build", version = "0.2" }}
+"#
     )
 }
 
@@ -186,10 +203,11 @@ fn render_method(method: &MethodDecl) -> String {
     } else {
         return_type
     };
+    let ret_suffix = rust_ret_suffix(&return_type);
     if args.is_empty() {
-        format!("        #[cpp(method = \"{} {}(){}{}\")]\n        fn {}({}) -> {};\n", method.return_type, method.name, qualifiers, ref_qual, rust_name, receiver, return_type)
+        format!("        #[cpp(method = \"{} {}(){}{}\")]\n        fn {}({}){ret_suffix};\n", method.return_type, method.name, qualifiers, ref_qual, rust_name, receiver)
     } else {
-        format!("        #[cpp(method = \"{} {}({}){}{}\")]\n        fn {}({}, {}) -> {};\n", method.return_type, method.name, signature_args, qualifiers, ref_qual, rust_name, receiver, args, return_type)
+        format!("        #[cpp(method = \"{} {}({}){}{}\")]\n        fn {}({}, {}){ret_suffix};\n", method.return_type, method.name, signature_args, qualifiers, ref_qual, rust_name, receiver, args)
     }
 }
 
@@ -219,7 +237,8 @@ fn render_static_method_fn(class: &ClassDecl, method: &MethodDecl, used_names: &
     let args = render_rust_params(&method.params);
     let cpp_args = cpp_param_list(&method.params);
     let return_type = map_cpp_type(&method.return_type, TypePosition::Return);
-    format!("    #[cpp(func = \"{} {}::{}({})\")]\n    fn {}({}) -> {};\n", method.return_type, class.qualified_name, method.name, cpp_args, rust_name, args, return_type)
+    let ret_suffix = rust_ret_suffix(&return_type);
+    format!("    #[cpp(func = \"{} {}::{}({})\")]\n    fn {}({}){ret_suffix};\n", method.return_type, class.qualified_name, method.name, cpp_args, rust_name, args)
 }
 
 fn render_global_fn(function: &FunctionDecl, used_names: &mut HashMap<String, usize>) -> String {
@@ -227,10 +246,11 @@ fn render_global_fn(function: &FunctionDecl, used_names: &mut HashMap<String, us
     let args = render_rust_params(&function.params);
     let cpp_args = cpp_param_list(&function.params);
     let return_type = map_cpp_type(&function.return_type, TypePosition::Return);
+    let ret_suffix = rust_ret_suffix(&return_type);
     if args.is_empty() {
-        format!("    #[cpp(func = \"{} {}()\")]\n    fn {}() -> {};\n", function.return_type, function.qualified_name, rust_name, return_type)
+        format!("    #[cpp(func = \"{} {}()\")]\n    fn {}(){ret_suffix};\n", function.return_type, function.qualified_name, rust_name)
     } else {
-        format!("    #[cpp(func = \"{} {}({})\")]\n    fn {}({}) -> {};\n", function.return_type, function.qualified_name, cpp_args, rust_name, args, return_type)
+        format!("    #[cpp(func = \"{} {}({})\")]\n    fn {}({}){ret_suffix};\n", function.return_type, function.qualified_name, cpp_args, rust_name, args)
     }
 }
 
@@ -447,6 +467,15 @@ fn operator_helper_name(class_name: &str, method_name: &str) -> String {
     format!("{}_{}", rust_ident(class_name), rust_ident(method_name))
 }
 
+/// Returns ` -> T` for non-void Rust return types, or empty string for `()`.
+fn rust_ret_suffix(rust_type: &str) -> String {
+    if rust_type == "()" {
+        String::new()
+    } else {
+        format!(" -> {rust_type}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,6 +497,12 @@ mod tests {
         assert_eq!(map_cpp_type("int", TypePosition::Param), "i32");
         assert_eq!(map_cpp_type("const char*", TypePosition::Param), "*const u8");
         assert_eq!(map_cpp_type("std::unique_ptr<Foo>", TypePosition::Return), "Foo");
+    }
+
+    #[test]
+    fn void_return_omits_arrow() {
+        assert_eq!(rust_ret_suffix("()"), "");
+        assert_eq!(rust_ret_suffix("i32"), " -> i32");
     }
 
     #[test]
