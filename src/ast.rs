@@ -543,8 +543,8 @@ fn function_return_from_qualtype(qual_type: &str) -> String {
     // Find the function argument list by scanning for the last '(' at top-level
     // (i.e. not inside '<>' or '()'), so "std::function<int (int)> (int)" → "std::function<int (int)>"
     let bytes = qual_type.as_bytes();
-    let mut paren_depth: i32 = 0;
-    let mut angle_depth: i32 = 0;
+    let mut paren_depth: u32 = 0;
+    let mut angle_depth: u32 = 0;
     let mut last_top_open: Option<usize> = None;
     for (i, &ch) in bytes.iter().enumerate() {
         match ch {

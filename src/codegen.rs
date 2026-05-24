@@ -534,15 +534,22 @@ fn is_unmappable_cpp_type(cpp_type: &str) -> bool {
     }
 
     // smart pointer references (by-value smart pointers are OK, references are not)
-    if (ty.contains("shared_ptr") || ty.contains("unique_ptr"))
-        && ty.trim_end_matches(|c: char| c == ' ').ends_with('&')
-    {
+    if (ty.contains("shared_ptr") || ty.contains("unique_ptr")) && ty.trim_end().ends_with('&') {
         return true;
     }
 
     // Template parameters: bare single/double uppercase letters (T, U, V, K, etc.)
-    let base = ty
-        .trim_start_matches("const ")
+    let base = strip_type_decorators(ty);
+    if !base.is_empty() && base.len() <= 2 && base.chars().all(|c| c.is_ascii_uppercase()) {
+        return true;
+    }
+
+    false
+}
+
+/// Strip qualifiers/decorators from a C++ type to reach the base name.
+fn strip_type_decorators(ty: &str) -> &str {
+    ty.trim_start_matches("const ")
         .trim()
         .trim_end_matches("&&")
         .trim()
@@ -551,12 +558,7 @@ fn is_unmappable_cpp_type(cpp_type: &str) -> bool {
         .trim_end_matches("*const")
         .trim()
         .trim_end_matches('*')
-        .trim();
-    if !base.is_empty() && base.len() <= 2 && base.chars().all(|c| c.is_ascii_uppercase()) {
-        return true;
-    }
-
-    false
+        .trim()
 }
 
 fn has_unmappable_types(return_type: &str, params: &[crate::ast::ParameterDecl]) -> bool {
