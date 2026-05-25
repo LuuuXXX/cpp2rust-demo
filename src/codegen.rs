@@ -593,12 +593,12 @@ fn is_unmappable_cpp_type(cpp_type: &str) -> bool {
     }
 
     // Lambda types produced by Clang: "(lambda at path/to/file.cpp:line:col)"
-    if ty.contains("(lambda") || ty.starts_with("lambda") {
+    if ty.contains("(lambda") {
         return true;
     }
 
     // C++ string types (std::string is not FFI-safe; use *const u8 / CStr at call sites)
-    if ty.contains("std::string") || ty.contains("basic_string") || ty == "string" {
+    if ty.contains("std::string") || ty.contains("basic_string") {
         return true;
     }
 
