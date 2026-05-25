@@ -25,7 +25,7 @@ examples/043_namespace_nested/
 
 ### 1.3 目标
 
-开发一个**自动化工具**，输入是 C++ 头文件和源文件，输出是完整的 rust_hicc 项目结构（包括 build.rs、Cargo.toml、src/main.rs）。
+开发一个**自动化工具**，输入是 C++ 头文件，输出是完整的 rust_hicc 项目结构（包括 build.rs、Cargo.toml、src/main.rs）。
 
 ## 2. 技术方案
 
@@ -39,7 +39,7 @@ examples/043_namespace_nested/
 
 ### 2.2 自动化方案
 
-参考 `c2rust-demo` 的自动化流程 + `bindgen` 的头文件解析能力，设计一个针对 hicc 的自动化工具。
+参考 `bindgen` 的头文件解析能力，设计一个针对 hicc 的自动化工具。
 
 **核心思路**：
 1. 使用 **Clang** 解析 C++ 头文件，提取类型、函数、类信息
@@ -236,17 +236,10 @@ pub struct ClassInfo {
 | Clang AST 节点 | JSON kind 值 | 解析目标 |
 |----------------|--------------|----------|
 | `CXXRecordDecl` | `"CXXRecordDecl"` | 类/结构体 |
-| `CXXMethodDecl` | `"CXXMethodDecl"` | 类方法 |
 | `FunctionDecl` | `"FunctionDecl"` | 函数声明 |
 | `EnumDecl` | `"EnumDecl"` | 枚举 |
-| `EnumConstantDecl` | `"EnumConstantDecl"` | 枚举值 |
+| `CXXMethodDecl` | `"CXXMethodDecl"` | 类方法 |
 | `NamespaceDecl` | `"NamespaceDecl"` | 命名空间 |
-| `FieldDecl` | `"FieldDecl"` | 类成员字段 |
-| `ParmVarDecl` | `"ParmVarDecl"` | 函数参数 |
-| `VarDecl` | `"VarDecl"` | 变量/静态成员 |
-| `TypedefDecl` | `"TypedefDecl"` | 类型别名 |
-
-**详细示例**：参见 [Clang AST 解析示例](./v1/clang-ast-examples.md)
 
 ### 4.4 Phase 3-4 详细设计
 

@@ -112,46 +112,25 @@ namespace foo {
                 {
                   "id": "0x140",
                   "kind": "CXXConstructorDecl",
-                  "name": "ConfigManager",
-                  "isImplicit": false
+                  "name": "ConfigManager"
                 },
                 {
                   "id": "0x141",
                   "kind": "CXXDestructorDecl",
-                  "name": "~ConfigManager",
-                  "isImplicit": false
+                  "name": "~ConfigManager"
                 },
                 {
                   "id": "0x142",
                   "kind": "CXXMethodDecl",
                   "name": "set_value",
-                  "type": {"qualType": "void (const char *, int)"},
-                  "inner": [
-                    {
-                      "kind": "ParmVarDecl",
-                      "name": "key",
-                      "type": {"qualType": "const char *"}
-                    },
-                    {
-                      "kind": "ParmVarDecl",
-                      "name": "value",
-                      "type": {"qualType": "int"}
-                    }
-                  ]
+                  "type": {"qualType": "void (const char *, int)"}
                 },
                 {
                   "id": "0x143",
                   "kind": "CXXMethodDecl",
                   "name": "get_value",
                   "type": {"qualType": "int (const char *) const"},
-                  "const": true,
-                  "inner": [
-                    {
-                      "kind": "ParmVarDecl",
-                      "name": "key",
-                      "type": {"qualType": "const char *"}
-                    }
-                  ]
+                  "const": true
                 }
               ]
             }
@@ -409,7 +388,7 @@ pub struct MyClangType {
 
 ## 7. 总结
 
-Clang AST 能够完整解析以下 C++ 特性：
+Clang AST 能够完整解析以下 C++ 特性（v1 范围）：
 
 | 特性 | 支持状态 | 说明 |
 |------|----------|------|
@@ -423,4 +402,4 @@ Clang AST 能够完整解析以下 C++ 特性：
 | 实例成员 | ✅ | FieldDecl |
 | 函数参数 | ✅ | ParmVarDecl |
 
-这些信息足够生成 v1 版本的 Rust FFI 代码。
+**注意**：v1 版本使用头文件解析，无法捕获模板实例化（如 `std::vector<int>`）。模板实例化需要 v2 的 AST 编译捕获支持。
