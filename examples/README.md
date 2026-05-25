@@ -34,13 +34,14 @@
 ```
 example-XX/
 ├── main.cpp           # 演示该特性的 C++ 源代码
-├── ast.json           # Clang AST 的 JSON 格式导出
+├── ast.json           # Clang AST 的 JSON 格式导出（由 clang++ -ast-dump=json 生成）
 ├── Makefile           # C++ 编译配置
-└── rust/
-    ├── Cargo.toml     # Rust 包配置
-    ├── build.rs       # hicc-build 构建配置
+├── README.md          # 特性说明与 hicc 处理方式详细介绍
+└── rust/              # （可选）对应的 Rust FFI 脚手架
+    ├── Cargo.toml
+    ├── build.rs
     └── src/
-        └── main.rs    # Rust FFI 声明
+        └── main.rs
 ```
 
 ## 构建示例
