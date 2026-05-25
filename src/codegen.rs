@@ -64,12 +64,37 @@ pub fn render_module(layout: &FeatureLayout, unit: &TranslationUnit, source_text
         .map(|c| simple_cpp_name(&c.qualified_name))
         .collect();
 
+    // Build map from abstract class name → set of Rust method names it declares.
+    // Concrete subclasses must NOT re-declare these (the macro inherits them).
+    // Self-referencing methods (those skipped in the interface due to E0782) are excluded.
+    let abstract_methods: std::collections::HashMap<String, std::collections::HashSet<String>> = unit
+        .classes
+        .iter()
+        .filter(|c| c.is_abstract)
+        .map(|c| {
+            let own_simple = simple_cpp_name(&c.qualified_name);
+            let method_names = c
+                .methods
+                .iter()
+                .filter(|m| !m.is_static && !m.is_template)
+                .filter(|m| {
+                    // Skip self-referencing methods (would be dropped from the interface block)
+                    let uses_self = m.return_type.contains(&own_simple)
+                        || m.params.iter().any(|p| p.qual_type.contains(&own_simple));
+                    !uses_self
+                })
+                .map(|m| rust_method_name(&m.name))
+                .collect();
+            (own_simple, method_names)
+        })
+        .collect();
+
     // Non-template classes only.
     let visible_classes: Vec<&ClassDecl> = unit.classes.iter().filter(|c| !c.is_template).collect();
 
     out.push_str("hicc::import_class! {\n");
     for class in &visible_classes {
-        out.push_str(&render_class_decl(class, &known_abstract));
+        out.push_str(&render_class_decl(class, &known_abstract, &abstract_methods));
     }
     out.push_str("}\n\n");
 
@@ -84,8 +109,16 @@ pub fn render_module(layout: &FeatureLayout, unit: &TranslationUnit, source_text
 
     let mut used_names = HashMap::<String, usize>::new();
     for class in &visible_classes {
+        // Abstract (interface) classes cannot be instantiated; skip their constructors.
+        if class.is_abstract {
+            continue;
+        }
         if let Some(constructor) = class.constructors.first() {
-            if !has_unmappable_types(&class.qualified_name, &constructor.params) {
+            // Also skip if any constructor parameter type references an abstract class.
+            let uses_abstract = constructor.params.iter().any(|p| {
+                known_abstract.iter().any(|a| p.qual_type.contains(a.as_str()))
+            });
+            if !uses_abstract && !has_unmappable_types(&class.qualified_name, &constructor.params) {
                 out.push_str(&render_constructor_fn(class, constructor, &mut used_names));
             }
         }
@@ -96,7 +129,9 @@ pub fn render_module(layout: &FeatureLayout, unit: &TranslationUnit, source_text
         }
     }
     for function in unit.functions.iter().filter(|f| !f.is_template) {
-        if !has_unmappable_types(&function.return_type, &function.params) {
+        if !has_unmappable_types(&function.return_type, &function.params)
+            && !has_abstract_types(&function.return_type, &function.params, &known_abstract)
+        {
             out.push_str(&render_global_fn(function, &mut used_names));
         }
     }
@@ -147,7 +182,7 @@ fn render_cpp_helpers(unit: &TranslationUnit, hints: &indexmap::IndexMap<&'stati
     out
 }
 
-fn render_class_decl(class: &ClassDecl, known_abstract: &std::collections::HashSet<String>) -> String {
+fn render_class_decl(class: &ClassDecl, known_abstract: &std::collections::HashSet<String>, abstract_methods: &std::collections::HashMap<String, std::collections::HashSet<String>>) -> String {
     let mut out = String::new();
     if class.is_abstract {
         out.push_str("    #[interface]\n");
@@ -156,9 +191,50 @@ fn render_class_decl(class: &ClassDecl, known_abstract: &std::collections::HashS
     } else {
         out.push_str(&format!("    #[cpp(class = \"{}\")]\n", class.qualified_name));
     }
-    out.push_str(&format!("    class {}{} {{\n", simple_cpp_name(&class.qualified_name), render_bases(&class.bases, known_abstract)));
+    let base_str = render_bases(&class.bases, known_abstract);
+    out.push_str(&format!("    class {}{} {{\n", simple_cpp_name(&class.qualified_name), base_str));
     let mut method_names = HashMap::<String, usize>::new();
+
+    // If this concrete class extends an abstract (interface) base, skip methods that
+    // are already declared in that base — the macro inherits them automatically.
+    let inherited_names: std::collections::HashSet<String> = if !class.is_abstract {
+        // Extract just the class name from ": ClassName"
+        if let Some(base_name) = base_str.strip_prefix(": ") {
+            abstract_methods.get(base_name).cloned().unwrap_or_default()
+        } else {
+            std::collections::HashSet::new()
+        }
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let own_simple_name = simple_cpp_name(&class.qualified_name);
     for method in class.methods.iter().filter(|m| !m.is_static && !m.is_template) {
+        let rust_name = rust_method_name(&method.name);
+        if inherited_names.contains(&rust_name) {
+            // pre-register the name so that overloads still get unique suffixes
+            let _ = unique_name(&mut method_names, &rust_name);
+            continue;
+        }
+        // For abstract (interface) classes, skip methods whose parameters or return type
+        // reference the class itself. Since the class becomes a Rust trait, using it as
+        // a concrete type in `&Self` position is invalid (E0782).
+        if class.is_abstract {
+            let uses_self_type = method.return_type.contains(&own_simple_name)
+                || method.params.iter().any(|p| p.qual_type.contains(&own_simple_name));
+            if uses_self_type {
+                continue;
+            }
+            // Also skip if the method references any other abstract class (they are also traits)
+            if has_abstract_types(&method.return_type, &method.params, known_abstract) {
+                continue;
+            }
+        }
+        // For concrete classes, skip methods that reference abstract classes as types —
+        // those would expand to trait types (E0782) in import_class! method signatures.
+        if !class.is_abstract && has_abstract_types(&method.return_type, &method.params, known_abstract) {
+            continue;
+        }
         out.push_str(&render_method(method, &mut method_names));
     }
     out.push_str("    }\n\n");
@@ -516,6 +592,16 @@ fn is_unmappable_cpp_type(cpp_type: &str) -> bool {
         return true;
     }
 
+    // Lambda types produced by Clang: "(lambda at path/to/file.cpp:line:col)"
+    if ty.contains("(lambda") || ty.starts_with("lambda") {
+        return true;
+    }
+
+    // C++ string types (std::string is not FFI-safe; use *const u8 / CStr at call sites)
+    if ty.contains("std::string") || ty.contains("basic_string") || ty == "string" {
+        return true;
+    }
+
     // STL sequence/associative containers (not smart pointers)
     const CONTAINER_MARKERS: &[&str] = &[
         "std::vector", "std::list", "std::deque", "std::forward_list",
@@ -564,6 +650,33 @@ fn strip_type_decorators(ty: &str) -> &str {
 fn has_unmappable_types(return_type: &str, params: &[crate::ast::ParameterDecl]) -> bool {
     is_unmappable_cpp_type(return_type)
         || params.iter().any(|p| is_unmappable_cpp_type(&p.qual_type))
+}
+
+/// Returns true if `cpp_type` contains the simple name of any abstract class.
+/// Such types map to trait types in Rust (e.g. `&Shape`) which require `dyn` syntax
+/// and cannot appear in `import_class!` or `import_lib!` method signatures directly.
+fn references_abstract_class(cpp_type: &str, known_abstract: &std::collections::HashSet<String>) -> bool {
+    known_abstract.iter().any(|name| {
+        // Match whole-word occurrences to avoid false positives (e.g. "SubShape" matching "Shape")
+        let ty = cpp_type;
+        let mut start = 0;
+        while let Some(pos) = ty[start..].find(name.as_str()) {
+            let abs_start = start + pos;
+            let abs_end = abs_start + name.len();
+            let before_ok = abs_start == 0 || !ty.as_bytes()[abs_start - 1].is_ascii_alphanumeric();
+            let after_ok = abs_end == ty.len() || !ty.as_bytes()[abs_end].is_ascii_alphanumeric();
+            if before_ok && after_ok {
+                return true;
+            }
+            start = abs_start + 1;
+        }
+        false
+    })
+}
+
+fn has_abstract_types(return_type: &str, params: &[crate::ast::ParameterDecl], known_abstract: &std::collections::HashSet<String>) -> bool {
+    references_abstract_class(return_type, known_abstract)
+        || params.iter().any(|p| references_abstract_class(&p.qual_type, known_abstract))
 }
 
 fn render_rust_params(params: &[ParameterDecl]) -> String {
@@ -687,7 +800,9 @@ mod tests {
         };
         let known_abstract: std::collections::HashSet<String> =
             std::iter::once("Shape".to_string()).collect();
-        let rendered = render_class_decl(&class, &known_abstract);
+        let abstract_methods: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::iter::once(("Shape".to_string(), std::iter::once("area".to_string()).collect())).collect();
+        let rendered = render_class_decl(&class, &known_abstract, &abstract_methods);
         assert!(rendered.contains("#[interface]"));
         assert!(rendered.contains("fn area(&self) -> f64;"));
     }
