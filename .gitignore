@@ -1,7 +1,9 @@
 /target
 /.cpp2rust
+/examples/**/.cpp2rust/
 /examples/*/rust/
 /examples/*/*/rust/
 Cargo.lock
 **/*.rs.bk
 /hook/libhook.so
+hook/libcpp2rust_hook.so
