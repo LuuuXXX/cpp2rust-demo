@@ -2,7 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cpp2rust_ffi::{build_project, parser::parse_header_file, parser::parse_header_str, TodoSummary};
+use cpp2rust_ffi::{
+    build_project, parser::parse_header_file, parser::parse_header_str, TodoSummary,
+};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -940,4 +942,3 @@ fn todo_summary_default_is_zero() {
     let s = TodoSummary::default();
     assert_eq!(s.total(), 0);
 }
-

@@ -498,7 +498,9 @@ fn render_import_lib_block(
                 );
             }
             if let Some(base) = strip_arity_suffix(&function.name) {
-                if variadic_fn_names.contains(&function.name) && va_todo_emitted.insert(base.clone()) {
+                if variadic_fn_names.contains(&function.name)
+                    && va_todo_emitted.insert(base.clone())
+                {
                     lines.push(format!(
                         "    // cpp2rust-todo[VA]: Variadic template fixed-arity expansion (base: {base})"
                     ));

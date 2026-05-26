@@ -59,7 +59,10 @@ fn print_todo_summary(summary: &TodoSummary) {
     if summary.total() == 0 {
         return;
     }
-    eprintln!("\ncpp2rust-todo summary ({} item(s) need attention):", summary.total());
+    eprintln!(
+        "\ncpp2rust-todo summary ({} item(s) need attention):",
+        summary.total()
+    );
     if summary.op_count > 0 {
         eprintln!(
             "  [OP] {}  operator shim(s) generated — consider implementing std::ops traits",
