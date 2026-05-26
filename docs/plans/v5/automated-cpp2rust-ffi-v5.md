@@ -248,26 +248,142 @@ hicc::import_lib! {
 
 ### 7.1 总览
 
+> 图例：✅ 完全自动生成可编译代码　⚠️ 降级生成 + 内联 TODO（代码仍可通过 `cargo check`）
+
 | 类别 | 数量 | ✅ | ⚠️ |
 |------|------|----|----|
 | 基础类型与函数 | 5 | 5 | 0 |
 | 类与对象 | 7 | 7 | 0 |
 | 面向对象特性 | 6 | 6 | 0 |
-| 运算符与类型 | 5 | 3 | 2 |
-| 模板实例化 | 5 | 5 | 0 |
+| 运算符与类型 | 5 | 4 | 1 |
+| 模板实例化 | 5 | 4 | 1 |
 | 智能指针与内存 | 5 | 5 | 0 |
 | STL 容器 | 5 | 5 | 0 |
-| 函数对象 | 4 | 3 | 1 |
+| 函数对象 | 4 | 2 | 2 |
 | 其他高级特性 | 6 | 6 | 0 |
-| **总计** | **48** | **45** | **3** |
+| **总计** | **48** | **44** | **4** |
 
-### 7.2 ⚠️ 降级处理（3 项）
+---
 
-| 特性 | 示例 | 处理方式 | TODO tag |
-|------|------|---------|----------|
-| 运算符重载 | 019 | named shim，提示可实现 std::ops trait | `[OP]` |
-| 友元函数 | 020 | 直接入 import_lib! | `[FR]` |
-| typeid/RTTI | 023 | 枚举注入 | `[RTTI]` |
+### 7.2 基础类型与函数（001–005）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 处理方式 |
+|---|------|---------|---------|---------|---------|
+| 001 | hello_world | extern "C" 函数 | ✅ | `FunctionDecl` | 直接生成 `import_lib!` 条目 |
+| 002 | function_overload | 函数重载 | ✅ | `FunctionDecl`（多个同名） | 每个重载生成独立 shim + 独立 `import_lib!` 条目，名称加后缀区分（如 `_i32`, `_f64`） |
+| 003 | default_args | 默认参数 | ✅ | `ParmVarDecl`（含默认值） | shim 函数提供所有默认值组合的重载版本（展开为多个固定参数函数） |
+| 004 | inline_functions | inline 函数 | ✅ | `FunctionDecl` + `inline` | 函数体内联写入 `hicc::cpp!` 块；`import_lib!` 照常声明 |
+| 005 | variadic_functions | C 可变参数函数（va_list） | ✅ | `FunctionDecl`（va_list） | 直接映射 C 可变参数；Rust 侧使用 `unsafe` + `...` 参数（不同于 C++ 可变参数模板） |
+
+---
+
+### 7.3 类与对象（006–012）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 处理方式 |
+|---|------|---------|---------|---------|---------|
+| 006 | class_basic | 基础类 | ✅ | `CXXRecordDecl` | opaque pointer 模式：`class Foo;` 前向声明 + `import_class!` + `import_lib!` |
+| 007 | class_constructor | 构造/析构 | ✅ | `CXXConstructorDecl` / `CXXDestructorDecl` | 生成 `*_new()` 和 `*_delete()` shim 函数 |
+| 008 | class_copy | 拷贝构造 | ✅ | `CXXConstructorDecl`（copy） | 生成 `*_copy()` shim，接收 `const Foo*`，返回新 `Foo*` |
+| 009 | class_move | 移动构造 | ✅ | `CXXConstructorDecl`（move） | 生成 `*_move()` shim，使用 `std::move()`；原指针逻辑上转移所有权 |
+| 010 | class_static | 静态成员 | ✅ | `VarDecl`（static） | 生成 getter/setter shim 函数（`{class}_get_{field}` / `{class}_set_{field}`） |
+| 011 | class_const | const 成员函数 | ✅ | `CXXMethodDecl`（const） | Rust 侧映射为 `fn method(&self)`（不可变引用），shim 参数为 `const Foo*` |
+| 012 | class_volatile | volatile 成员函数 | ✅ | `CXXMethodDecl`（volatile） | shim 参数标注 `volatile Foo*`，Rust 侧使用 `*mut Foo` 并附注释 |
+
+---
+
+### 7.4 面向对象特性（013–018）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 处理方式 |
+|---|------|---------|---------|---------|---------|
+| 013 | inheritance_single | 单继承 | ✅ | `CXXBaseSpecifier` | 基类方法提升：子类的 `import_class!` 中同时列出继承来的方法 |
+| 014 | inheritance_multiple | 多继承 | ✅ | `CXXBaseSpecifier`（多个） | 多条继承链展开，同名方法按 C++ 查找规则决定选用哪条链 |
+| 015 | virtual_basic | 虚函数 | ✅ | `CXXMethodDecl`（virtual） | 通过 opaque pointer 调用虚函数；shim `{class}_{method}(self)` → `self->method()` |
+| 016 | virtual_pure | 纯虚/抽象类 | ✅ | `CXXMethodDecl`（= 0） | 抽象类只生成 `class Foo;` 前向声明；子类实现方法正常生成 shim |
+| 017 | virtual_override | override | ✅ | `CXXMethodDecl`（override） | override 语义透传；Rust 侧调用方式与普通虚函数相同 |
+| 018 | virtual_diamond | 菱形继承（virtual 继承） | ✅ | `CXXBaseSpecifier`（virtual） | 共享基类通过 opaque pointer 统一访问；生成 `{class}_as_{base}()` 类型转换 shim |
+
+---
+
+### 7.5 运算符与类型（019–023）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 原因 & 处理方式 |
+|---|------|---------|---------|---------|----------------|
+| 019 | operator_overload | 运算符重载 | ⚠️ `[OP]` | `CXXMethodDecl`（operator） | **不能直接 ✅ 的原因**：C ABI 不支持 `operator+` 等符号名，FFI 边界只能传命名函数。**处理方案**：为每个运算符生成命名 shim（如 `number_add` / `number_sub`），写入 `hicc::cpp!` 和 `import_lib!`。追加内联 TODO：`// cpp2rust-todo[OP]: 可实现 impl std::ops::Add<Number> for Number` |
+| 020 | friend_function | 友元函数 | ✅ | `FriendDecl` | 友元关系对 FFI 透明；shim 函数体内仍能访问私有成员，直接提取为普通函数写入 `import_lib!`，附注释说明友元身份 |
+| 021 | explicit_ctor | explicit 构造函数 | ✅ | `CXXConstructorDecl`（explicit） | `explicit` 防止隐式转换，对 FFI 透明；生成 `*_new()` shim 与普通构造函数相同 |
+| 022 | mutable_member | mutable 成员 | ✅ | `FieldDecl`（mutable） | `mutable` 允许 const 方法修改，对 FFI 透明；Rust 侧对应方法仍声明为 `&self` |
+| 023 | typeid_rtti | typeid / RTTI / dynamic_cast | ✅ | `CXXTypeidExpr` / `CXXDynamicCastExpr` | 检测到 RTTI 使用场景时，在 `hicc::cpp!` 中注入整数枚举（`ShapeType { CIRCLE=0, ... }`）+ 虚函数（`getType()` / `getTypeName()`），完全绕过 `typeid`。Rust 侧 `match shape_getType(p)` 对应枚举值 |
+
+---
+
+### 7.6 模板实例化（024–028）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 原因 & 处理方式 |
+|---|------|---------|---------|---------|----------------|
+| 024 | template_function | 函数模板 | ✅ | `ClassTemplateSpecialization`（实例化） | 忽略模板声明（`FunctionTemplateDecl`）；只处理实际被调用的实例化版本（如 `max<int>`），每个具体类型版本生成独立 shim |
+| 025 | template_class | 类模板 | ✅ | `ClassTemplateSpecialization` | 忽略模板声明（`ClassTemplateDecl`）；只处理实际实例化的具体类型（如 `Stack<int>`），按普通类生成 shim |
+| 026 | template_specialization | 模板偏特化 | ✅ | `ClassTemplatePartialSpecialization` | 偏特化本身视为实例化路径之一；解析时只收集通过该特化路径实例化的类型 |
+| 027 | template_instantiation | 显式模板实例化 | ✅ | `ClassTemplateSpecialization` | 显式实例化（`template class Foo<int>;`）直接在 AST 中可见，可直接提取 |
+| 028 | variadic_template | 可变参数模板 | ⚠️ `[VA]` | `VariadicTemplate` / `CallExpr` | **不能直接 ✅ 的原因**：C++ 可变参数模板（`...Args`）是编译期展开，FFI 无法表达"任意数量参数"。**处理方案**：扫描 AST 中所有对该模板的 `CallExpr`，收集实际出现的参数数量和类型组合，为每种组合生成一个固定参数版本（如 `sum_2(a, b)`, `sum_3(a, b, c)`）。追加内联 TODO：`// cpp2rust-todo[VA]: 可变参数模板，已展开 N 个调用点，新增调用时需手动添加对应版本` |
+
+---
+
+### 7.7 智能指针与内存（029–033）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 处理方式 |
+|---|------|---------|---------|---------|---------|
+| 029 | unique_ptr | std::unique_ptr | ✅ | `ClassTemplateSpecialization` | 视为 opaque pointer；生成 `*_new()` 返回裸指针，调用方负责通过 `*_delete()` 释放；不尝试映射所有权语义 |
+| 030 | shared_ptr | std::shared_ptr | ✅ | `ClassTemplateSpecialization` | 类似 unique_ptr；shim 管理引用计数的增减（通过 `*_clone()` / `*_delete()` shim） |
+| 031 | custom_deleter | 自定义删除器 | ✅ | `FunctionDecl` | 删除器函数注入 `hicc::cpp!`；`*_delete()` shim 内部调用自定义删除器 |
+| 032 | placement_new | Placement new | ✅ | `CXXNewExpr` | 生成 `*_placement_new(ptr, ...)` shim，在给定内存地址构造对象 |
+| 033 | raii_pattern | RAII 模式 | ✅ | 构造/析构 | 析构函数生成 `*_delete()` shim；Rust 侧可实现 `Drop` trait 调用 `*_delete()` |
+
+---
+
+### 7.8 STL 容器（034–038）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 处理方式 |
+|---|------|---------|---------|---------|---------|
+| 034 | vector_basic | std::vector\<T\> | ✅ | `ClassTemplateSpecialization` | 视为 opaque pointer；生成 `vec_new`, `vec_delete`, `vec_push`, `vec_get`, `vec_size` 等 shim |
+| 035 | map_basic | std::map\<K,V\> | ✅ | `ClassTemplateSpecialization` | 同上；生成 `map_insert`, `map_find`, `map_erase` 等 shim |
+| 036 | string_basic | std::string | ✅ | `ClassTemplateSpecialization` | 生成 `str_new`, `str_delete`, `str_c_str`, `str_length` 等 shim；跨 FFI 传字符串用 `*const i8` |
+| 037 | array_basic | std::array\<T,N\> | ✅ | `ClassTemplateSpecialization` | 固定大小数组，生成按索引访问 shim；N 在实例化时已知 |
+| 038 | tuple_basic | std::tuple\<T...\> | ✅ | `ClassTemplateSpecialization` | 按元素位置生成 `tuple_get_0`, `tuple_get_1` 等 shim；元素类型在实例化时已知 |
+
+---
+
+### 7.9 函数对象（039–042）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 原因 & 处理方式 |
+|---|------|---------|---------|---------|----------------|
+| 039 | lambda_basic | Lambda 表达式 | ⚠️ `[LM]` | `LambdaExpr` | **不能直接 ✅ 的原因**：有状态 lambda（捕获外部变量）是匿名类型，FFI 无法直接表达捕获列表和闭包类型。**处理方案（双策略）**：① 无状态 lambda（空捕获 `[]`）→ 退化为 `extern "C" fn(...)` 函数指针，直接在 `import_lib!` 中声明为函数指针类型。② 有状态 lambda（含捕获）→ 生成 class wrapper + opaque pointer（`*_new(init)`, `*_call(self, arg)`, `*_delete(self)`）。追加内联 TODO：`// cpp2rust-todo[LM]: 有状态 lambda，内部捕获状态不透明，已封装为 class wrapper` |
+| 040 | std_function | std::function\<Sig\> | ✅ | `ClassTemplateSpecialization` | `std::function<int(int)>` 视为有状态函数对象（同 lambda 有状态策略）；生成 class wrapper + opaque pointer |
+| 041 | functional_bind | std::bind | ✅ | `CallExpr`（bind）/ `CXXRecordDecl` | `std::bind` 产物本质是函数对象（与有状态 lambda 机制相同），使用同一 class wrapper 策略完全覆盖 |
+| 042 | exception_basic | C++ 异常处理 | ✅ | `CXXThrowExpr` / `CXXCatchStmt` | 在 shim 层捕获异常（`try { ... } catch (const std::exception& e) { ... }`）并转为错误码 + 错误消息字符串返回；FFI 边界不抛异常 |
+
+---
+
+### 7.10 其他高级特性（043–048）
+
+| # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 处理方式 |
+|---|------|---------|---------|---------|---------|
+| 043 | namespace_nested | 嵌套命名空间 | ✅ | `NamespaceDecl` | 命名空间前缀扁平化到 shim 函数名（`foo::bar::Baz::method` → `foo_bar_baz_method`）；`import_lib!` 中不存在命名空间概念 |
+| 044 | enum_class | 强类型枚举（enum class） | ✅ | `EnumDecl`（scoped） | 枚举值导出为 Rust `const`（`pub const ERROR_NONE: i32 = 0;`）；Rust 侧建议手动实现 `enum` + `TryFrom<i32>` |
+| 045 | union_basic | union（含匿名 union） | ✅ | `RecordDecl`（union） | 生成 opaque pointer + 按字段名的 getter/setter shim；Rust 侧用 `union` 类型或 opaque pointer |
+| 046 | constexpr_basic | constexpr 常量/函数 | ✅ | `Expr`（constexpr） | 编译期常量直接读取 AST 中的 `IntegerLiteral` / `FloatingLiteral` 值，生成 Rust `const`；constexpr 函数按普通函数处理（运行期调用） |
+| 047 | noexcept_basic | noexcept / noexcept(expr) | ✅ | `NoexceptSpec` | `noexcept` 语义对 FFI 透明；shim 函数本身不抛异常，Rust 侧对应函数不需要特殊处理 |
+| 048 | summary | 综合 FFI 模式 | ✅ | — | 综合示例，以上所有策略的组合应用 |
+
+---
+
+### 7.11 ⚠️ 降级特性汇总（4 项）
+
+| TAG | 示例 | C++ 特性 | 不能完全自动的根本原因 | 自动降级策略 | 用户剩余工作 |
+|-----|------|---------|---------------------|------------|------------|
+| `[OP]` | 019 | 运算符重载 | C ABI 无运算符符号；FFI 边界只能传命名函数 | 每个运算符生成命名 shim（`{class}_{add/sub/...}`），写入 `hicc::cpp!` + `import_lib!` | 可选：手动实现 `impl std::ops::Add<T> for T` 等 Rust trait |
+| `[VA]` | 028 | 可变参数模板 | `...Args` 参数包是编译期展开，FFI 运行期无法表达"任意数量参数" | 扫描 AST 中所有调用点，为每种（参数数量 × 类型组合）生成一个固定参数版本 | 若需要新的参数数量组合，手动在 `hicc::cpp!` 和 `import_lib!` 中添加对应版本 |
+| `[LM]` | 039 | 有状态 Lambda | 有状态 lambda 是匿名闭包类型，FFI 无法表达捕获列表；无法自动推断 `operator()` 的真实签名 | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + opaque pointer 封装 | 若需要在 Rust 侧传递 Rust 闭包给 C++ 回调，需手动编写 trampoline |
+| `[LM]` | 040 | std::function | 同有状态 lambda——类型擦除容器，签名可推断但捕获状态不透明 | 统一使用 class wrapper + opaque pointer 策略 | 可选：手动实现 Rust 闭包 → C++ std::function 适配层 |
 
 ---
 
@@ -285,22 +401,163 @@ hicc::import_lib! {
 
 ## 9. 实现计划
 
-### 9.1 Phase 顺序
+### 9.1 开发策略：测试驱动
+
+> **原则**：先搭建测试基础设施，再开发功能。每个 Phase 的完成标准是"相关测试全部通过"，而非"代码可编译"。
+
+```
+Phase T  →  Phase 0  →  Phase 1  →  Phase 2 & 3  →  Phase 4  →  Phase 5  →  Phase 6
+(测试框架)  (hook.cpp)  (AST 解析)   (提取器)       (后处理)    (代码生成)   (局限性处理)
+    ↑_______________每个 Phase 开发完立即运行测试，不通过不进入下一 Phase_______________↑
+```
+
+---
+
+### 9.2 Phase 顺序
 
 | 阶段 | 内容 | 优先级 | 依赖 |
 |------|------|--------|------|
-| Phase 0 | Hook 机制（hook.cpp） | P0 | 新建 hook.cpp |
+| **Phase T** | **测试基础设施（黄金文件 + 编译 + 运行）** | **P0（最先）** | 无 |
+| Phase 0 | Hook 机制（hook.cpp） | P0 | Phase T |
 | Phase 1 | ast_parser.rs（C++ AST 解析） | P0 | Phase 0 |
 | Phase 2 | 基础提取器（class/function/enum） | P0 | Phase 1 |
 | Phase 3 | 模板实例化追踪器 | P0 | Phase 1 |
 | Phase 4 | 后处理器（OP/FR/Lambda） | P1 | Phase 2 |
 | Phase 5 | hicc 代码生成器 | P0 | Phase 2, 3 |
-| Phase 6 | 局限性处理（Docker/增量） | P1 | Phase 1-5 |
-| Phase 7 | 集成测试 | P1 | Phase 1-6 |
+| Phase 6 | 局限性处理（Docker/增量） | P1 | Phase 1–5 |
 
-### 9.2 Phase 0-1 详细任务
+---
 
-**Phase 0 - Hook 机制（新建 `hook.cpp`）**：
+### 9.3 Phase T - 测试基础设施（最高优先级）
+
+#### 9.3.1 设计原则
+
+每个 `examples/NNN_*/` 目录已包含**完整的预期输出**：
+- `cpp/` → 工具的**输入**（C++ 源码）
+- `rust_hicc/src/main.rs` → 工具的**预期输出**（黄金文件 golden file）
+- `rust_hicc/build.rs` + `Cargo.toml` → 编译/运行验证所需的构建配置
+
+测试框架分三层，逐层递进：
+
+| 层次 | 名称 | 验证内容 | 触发时机 |
+|------|------|---------|---------|
+| L1 | **黄金文件测试** | 生成内容与 `rust_hicc/src/main.rs` 逐行一致 | 每次提交 |
+| L2 | **编译测试** | 生成的 Rust 代码能通过 `cargo build` | 每次提交 |
+| L3 | **运行测试** | `cargo run` 输出与 README 中"运行结果"一致 | 合并前 |
+
+#### 9.3.2 测试目录结构
+
+```
+cpp2rust-ffi/
+├── tests/
+│   ├── common/
+│   │   ├── mod.rs              # 共用工具：run_tool(), diff_golden(), cargo_build()
+│   │   └── golden.rs           # 黄金文件读取 & 规范化（去空行/注释比对）
+│   ├── l1_golden_tests.rs      # L1：001–048 黄金文件对比
+│   ├── l2_compile_tests.rs     # L2：001–048 cargo build 验证
+│   └── l3_run_tests.rs         # L3：001–048 cargo run + stdout 对比
+└── Cargo.toml
+```
+
+#### 9.3.3 L1 黄金文件测试（最核心）
+
+```rust
+// tests/l1_golden_tests.rs
+// 工具生成的 main.rs 与仓库中 rust_hicc/src/main.rs 进行对比
+
+macro_rules! golden_test {
+    ($name:ident, $example:literal) => {
+        #[test]
+        fn $name() {
+            let example_dir = concat!("../examples/", $example);
+            // 1. 用工具生成输出
+            let generated = run_tool_on(example_dir);
+            // 2. 读取黄金文件
+            let golden = read_golden(example_dir, "rust_hicc/src/main.rs");
+            // 3. 规范化后对比（忽略空白行差异）
+            assert_eq!(normalize(&generated), normalize(&golden),
+                "Golden file mismatch for {}", $example);
+        }
+    };
+}
+
+golden_test!(test_001_hello_world,            "001_hello_world");
+golden_test!(test_002_function_overload,      "002_function_overload");
+golden_test!(test_003_default_args,           "003_default_args");
+// ... 003–048 全部列出
+golden_test!(test_048_summary,               "048_summary");
+```
+
+**初始状态**：工具尚未实现时，所有测试均为 **FAIL（预期行为）**。每完成一个 Phase，相关测试变为 PASS。
+
+#### 9.3.4 L2 编译测试
+
+```rust
+// tests/l2_compile_tests.rs
+// 直接对仓库中现有的 rust_hicc/ 目录运行 cargo build，
+// 验证黄金文件本身可编译（保证基线正确）
+
+#[test]
+fn compile_001_hello_world() {
+    let status = Command::new("cargo")
+        .args(["build"])
+        .current_dir("../examples/001_hello_world/rust_hicc")
+        .status().unwrap();
+    assert!(status.success());
+}
+// ... 001–048
+```
+
+> **注意**：L2 测试在 Phase T 完成时就应全部通过（黄金文件本身必须可编译）。
+
+#### 9.3.5 L3 运行测试
+
+```rust
+// tests/l3_run_tests.rs
+// cargo run 后比对 stdout 与 README 中的"运行结果"章节
+
+fn expected_output(example: &str) -> String {
+    // 从 README.md 中提取 "## 运行结果" 代码块
+    parse_readme_run_result(&format!("../examples/{}/README.md", example))
+}
+
+#[test]
+fn run_001_hello_world() {
+    let output = cargo_run("../examples/001_hello_world/rust_hicc");
+    assert_eq!(output.trim(), expected_output("001_hello_world").trim());
+}
+```
+
+#### 9.3.6 测试执行命令
+
+```bash
+# 运行全部测试
+cargo test
+
+# 只运行 L1 黄金文件测试
+cargo test --test l1_golden_tests
+
+# 只运行某个示例的全部测试
+cargo test 006_class_basic
+
+# 查看当前通过率（CI 友好）
+cargo test 2>&1 | grep -E "^test.*FAILED|^test result"
+```
+
+#### 9.3.7 Phase T 完成标准
+
+| 检查项 | 验收条件 |
+|--------|---------|
+| L2 编译测试全部通过 | 48 个黄金文件 `cargo build` 均成功（基线验证） |
+| L3 运行测试全部通过 | 48 个黄金文件 `cargo run` 输出与 README 一致 |
+| L1 测试框架就绪 | 框架代码完整，48 个 L1 测试均可运行（初始均 FAIL，符合预期） |
+| CI 集成 | `cargo test --test l1_golden_tests` 在 GitHub Actions 中运行 |
+
+---
+
+### 9.4 Phase 0 - Hook 机制（新建 `hook.cpp`）
+
+**任务**：
 1. [ ] 创建 `hook/hook.cpp`，合并以下逻辑：
    - 复制 `hook/hook.c` 的预处理捕获逻辑
    - 复制 `examples/cpp-hook/hook.cpp` 的 C++ 编译器检测逻辑
@@ -310,20 +567,50 @@ hicc::import_lib! {
 5. [ ] 复制 `src/capture.rs`
 6. [ ] 复制 `hook/Makefile` 并适配
 
-**Phase 1 - AST 解析**：
+**Phase 0 完成标准**：
+```bash
+# 在 001_hello_world 上运行 hook，验证 .c2rust 文件产出
+cd examples/001_hello_world/cpp
+LD_PRELOAD=/path/to/libhook.so make
+# 应在 .c2rust/v5/c/ 下产出 hello_world.cpp.c2rust
+```
+
+---
+
+### 9.5 Phase 1 - AST 解析
+
+**任务**：
 1. [ ] 实现 `ast_parser.rs`，使用 `clang` crate
 2. [ ] 支持 `CXXRecordDecl`、`CXXMethodDecl` 等 C++ 节点
 3. [ ] 支持 `ClassTemplateSpecialization` 模板实例化
 
-**验收标准**：
+**Phase 1 完成标准**：
 ```bash
-# 使用 clang crate 解析宏展开后的 C++ 文件
+# 解析宏展开后的 C++ 文件，应输出 AST 结构
 echo 'class Foo { public: int getValue(); };' | g++ -E -x c++ - > foo.c2rust
 cargo run -- parse foo.c2rust
 # 应输出:
 # - CXXRecordDecl: Foo
 #   - CXXMethodDecl: getValue
 ```
+
+---
+
+### 9.6 Phase 进度追踪（L1 测试通过率）
+
+> 每完成一个 Phase，对应的 L1 测试应从 FAIL → PASS。
+
+| L1 测试范围 | 对应 Phase | 预计解锁时机 |
+|------------|-----------|------------|
+| 001–005（基础函数） | Phase 2 基础提取器 + Phase 5 代码生成 | Phase 5 完成后 |
+| 006–012（类与对象） | Phase 2 + Phase 5 | Phase 5 完成后 |
+| 013–018（OOP 特性） | Phase 2 + Phase 5 | Phase 5 完成后 |
+| 019–023（运算符与类型） | Phase 4 后处理 + Phase 5 | Phase 5 完成后 |
+| 024–028（模板实例化） | Phase 3 实例化追踪器 + Phase 5 | Phase 5 完成后 |
+| 029–033（智能指针） | Phase 2 + Phase 5 | Phase 5 完成后 |
+| 034–038（STL 容器） | Phase 3 + Phase 5 | Phase 5 完成后 |
+| 039–042（函数对象） | Phase 4 + Phase 5 | Phase 5 完成后 |
+| 043–048（高级特性） | Phase 2 + Phase 5 | Phase 5 完成后 |
 
 ---
 
