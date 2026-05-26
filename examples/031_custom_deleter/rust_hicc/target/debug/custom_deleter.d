@@ -1,1 +1,1 @@
-/home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/031_custom_deleter/rust_hicc/target/debug/custom_deleter: /home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/031_custom_deleter/rust_hicc/build.rs /home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/031_custom_deleter/rust_hicc/src/main.rs
+/tmp/workspace/LuuuXXX/cpp2rust-demo/examples/031_custom_deleter/rust_hicc/target/debug/custom_deleter: /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/031_custom_deleter/rust_hicc/build.rs /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/031_custom_deleter/rust_hicc/src/main.rs

@@ -1,1 +1,1 @@
-/home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/032_placement_new/rust_hicc/target/debug/placement_new: /home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/032_placement_new/rust_hicc/build.rs /home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/032_placement_new/rust_hicc/src/main.rs
+/tmp/workspace/LuuuXXX/cpp2rust-demo/examples/032_placement_new/rust_hicc/target/debug/placement_new: /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/032_placement_new/rust_hicc/build.rs /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/032_placement_new/rust_hicc/src/main.rs

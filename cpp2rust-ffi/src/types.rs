@@ -455,18 +455,23 @@ pub struct CppAst {
 
 /// 将 CamelCase 转为 snake_case
 pub fn to_snake_case(s: &str) -> String {
+    if s.is_empty() {
+        return String::new();
+    }
+    let chars: Vec<char> = s.chars().collect();
     let mut result = String::new();
-    let mut prev_upper = false;
-    for (i, c) in s.chars().enumerate() {
+    for (i, &c) in chars.iter().enumerate() {
         if c.is_uppercase() {
-            if i > 0 && !prev_upper {
-                result.push('_');
+            if i > 0 {
+                let prev_lower = chars[i - 1].is_lowercase() || chars[i - 1].is_ascii_digit();
+                let next_lower = i + 1 < chars.len() && chars[i + 1].is_lowercase();
+                if prev_lower || (next_lower && chars[i - 1].is_uppercase()) {
+                    result.push('_');
+                }
             }
             result.push(c.to_lowercase().next().unwrap());
-            prev_upper = true;
         } else {
             result.push(c);
-            prev_upper = false;
         }
     }
     result
@@ -497,6 +502,6 @@ mod tests {
     fn test_snake_case() {
         assert_eq!(to_snake_case("Counter"), "counter");
         assert_eq!(to_snake_case("MyClass"), "my_class");
-        assert_eq!(to_snake_case("XMLParser"), "x_m_l_parser");
+        assert_eq!(to_snake_case("XMLParser"), "xml_parser");
     }
 }

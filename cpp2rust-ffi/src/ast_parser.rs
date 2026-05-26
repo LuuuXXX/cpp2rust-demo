@@ -504,10 +504,12 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
+    // libclang 只允许一个 Clang 实例同时存在，所以将多个解析测试合并为一个函数
     #[test]
-    fn test_parse_simple_function() {
+    fn test_parse_cpp_files() {
+        // --- 测试1：简单函数解析 ---
         let dir = tempdir().unwrap();
-        let file = dir.path().join("test.cpp");
+        let file = dir.path().join("test_func.cpp");
         fs::write(
             &file,
             r#"extern "C" void hello_world(void) {}"#,
@@ -518,14 +520,11 @@ mod tests {
         assert!(!ast.functions.is_empty());
         let func = &ast.functions[0];
         assert_eq!(func.name, "hello_world");
-    }
 
-    #[test]
-    fn test_parse_class() {
-        let dir = tempdir().unwrap();
-        let file = dir.path().join("test.cpp");
+        // --- 测试2：类解析 ---
+        let file2 = dir.path().join("test_class.cpp");
         fs::write(
-            &file,
+            &file2,
             r#"class Counter {
                 int value = 0;
             public:
@@ -535,9 +534,9 @@ mod tests {
         )
         .unwrap();
 
-        let ast = parse_cpp_file(&file).unwrap();
-        assert!(!ast.classes.is_empty());
-        let class = &ast.classes[0];
+        let ast2 = parse_cpp_file(&file2).unwrap();
+        assert!(!ast2.classes.is_empty());
+        let class = &ast2.classes[0];
         assert_eq!(class.name, "Counter");
         assert!(!class.methods.is_empty());
     }

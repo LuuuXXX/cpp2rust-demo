@@ -1,1 +1,1 @@
-/home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/030_shared_ptr/rust_hicc/target/debug/shared_ptr: /home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/030_shared_ptr/rust_hicc/build.rs /home/runner/work/cpp2rust-demo/cpp2rust-demo/examples/030_shared_ptr/rust_hicc/src/main.rs
+/tmp/workspace/LuuuXXX/cpp2rust-demo/examples/030_shared_ptr/rust_hicc/target/debug/shared_ptr: /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/030_shared_ptr/rust_hicc/build.rs /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/030_shared_ptr/rust_hicc/src/main.rs
