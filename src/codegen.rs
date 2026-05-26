@@ -94,14 +94,24 @@ fn generate_main_fn(header_data: &[(&ParsedHeader, Vec<Function>)]) -> String {
 
     // 1. 类演示
     for (header, functions) in header_data {
+        let fn_ptr_typedef_names: HashSet<&str> =
+            header.typedefs.iter().map(|t| t.name.as_str()).collect();
+
         for class in &header.classes {
             let snake = to_snake_case(&class.name);
 
+            // Find constructors that have no fn-pointer parameters.
+            // Constructors whose params include a fn-ptr or fn-ptr typedef have no sensible
+            // default argument value in Rust, so skip them in the demo.
             let ctors: Vec<&Function> = functions
                 .iter()
                 .filter(|f| {
                     matches!(&f.kind, FunctionKind::Constructor { class_name }
                         if class_name == &class.name)
+                        && !f.params.iter().any(|p| {
+                            p.cpp_type == FN_PTR_SENTINEL
+                                || fn_ptr_typedef_names.contains(p.cpp_type.as_str())
+                        })
                 })
                 .collect();
             let dtor = functions.iter().find(|f| {

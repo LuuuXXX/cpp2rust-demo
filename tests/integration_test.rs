@@ -1184,3 +1184,79 @@ fn unnamed_reference_param_gets_anonymous_name() {
         param.cpp_type
     );
 }
+
+/// 031_custom_deleter: `typedef void (*FileDeleter)(struct FileHandle*)` must generate
+/// `type FileDeleter = extern "C" fn(*mut FileHandle)` — NOT `extern "C" fn(struct)`.
+/// Verifies Bug D fix: `parse_typedefs` must not mis-split `struct Foo*` arg as type="struct".
+#[test]
+fn typedef_struct_ptr_arg_maps_to_correct_rust_type() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/typedef_struct_ptr_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    assert!(
+        project
+            .main_rs
+            .contains("type FileDeleter = extern \"C\" fn(*mut FileHandle)"),
+        "FileDeleter typedef should map to `extern \"C\" fn(*mut FileHandle)`, not `fn(struct)`"
+    );
+}
+
+/// 031_custom_deleter: `FileHandle&&` (rvalue reference) in a constructor shim must map to
+/// `*mut FileHandle` — NOT `*mut *mut FileHandle`.
+/// Verifies Bug E fix: `&&` suffix must be handled before single `&` in typemap.
+#[test]
+fn rvalue_ref_param_maps_to_single_pointer() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/rvalue_ref_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    assert!(
+        !project.main_rs.contains("*mut *mut"),
+        "FileHandle&& must map to *mut FileHandle, not *mut *mut FileHandle"
+    );
+    assert!(
+        project
+            .main_rs
+            .contains("fn file_handle_new_1(arg0: *mut FileHandle)"),
+        "file_handle_new_1 should take *mut FileHandle, not *mut *mut FileHandle"
+    );
+}
+
+/// 031_custom_deleter: fn main() must NOT call `file_handle_new` (which takes a FileDeleter
+/// fn-ptr parameter) with literal `0` — that would fail to compile.
+/// Verifies Bug F fix: constructors with fn-ptr typedef params are skipped in the demo.
+#[test]
+fn demo_skips_constructor_with_fn_ptr_typedef_param() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/ctor_fn_ptr_skip_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    assert!(
+        !project
+            .main_rs
+            .contains("file_handle_new(std::ptr::null(), std::ptr::null(), 0)"),
+        "fn main() must not call file_handle_new with literal 0 for a FileDeleter fn-ptr param"
+    );
+}
+
+/// typemap: rvalue reference `T&&` must map to `*mut T` (same as `T&`), not `*mut *mut T`.
+#[test]
+fn typemap_rvalue_ref_maps_same_as_lvalue_ref() {
+    use cpp2rust_ffi::typemap::map_cpp_type_to_rust;
+    assert_eq!(map_cpp_type_to_rust("FileHandle&&"), "*mut FileHandle");
+    assert_eq!(map_cpp_type_to_rust("FileHandle&"), "*mut FileHandle");
+    assert_eq!(map_cpp_type_to_rust("const Foo&&"), "*const Foo");
+}

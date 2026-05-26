@@ -92,8 +92,16 @@ fn parse_typedefs(source: &str) -> Vec<TypedefAlias> {
                 .map(|arg| {
                     // 参数可能有名字，也可能只有类型
                     let arg = arg.trim();
-                    if let Some((ty, _name)) = split_type_and_name(arg) {
-                        map_cpp_type_to_rust(ty)
+                    if let Some((ty, name)) = split_type_and_name(arg) {
+                        // Guard: if the split "name" still contains `*` or `&`, the rfind split
+                        // hit a type qualifier (e.g. "struct FileHandle*" → ty="struct",
+                        // name="FileHandle*").  Fall back to treating the full token as the type.
+                        let sanitized = sanitize_param_name(name);
+                        if sanitized.contains('&') || sanitized.contains('*') {
+                            map_cpp_type_to_rust(arg)
+                        } else {
+                            map_cpp_type_to_rust(ty)
+                        }
                     } else {
                         map_cpp_type_to_rust(arg)
                     }
