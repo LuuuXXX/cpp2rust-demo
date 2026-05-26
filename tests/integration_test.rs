@@ -623,6 +623,121 @@ fn enum_class_emits_operation_result_with_typed_methods() {
     );
 }
 
+/// 023_typeid_rtti: Shape hierarchy with integer-enum type dispatch and virtual factories.
+/// Verifies Phase 7 (RTTI enum injection) — factory shims and area/type accessors all present.
+#[test]
+fn typeid_rtti_emits_shape_factories_and_type_accessors() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/023_typeid_rtti/cpp"),
+        &root.join("target/test-workspaces/typeid_rtti_out"),
+        "typeid_rtti",
+    )
+    .unwrap();
+
+    // Factory shims for each concrete shape (from C-side header)
+    assert!(
+        project.main_rs.contains("fn shape_new_circle("),
+        "shape_new_circle factory should be in import_lib!"
+    );
+    assert!(
+        project.main_rs.contains("fn shape_new_rectangle("),
+        "shape_new_rectangle factory should be in import_lib!"
+    );
+    assert!(
+        project.main_rs.contains("fn shape_new_triangle("),
+        "shape_new_triangle factory should be in import_lib!"
+    );
+
+    // Destructor
+    assert!(
+        project.main_rs.contains("unsafe fn shape_delete("),
+        "shape_delete destructor should be present"
+    );
+
+    // Type-tag and area virtual methods appear in import_class! (integer-enum strategy, not mangled names)
+    assert!(
+        project.main_rs.contains("fn get_type(&self) -> i32;"),
+        "getType() should map to fn get_type(&self) -> i32 in import_class!"
+    );
+    assert!(
+        project.main_rs.contains("fn area(&self) -> f64;"),
+        "area() should map to fn area(&self) -> f64 in import_class!"
+    );
+
+    // Base class appears in both import_class! (with methods) and import_lib! (forward decl)
+    assert!(
+        project.main_rs.contains("class Shape {"),
+        "Shape should appear in import_class! block with methods"
+    );
+    assert!(
+        project.main_rs.contains("class Shape;"),
+        "Shape forward declaration should appear in import_lib! block"
+    );
+}
+
+/// 041_functional_bind: std::bind pattern — opaque class wrappers (Adder, Multiplier, StringProcessor)
+/// plus directly-bound free functions (add_five, add_ten).
+/// Verifies that std::bind is fully supported via the class-wrapper strategy (v4 upgrade from ⚠️ to ✅).
+#[test]
+fn functional_bind_emits_class_wrappers_and_bound_free_fns() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/041_functional_bind/cpp"),
+        &root.join("target/test-workspaces/functional_bind_out"),
+        "functional_bind",
+    )
+    .unwrap();
+
+    // Opaque class forward declarations in import_lib!
+    assert!(
+        project.main_rs.contains("class Adder;"),
+        "Adder opaque class should be declared"
+    );
+    assert!(
+        project.main_rs.contains("class Multiplier;"),
+        "Multiplier opaque class should be declared"
+    );
+    assert!(
+        project.main_rs.contains("class StringProcessor;"),
+        "StringProcessor opaque class should be declared"
+    );
+
+    // Adder factory / method / destructor
+    assert!(
+        project.main_rs.contains("fn adder_new("),
+        "adder_new constructor shim should be in import_lib!"
+    );
+    assert!(
+        project.main_rs.contains("unsafe fn adder_delete("),
+        "adder_delete destructor shim should be in import_lib!"
+    );
+    assert!(
+        project.main_rs.contains("fn adder_add("),
+        "adder_add method shim should be in import_lib!"
+    );
+
+    // Multiplier factory / method
+    assert!(
+        project.main_rs.contains("fn multiplier_new("),
+        "multiplier_new constructor shim should be in import_lib!"
+    );
+    assert!(
+        project.main_rs.contains("fn multiply(self_: *mut Multiplier"),
+        "multiply method shim should be in import_lib!"
+    );
+
+    // Directly-bound free functions (pre-applied std::bind)
+    assert!(
+        project.main_rs.contains("fn add_five("),
+        "add_five bound free fn should be in import_lib!"
+    );
+    assert!(
+        project.main_rs.contains("fn add_ten("),
+        "add_ten bound free fn should be in import_lib!"
+    );
+}
+
 /// 025_template_class inline body stripping: parse header with inline method defs.
 #[test]
 fn inline_method_bodies_stripped_in_class_parse() {
