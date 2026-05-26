@@ -68,11 +68,11 @@ cpp2rust-ffi init -i .c2rust/v5/capture -o ./rust_hicc --incremental
 
 ```
 cpp2rust-ffi tool (v5)
+├── hooks/                        # LD_PRELOAD Hook 库（C 代码独立目录）
+│   ├── hook.c                   # C 拦截器（实现 execve/execvp 劫持）
+│   └── Makefile                 # 编译 libhook.so
 ├── src/
 │   ├── main.rs                    # CLI 入口 (init / merge)
-│   ├── hook/                     # LD_PRELOAD Hook 库
-│   │   ├── hook.c               # C 拦截器（基于 c2rust-demo 移植）
-│   │   └── Makefile             # 编译 libhook.so
 │   ├── compiler/                 # 编译捕获
 │   │   ├── ast_capturer.rs      # AST 解析
 │   │   └── instantiation_tracker.rs  # 模板实例化追踪
@@ -92,6 +92,8 @@ cpp2rust-ffi tool (v5)
 │   └── todo_collector.rs
 └── Cargo.toml
 ```
+
+> **注意**：`hooks/` 目录放在项目根目录而非 `src/` 下。Rust 项目约定 `src/` 只存放 `.rs` 文件；`hook.c` 是独立的 C 共享库，需要通过 `build.rs` 或独立 Makefile 编译，不属于 Rust 源码树。
 
 ### 3.2 四阶段处理流程
 
@@ -141,6 +143,7 @@ cpp2rust-ffi tool (v5)
 ```
 rust_hicc/
 ├── Cargo.toml
+├── build.rs                # 编译 C++ 源文件并配置链接（hicc-build）
 └── src/
     ├── lib.rs              # 库入口
     ├── foo.rs              # 编译单元 foo
@@ -148,7 +151,7 @@ rust_hicc/
     └── baz.rs              # 编译单元 baz
 ```
 
-> 每个 C++ 编译单元（.cpp）对应一个同名 .rs 文件
+> 每个 C++ 编译单元（.cpp）对应一个同名 .rs 文件。`build.rs` 是必须生成的文件，负责调用 `hicc_build::Build` 编译所有拦截到的 C++ 源文件。
 
 ### 4.2 Rust 文件格式（三段式）
 
@@ -185,7 +188,32 @@ hicc::import_lib! {
 }
 ```
 
-### 4.3 lib.rs 格式
+### 4.3 build.rs 格式
+
+```rust
+fn main() {
+    // 编译所有拦截到的 C++ 源文件
+    let cpp_dir = std::path::PathBuf::from("../cpp-project");
+
+    let mut build = hicc_build::Build::new();
+    use std::ops::DerefMut;
+    let cc_build: &mut cc::Build = build.deref_mut();
+    cc_build.cpp(true);
+    cc_build.include(&cpp_dir);
+    // 由 project_generator.rs 自动填入拦截到的 .cpp 文件列表
+    cc_build.file(cpp_dir.join("foo.cpp"));
+    cc_build.file(cpp_dir.join("bar.cpp"));
+
+    build.rust_file("src/lib.rs").compile("rust_hicc");
+
+    println!("cargo::rustc-link-lib=rust_hicc");
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    println!("cargo::rustc-link-lib=stdc++");
+    println!("cargo::rerun-if-changed=src/lib.rs");
+}
+```
+
+### 4.4 lib.rs 格式
 
 ```rust
 #![allow(non_camel_case_types)]
@@ -202,7 +230,7 @@ type c_size_t = usize;
 type c_ssize_t = isize;
 ```
 
-### 4.4 Cargo.toml 格式
+### 4.5 Cargo.toml 格式
 
 ```toml
 [package]
@@ -214,8 +242,14 @@ edition = "2021"
 crate-type = ["staticlib"]
 
 [dependencies]
-hicc = { path = "../../hicc" }
+hicc = { version = "0.2" }
+
+[build-dependencies]
+hicc-build = { version = "0.2" }
+cc = "1"
 ```
+
+> **注意**：`hicc` 和 `hicc-build` 版本需与目标项目使用的 hicc 版本对齐。如项目使用本地路径版本，将 `{ version = "0.2" }` 替换为 `{ path = "<hicc-path>" }`。
 
 ---
 
@@ -228,21 +262,22 @@ hicc = { path = "../../hicc" }
 | 基础类型与函数 | 5 | 5 | 0 |
 | 类与对象 | 7 | 7 | 0 |
 | 面向对象特性 | 6 | 6 | 0 |
-| 运算符与类型 | 5 | 3 | 2 |
+| 运算符与类型 | 5 | 2 | 3 |
 | 模板实例化 | 5 | 5 | 0 |
 | 智能指针与内存 | 5 | 5 | 0 |
 | STL 容器 | 5 | 5 | 0 |
 | 函数对象 | 4 | 3 | 1 |
 | 其他高级特性 | 6 | 6 | 0 |
-| **总计** | **48** | **45** | **3** |
+| **总计** | **48** | **44** | **4** |
 
-### 5.2 ⚠️ 降级处理（3 项）
+### 5.2 ⚠️ 降级处理（4 项）
 
 | 特性 | 示例 | 处理方式 | TODO tag |
 |------|------|---------|----------|
 | 运算符重载 | 019 | named shim，提示可实现 std::ops trait | `[OP]` |
 | 友元函数 | 020 | 直接入 import_lib! | `[FR]` |
 | typeid/RTTI | 023 | 枚举注入 | `[RTTI]` |
+| std::function 异构回调 | 040 | 降级为函数指针；有状态回调需手写 wrapper | `[FN]` |
 
 ### 5.3 模板实例化（5/5 ✅）
 
@@ -297,7 +332,7 @@ cpp2rust-ffi init -i .c2rust/v5/capture -o ./rust_hicc \
 
 | 阶段 | 内容 | 优先级 | 依赖 |
 |------|------|--------|------|
-| Phase 0 | 移植 hook.c → hook.cpp（支持 C++） | P0 | c2rust-demo |
+| Phase 0 | 编写 hooks/hook.c（LD_PRELOAD 拦截 execve/execvp，捕获编译器调用参数） | P0 | — |
 | Phase 1 | AST 编译引擎（基于拦截输入） | P0 | Phase 0 |
 | Phase 2 | 模板实例化追踪器 | P0 | Phase 1 |
 | Phase 3 | 宏展开处理器 | P1 | Phase 1 |
