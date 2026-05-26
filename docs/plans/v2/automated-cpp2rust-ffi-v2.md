@@ -121,65 +121,74 @@ cpp2rust-ffi tool (v2)
 
 #### 运算符与类型 (19-23)
 
-| 示例 | 特性 | AST 节点 | 支持 |
-|------|------|----------|------|
-| 019_operator_overload | 运算符重载 | `CXXMethodDecl` (operator) | ❌ |
-| 020_friend_function | 友元函数 | `FriendDecl` | ❌ |
-| 021_explicit_ctor | explicit 构造函数 | `CXXConstructorDecl` (explicit) | ✅ |
-| 022_mutable_member | mutable 成员 | `FieldDecl` (mutable) | ✅ |
-| 023_typeid_rtti | typeid 与 RTTI | `CXXTypeidExpr` | ❌ |
+| 示例 | 特性 | AST 节点 | 支持 | 不支持原因 |
+|------|------|----------|------|------------|
+| 019_operator_overload | 运算符重载 | `CXXMethodDecl` (operator) | ❌ | `operator+` 等需映射到 Rust trait（如 `Add`），涉及语义转换 |
+| 020_friend_function | 友元函数 | `FriendDecl` | ❌ | 友元函数不是类的成员，但可访问私有成员，FFI 映射困难 |
+| 021_explicit_ctor | explicit 构造函数 | `CXXConstructorDecl` (explicit) | ✅ | |
+| 022_mutable_member | mutable 成员 | `FieldDecl` (mutable) | ✅ | |
+| 023_typeid_rtti | typeid 与 RTTI | `CXXTypeidExpr` | ❌ | 需要运行时类型信息，需运行时探测，暂不支持 |
 
 #### 模板 (24-28)
 
-| 示例 | 特性 | AST 节点 | 支持 |
-|------|------|----------|------|
-| 024_template_function | 函数模板 | `FunctionTemplateDecl` | ✅ |
-| 025_template_class | 类模板 | `ClassTemplateDecl` | ✅ |
-| 026_template_specialization | 模板偏特化 | `ClassTemplatePartialSpecialization` | ⚠️ |
-| 027_template_instantiation | 模板显式实例化 | `ClassTemplateSpecialization` | ✅ |
-| 028_variadic_template | 可变参数模板 | `VariadicTemplate` | ⚠️ |
+| 示例 | 特性 | AST 节点 | 支持 | 不支持原因 |
+|------|------|----------|------|------------|
+| 024_template_function | 函数模板 | `FunctionTemplateDecl` | ✅ | |
+| 025_template_class | 类模板 | `ClassTemplateDecl` | ✅ | |
+| 026_template_specialization | 模板偏特化 | `ClassTemplatePartialSpecialization` | ⚠️ | 偏特化涉及复杂的模板参数匹配逻辑，部分支持 |
+| 027_template_instantiation | 模板显式实例化 | `ClassTemplateSpecialization` | ✅ | |
+| 028_variadic_template | 可变参数模板 | `VariadicTemplate` | ⚠️ | `Args...` 参数包展开语义复杂，部分支持 |
 
 #### 智能指针与内存 (29-33)
 
-| 示例 | 特性 | AST 节点 | 支持 |
-|------|------|----------|------|
-| 029_unique_ptr | std::unique_ptr | `CXXNewExpr`, `TypeRef` | ✅ |
-| 030_shared_ptr | std::shared_ptr | `CXXNewExpr`, `TypeRef` | ✅ |
-| 031_custom_deleter | 自定义删除器 | `FunctionDecl` | ✅ |
-| 032_placement_new | Placement new | `CXXNewExpr` | ✅ |
-| 033_raii_pattern | RAII 模式 | 构造/析构函数 | ✅ |
+| 示例 | 特性 | AST 节点 | 支持 | 不支持原因 |
+|------|------|----------|------|------------|
+| 029_unique_ptr | std::unique_ptr | `CXXNewExpr`, `TypeRef` | ✅ | |
+| 030_shared_ptr | std::shared_ptr | `CXXNewExpr`, `TypeRef` | ✅ | |
+| 031_custom_deleter | 自定义删除器 | `FunctionDecl` | ✅ | |
+| 032_placement_new | Placement new | `CXXNewExpr` | ✅ | |
+| 033_raii_pattern | RAII 模式 | 构造/析构函数 | ✅ | |
 
 #### STL 容器 (34-38)
 
-| 示例 | 特性 | AST 节点 | 支持 |
-|------|------|----------|------|
-| 034_vector_basic | std::vector | `ClassTemplateSpecialization` | ✅ |
-| 035_map_basic | std::map | `ClassTemplateSpecialization` | ✅ |
-| 036_string_basic | std::string | `ClassTemplateSpecialization` | ✅ |
-| 037_array_basic | std::array | `ClassTemplateSpecialization` | ✅ |
-| 038_tuple_basic | std::tuple | `ClassTemplateSpecialization` | ✅ |
+| 示例 | 特性 | AST 节点 | 支持 | 不支持原因 |
+|------|------|----------|------|------------|
+| 034_vector_basic | std::vector | `ClassTemplateSpecialization` | ✅ | |
+| 035_map_basic | std::map | `ClassTemplateSpecialization` | ✅ | |
+| 036_string_basic | std::string | `ClassTemplateSpecialization` | ✅ | |
+| 037_array_basic | std::array | `ClassTemplateSpecialization` | ✅ | |
+| 038_tuple_basic | std::tuple | `ClassTemplateSpecialization` | ✅ | |
 
 #### 函数对象 (39-42)
 
-| 示例 | 特性 | AST 节点 | 支持 |
-|------|------|----------|------|
-| 039_lambda_basic | Lambda 表达式 | `LambdaExpr` | ⚠️ |
-| 040_std_function | std::function | `ClassTemplateSpecialization` | ✅ |
-| 041_functional_bind | std::bind | `CallExpr` | ⚠️ |
-| 042_exception_basic | 异常处理 | `CXXThrowExpr`, `CXXCatchStmt` | ✅ |
+| 示例 | 特性 | AST 节点 | 支持 | 不支持原因 |
+|------|------|----------|------|------------|
+| 039_lambda_basic | Lambda 表达式 | `LambdaExpr` | ⚠️ | Lambda 是匿名函数对象，涉及闭包捕获语义，仅能生成基础框架 |
+| 040_std_function | std::function | `ClassTemplateSpecialization` | ✅ | |
+| 041_functional_bind | std::bind | `CallExpr` | ⚠️ | 绑定器参数绑定语义复杂，部分支持 |
+| 042_exception_basic | 异常处理 | `CXXThrowExpr`, `CXXCatchStmt` | ✅ | |
 
 #### 其他高级特性 (43-48)
 
-| 示例 | 特性 | AST 节点 | 支持 |
-|------|------|----------|------|
-| 043_namespace_nested | 嵌套命名空间 | `NamespaceDecl` (嵌套) | ✅ |
-| 044_enum_class | 强类型枚举 | `EnumDecl` (scoped) | ✅ |
-| 045_union_basic | 共用体 | `RecordDecl` (union) | ✅ |
-| 046_constexpr_basic | constexpr | `Expr` (constexpr) | ✅ |
-| 047_noexcept_basic | noexcept | `NoexceptSpec` | ✅ |
-| 048_summary | FFI 模式总结 | - | ✅ |
+| 示例 | 特性 | AST 节点 | 支持 | 不支持原因 |
+|------|------|----------|------|------------|
+| 043_namespace_nested | 嵌套命名空间 | `NamespaceDecl` (嵌套) | ✅ | |
+| 044_enum_class | 强类型枚举 | `EnumDecl` (scoped) | ✅ | |
+| 045_union_basic | 共用体 | `RecordDecl` (union) | ✅ | |
+| 046_constexpr_basic | constexpr | `Expr` (constexpr) | ✅ | |
+| 047_noexcept_basic | noexcept | `NoexceptSpec` | ✅ | |
+| 048_summary | FFI 模式总结 | - | ✅ | |
 
 **图例**：✅ 完全支持 ⚠️ 部分支持 ❌ 不支持
+
+**v2 限制说明**：v2 基于 AST 编译捕获（语义分析），相比 v1 大幅提升了模板实例化支持，但仍有一些限制：
+
+| 限制类型 | 具体场景 | 原因 |
+|----------|----------|------|
+| 仅捕获实际使用的实例化 | 代码中未使用的 `std::vector<float>` 不会被生成 | 编译器只实例化实际使用的模板 |
+| 运算符重载 | `operator+` 等无法映射到 Rust trait | 运算符到 trait 的映射需要语义转换规则 |
+| 运行时类型信息 | typeid、RTTI | 需要运行时探测，AST 编译是静态分析 |
+| 友元函数 | 特殊访问权限处理 | 非成员函数但能访问私有成员，FFI 设计困难 |
 
 ## 4. 核心设计
 
