@@ -57,19 +57,19 @@ fn map_custom_or_pointer_type(normalized: &str) -> String {
         .strip_prefix("const ")
         .and_then(|value| value.strip_suffix('*'))
     {
-        return format!("*const {}", normalize_cpp_type(inner));
+        return format!("*const {}", map_cpp_type_to_rust(inner));
     }
     if let Some(inner) = normalized.strip_suffix('*') {
-        return format!("*mut {}", normalize_cpp_type(inner));
+        return format!("*mut {}", map_cpp_type_to_rust(inner));
     }
     if let Some(inner) = normalized
         .strip_prefix("const ")
         .and_then(|value| value.strip_suffix('&'))
     {
-        return format!("*const {}", normalize_cpp_type(inner));
+        return format!("*const {}", map_cpp_type_to_rust(inner));
     }
     if let Some(inner) = normalized.strip_suffix('&') {
-        return format!("*mut {}", normalize_cpp_type(inner));
+        return format!("*mut {}", map_cpp_type_to_rust(inner));
     }
     normalized.to_string()
 }
@@ -95,6 +95,15 @@ mod tests {
             map_cpp_type_to_rust("const void*"),
             "*const std::ffi::c_void"
         );
+    }
+
+    #[test]
+    fn maps_primitive_pointer_types_recursively() {
+        // int*, double* etc. should map inner type to Rust primitive
+        assert_eq!(map_cpp_type_to_rust("int*"), "*mut i32");
+        assert_eq!(map_cpp_type_to_rust("double*"), "*mut f64");
+        assert_eq!(map_cpp_type_to_rust("const int*"), "*const i32");
+        assert_eq!(map_cpp_type_to_rust("unsigned char*"), "*mut u8");
     }
 
     #[test]

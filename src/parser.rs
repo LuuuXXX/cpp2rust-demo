@@ -24,15 +24,22 @@ pub fn parse_header_file(path: &Path) -> Result<ParsedHeader> {
 /// 解析头文件字符串，供测试和 CLI 共用。
 pub fn parse_header_str(header_name: &str, source: &str) -> Result<ParsedHeader> {
     let cleaned = sanitize_source(&strip_comments(source));
-    let class_regex =
-        Regex::new(r"(?s)(class|struct)\s+([A-Za-z_]\w*)\s*(?:final\s*)?(?:\:[^{]+)?\{(.*?)\};")
-            .unwrap();
+    // 匹配可选 template<...> 前缀 + class/struct + name + 可选 final + 可选基类 + 正文
+    let class_regex = Regex::new(
+        r"(?s)(template\s*<[^>]*>\s*)?(class|struct)\s+([A-Za-z_]\w*)\s*(?:final\s*)?(?:\:[^{]+)?\{(.*?)\};",
+    )
+    .unwrap();
 
     let mut classes = Vec::new();
     for captures in class_regex.captures_iter(&cleaned) {
-        let kind = captures.get(1).unwrap().as_str();
-        let name = captures.get(2).unwrap().as_str();
-        let body = captures.get(3).unwrap().as_str();
+        let is_template = captures.get(1).is_some(); // template<...> 前缀
+        let kind = captures.get(2).unwrap().as_str();
+        let name = captures.get(3).unwrap().as_str();
+        let body = captures.get(4).unwrap().as_str();
+        // 跳过模板类（不能直接 FFI）
+        if is_template {
+            continue;
+        }
         classes.push(parse_class(kind, name, body));
     }
 
@@ -113,9 +120,13 @@ fn parse_class(kind: &str, name: &str, body: &str) -> Class {
     let default_public = kind == "struct";
     let mut is_public = default_public;
     let mut methods = Vec::new();
+
+    // 先剥离内联方法体（{ ... }），防止方法体中的 `;` 破坏分割逻辑
+    let body_no_inline = strip_inline_bodies(body);
+
     let normalized_body = Regex::new(r"(?m)\b(public|private|protected):")
         .unwrap()
-        .replace_all(body, "$1:;")
+        .replace_all(&body_no_inline, "$1:;")
         .into_owned();
 
     for chunk in normalized_body.split(';') {
@@ -159,6 +170,34 @@ fn parse_class(kind: &str, name: &str, body: &str) -> Class {
         name: name.to_string(),
         methods,
     }
+}
+
+/// 剥离类体中的内联方法体 `{ ... }`，保留声明部分。
+/// 例如：`int size() const { return data.size(); }` → `int size() const ;`
+/// 注意：用 `;` 替换每个被剥离的 `}` 的闭合位置，确保后续 `;` 分割正确工作。
+fn strip_inline_bodies(body: &str) -> String {
+    let mut result = String::new();
+    let mut depth = 0usize;
+    for ch in body.chars() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                if depth > 0 {
+                    depth -= 1;
+                    // 方法体关闭时插入 `;` 使后续按 `;` 分割时每个声明独立
+                    if depth == 0 {
+                        result.push(';');
+                    }
+                }
+            }
+            _ => {
+                if depth == 0 {
+                    result.push(ch);
+                }
+            }
+        }
+    }
+    result
 }
 
 /// 判断是否为函数指针/std::function 成员变量（不是方法声明）。
@@ -610,5 +649,49 @@ mod tests {
         // typedef 不产生 function，apply_operation 产生 1 个
         assert_eq!(parsed.functions.len(), 1);
         assert_eq!(parsed.functions[0].name, "apply_operation");
+    }
+
+    #[test]
+    fn strips_inline_method_bodies() {
+        let header = r#"
+            class Stack {
+            public:
+                Stack() = default;
+                int size() const { return static_cast<int>(data.size()); }
+                bool empty() const { return data.empty(); }
+                void push(int value) { data.push(value); }
+                int top() const { return data.top(); }
+                void pop() { data.pop(); }
+            };
+        "#;
+        let parsed = parse_header_str("stack.h", header).unwrap();
+        let class = &parsed.classes[0];
+        // constructor + 5 methods
+        assert_eq!(class.methods.len(), 6);
+        // size, empty, top are const
+        assert!(class.methods[1].is_const); // size
+        assert_eq!(class.methods[1].rust_name, "size");
+        assert_eq!(class.methods[1].return_type.as_deref(), Some("int"));
+    }
+
+    #[test]
+    fn skips_template_classes() {
+        let header = r#"
+            template<typename T>
+            class Stack {
+            public:
+                void push(T value);
+                T top() const;
+            };
+            class IntStack {
+            public:
+                IntStack();
+                void push(int value);
+            };
+        "#;
+        let parsed = parse_header_str("stack.h", header).unwrap();
+        // template class Stack should be skipped, IntStack kept
+        assert_eq!(parsed.classes.len(), 1);
+        assert_eq!(parsed.classes[0].name, "IntStack");
     }
 }
