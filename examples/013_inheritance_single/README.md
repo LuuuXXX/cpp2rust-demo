@@ -115,3 +115,15 @@ struct Derived {
 1. **单继承**：派生类包含基类作为第一个成员
 2. **FFI 映射**：通过组合和手动转发实现
 3. **方法转发**：继承的方法需要单独的转发函数
+## 运行结果
+
+```
+Animal name: Generic Animal
+Generic Animal makes a sound
+
+Dog name: Buddy
+Buddy barks: Woof! Woof!
+Buddy barks: Woof! Woof!
+
+Rust FFI: Single inheritance with hicc pattern
+```

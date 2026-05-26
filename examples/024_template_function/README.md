@@ -48,3 +48,28 @@ unsafe fn swap_char(a: *mut i8, b: *mut i8);
 - 策略：为每种需要的类型创建显式实例化函数
 - Rust 端调用时需要知道具体类型
 - 这是 FFI 处理模板的标准方法
+## 运行结果
+
+```
+=== 024_template_function - 函数模板 ===
+
+Before swap: a = 10, b = 20
+swap_int called
+After swap: a = 20, b = 10
+
+Before swap: x = 3.14, y = 2.71
+swap_double called
+After swap: x = 2.71, y = 3.14
+
+Before swap: c1 = A, c2 = B
+swap_char called
+After swap: c1 = B, c2 = A
+
+Array before swap(0,4): [1, 2, 3, 4, 5]
+swap_int_array: arr[0] <-> arr[4]
+Array after swap(0,4): [5, 2, 3, 4, 1]
+
+Rust FFI: 模板必须在 C++ 侧实例化
+每个模板实例 = 一个独立的 C 函数
+swap_int, swap_double, swap_char 是三个不同的函数
+```

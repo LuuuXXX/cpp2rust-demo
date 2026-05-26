@@ -126,3 +126,13 @@ int derived_getValue2(struct Derived* self) {
 1. **多继承**：每个基类作为单独的成员
 2. **FFI 挑战**：多个基类指针需要正确处理偏移
 3. **方法转发**：每个基类方法都需要单独的转发函数
+## 运行结果
+
+```
+Base1 value: 10
+Base2 value: 10
+Derived value: 30
+Computing: 10 + 20 + 30 = 60
+
+Rust FFI: Multiple inheritance with hicc pattern
+```

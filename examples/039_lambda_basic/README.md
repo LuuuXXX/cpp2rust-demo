@@ -119,3 +119,17 @@ extern "C" fn rust_add(a: i32, b: i32) -> i32 {
 - 有状态的 lambda 需要包装在类中
 - FFI 边界使用函数指针或 std::function
 - Rust 闭包需要转换为函数指针
+## 运行结果
+
+```
+=== 039_lambda_basic - Lambda 表达式 ===
+
+--- BinaryOp Demo ---
+Stored: a=10, b=20, result=30
+Stored: a=5, b=3, result=8
+
+Rust FFI: Lambda 表达式映射
+1. 函数指针可以通过 FFI 传递
+2. 捕获状态的 lambda 需要包装在类中
+3. 此示例展示基本的类封装模式
+```

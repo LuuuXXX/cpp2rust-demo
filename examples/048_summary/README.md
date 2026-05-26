@@ -279,3 +279,67 @@ hicc-build = "0.2"
 ## 许可
 
 本项目仅供学习参考。
+## 运行结果
+
+```
+=== 048_summary - FFI Patterns Summary ===
+
+--- 1. Opaque Pointer Pattern ---
+Initial value: 0
+After 2 increments: 2
+After 1 decrement: 1
+
+--- 2. Class Import Pattern ---
+See 006_class_basic for full class FFI pattern
+
+--- 3. Namespace Pattern ---
+Namespaces are flattened in FFI
+get_max_size() = 100
+
+--- 4. Enum Class Pattern ---
+See 044_enum_class for enum class FFI pattern
+Enum values passed as integers across FFI
+
+--- 5. Union Pattern ---
+See 045_union_basic for union FFI pattern
+Unions share memory between members
+
+--- 6. Constexpr Pattern ---
+constexpr values computed at compile time
+get_max_size() = 100 (runtime call, but value is constexpr)
+
+--- 7. Noexcept Pattern ---
+safe_add(10, 20) = 30
+noexcept guarantees no exceptions
+
+--- 8. Exception Handling Pattern ---
+See 042_exception_basic for exception FFI pattern
+Exceptions cannot cross FFI boundary
+
+=== Pattern Summary Table ===
+| Example | Pattern |
+|---------|---------|
+| 001-005 | extern "C" functions |
+| 006-012 | Class with opaque pointer |
+| 013-018 | Inheritance and virtual |
+| 019-023 | Operators and special members |
+| 024-028 | Templates |
+| 029-033 | Smart pointers and RAII |
+| 034-038 | STL containers |
+| 039-041 | Functions and lambdas |
+| 042 | Exception handling |
+| 043 | Nested namespaces |
+| 044 | enum class |
+| 045 | Union |
+| 046 | constexpr |
+| 047 | noexcept |
+
+=== Key FFI Principles ===
+1. C++ exceptions cannot propagate across FFI boundary
+2. Use opaque pointers for C++ classes
+3. extern "C" flattens C++ name mangling
+4. Enums passed as underlying integer type
+5. Unions share memory between members
+6. constexpr computed at compile time
+7. noexcept is part of function signature in FFI
+```

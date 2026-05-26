@@ -122,3 +122,25 @@ class Derived : public Base {
 2. **编译时检查**：签名不匹配导致编译错误
 3. **FFI 影响**：无，override 不生成额外代码
 4. **vtable**：无论是否使用 override，vtable 布局相同
+## 运行结果
+
+```
+=== Virtual Override FFI with hicc ===
+
+The 'override' keyword explicitly marks method overriding in C++
+
+Creating Base
+Creating Derived (as Base*)
+--- Calling through Base pointer ---
+Name: Base
+Area: 0.0000
+
+--- Calling through Derived (as Base*) ---
+Name: Derived
+Area: 1764.0000
+
+override ensures Derived::area() is called not Base::area()
+This is polymorphism: same interface, different implementations
+
+Rust FFI: override keyword works correctly through hicc!
+```

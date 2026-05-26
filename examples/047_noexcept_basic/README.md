@@ -92,3 +92,24 @@ cargo build
 4. `noexcept` 函数不能调用可能抛出异常的函数
 5. FFI 中 `noexcept` 是函数签名的一部分
 6. C++17 引入了 `noexcept(expr)` 运算符可在运行时检查
+## 运行结果
+
+```
+=== 047_noexcept_basic - noexcept ===
+
+--- noexcept Functions ---
+noexcept_add(10, 20) = 30
+noexcept_multiply(6, 7) = 42
+conditional_abs(-42) = 42
+
+--- noexcept Move Semantics ---
+Original mover created, value = 100
+Mover moved (noexcept), new value = 100
+
+--- Summary ---
+1. noexcept declares function won't throw
+2. Move constructors and move assignment operators often use noexcept
+3. noexcept move operations have better performance in STL containers
+4. noexcept functions cannot call potentially throwing functions
+5. In FFI, noexcept is part of function signature
+```

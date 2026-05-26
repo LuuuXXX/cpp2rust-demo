@@ -82,3 +82,29 @@ unsafe fn shareddata_expired(self_: *mut SharedData) -> i32;
 - `weak_ptr` 用于缓存和循环引用解决
 - Rust 等价物：`Arc<T>` 和 `Weak<T>`
 - 推荐使用 hicc-std 提供的安全包装
+## 运行结果
+
+```
+=== 030_shared_ptr - std::shared_ptr + weak_ptr ===
+
+Created SharedData: TestData
+Use count: 1
+
+Cloned SharedData: TestData
+Use count (shared): 1
+
+After reset:
+data1 expired: true
+
+
+Cache demo:
+cached1a and cached1b point to same cache entry
+
+Rust FFI: shared_ptr 的处理方式
+1. C++ 侧管理引用计数
+2. Rust 侧通过 FFI 函数操作
+3. 相当于 Rust 的 Arc<T>
+
+weak_ptr 用于缓存，避免循环引用
+相当于 Rust 的 Weak<T>
+```

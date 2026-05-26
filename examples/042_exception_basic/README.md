@@ -120,3 +120,33 @@ cargo build
 3. `hicc::Exception<T>` 提供类型安全的异常封装
 4. 每次调用后应检查异常状态
 5. 异常状态需要在操作前清除
+## 运行结果
+
+```
+=== 042_exception_basic - Exception Handling ===
+
+--- Division Tests ---
+10 / 2 = 5
+  10 / 2: No exception
+
+Testing division by zero:
+10 / 0 = 0 (returns 0, check exception)
+  10 / 0: Runtime error exception
+
+After clearing exception:
+20 / 4 = 5
+  20 / 4: No exception
+
+--- String to Int Tests ---
+string_to_int("123") = 123
+  string_to_int("123"): No exception
+string_to_int("abc") = 0 (returns 0, check exception)
+  string_to_int("abc"): Invalid argument exception
+
+--- Summary ---
+1. C++ exceptions CANNOT propagate across FFI boundary
+2. Common FFI pattern: set error code, return error value
+3. Check exception/error state after each call
+4. Clear exception state before next operation
+5. Never throw in FFI boundary - use error codes instead
+```

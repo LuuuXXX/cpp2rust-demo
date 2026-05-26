@@ -49,3 +49,20 @@ match shape_getType(shape) {
 - C++ RTTI 信息无法直接传递到 Rust
 - 解决方案：在 C++ 侧导出类型枚举
 - 使用工厂函数创建对象，返回时携带类型信息
+## 运行结果
+
+```
+=== 023_typeid_rtti - typeid 与 RTTI ===
+
+
+Using typeid to determine runtime type:
+Circle: type=-1, name=Circle, area=0.00
+Rectangle: type=-1, area=0.00
+Triangle: type=-1, area=0.00
+Deleting Shape
+Deleting Shape
+Deleting Shape
+
+Rust FFI: typeid 变成类型枚举或字符串比较
+RTTI 信息在 FFI 边界丢失，需在 C++ 侧导出类型信息
+```

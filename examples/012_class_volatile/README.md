@@ -92,3 +92,16 @@ class Device {
 1. **volatile 成员函数**：用于硬件寄存器等可能意外改变的状态
 2. **FFI 映射**：`this` 参数需要 `volatile` 限定符
 3. **Rust 类型安全**：volatile 语义通过文档和每次独立读取来保持
+## 运行结果
+
+```
+Reading volatile hardware registers (values may change):
+  Read 0: status=0x12345678, data=0x00000000
+  Read 1: status=0x12345678, data=0x00000000
+  Read 2: status=0x12345678, data=0x00000000
+  Read 3: status=0x12345678, data=0x00000000
+  Read 4: status=0x12345678, data=0x00000000
+
+Rust FFI: volatile qualifier requires volatile pointer in C
+Note: In C, volatile on the pointed-to object matters for hardware registers
+```

@@ -140,3 +140,27 @@ impl Drop for MutexGuard<'_> {
 - FFI 边界通过"创建/销毁函数对"模拟
 - Rust 可以通过 Drop trait 实现等效行为
 - 作用域锁（ScopedLock）是最常见的 RAII 应用
+## 运行结果
+
+```
+=== 033_raii_pattern - RAII 模式 ===
+
+--- Manual Lock/Unlock ---
+Critical section started
+Critical section ended
+Mutex 'unnamed' deleted
+
+--- ScopedLock Demo ---
+Inside scoped lock region
+ScopedLock will auto-unlock on delete
+Mutex 'unnamed' deleted
+
+--- FileLock Demo ---
+File is locked, performing I/O...
+
+Rust FFI: RAII 模式映射
+1. C++ RAII: 构造函数加锁，析构函数解锁
+2. Rust 等效: Drop trait 自动调用
+3. FFI 边界: ScopedLock 对象在 Rust 析构时自动释放
+4. 推荐模式: Rust 封装 RAII guard 类型
+```

@@ -28,3 +28,19 @@ struct DataFetcher {
 - `mutable` 是 C++ 编译器内部优化机制
 - 在 FFI 中无影响 - 传递的是指针，函数实现相同
 - Rust FFI 调用时无需特别处理
+## 运行结果
+
+```
+=== 022_mutable_member - mutable 成员 ===
+
+Calling getName() 3 times (const method with mutable cache):
+  Call 1: name = 0, cache_count = 0
+  Call 2: name = 1, cache_count = 0
+  Call 3: name = 2, cache_count = 0
+
+Refreshing...
+Cache count after refresh: 1
+
+Rust FFI: mutable 关键字在 FFI 中无影响
+mutable 只影响 C++ 编译器允许在 const 方法中修改该成员
+```

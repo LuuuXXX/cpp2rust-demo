@@ -143,3 +143,22 @@ extern "C" fn rust_callback(value: i32) -> i32 {
 - FFI 边界使用函数指针作为回调
 - Rust 闭包需要转换为函数指针
 - 适用于需要运行时灵活性的场景
+## 运行结果
+
+```
+=== 040_std_function - std::function 回调 ===
+
+--- CallbackWrapper Demo ---
+process(5) with multiplier=2: 10
+get_value(): 10
+process(7) with multiplier=3: 21
+
+--- Processor Demo ---
+Set input: 21
+Simulated result (input * 2): 42
+
+Rust FFI: std::function 回调映射
+1. std::function 存储可调用对象
+2. 回调可用于事件处理
+3. 此示例展示基本的回调封装模式
+```

@@ -139,3 +139,14 @@ unsafe fn circle_area(self_: *mut Circle) -> f64;
 2. **FFI 挑战**：vtable 布局是编译器特定的实现细节
 3. **解决方案**：手动实现 vtable 或使用外部调度
 4. **最佳实践**：在 FFI 边界避免暴露虚函数层次
+## 运行结果
+
+```
+=== Virtual Function FFI with hicc ===
+
+Circle name: Circle
+Circle radius: 5
+Circle area: 78.5398
+
+Rust FFI: Virtual functions work through hicc import_class!
+```

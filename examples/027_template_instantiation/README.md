@@ -65,3 +65,20 @@ template class Matrix<int>;  // 实际实例化
 - 显式实例化是模板 FFI 的标准方法
 - 在库中预先实例化常用类型
 - FFI 层负责将模板实例化导出为独立函数
+## 运行结果
+
+```
+=== 027_template_instantiation - 模板显式实例化 ===
+
+   1   2   3
+   4   5   6
+   7   8   9
+
+ 1.1 2.2
+ 3.3 4.4
+
+Rust FFI: 显式实例化将模板绑定到具体类型
+extern template 声明可在库中预实例化
+Matrix<int> -> IntMatrix
+Matrix<double> -> DoubleMatrix
+```

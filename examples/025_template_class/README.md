@@ -62,3 +62,22 @@ fn doublestack_top(self_: *mut DoubleStack) -> f64;
 - C++ 内部可以使用 `std::stack<T>` 实现
 - 导出时通过命名约定区分不同实例
 - 这是模板 FFI 的标准做法
+## 运行结果
+
+```
+=== 025_template_class - 类模板 ===
+
+IntStack empty: true
+IntStack size: 3
+IntStack top: 30
+After pop, top: 20
+
+DoubleStack empty: true
+DoubleStack size: 3
+DoubleStack top: 3.3
+After pop, top: 2.2
+
+Rust FFI: 类模板 = 为每种类型实例化独立结构
+Stack<int> -> IntStack
+Stack<double> -> DoubleStack
+```

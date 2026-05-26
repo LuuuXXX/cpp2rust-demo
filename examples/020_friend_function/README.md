@@ -132,3 +132,26 @@ struct Number* number_add(struct Number* a, struct Number* b) {
 2. **FFI 映射**：在 C FFI 中就是普通函数
 3. **访问控制**：C 没有访问控制，结构体成员都可访问
 4. **Rust 替代**：Rust 没有友元，但可以通过 `pub(in crate)` 控制可见性
+## 运行结果
+
+```
+=== Friend Function FFI ===
+
+Friend functions in C++ can access private members of a class
+
+Created MyClass objects:
+  a.value = 10
+  b.value = 20
+
+Friend function operations:
+Friend function getSum: 10 + 20 = 30
+  Sum: 30
+Friend function getProduct: 10 * 20 = 200
+  Product: 200
+Friend function compare: a < b
+  Compare: -1
+
+Rust FFI: Friend functions are just regular functions
+In C FFI, we can access struct members directly
+The 'friend' relationship is a C++ access control concept
+```

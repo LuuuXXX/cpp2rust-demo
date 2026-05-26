@@ -128,3 +128,25 @@ cargo build
 4. 常用于节省内存或位级类型转换
 5. FFI 中通过 variant 包装器传递 union
 6. 使用时必须记录当前活跃的成员类型
+## 运行结果
+
+```
+=== 045_union_basic - Unions ===
+
+--- Variant Demo ---
+Type: INT, Value: 42
+Type: FLOAT, Value: 3.14
+Type: STRING, Value: Hello, Union!
+
+--- Memory Overlay Demo ---
+sizeof(int) = 4, sizeof(float) = 4
+Set as int: 1094795585 (0x41414141)
+Read as float: 12.078431 (bits: 0x41414141)
+
+--- Summary ---
+1. union all members share the same memory
+2. Modifying one member affects other members
+3. union size equals the largest member size
+4. Often used to save memory or for type punning
+5. FFI passes union via variant wrapper
+```

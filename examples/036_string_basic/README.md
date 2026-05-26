@@ -155,3 +155,30 @@ impl Drop for CppString {
 - FFI 边界使用 `c_str()` 和 `CString`
 - Rust 需要处理 UTF-8 编码
 - 建议封装为安全的 Rust String 类型
+## 运行结果
+
+```
+=== 036_string_basic - std::string ===
+
+--- Creation Demo ---
+Created: "Hello"
+Size: 5, Length: 5
+Empty: false
+
+--- Comparison Demo ---
+Compare with 'Hello': 0
+Equals 'Hello': true
+
+--- Concatenation Demo ---
+After append: "Hello, World!"
+
+--- Case Conversion Demo ---
+To upper: "HELLO WORLD"
+To lower: "hello world"
+
+Rust FFI: std::string 映射
+1. C++ 字符串映射为 opaque 指针
+2. 字符串内容通过 c_str() 获取
+3. 修改操作直接在原字符串上进行
+4. CString 用于 Rust 到 C 的转换
+```

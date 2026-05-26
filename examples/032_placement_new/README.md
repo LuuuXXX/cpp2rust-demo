@@ -126,3 +126,22 @@ hicc::import_lib! {
 - FFI 边界需要协调内存分配和构造责任
 - 通常 C++ 侧负责构造，Rust 侧负责分配
 - 适用于高性能和实时系统场景
+## 运行结果
+
+```
+=== 032_placement_new - Placement New ===
+
+Buffer created with capacity: 1024
+Buffer data at: 0xADDR
+Buffer capacity: 1024
+Buffer constructed size: 0
+
+--- VectorBuffer Demo ---
+VectorBuffer element size: 4
+
+Rust FFI: Placement New 模式
+1. 在预分配内存中构造对象
+2. 使用 placement new: new (address) Constructor(args)
+3. 适用于内存池、STL 容器实现
+4. Rust 需要手动管理内存布局
+```

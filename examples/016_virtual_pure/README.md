@@ -143,3 +143,28 @@ Rectangle:
 2. **抽象类**：包含纯虚函数的类，不能实例化
 3. **FFI 映射**：函数指针模拟 vtable
 4. **多态**：通过工厂返回具体类型，通过统一接口调用
+## 运行结果
+
+```
+=== Pure Virtual Function FFI with hicc ===
+
+Pure virtual functions (= 0) make a class abstract
+Cannot be instantiated directly in C++
+
+
+--- Using circle through abstract interface ---
+Shape: Circle
+Area: 78.5398
+
+--- Using rectangle through abstract interface ---
+Shape: Rectangle
+Area: 24.0000
+
+--- Polymorphic behavior demonstrated ---
+Deleting Circle
+Deleting Circle
+Deleting Rectangle
+Deleting Rectangle
+
+Rust FFI: Pure virtual functions work through hicc!
+```

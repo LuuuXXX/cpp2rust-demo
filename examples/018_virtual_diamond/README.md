@@ -133,3 +133,29 @@ unsafe fn d_getAValue(self_: *mut D) -> i32;
 2. **虚拟继承**：确保只有一个 A 子对象
 3. **FFI 挑战**：指针转换需要正确调整
 4. **最佳实践**：在 FFI 边界避免复杂的继承层次
+## 运行结果
+
+```
+=== Diamond Inheritance FFI with hicc ===
+
+Diamond inheritance structure:
+       A
+      / \
+     B   C
+      \ /
+       D
+
+Virtual inheritance ensures only ONE A subobject in D
+
+Values:
+Getting A value (virtual base - single instance)
+  A value (via B): 1
+  B value: 2
+  C value: 2
+  D value: 4
+
+D::compute: a=1 b=2 c=3 d=4
+Sum: 10
+
+Rust FFI: Diamond inheritance works correctly with hicc!
+```

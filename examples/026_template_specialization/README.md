@@ -54,3 +54,21 @@ fn stringholder_get(self_: *mut StringHolder) -> *const i8;
 - char* 特化通常需要特殊处理（内存管理）
 - 命名约定用于区分不同版本
 - 每个特化版本的内部实现可能完全不同
+## 运行结果
+
+```
+=== 026_template_specialization - 模板偏特化 ===
+
+IntHolder(value=42)
+  get(): 42
+
+DoubleHolder(value=3.14159)
+  get(): 3.14159
+
+StringHolder(value="Hello, World!", length=13)
+  get(): Hello, World!
+
+Rust FFI: 每个模板特化是独立的结构
+通用版本: IntHolder, DoubleHolder
+偏特化: StringHolder (处理 char*)
+```

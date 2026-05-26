@@ -121,3 +121,29 @@ hicc::import_lib! {
 - FFI 边界需要显式函数调用
 - Rust 侧通过 unsafe 函数操作
 - 推荐封装为安全的 Rust Vec 类型
+## 运行结果
+
+```
+=== 034_vector_basic - std::vector ===
+
+--- IntVector Demo ---
+Empty: true
+Size: 5, Capacity: 8
+Elements:
+  [0] = 0
+  [1] = 10
+  [2] = 20
+  [3] = 30
+  [4] = 40
+After set [2] = 999: 999
+Raw data pointer: 0xADDR
+After clear, size: 0
+
+Rust FFI: std::vector 映射
+1. Opaque 指针隐藏 vector 内部结构
+2. push_back/get/set 等价于 Rust 的 push/get/index
+3. size()/capacity() 提供容器信息
+4. data() 获取原始指针用于批量操作
+
+Note: StringVector example omitted due to FFI complexity with const char*
+```

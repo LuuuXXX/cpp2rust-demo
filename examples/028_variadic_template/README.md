@@ -63,3 +63,23 @@ fn sum_5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32;
 - 标准解决方案：导出固定参数版本的函数
 - 需要预定义最大参数数量
 - 高级方案：使用 type-erased wrapper（如 `std::function`）
+## 运行结果
+
+```
+=== 028_variadic_template - 可变参数模板 ===
+
+Result: sum() = 0
+Result: sum(1) = 1
+Result: sum(1, 2) = 3
+Result: sum(1, 2, 3) = 6
+Result: sum(1, 2, 3, 4) = 10
+Result: sum(1, 2, 3, 4, 5) = 15
+
+Result: sum(1.5, 2.5) = 4
+Result: sum(1.1, 2.2, 3.3) = 6.6
+
+Rust FFI: 可变参数模板的 FFI 挑战与解决方案
+挑战: C++ 可变参数模板(...Args) 无法直接映射到 FFI
+解决方案: 导出固定参数版本的函数
+每个参数数量 = 一个独立的函数
+```

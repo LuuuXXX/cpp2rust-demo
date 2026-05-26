@@ -152,11 +152,11 @@ cargo run
 ## 运行结果
 
 ```
-sum(3, 1, 2, 3) = 6
-sum(5, 10, 20, 30, 40, 50) = 150
-Hello, World! Number: 42
+sum_3(1, 2, 3) = 6
+sum_5(10, 20, 30, 40, 50) = 150
 
-Rust FFI: Variadic functions handled!
+Rust FFI: Variadic functions handled via wrapper!
+Note: C variadic functions (va_list) require wrapper functions for FFI
 ```
 
 ## 总结

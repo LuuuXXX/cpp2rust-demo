@@ -128,3 +128,29 @@ hicc::import_lib! {
 - FFI 边界使用函数参数传递键值
 - 查找结果通过返回值和输出参数返回
 - 适用于需要有序键的场景
+## 运行结果
+
+```
+=== 035_map_basic - std::map ===
+
+--- StringIntMap Demo ---
+Empty: true
+Insert 'one' = 1: true
+Insert 'two' = 2: true
+Insert 'three' = 3: true
+Insert 'four' = 4: true
+Insert 'five' = 5: true
+Size: 5
+Get 'one': 1
+Set 'one' = 100, now: 100
+Erase 'five': true
+Size after erase: 4
+After clear, size: 0
+
+Rust FFI: std::map 映射
+1. map 是有序关联容器（红黑树实现）
+2. 插入: insert(key, value) -> bool
+3. 查找: find(key) -> iterator 或 end()
+4. 删除: erase(key) -> size_t
+5. 字符串键需要 CString 转换
+```

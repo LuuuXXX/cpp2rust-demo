@@ -117,3 +117,29 @@ cargo build
 4. FFI 中 `constexpr` 值通过预处理器宏或内联函数传递
 5. Rust `const fn` 可以实现类似的编译期计算功能
 6. C++17 引入了 `constexpr lambda`，C++20 引入了 `consteval`
+## 运行结果
+
+```
+=== 046_constexpr_basic - constexpr ===
+
+--- Compile-time Fibonacci ---
+fibonacci<10>() = 55 (computed at compile time)
+Rust equivalent: fib(10) = 55 (also compile time)
+
+--- Runtime Manhattan Distance ---
+manhattan_distance(3, 4) = 7
+manhattan_distance(-3, -4) = 7
+manhattan_distance(10, -5) = 15
+
+--- Array Operations ---
+Array: [1, 5, 3, 9, 2, 8, 4, 7, 6, 0]
+Sum: 45
+Max: 9
+
+--- Summary ---
+1. constexpr specifies expression computed at compile time
+2. constexpr functions must satisfy compile-time evaluation conditions
+3. constexpr variables have determined values at compile time
+4. FFI constexpr values passed via preprocessor macros
+5. Rust const fn can achieve similar functionality
+```

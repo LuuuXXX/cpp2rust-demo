@@ -153,3 +153,17 @@ impl Drop for FileHandle {
 - FFI 边界需要显式传递删除器
 - Rust 侧通过 wrapper 类型提供安全接口
 - 适用于文件、数据库连接、网络 socket 等资源管理
+## 运行结果
+
+```
+=== 031_custom_deleter - 自定义删除器 ===
+
+Written 22 bytes
+[DEFAULT] Closing file: test_default.txt
+
+Rust FFI: 自定义删除器模式
+1. C++ 允许传递函数指针作为删除器
+2. 删除器在对象销毁时自动调用
+3. Rust 可以传入自己的清理函数
+4. 适用于文件、内存、网络连接等资源
+```
