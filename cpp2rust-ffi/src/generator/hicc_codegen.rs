@@ -136,7 +136,7 @@ impl HiccCodegen {
 
         // 析构函数 shim
         lines.push(format!("    void {}_delete({}* self) {{", prefix, class_name));
-        lines.push(format!("        delete self;", ));
+        lines.push("        delete self;".to_string());
         lines.push("    }".to_string());
     }
 
@@ -246,7 +246,6 @@ impl HiccCodegen {
                         .join(", ");
                     lines.push(format!("    #[cpp(func = \"{}* {}{}({})\")]",
                         class_name, prefix, suffix, cpp_params));
-                    let sep = if rust_params.is_empty() { "" } else { "" };
                     lines.push(format!("    fn {}{}({}) -> *mut {};",
                         prefix, suffix, rust_params, class_name));
                     lines.push(String::new());
@@ -331,7 +330,7 @@ impl HiccCodegen {
         }
 
         // 去掉结尾的空行
-        while lines.last().map_or(false, |s: &String| s.is_empty()) {
+        while lines.last().map_or(false, |s| s.is_empty()) {
             lines.pop();
         }
 
