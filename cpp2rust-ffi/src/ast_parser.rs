@@ -361,27 +361,33 @@ fn extract_function(entity: &Entity, namespace_stack: &[String]) -> Option<CppFu
         }
     }
 
-    // 构建签名（C 风格：无参数时使用 void）
+    // 构建签名（C 风格：无参数时使用 void，有参数时只用类型不用名称）
     let params_str = if func.params.is_empty() {
         "void".to_string()
     } else {
         func.params
             .iter()
-            .map(|p| {
-                if p.name.is_empty() || p.name == "arg" {
-                    p.cpp_type.clone()
-                } else {
-                    format!("{} {}", p.cpp_type, p.name)
-                }
-            })
+            .map(|p| normalize_cpp_type(&p.cpp_type))
             .collect::<Vec<_>>()
             .join(", ")
     };
-    func.cpp_signature = format!("{} {}({})", return_type, name, params_str);
+    func.cpp_signature = format!("{} {}({})", normalize_cpp_type(&return_type), name, params_str);
 
     Some(func)
 }
 
+/// 规范化 C++ 类型名（去掉多余空格，指针靠近类型名）
+fn normalize_cpp_type(ty: &str) -> String {
+    let ty = ty.trim();
+    // 规范化指针/引用：`char * ` → `char*`
+    let ty = ty.replace(" * ", "*")
+        .replace("* ", "*")
+        .replace(" *", "*")
+        .replace(" &", "&")
+        .replace("& ", "&");
+    // 修复 const pointer：`const char*` (keep leading const)
+    ty
+}
 /// 提取函数/方法参数
 fn extract_param(entity: &Entity) -> Option<CppParam> {
     let cpp_type = if let Some(ty) = entity.get_type() {

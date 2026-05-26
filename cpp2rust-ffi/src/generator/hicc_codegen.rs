@@ -19,6 +19,12 @@ impl HiccCodegen {
 
         let link_name = &ast.source_name;
 
+        // 0. 检查是否需要 use 语句
+        let needs_cstr = self.needs_cstr(ast);
+        if needs_cstr {
+            output.push_str("use std::ffi::CStr;\n\n");
+        }
+
         // 1. hicc::cpp! 块
         let cpp_block = self.generate_cpp_block(ast);
         if !cpp_block.is_empty() {
@@ -49,6 +55,24 @@ impl HiccCodegen {
         }
 
         output
+    }
+
+    /// 检查是否需要 use std::ffi::CStr
+    fn needs_cstr(&self, ast: &CppAst) -> bool {
+        // 只在有函数返回 const char* 时添加（用于安全读取返回值）
+        for func in &ast.functions {
+            if func.return_type.contains("char") {
+                return true;
+            }
+        }
+        for class in &ast.classes {
+            for method in &class.methods {
+                if method.return_type.contains("char") {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// 生成 hicc::cpp! 块

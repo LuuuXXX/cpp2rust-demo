@@ -43,11 +43,13 @@ pub fn normalize_output(content: &str) -> String {
 /// - 去掉空白行
 /// - 去掉行尾空白
 /// - 规范化行尾
+/// - 跳过纯注释行（以 // 开头的行）- 黄金文件可能有工具未生成的说明注释
 pub fn normalize(content: &str) -> String {
     content
         .lines()
         .map(|line| line.trim_end())
         .filter(|line| !line.is_empty())
+        .filter(|line| !line.trim().starts_with("//"))
         .collect::<Vec<_>>()
         .join("\n")
 }

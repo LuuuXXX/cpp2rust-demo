@@ -206,6 +206,10 @@ pub fn sanitize_rust_name(name: &str) -> String {
         "typeof" => "typeof_".to_string(),
         "unsized" => "unsized_".to_string(),
         "virtual" => "virtual_".to_string(),
+        // Rust std 库函数冲突
+        "min" => "min_val".to_string(),
+        "max" => "max_val".to_string(),
+        "abs" => "abs_val".to_string(),
         "" => "arg".to_string(),
         name => {
             // 将非法字符替换为下划线

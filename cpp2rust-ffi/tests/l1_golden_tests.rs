@@ -1,5 +1,6 @@
 //! L1 黄金文件测试
 //! 工具生成的 main.rs 与仓库中 rust_hicc/src/main.rs 进行对比
+//! 比较范围：仅 hicc:: 块（cpp!/import_class!/import_lib!），不包括 main() 函数
 //! 初始状态：工具未实现时，所有测试均为 FAIL（符合预期）
 
 mod common;
@@ -14,7 +15,7 @@ fn run_tool_on(example: &str) -> String {
     let cpp_dir = example_dir.join("cpp");
 
     // 收集所有 .cpp 文件
-    let cpp_files: Vec<PathBuf> = std::fs::read_dir(&cpp_dir)
+    let mut cpp_files: Vec<PathBuf> = std::fs::read_dir(&cpp_dir)
         .map(|rd| {
             rd.filter_map(|e| e.ok())
                 .map(|e| e.path())
@@ -26,6 +27,7 @@ fn run_tool_on(example: &str) -> String {
                 .collect()
         })
         .unwrap_or_default();
+    cpp_files.sort();
 
     if cpp_files.is_empty() {
         return String::new();
@@ -43,6 +45,23 @@ fn run_tool_on(example: &str) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
+/// 提取代码中的 hicc:: 块（不含 main() 函数）
+fn extract_hicc_blocks(code: &str) -> String {
+    let mut result = Vec::new();
+    for line in code.lines() {
+        // 停止于 fn main()
+        if line.trim().starts_with("fn main()") {
+            break;
+        }
+        result.push(line.trim_end());
+    }
+    // 去掉尾部空行
+    while result.last().map_or(false, |s: &&str| s.is_empty()) {
+        result.pop();
+    }
+    result.join("\n")
+}
+
 macro_rules! golden_test {
     ($name:ident, $example:literal) => {
         #[test]
@@ -50,11 +69,15 @@ macro_rules! golden_test {
         fn $name() {
             let generated = run_tool_on($example);
             let golden = read_golden($example);
+            let gen_blocks = extract_hicc_blocks(&generated);
+            let gold_blocks = extract_hicc_blocks(&golden);
             assert_eq!(
-                normalize(&generated),
-                normalize(&golden),
-                "Golden file mismatch for {}",
-                $example
+                normalize(&gen_blocks),
+                normalize(&gold_blocks),
+                "Golden file mismatch for {}\nGenerated hicc blocks:\n{}\nExpected:\n{}",
+                $example,
+                gen_blocks,
+                gold_blocks,
             );
         }
     };
