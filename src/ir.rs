@@ -7,6 +7,8 @@ pub struct ParsedHeader {
     pub include_path: String,
     pub functions: Vec<Function>,
     pub classes: Vec<Class>,
+    /// 从 `typedef` 提取出的类型别名（如函数指针 typedef）。
+    pub typedefs: Vec<TypedefAlias>,
 }
 
 /// 顶层可导出的 C/C++ 兼容函数。
@@ -52,6 +54,8 @@ pub struct Method {
     pub kind: MethodKind,
     pub is_const: bool,
     pub is_static: bool,
+    /// 是否为运算符重载（如 operator+, operator++）。
+    pub is_operator: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,4 +70,13 @@ pub enum MethodKind {
 pub struct Parameter {
     pub name: String,
     pub cpp_type: String,
+}
+
+/// typedef 别名，目前主要用于函数指针类型。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TypedefAlias {
+    /// C++ typedef 名称（如 `IntBinaryOp`）。
+    pub name: String,
+    /// 对应的 Rust 类型表示（如 `extern "C" fn(i32, i32) -> i32`）。
+    pub rust_type: String,
 }

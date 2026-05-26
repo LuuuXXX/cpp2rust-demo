@@ -4,8 +4,10 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use regex::Regex;
 
-use crate::ir::{Class, Function, FunctionKind, Method, MethodKind, Parameter, ParsedHeader};
-use crate::typemap::normalize_cpp_type;
+use crate::ir::{
+    Class, Function, FunctionKind, Method, MethodKind, Parameter, ParsedHeader, TypedefAlias,
+};
+use crate::typemap::{map_cpp_type_to_rust, normalize_cpp_type};
 
 /// 解析头文件。
 pub fn parse_header_file(path: &Path) -> Result<ParsedHeader> {
@@ -34,6 +36,9 @@ pub fn parse_header_str(header_name: &str, source: &str) -> Result<ParsedHeader>
         classes.push(parse_class(kind, name, body));
     }
 
+    // 先从整个源码（含类定义内部）扫描 typedef
+    let typedefs = parse_typedefs(source);
+
     let source_without_classes = class_regex.replace_all(&cleaned, " ");
     let mut functions = Vec::new();
     for statement in split_top_level_statements(&source_without_classes) {
@@ -47,7 +52,61 @@ pub fn parse_header_str(header_name: &str, source: &str) -> Result<ParsedHeader>
         include_path: header_name.to_string(),
         functions,
         classes,
+        typedefs,
     })
+}
+
+/// 提取所有函数指针 typedef，如 `typedef int (*IntBinaryOp)(int, int)` → `IntBinaryOp`。
+fn parse_typedefs(source: &str) -> Vec<TypedefAlias> {
+    let re = Regex::new(
+        r"typedef\s+([A-Za-z_][\w\s\*]*?)\s*\(\s*\*\s*([A-Za-z_]\w*)\s*\)\s*\(([^)]*)\)",
+    )
+    .unwrap();
+    let mut result = Vec::new();
+    for caps in re.captures_iter(source) {
+        let ret_cpp = caps.get(1).unwrap().as_str().trim();
+        let name = caps.get(2).unwrap().as_str().trim();
+        let args_raw = caps.get(3).unwrap().as_str().trim();
+
+        let ret_rust = map_cpp_type_to_rust(ret_cpp);
+        let arg_types: Vec<String> = if args_raw.is_empty() || args_raw == "void" {
+            Vec::new()
+        } else {
+            split_arguments(args_raw)
+                .iter()
+                .map(|arg| {
+                    // 参数可能有名字，也可能只有类型
+                    let arg = arg.trim();
+                    if let Some((ty, _name)) = split_type_and_name(arg) {
+                        map_cpp_type_to_rust(ty)
+                    } else {
+                        map_cpp_type_to_rust(arg)
+                    }
+                })
+                .collect()
+        };
+
+        let rust_type = if arg_types.is_empty() {
+            if ret_rust == "()" {
+                "extern \"C\" fn()".to_string()
+            } else {
+                format!("extern \"C\" fn() -> {ret_rust}")
+            }
+        } else {
+            let args_str = arg_types.join(", ");
+            if ret_rust == "()" {
+                format!("extern \"C\" fn({args_str})")
+            } else {
+                format!("extern \"C\" fn({args_str}) -> {ret_rust}")
+            }
+        };
+
+        result.push(TypedefAlias {
+            name: name.to_string(),
+            rust_type,
+        });
+    }
+    result
 }
 
 fn parse_class(kind: &str, name: &str, body: &str) -> Class {
@@ -76,7 +135,18 @@ fn parse_class(kind: &str, name: &str, body: &str) -> Class {
             _ => {}
         }
 
+        // friend 声明永远跳过（无论可见性）
+        let stripped = statement.trim_start();
+        if stripped.starts_with("friend ") || stripped.starts_with("friend\t") {
+            continue;
+        }
+
         if !is_public || !statement.contains('(') {
+            continue;
+        }
+
+        // 跳过函数指针成员变量（如 std::function 字段），这些不是方法
+        if is_function_pointer_field(statement) {
             continue;
         }
 
@@ -89,6 +159,13 @@ fn parse_class(kind: &str, name: &str, body: &str) -> Class {
         name: name.to_string(),
         methods,
     }
+}
+
+/// 判断是否为函数指针/std::function 成员变量（不是方法声明）。
+fn is_function_pointer_field(statement: &str) -> bool {
+    // 匹配 `int (*name)(...)` 模式
+    let s = statement.trim();
+    s.contains("(*") || s.contains("std::function<") || s.contains("std::function <")
 }
 
 fn parse_method(class_name: &str, statement: &str) -> Option<Method> {
@@ -114,6 +191,7 @@ fn parse_method(class_name: &str, statement: &str) -> Option<Method> {
             kind: MethodKind::Constructor,
             is_const: false,
             is_static,
+            is_operator: false,
         });
     }
     if before == format!("~{class_name}") {
@@ -125,10 +203,12 @@ fn parse_method(class_name: &str, statement: &str) -> Option<Method> {
             kind: MethodKind::Destructor,
             is_const: false,
             is_static,
+            is_operator: false,
         });
     }
 
     let (return_type, name) = split_return_type_and_name(before)?;
+    let is_operator = name.contains("operator");
     Some(Method {
         name: name.to_string(),
         rust_name: to_snake_case(name),
@@ -137,6 +217,7 @@ fn parse_method(class_name: &str, statement: &str) -> Option<Method> {
         kind: MethodKind::Regular,
         is_const,
         is_static,
+        is_operator,
     })
 }
 
@@ -154,6 +235,8 @@ fn parse_free_function(statement: &str) -> Option<Function> {
         || declaration.starts_with("typedef ")
         || declaration.starts_with("using ")
         || declaration.starts_with("namespace ")
+        // 跳过函数指针声明：如 `int (*Name)(int, int)`
+        || declaration.contains("(*")
     {
         return None;
     }
@@ -165,6 +248,11 @@ fn parse_free_function(statement: &str) -> Option<Function> {
     let explicit_void = params_text == "void";
     let params = parse_params(params_text);
     let (return_type, name) = split_return_type_and_name(before)?;
+
+    // 跳过运算符函数（作为顶层函数不太可能出现，但防御性检查）
+    if name.contains("operator") {
+        return None;
+    }
 
     Some(Function {
         name: name.to_string(),
@@ -200,6 +288,15 @@ fn parse_param(raw: &str, index: usize) -> Option<Parameter> {
         });
     }
 
+    // 函数指针参数 `int (*fn)(int, int)` 或 `int (*)(int, int)` → 提取别名或用 opaque 类型
+    if without_default.contains("(*") {
+        let fn_ptr_name = extract_fn_ptr_name(without_default);
+        return Some(Parameter {
+            name: fn_ptr_name.unwrap_or_else(|| format!("arg{index}")),
+            cpp_type: "fn_ptr".to_string(),
+        });
+    }
+
     if let Some((cpp_type, name)) = split_type_and_name(without_default) {
         return Some(Parameter {
             name: sanitize_param_name(name),
@@ -211,6 +308,21 @@ fn parse_param(raw: &str, index: usize) -> Option<Parameter> {
         name: format!("arg{index}"),
         cpp_type: normalize_cpp_type(without_default),
     })
+}
+
+/// 从 `int (*fn_name)(int, int)` 中提取参数名 `fn_name`。
+fn extract_fn_ptr_name(raw: &str) -> Option<String> {
+    let start = raw.find("(*")? + 2;
+    let end = raw[start..].find(')')?;
+    let name = raw[start..start + end]
+        .trim()
+        .trim_start_matches('*')
+        .trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(sanitize_param_name(name))
+    }
 }
 
 fn normalize_decl(statement: &str) -> String {
@@ -230,9 +342,26 @@ fn normalize_decl(statement: &str) -> String {
 
 fn strip_leading_qualifiers(value: &str) -> &str {
     let mut result = value.trim();
-    for qualifier in ["inline ", "constexpr ", "virtual ", "friend ", "extern "] {
-        if let Some(stripped) = result.strip_prefix(qualifier) {
-            result = stripped.trim();
+    let qualifiers = [
+        "inline ",
+        "constexpr ",
+        "virtual ",
+        "friend ",
+        "extern ",
+        "explicit ",
+        "override ",
+        "final ",
+        "[[nodiscard]] ",
+    ];
+    loop {
+        let prev = result;
+        for qualifier in &qualifiers {
+            if let Some(stripped) = result.strip_prefix(qualifier) {
+                result = stripped.trim();
+            }
+        }
+        if result == prev {
+            break;
         }
     }
     result
@@ -420,5 +549,66 @@ mod tests {
     fn snake_case_conversion_is_stable() {
         assert_eq!(to_snake_case("getValue"), "get_value");
         assert_eq!(to_snake_case("sum3"), "sum3");
+    }
+
+    #[test]
+    fn detects_operator_methods() {
+        let header = r#"
+            class Number {
+            public:
+                Number(int v);
+                ~Number();
+                int getValue() const;
+                Number operator+(const Number& other) const;
+                Number& operator++();
+            };
+        "#;
+        let parsed = parse_header_str("number.h", header).unwrap();
+        let class = &parsed.classes[0];
+        assert!(!class.methods[2].is_operator); // getValue
+        assert!(class.methods[3].is_operator); // operator+
+        assert!(class.methods[4].is_operator); // operator++
+    }
+
+    #[test]
+    fn skips_friend_declarations_in_class() {
+        let header = r#"
+            class MyClass {
+                friend int friend_add(const MyClass* a, const MyClass* b);
+            public:
+                MyClass(int v);
+                int getValue() const;
+            };
+        "#;
+        let parsed = parse_header_str("myclass.h", header).unwrap();
+        let class = &parsed.classes[0];
+        // friend 声明不应出现在 methods 中
+        assert_eq!(class.methods.len(), 2);
+        assert!(matches!(class.methods[0].kind, MethodKind::Constructor));
+    }
+
+    #[test]
+    fn parses_typedef_function_pointer() {
+        let header = r#"
+            typedef int (*IntBinaryOp)(int, int);
+            typedef void (*Callback)(void);
+        "#;
+        let parsed = parse_header_str("lambda.h", header).unwrap();
+        assert_eq!(parsed.typedefs.len(), 2);
+        assert_eq!(parsed.typedefs[0].name, "IntBinaryOp");
+        assert!(parsed.typedefs[0].rust_type.contains("fn(i32, i32)"));
+        assert_eq!(parsed.typedefs[1].name, "Callback");
+    }
+
+    #[test]
+    fn skips_function_pointer_free_decls() {
+        let header = r#"
+            typedef int (*IntBinaryOp)(int, int);
+            int apply_operation(int a, int b, IntBinaryOp op);
+        "#;
+        let parsed = parse_header_str("lambda.h", header).unwrap();
+        // typedef 不产生 function，apply_operation 产生 1 个
+        assert_eq!(parsed.functions.len(), 1);
+        assert_eq!(parsed.functions[0].name, "apply_operation");
     }
 }

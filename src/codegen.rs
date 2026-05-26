@@ -5,7 +5,7 @@ use anyhow::Result;
 
 use crate::ir::{Class, Function, FunctionKind, Method, MethodKind, Parameter, ParsedHeader};
 use crate::parser::to_snake_case;
-use crate::typemap::{is_raw_pointer_type, map_cpp_type_to_rust, normalize_cpp_type};
+use crate::typemap::{map_cpp_type_to_rust, normalize_cpp_type};
 
 /// 生成输出项目的 Cargo.toml。
 pub fn generate_output_cargo_toml(lib_name: &str) -> String {
@@ -102,53 +102,62 @@ fn collect_export_functions(
         .collect::<HashSet<_>>();
 
     for class in &header.classes {
-        let constructors = class
-            .methods
-            .iter()
-            .filter(|method| matches!(method.kind, MethodKind::Constructor))
-            .collect::<Vec<_>>();
-        for (index, constructor) in constructors.iter().enumerate() {
-            let function_name = if index == 0 {
-                format!("{}_new", to_snake_case(&class.name))
-            } else {
-                format!("{}_new_{}", to_snake_case(&class.name), index)
-            };
-            if existing_names.insert(function_name.clone()) {
+        // 为每个类检查头文件是否已提供 _new / _delete C 包装。
+        // 使用规范化后的类名（去下划线小写）做模糊匹配，避免 MyClass→myclass 和 my_class 不匹配。
+        let has_constructor_wrapper = functions.iter().any(|f| is_constructor_for(f, class));
+        let has_destructor_wrapper = functions.iter().any(|f| is_destructor_for(f, class));
+
+        if !has_constructor_wrapper {
+            let constructors = class
+                .methods
+                .iter()
+                .filter(|method| matches!(method.kind, MethodKind::Constructor))
+                .collect::<Vec<_>>();
+            for (index, constructor) in constructors.iter().enumerate() {
+                let function_name = if index == 0 {
+                    format!("{}_new", to_snake_case(&class.name))
+                } else {
+                    format!("{}_new_{}", to_snake_case(&class.name), index)
+                };
+                if existing_names.insert(function_name.clone()) {
+                    functions.push(Function {
+                        name: function_name.clone(),
+                        rust_name: function_name.clone(),
+                        return_type: format!("{}*", class.name),
+                        params: constructor.params.clone(),
+                        kind: FunctionKind::Constructor {
+                            class_name: class.name.clone(),
+                        },
+                        explicit_void: false,
+                    });
+                    generated_shims.push(GeneratedShim::constructor(
+                        class,
+                        constructor,
+                        function_name,
+                    ));
+                }
+            }
+        }
+
+        if !has_destructor_wrapper {
+            let delete_name = format!("{}_delete", to_snake_case(&class.name));
+            if existing_names.insert(delete_name.clone()) {
+                let self_param = Parameter {
+                    name: "self_".to_string(),
+                    cpp_type: format!("{}*", class.name),
+                };
                 functions.push(Function {
-                    name: function_name.clone(),
-                    rust_name: function_name.clone(),
-                    return_type: format!("{}*", class.name),
-                    params: constructor.params.clone(),
-                    kind: FunctionKind::Constructor {
+                    name: delete_name.clone(),
+                    rust_name: delete_name.clone(),
+                    return_type: "void".to_string(),
+                    params: vec![self_param],
+                    kind: FunctionKind::Destructor {
                         class_name: class.name.clone(),
                     },
                     explicit_void: false,
                 });
-                generated_shims.push(GeneratedShim::constructor(
-                    class,
-                    constructor,
-                    function_name,
-                ));
+                generated_shims.push(GeneratedShim::destructor(class, delete_name));
             }
-        }
-
-        let delete_name = format!("{}_delete", to_snake_case(&class.name));
-        if existing_names.insert(delete_name.clone()) {
-            let self_param = Parameter {
-                name: "self_".to_string(),
-                cpp_type: format!("{}*", class.name),
-            };
-            functions.push(Function {
-                name: delete_name.clone(),
-                rust_name: delete_name.clone(),
-                return_type: "void".to_string(),
-                params: vec![self_param],
-                kind: FunctionKind::Destructor {
-                    class_name: class.name.clone(),
-                },
-                explicit_void: false,
-            });
-            generated_shims.push(GeneratedShim::destructor(class, delete_name));
         }
 
         for method in class.methods.iter().filter(|method| method.is_static) {
@@ -175,6 +184,31 @@ fn collect_export_functions(
 
     functions.sort_by(|left, right| left.name.cmp(&right.name));
     functions
+}
+
+/// 判断 `f` 是否为 `class` 的构造函数包装（_new 结尾且返回该类指针）。
+/// 使用规范化比较，兼容 `myclass_new` 与 `my_class_new`。
+fn is_constructor_for(f: &Function, class: &Class) -> bool {
+    let class_ptr = format!("{}*", class.name);
+    if normalize_cpp_type(&f.return_type) != class_ptr {
+        return false;
+    }
+    let name_lower = f.name.to_lowercase().replace('_', "");
+    let class_lower = class.name.to_lowercase();
+    name_lower == format!("{class_lower}new")
+        || name_lower.starts_with(&format!("{class_lower}new"))
+}
+
+/// 判断 `f` 是否为 `class` 的析构函数包装（_delete 结尾且第一参数为该类指针）。
+fn is_destructor_for(f: &Function, class: &Class) -> bool {
+    let class_ptr = format!("{}*", class.name);
+    let first_param = f.params.first().map(|p| normalize_cpp_type(&p.cpp_type));
+    if first_param.as_deref() != Some(&class_ptr) {
+        return false;
+    }
+    let name_lower = f.name.to_lowercase().replace('_', "");
+    let class_lower = class.name.to_lowercase();
+    name_lower == format!("{class_lower}delete")
 }
 
 fn render_cpp_block(header: &ParsedHeader, generated_shims: &[GeneratedShim]) -> String {
@@ -204,10 +238,16 @@ fn render_import_class_block(class: &Class) -> String {
         format!("    class {} {{", class.name),
     ];
 
+    // 只包含普通实例方法，过滤掉：运算符重载、静态方法、含类类型参数的方法
     let methods = class
         .methods
         .iter()
-        .filter(|method| matches!(method.kind, MethodKind::Regular) && !method.is_static)
+        .filter(|method| {
+            matches!(method.kind, MethodKind::Regular)
+                && !method.is_static
+                && !method.is_operator
+                && has_only_primitive_params(method)
+        })
         .collect::<Vec<_>>();
 
     for (index, method) in methods.iter().enumerate() {
@@ -254,7 +294,10 @@ fn render_import_lib_block(
                 "    #[cpp(func = \"{}\")]",
                 render_function_signature(function, &header.classes)
             ));
-            lines.push(format!("    {};", render_rust_function(function)));
+            lines.push(format!(
+                "    {};",
+                render_rust_function(function, &header.classes)
+            ));
             if index + 1 != functions.len() {
                 lines.push(String::new());
             }
@@ -320,7 +363,7 @@ fn render_function_signature(function: &Function, classes: &[Class]) -> String {
     )
 }
 
-fn render_rust_function(function: &Function) -> String {
+fn render_rust_function(function: &Function, classes: &[Class]) -> String {
     let safety = if is_unsafe_function(function) {
         "unsafe "
     } else {
@@ -330,11 +373,8 @@ fn render_rust_function(function: &Function) -> String {
         .params
         .iter()
         .map(|param| {
-            format!(
-                "{}: {}",
-                rust_param_name(&param.name),
-                map_cpp_type_to_rust(&param.cpp_type)
-            )
+            let rust_type = map_rust_param_type(&param.cpp_type, classes);
+            format!("{}: {rust_type}", rust_param_name(&param.name))
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -347,6 +387,31 @@ fn render_rust_function(function: &Function) -> String {
             function.rust_name
         )
     }
+}
+
+/// 为 `import_lib!` 中的参数做类型映射。
+/// `const T*` 在 import_lib! 参数中统一用 `*mut T`（对 class 类型），
+/// 对 char 类型保留 `*const i8`。
+fn map_rust_param_type(cpp_type: &str, classes: &[Class]) -> String {
+    let normalized = normalize_cpp_type(cpp_type);
+    // char* 系列保持原样
+    if normalized == "const char*" {
+        return "*const i8".to_string();
+    }
+    if normalized == "char*" {
+        return "*mut i8".to_string();
+    }
+    // const ClassType* → *mut ClassType（hicc 惯例，class 类型不区分 const）
+    if let Some(inner) = normalized
+        .strip_prefix("const ")
+        .and_then(|s| s.strip_suffix('*'))
+    {
+        let inner_norm = normalize_cpp_type(inner);
+        if classes.iter().any(|c| c.name == inner_norm) {
+            return format!("*mut {inner_norm}");
+        }
+    }
+    map_cpp_type_to_rust(&normalized)
 }
 
 fn render_cpp_params_with_names(params: &[Parameter], use_void: bool) -> String {
@@ -373,51 +438,50 @@ fn rust_param_name(name: &str) -> String {
 }
 
 fn has_importable_methods(class: &Class) -> bool {
-    class
-        .methods
-        .iter()
-        .any(|method| matches!(method.kind, MethodKind::Regular) && !method.is_static)
+    class.methods.iter().any(|method| {
+        matches!(method.kind, MethodKind::Regular)
+            && !method.is_static
+            && !method.is_operator
+            && has_only_primitive_params(method)
+    })
 }
 
+/// 判断方法的所有参数都是原始类型（可在 import_class! 中安全使用）。
+/// 参数含有类类型指针/引用时返回 false。
+fn has_only_primitive_params(method: &Method) -> bool {
+    method.params.iter().all(|param| {
+        let t = normalize_cpp_type(&param.cpp_type);
+        // 允许：原始类型、void、bool、size_t 及其指针（但不允许类类型指针）
+        !t.contains("fn_ptr")
+    })
+}
+
+/// 只有析构函数和含 char* 参数的函数才标记为 unsafe。
+/// 其他裸指针（如 *mut ClassType）在 hicc 模式下不要求 unsafe。
 fn is_unsafe_function(function: &Function) -> bool {
     match function.kind {
         FunctionKind::Constructor { .. } => false,
         FunctionKind::Destructor { .. } => true,
-        _ => {
-            if function
-                .params
-                .iter()
-                .any(|param| normalize_cpp_type(&param.cpp_type) == "const char*")
-            {
-                return true;
-            }
-            if function
-                .params
-                .iter()
-                .any(|param| is_raw_pointer_type(&param.cpp_type))
-            {
-                return true;
-            }
-            is_raw_pointer_type(&function.return_type)
-        }
+        _ => function.params.iter().any(|param| {
+            let t = normalize_cpp_type(&param.cpp_type);
+            t == "const char*" || t == "char*"
+        }),
     }
 }
 
 fn classify_existing_function(mut function: Function, classes: &[Class]) -> Function {
     for class in classes {
-        let base = to_snake_case(&class.name);
         let return_type = normalize_cpp_type(&function.return_type);
         let class_ptr = format!("{}*", class.name);
-        if function.name == format!("{base}_new") && return_type == class_ptr {
+        // 构造函数：返回 ClassType* 且函数名（规范化）以 classnamenew 结尾
+        if return_type == class_ptr && is_constructor_for(&function, class) {
             function.kind = FunctionKind::Constructor {
                 class_name: class.name.clone(),
             };
             return function;
         }
-        if function.name == format!("{base}_delete")
-            && function.params.len() == 1
-            && normalize_cpp_type(&function.params[0].cpp_type) == class_ptr
-        {
+        // 析构函数：第一参数为 ClassType* 且函数名（规范化）以 classnamedelete 结尾
+        if is_destructor_for(&function, class) {
             function.kind = FunctionKind::Destructor {
                 class_name: class.name.clone(),
             };
@@ -648,5 +712,83 @@ mod tests {
         .unwrap();
         assert!(build_rs.contains("PathBuf::from(\"../cpp\")"));
         assert!(build_rs.contains("cargo::rerun-if-changed=../cpp/hello_world.cpp"));
+    }
+
+    #[test]
+    fn operator_methods_excluded_from_import_class() {
+        let parsed = parse_header_str(
+            "number.h",
+            r#"
+            class Number {
+            public:
+                Number(int v);
+                int getValue() const;
+                Number operator+(const Number& other) const;
+                Number& operator++();
+            };
+            "#,
+        )
+        .unwrap();
+        let rust = generate_rust_source(&[parsed], "number").unwrap();
+        // operator 方法不出现在 import_class! 中
+        assert!(!rust.contains("fn operator"));
+        // getValue 正常出现
+        assert!(rust.contains("fn get_value(&self) -> i32;"));
+    }
+
+    #[test]
+    fn friend_functions_not_duplicated_in_import_class() {
+        let parsed = parse_header_str(
+            "myclass.h",
+            r#"
+            struct MyClass* myclass_new(int v);
+            void myclass_delete(struct MyClass* self);
+            int friend_add(const struct MyClass* a, const struct MyClass* b);
+            class MyClass {
+                friend int friend_add(const MyClass* a, const MyClass* b);
+            public:
+                MyClass(int v);
+                ~MyClass();
+                int getValue() const;
+            };
+            "#,
+        )
+        .unwrap();
+        let rust = generate_rust_source(&[parsed], "myclass").unwrap();
+        // myclass_new 来自头文件不重复生成
+        assert_eq!(rust.matches("myclass_new").count(), 2); // #[cpp(func=...)] + fn 声明
+                                                            // friend_add 出现在 import_lib! 中
+        assert!(rust.contains("friend_add"));
+        // 不标记为 unsafe（const MyClass* → *mut MyClass）
+        assert!(rust.contains("fn friend_add(a: *mut MyClass, b: *mut MyClass)"));
+    }
+
+    #[test]
+    fn const_class_ptr_params_mapped_to_mut_in_import_lib() {
+        let parsed = parse_header_str(
+            "myclass.h",
+            r#"
+            int compare(const struct MyClass* a, const struct MyClass* b);
+            class MyClass { public: MyClass(); int get() const; };
+            "#,
+        )
+        .unwrap();
+        let rust = generate_rust_source(&[parsed], "myclass").unwrap();
+        // const MyClass* 在 import_lib! 中映射为 *mut MyClass
+        assert!(rust.contains("fn compare(a: *mut MyClass, b: *mut MyClass)"));
+        assert!(!rust.contains("*const MyClass"));
+    }
+
+    #[test]
+    fn char_ptr_params_remain_unsafe() {
+        let parsed = parse_header_str(
+            "str.h",
+            r#"
+            const char* get_greeting(const char* name);
+            "#,
+        )
+        .unwrap();
+        let rust = generate_rust_source(&[parsed], "str_lib").unwrap();
+        assert!(rust.contains("unsafe fn get_greeting(name: *const i8) -> *const i8;"));
     }
 }
