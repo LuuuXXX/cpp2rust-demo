@@ -452,6 +452,9 @@ fn render_import_lib_block(
 
     if !functions.is_empty() {
         lines.push(String::new());
+        // Track classes that already received a cpp2rust-todo[OP] comment so we emit at most
+        // one reminder per class (multiple shims for the same class would otherwise repeat it).
+        let mut op_todo_emitted: HashSet<String> = HashSet::new();
         for (index, function) in functions.iter().enumerate() {
             lines.push(format!(
                 "    #[cpp(func = \"{}\")]",
@@ -461,10 +464,12 @@ fn render_import_lib_block(
                 "    {};",
                 render_rust_function(function, &header.classes)
             ));
-            if let Some(class_name) = operator_shim_class(&function.name, &header.classes) {
-                lines.push(format!(
-                    "    // cpp2rust-todo[OP]: Consider implementing std::ops traits for {class_name}"
-                ));
+            if let Some(class_name) = find_operator_shim_class(&function.name, &header.classes) {
+                if op_todo_emitted.insert(class_name.to_string()) {
+                    lines.push(format!(
+                        "    // cpp2rust-todo[OP]: Consider implementing std::ops traits for {class_name}"
+                    ));
+                }
             }
             if index + 1 != functions.len() {
                 lines.push(String::new());
@@ -504,7 +509,7 @@ const OPERATOR_SHIM_SUFFIXES: &[&str] = &[
 /// Returns the class name if `fn_name` appears to be an operator shim for one of the classes.
 /// A function qualifies when the class has at least one operator method AND the function name
 /// follows the pattern `{class_snake}_{operator_suffix}`.
-fn operator_shim_class<'a>(fn_name: &str, classes: &'a [Class]) -> Option<&'a str> {
+fn find_operator_shim_class<'a>(fn_name: &str, classes: &'a [Class]) -> Option<&'a str> {
     for class in classes {
         if !class.methods.iter().any(|m| m.is_operator) {
             continue;
