@@ -191,7 +191,9 @@ fn virtual_pure_emits_abstract_class() {
         "factory fn for circle should be present"
     );
     assert!(
-        project.main_rs.contains("fn abstract_shape_create_rectangle("),
+        project
+            .main_rs
+            .contains("fn abstract_shape_create_rectangle("),
         "factory fn for rectangle should be present"
     );
     assert!(
@@ -227,7 +229,11 @@ fn inline_method_bodies_stripped_in_class_parse() {
         class.methods.len(),
         5,
         "expected constructor + 4 inline methods, got {:?}",
-        class.methods.iter().map(|m| &m.rust_name).collect::<Vec<_>>()
+        class
+            .methods
+            .iter()
+            .map(|m| &m.rust_name)
+            .collect::<Vec<_>>()
     );
     // const methods
     assert!(class.methods[1].is_const, "size() should be const");
