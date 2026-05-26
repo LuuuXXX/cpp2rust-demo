@@ -401,22 +401,163 @@ hicc::import_lib! {
 
 ## 9. 实现计划
 
-### 9.1 Phase 顺序
+### 9.1 开发策略：测试驱动
+
+> **原则**：先搭建测试基础设施，再开发功能。每个 Phase 的完成标准是"相关测试全部通过"，而非"代码可编译"。
+
+```
+Phase T  →  Phase 0  →  Phase 1  →  Phase 2 & 3  →  Phase 4  →  Phase 5  →  Phase 6
+(测试框架)  (hook.cpp)  (AST 解析)   (提取器)       (后处理)    (代码生成)   (局限性处理)
+    ↑_______________每个 Phase 开发完立即运行测试，不通过不进入下一 Phase_______________↑
+```
+
+---
+
+### 9.2 Phase 顺序
 
 | 阶段 | 内容 | 优先级 | 依赖 |
 |------|------|--------|------|
-| Phase 0 | Hook 机制（hook.cpp） | P0 | 新建 hook.cpp |
+| **Phase T** | **测试基础设施（黄金文件 + 编译 + 运行）** | **P0（最先）** | 无 |
+| Phase 0 | Hook 机制（hook.cpp） | P0 | Phase T |
 | Phase 1 | ast_parser.rs（C++ AST 解析） | P0 | Phase 0 |
 | Phase 2 | 基础提取器（class/function/enum） | P0 | Phase 1 |
 | Phase 3 | 模板实例化追踪器 | P0 | Phase 1 |
 | Phase 4 | 后处理器（OP/FR/Lambda） | P1 | Phase 2 |
 | Phase 5 | hicc 代码生成器 | P0 | Phase 2, 3 |
-| Phase 6 | 局限性处理（Docker/增量） | P1 | Phase 1-5 |
-| Phase 7 | 集成测试 | P1 | Phase 1-6 |
+| Phase 6 | 局限性处理（Docker/增量） | P1 | Phase 1–5 |
 
-### 9.2 Phase 0-1 详细任务
+---
 
-**Phase 0 - Hook 机制（新建 `hook.cpp`）**：
+### 9.3 Phase T - 测试基础设施（最高优先级）
+
+#### 9.3.1 设计原则
+
+每个 `examples/NNN_*/` 目录已包含**完整的预期输出**：
+- `cpp/` → 工具的**输入**（C++ 源码）
+- `rust_hicc/src/main.rs` → 工具的**预期输出**（黄金文件 golden file）
+- `rust_hicc/build.rs` + `Cargo.toml` → 编译/运行验证所需的构建配置
+
+测试框架分三层，逐层递进：
+
+| 层次 | 名称 | 验证内容 | 触发时机 |
+|------|------|---------|---------|
+| L1 | **黄金文件测试** | 生成内容与 `rust_hicc/src/main.rs` 逐行一致 | 每次提交 |
+| L2 | **编译测试** | 生成的 Rust 代码能通过 `cargo build` | 每次提交 |
+| L3 | **运行测试** | `cargo run` 输出与 README 中"运行结果"一致 | 合并前 |
+
+#### 9.3.2 测试目录结构
+
+```
+cpp2rust-ffi/
+├── tests/
+│   ├── common/
+│   │   ├── mod.rs              # 共用工具：run_tool(), diff_golden(), cargo_build()
+│   │   └── golden.rs           # 黄金文件读取 & 规范化（去空行/注释比对）
+│   ├── l1_golden_tests.rs      # L1：001–048 黄金文件对比
+│   ├── l2_compile_tests.rs     # L2：001–048 cargo build 验证
+│   └── l3_run_tests.rs         # L3：001–048 cargo run + stdout 对比
+└── Cargo.toml
+```
+
+#### 9.3.3 L1 黄金文件测试（最核心）
+
+```rust
+// tests/l1_golden_tests.rs
+// 工具生成的 main.rs 与仓库中 rust_hicc/src/main.rs 进行对比
+
+macro_rules! golden_test {
+    ($name:ident, $example:literal) => {
+        #[test]
+        fn $name() {
+            let example_dir = concat!("../examples/", $example);
+            // 1. 用工具生成输出
+            let generated = run_tool_on(example_dir);
+            // 2. 读取黄金文件
+            let golden = read_golden(example_dir, "rust_hicc/src/main.rs");
+            // 3. 规范化后对比（忽略空白行差异）
+            assert_eq!(normalize(&generated), normalize(&golden),
+                "Golden file mismatch for {}", $example);
+        }
+    };
+}
+
+golden_test!(test_001_hello_world,            "001_hello_world");
+golden_test!(test_002_function_overload,      "002_function_overload");
+golden_test!(test_003_default_args,           "003_default_args");
+// ... 003–048 全部列出
+golden_test!(test_048_summary,               "048_summary");
+```
+
+**初始状态**：工具尚未实现时，所有测试均为 **FAIL（预期行为）**。每完成一个 Phase，相关测试变为 PASS。
+
+#### 9.3.4 L2 编译测试
+
+```rust
+// tests/l2_compile_tests.rs
+// 直接对仓库中现有的 rust_hicc/ 目录运行 cargo build，
+// 验证黄金文件本身可编译（保证基线正确）
+
+#[test]
+fn compile_001_hello_world() {
+    let status = Command::new("cargo")
+        .args(["build"])
+        .current_dir("../examples/001_hello_world/rust_hicc")
+        .status().unwrap();
+    assert!(status.success());
+}
+// ... 001–048
+```
+
+> **注意**：L2 测试在 Phase T 完成时就应全部通过（黄金文件本身必须可编译）。
+
+#### 9.3.5 L3 运行测试
+
+```rust
+// tests/l3_run_tests.rs
+// cargo run 后比对 stdout 与 README 中的"运行结果"章节
+
+fn expected_output(example: &str) -> String {
+    // 从 README.md 中提取 "## 运行结果" 代码块
+    parse_readme_run_result(&format!("../examples/{}/README.md", example))
+}
+
+#[test]
+fn run_001_hello_world() {
+    let output = cargo_run("../examples/001_hello_world/rust_hicc");
+    assert_eq!(output.trim(), expected_output("001_hello_world").trim());
+}
+```
+
+#### 9.3.6 测试执行命令
+
+```bash
+# 运行全部测试
+cargo test
+
+# 只运行 L1 黄金文件测试
+cargo test --test l1_golden_tests
+
+# 只运行某个示例的全部测试
+cargo test 006_class_basic
+
+# 查看当前通过率（CI 友好）
+cargo test 2>&1 | grep -E "^test.*FAILED|^test result"
+```
+
+#### 9.3.7 Phase T 完成标准
+
+| 检查项 | 验收条件 |
+|--------|---------|
+| L2 编译测试全部通过 | 48 个黄金文件 `cargo build` 均成功（基线验证） |
+| L3 运行测试全部通过 | 48 个黄金文件 `cargo run` 输出与 README 一致 |
+| L1 测试框架就绪 | 框架代码完整，48 个 L1 测试均可运行（初始均 FAIL，符合预期） |
+| CI 集成 | `cargo test --test l1_golden_tests` 在 GitHub Actions 中运行 |
+
+---
+
+### 9.4 Phase 0 - Hook 机制（新建 `hook.cpp`）
+
+**任务**：
 1. [ ] 创建 `hook/hook.cpp`，合并以下逻辑：
    - 复制 `hook/hook.c` 的预处理捕获逻辑
    - 复制 `examples/cpp-hook/hook.cpp` 的 C++ 编译器检测逻辑
@@ -426,20 +567,50 @@ hicc::import_lib! {
 5. [ ] 复制 `src/capture.rs`
 6. [ ] 复制 `hook/Makefile` 并适配
 
-**Phase 1 - AST 解析**：
+**Phase 0 完成标准**：
+```bash
+# 在 001_hello_world 上运行 hook，验证 .c2rust 文件产出
+cd examples/001_hello_world/cpp
+LD_PRELOAD=/path/to/libhook.so make
+# 应在 .c2rust/v5/c/ 下产出 hello_world.cpp.c2rust
+```
+
+---
+
+### 9.5 Phase 1 - AST 解析
+
+**任务**：
 1. [ ] 实现 `ast_parser.rs`，使用 `clang` crate
 2. [ ] 支持 `CXXRecordDecl`、`CXXMethodDecl` 等 C++ 节点
 3. [ ] 支持 `ClassTemplateSpecialization` 模板实例化
 
-**验收标准**：
+**Phase 1 完成标准**：
 ```bash
-# 使用 clang crate 解析宏展开后的 C++ 文件
+# 解析宏展开后的 C++ 文件，应输出 AST 结构
 echo 'class Foo { public: int getValue(); };' | g++ -E -x c++ - > foo.c2rust
 cargo run -- parse foo.c2rust
 # 应输出:
 # - CXXRecordDecl: Foo
 #   - CXXMethodDecl: getValue
 ```
+
+---
+
+### 9.6 Phase 进度追踪（L1 测试通过率）
+
+> 每完成一个 Phase，对应的 L1 测试应从 FAIL → PASS。
+
+| L1 测试范围 | 对应 Phase | 预计解锁时机 |
+|------------|-----------|------------|
+| 001–005（基础函数） | Phase 2 基础提取器 + Phase 5 代码生成 | Phase 5 完成后 |
+| 006–012（类与对象） | Phase 2 + Phase 5 | Phase 5 完成后 |
+| 013–018（OOP 特性） | Phase 2 + Phase 5 | Phase 5 完成后 |
+| 019–023（运算符与类型） | Phase 4 后处理 + Phase 5 | Phase 5 完成后 |
+| 024–028（模板实例化） | Phase 3 实例化追踪器 + Phase 5 | Phase 5 完成后 |
+| 029–033（智能指针） | Phase 2 + Phase 5 | Phase 5 完成后 |
+| 034–038（STL 容器） | Phase 3 + Phase 5 | Phase 5 完成后 |
+| 039–042（函数对象） | Phase 4 + Phase 5 | Phase 5 完成后 |
+| 043–048（高级特性） | Phase 2 + Phase 5 | Phase 5 完成后 |
 
 ---
 
