@@ -991,6 +991,7 @@ fn todo_summary_rtti_count_matches_source() {
 }
 
 /// Non-RTTI examples must not carry a spurious [RTTI] tag.
+/// Critically, 045_union_basic has Variant::get_type() but NO get_type_name() — must NOT fire.
 #[test]
 fn non_rtti_examples_have_no_rtti_tag() {
     let root = repo_root();
@@ -999,6 +1000,8 @@ fn non_rtti_examples_have_no_rtti_tag() {
         ("examples/006_class_basic/cpp", "class_basic"),
         ("examples/019_operator_overload/cpp", "operator_overload"),
         ("examples/013_inheritance_single/cpp", "inheritance_single"),
+        // 045: Variant has get_type()→int but NOT get_type_name()→const char* — must be no false positive
+        ("examples/045_union_basic/cpp", "union_basic"),
     ] {
         let project = build_project(
             &root.join(dir),
@@ -1011,6 +1014,50 @@ fn non_rtti_examples_have_no_rtti_tag() {
             "{dir} should have rtti_count == 0 (no RTTI pattern)"
         );
     }
+}
+
+/// 028_variadic_template: [VA] fires on arity-expansion groups; constructor overloads must not fire.
+#[test]
+fn variadic_template_no_false_positive_on_constructors() {
+    let root = repo_root();
+
+    // 036_string_basic has StringImpl with 3 constructors → _new, _new_1, _new_2.
+    // These must NOT be tagged [VA]; they are constructor overloads, not template expansions.
+    let project_036 = build_project(
+        &root.join("examples/036_string_basic/cpp"),
+        &root.join("target/test-workspaces/no_va_036"),
+        "string_basic",
+    )
+    .unwrap();
+    assert_eq!(
+        project_036.todo_summary.va_count, 0,
+        "036_string_basic constructor overloads must not be tagged [VA]"
+    );
+
+    // 005_variadic_functions has sum_3, sum_5 as C-variadic wrappers for sum(int, ...).
+    // The base `sum` already exists in the function list → must NOT be tagged [VA].
+    let project_005 = build_project(
+        &root.join("examples/005_variadic_functions/cpp"),
+        &root.join("target/test-workspaces/no_va_005"),
+        "variadic_functions",
+    )
+    .unwrap();
+    assert_eq!(
+        project_005.todo_summary.va_count, 0,
+        "005_variadic_functions C-variadic wrappers (sum_3, sum_5) must not be tagged [VA]"
+    );
+
+    // 028_variadic_template must still have [VA] tags (genuine variadic template expansions).
+    let project_028 = build_project(
+        &root.join("examples/028_variadic_template/cpp"),
+        &root.join("target/test-workspaces/va_028"),
+        "variadic_template",
+    )
+    .unwrap();
+    assert!(
+        project_028.todo_summary.va_count >= 2,
+        "028_variadic_template should have at least 2 [VA] tags (genuine variadic expansions)"
+    );
 }
 
 /// 039_lambda_basic: fn-ptr typedef type aliases are emitted inside import_lib!.

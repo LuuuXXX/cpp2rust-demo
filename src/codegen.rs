@@ -415,6 +415,11 @@ fn render_cpp_block(header: &ParsedHeader, generated_shims: &[GeneratedShim]) ->
 /// integer type-tag pattern.  Extend this array when new RTTI naming conventions are needed.
 const RTTI_METHOD_NAMES: &[&str] = &["get_type", "get_type_tag"];
 
+/// Companion method names (rust_name) that return a human-readable type name string.
+/// Both `RTTI_METHOD_NAMES` AND this list must be present on a class for the [RTTI] tag to fire,
+/// so that discriminated-union classes (e.g. `Variant.get_type()`) are not false-positives.
+const RTTI_NAME_METHOD_NAMES: &[&str] = &["get_type_name", "get_type_tag_name", "get_type_string"];
+
 fn render_import_class_block(class: &Class) -> String {
     let mut lines = vec![
         "hicc::import_class! {".to_string(),
@@ -446,9 +451,10 @@ fn render_import_class_block(class: &Class) -> String {
     }
 
     // Detect the RTTI type-discriminator pattern: a class with a method named `getType()` (or
-    // similar) returning an integer.  Emit a single [RTTI] reminder per such class so users know
-    // they must keep the type-tag enum in sync when adding subclasses.
-    let has_rtti_pattern = class.methods.iter().any(|m| {
+    // similar) returning an integer AND a method named `getTypeName()` returning a string.
+    // Requiring both avoids false positives on discriminated-union classes that only have a
+    // single integer accessor (e.g. `Variant::get_type()`).
+    let has_rtti_int = class.methods.iter().any(|m| {
         matches!(m.kind, MethodKind::Regular)
             && RTTI_METHOD_NAMES.contains(&m.rust_name.as_str())
             && m.return_type
@@ -459,6 +465,15 @@ fn render_import_class_block(class: &Class) -> String {
                 })
                 .unwrap_or(false)
     });
+    let has_rtti_name = class.methods.iter().any(|m| {
+        matches!(m.kind, MethodKind::Regular)
+            && RTTI_NAME_METHOD_NAMES.contains(&m.rust_name.as_str())
+            && m.return_type
+                .as_deref()
+                .map(|rt| normalize_cpp_type(rt) == "const char*")
+                .unwrap_or(false)
+    });
+    let has_rtti_pattern = has_rtti_int && has_rtti_name;
     if has_rtti_pattern {
         if !methods.is_empty() {
             lines.push(String::new());
@@ -629,17 +644,33 @@ fn strip_arity_suffix(name: &str) -> Option<String> {
 
 /// Returns the set of function names that belong to a variadic-template arity-expansion group
 /// (≥ 2 functions sharing the same base name after stripping `_N`).
+///
+/// Two categories of false positives are excluded:
+/// 1. **Constructor overloads** — `class_new`, `class_new_1`, `class_new_2` are generated for
+///    classes with multiple constructors.  They carry `FunctionKind::Constructor` and must not be
+///    confused with variadic template expansions.
+/// 2. **C-variadic wrappers** — when a function named exactly `<base>` already exists (e.g.,
+///    the C variadic `sum(int count, ...)` alongside `sum_3` / `sum_5`), the numbered variants
+///    are hand-written FFI wrappers for the base function, not template instantiations.
 fn detect_variadic_groups(functions: &[Function]) -> HashSet<String> {
+    // Build a set of all function names so we can detect "base function already exists".
+    let existing_names: HashSet<&str> = functions.iter().map(|f| f.name.as_str()).collect();
+
     let mut base_map: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     for f in functions {
+        // Constructor overloads (_new, _new_1, …) are not variadic template expansions.
+        if matches!(f.kind, FunctionKind::Constructor { .. }) {
+            continue;
+        }
         if let Some(base) = strip_arity_suffix(&f.name) {
             base_map.entry(base).or_default().push(f.name.clone());
         }
     }
     let mut result = HashSet::new();
-    for fns in base_map.values() {
-        if fns.len() >= 2 {
+    for (base, fns) in &base_map {
+        // Skip if the base function itself exists — those are C-variadic wrappers.
+        if fns.len() >= 2 && !existing_names.contains(base.as_str()) {
             for name in fns {
                 result.insert(name.clone());
             }
