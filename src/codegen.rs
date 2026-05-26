@@ -200,7 +200,7 @@ fn generate_main_fn(header_data: &[(&ParsedHeader, Vec<Function>)]) -> String {
     }
 
     // 去掉末尾多余空行
-    while body.last().map_or(false, |l| l.is_empty()) {
+    while body.last().is_some_and(|l| l.is_empty()) {
         body.pop();
     }
     body.push(String::new());
