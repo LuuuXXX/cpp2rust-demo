@@ -723,7 +723,9 @@ fn functional_bind_emits_class_wrappers_and_bound_free_fns() {
         "multiplier_new constructor shim should be in import_lib!"
     );
     assert!(
-        project.main_rs.contains("fn multiply(self_: *mut Multiplier"),
+        project
+            .main_rs
+            .contains("fn multiply(self_: *mut Multiplier"),
         "multiply method shim should be in import_lib!"
     );
 
