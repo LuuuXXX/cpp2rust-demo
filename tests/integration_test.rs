@@ -931,7 +931,11 @@ fn todo_summary_counts_match_source() {
     );
     assert_eq!(
         summary.total(),
-        summary.op_count + summary.fr_count + summary.lm_count + summary.va_count,
+        summary.op_count
+            + summary.fr_count
+            + summary.lm_count
+            + summary.rtti_count
+            + summary.va_count,
         "total() should sum all counts"
     );
 }
@@ -941,6 +945,72 @@ fn todo_summary_counts_match_source() {
 fn todo_summary_default_is_zero() {
     let s = TodoSummary::default();
     assert_eq!(s.total(), 0);
+}
+
+/// 023_typeid_rtti: classes with integer type-discriminator methods carry [RTTI] inline TODO.
+/// Verifies v4 §5.1 — [RTTI] tag must appear alongside classes that use getType() patterns.
+#[test]
+fn typeid_rtti_emits_rtti_todo_tag() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/023_typeid_rtti/cpp"),
+        &root.join("target/test-workspaces/typeid_rtti_rtti_tag"),
+        "typeid_rtti",
+    )
+    .unwrap();
+
+    assert!(
+        project.main_rs.contains("cpp2rust-todo[RTTI]"),
+        "RTTI type-discriminator classes should carry a cpp2rust-todo[RTTI] inline comment"
+    );
+    // 023 has 4 classes (Shape, Circle, Rectangle, Triangle) all with getType() → 4 tags.
+    assert_eq!(
+        project.todo_summary.rtti_count, 4,
+        "todo_summary.rtti_count should be 4 for typeid_rtti example (one per class with getType)"
+    );
+}
+
+/// 023_typeid_rtti: rtti_count in TodoSummary matches grep count in generated source.
+#[test]
+fn todo_summary_rtti_count_matches_source() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/023_typeid_rtti/cpp"),
+        &root.join("target/test-workspaces/typeid_rtti_rtti_count"),
+        "typeid_rtti",
+    )
+    .unwrap();
+
+    let src = &project.main_rs;
+    let summary = &project.todo_summary;
+    assert_eq!(
+        summary.rtti_count,
+        src.matches("cpp2rust-todo[RTTI]").count(),
+        "rtti_count should match grep count in generated source"
+    );
+}
+
+/// Non-RTTI examples must not carry a spurious [RTTI] tag.
+#[test]
+fn non_rtti_examples_have_no_rtti_tag() {
+    let root = repo_root();
+    for (dir, lib) in [
+        ("examples/001_hello_world/cpp", "hello_world"),
+        ("examples/006_class_basic/cpp", "class_basic"),
+        ("examples/019_operator_overload/cpp", "operator_overload"),
+        ("examples/013_inheritance_single/cpp", "inheritance_single"),
+    ] {
+        let project = build_project(
+            &root.join(dir),
+            &root.join(format!("target/test-workspaces/no_rtti/{}", lib)),
+            lib,
+        )
+        .unwrap();
+        assert_eq!(
+            project.todo_summary.rtti_count, 0,
+            "{dir} should have rtti_count == 0 (no RTTI pattern)"
+        );
+    }
 }
 
 /// 039_lambda_basic: fn-ptr typedef type aliases are emitted inside import_lib!.

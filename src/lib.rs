@@ -31,6 +31,8 @@ pub struct TodoSummary {
     pub fr_count: usize,
     /// `[LM]` 函数指针/lambda 参数，建议封装为类型化 Rust 闭包。
     pub lm_count: usize,
+    /// `[RTTI]` 整数类型枚举判别器模式（getType/getTypeName），新增子类时需同步维护枚举。
+    pub rtti_count: usize,
     /// `[VA]` 可变参数模板固定元数展开，建议在 Rust 侧统一 API。
     pub va_count: usize,
 }
@@ -41,13 +43,14 @@ impl TodoSummary {
             op_count: source.matches("cpp2rust-todo[OP]").count(),
             fr_count: source.matches("cpp2rust-todo[FR]").count(),
             lm_count: source.matches("cpp2rust-todo[LM]").count(),
+            rtti_count: source.matches("cpp2rust-todo[RTTI]").count(),
             va_count: source.matches("cpp2rust-todo[VA]").count(),
         }
     }
 
     /// 所有标签计数之和。
     pub fn total(&self) -> usize {
-        self.op_count + self.fr_count + self.lm_count + self.va_count
+        self.op_count + self.fr_count + self.lm_count + self.rtti_count + self.va_count
     }
 }
 

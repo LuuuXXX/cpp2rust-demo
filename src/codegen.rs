@@ -411,6 +411,10 @@ fn render_cpp_block(header: &ParsedHeader, generated_shims: &[GeneratedShim]) ->
     lines.join("\n")
 }
 
+/// RTTI type-discriminator method names (rust_name after to_snake_case) that indicate an
+/// integer type-tag pattern.  Extend this array when new RTTI naming conventions are needed.
+const RTTI_METHOD_NAMES: &[&str] = &["get_type", "get_type_tag"];
+
 fn render_import_class_block(class: &Class) -> String {
     let mut lines = vec![
         "hicc::import_class! {".to_string(),
@@ -439,6 +443,30 @@ fn render_import_class_block(class: &Class) -> String {
         if index + 1 != methods.len() {
             lines.push(String::new());
         }
+    }
+
+    // Detect the RTTI type-discriminator pattern: a class with a method named `getType()` (or
+    // similar) returning an integer.  Emit a single [RTTI] reminder per such class so users know
+    // they must keep the type-tag enum in sync when adding subclasses.
+    let has_rtti_pattern = class.methods.iter().any(|m| {
+        matches!(m.kind, MethodKind::Regular)
+            && RTTI_METHOD_NAMES.contains(&m.rust_name.as_str())
+            && m.return_type
+                .as_deref()
+                .map(|rt| {
+                    let rt = normalize_cpp_type(rt);
+                    rt == "int" || rt == "int32_t"
+                })
+                .unwrap_or(false)
+    });
+    if has_rtti_pattern {
+        if !methods.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(
+            "    // cpp2rust-todo[RTTI]: integer type-discriminator detected — update type enum when adding subclasses"
+                .to_string(),
+        );
     }
 
     lines.push("    }".to_string());

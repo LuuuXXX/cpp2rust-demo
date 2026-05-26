@@ -81,6 +81,12 @@ fn print_todo_summary(summary: &TodoSummary) {
             summary.lm_count
         );
     }
+    if summary.rtti_count > 0 {
+        eprintln!(
+            "  [RTTI] {}  RTTI type-discriminator class(es) — update type enum when adding subclasses",
+            summary.rtti_count
+        );
+    }
     if summary.va_count > 0 {
         eprintln!(
             "  [VA] {}  variadic-template fixed-arity expansion(s) — consider a unified Rust API",
