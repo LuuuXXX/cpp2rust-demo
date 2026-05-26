@@ -7,6 +7,9 @@ use crate::ir::{Class, Function, FunctionKind, Method, MethodKind, Parameter, Pa
 use crate::parser::to_snake_case;
 use crate::typemap::{map_cpp_type_to_rust, normalize_cpp_type};
 
+/// Sentinel `cpp_type` value emitted by the parser for inline (non-typedef) fn-ptr parameters.
+const FN_PTR_SENTINEL: &str = "fn_ptr";
+
 /// 生成输出项目的 Cargo.toml。
 pub fn generate_output_cargo_toml(lib_name: &str) -> String {
     format!(
@@ -159,11 +162,22 @@ fn generate_main_fn(header_data: &[(&ParsedHeader, Vec<Function>)]) -> String {
     }
 
     // 2. 自由函数演示
-    for (_, functions) in header_data {
+    for (header, functions) in header_data {
+        // Built per-header because typedef names vary across headers.
+        let fn_ptr_typedef_names: HashSet<&str> =
+            header.typedefs.iter().map(|t| t.name.as_str()).collect();
         for func in functions
             .iter()
             .filter(|f| matches!(f.kind, FunctionKind::Free))
         {
+            // Skip functions with fn-pointer parameters — no valid default value exists in Rust.
+            let has_fn_ptr_param = func.params.iter().any(|p| {
+                p.cpp_type == FN_PTR_SENTINEL || fn_ptr_typedef_names.contains(p.cpp_type.as_str())
+            });
+            if has_fn_ptr_param {
+                continue;
+            }
+
             let args = default_call_args(&func.params);
             let ret_type = map_cpp_type_to_rust(&func.return_type);
             let needs_unsafe = is_unsafe_function(func);
@@ -453,6 +467,17 @@ fn render_import_lib_block(
         }
     }
 
+    // Emit type aliases for fn-ptr typedefs (e.g. `type IntBinaryOp = extern "C" fn(i32, i32) -> i32;`).
+    if !header.typedefs.is_empty() {
+        lines.push(String::new());
+        for typedef in &header.typedefs {
+            lines.push(format!(
+                "    type {} = {};",
+                typedef.name, typedef.rust_type
+            ));
+        }
+    }
+
     if !functions.is_empty() {
         lines.push(String::new());
         // Track classes that already received a cpp2rust-todo[OP] comment so we emit at most
@@ -487,10 +512,10 @@ fn render_import_lib_block(
                 );
             }
             // A function carries a lambda/fn-ptr todo when any param is either:
-            // (a) an inline function pointer (`fn_ptr` sentinel from the parser), or
+            // (a) an inline function pointer (`FN_PTR_SENTINEL` from the parser), or
             // (b) a typedef that was declared as a function pointer.
             let has_fn_ptr_param = function.params.iter().any(|p| {
-                p.cpp_type == "fn_ptr" || fn_ptr_typedef_names.contains(p.cpp_type.as_str())
+                p.cpp_type == FN_PTR_SENTINEL || fn_ptr_typedef_names.contains(p.cpp_type.as_str())
             });
             if has_fn_ptr_param {
                 lines.push(
@@ -739,7 +764,7 @@ fn has_only_primitive_params(method: &Method) -> bool {
     method.params.iter().all(|param| {
         let t = normalize_cpp_type(&param.cpp_type);
         // 允许：原始类型、void、bool、size_t 及其指针（但不允许类类型指针）
-        !t.contains("fn_ptr")
+        !t.contains(FN_PTR_SENTINEL)
     })
 }
 

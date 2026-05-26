@@ -942,3 +942,48 @@ fn todo_summary_default_is_zero() {
     let s = TodoSummary::default();
     assert_eq!(s.total(), 0);
 }
+
+/// 039_lambda_basic: fn-ptr typedef type aliases are emitted inside import_lib!.
+/// Verifies the fix for v4 §4.4.1 — `type IntBinaryOp = extern "C" fn(i32, i32) -> i32;`
+/// must appear so that import_lib! function signatures referencing IntBinaryOp compile.
+#[test]
+fn lambda_basic_emits_fn_ptr_typedef_alias() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/039_lambda_basic/cpp"),
+        &root.join("target/test-workspaces/lambda_basic_typedef_out"),
+        "lambda_basic",
+    )
+    .unwrap();
+
+    // The type alias must be present so that `op: IntBinaryOp` in import_lib! is a valid Rust type.
+    assert!(
+        project
+            .main_rs
+            .contains("type IntBinaryOp = extern \"C\" fn(i32, i32) -> i32;"),
+        "IntBinaryOp typedef should be emitted as a Rust type alias inside import_lib!"
+    );
+}
+
+/// 039_lambda_basic: fn main() demo must NOT call apply_operation with literal `0` for
+/// the fn-pointer parameter — functions with fn-ptr params are skipped in the demo.
+#[test]
+fn lambda_basic_demo_skips_fn_ptr_functions() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/039_lambda_basic/cpp"),
+        &root.join("target/test-workspaces/lambda_basic_demo_out"),
+        "lambda_basic",
+    )
+    .unwrap();
+
+    // apply_operation has an IntBinaryOp (fn-ptr) param; the demo must not call it.
+    assert!(
+        !project.main_rs.contains("apply_operation(0, 0, 0)"),
+        "fn main() must not call apply_operation with literal 0 for a function-pointer param"
+    );
+    assert!(
+        !project.main_rs.contains("apply_twice(0, 0)"),
+        "fn main() must not call apply_twice with literal 0 for a function-pointer param"
+    );
+}
