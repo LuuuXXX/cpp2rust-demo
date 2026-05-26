@@ -175,8 +175,8 @@ hicc::import_lib! {
 | 场景 | 是否 unsafe |
 |------|------------|
 | 析构函数（`_delete`） | ✅ `unsafe fn` |
-| 参数含 `const char*` | ✅ `unsafe fn` |
-| 参数含任意裸指针 | ✅ `unsafe fn` |
+| 参数含 `const char*`/`char*` | ✅ `unsafe fn` |
+| 参数含 class 类型裸指针（`*mut T`） | ❌ 安全函数 |
 | 构造函数（`_new`） | ❌ 安全函数 |
 | 返回裸指针的构造函数 | ❌ 安全函数 |
 
@@ -194,10 +194,10 @@ hicc::import_lib! {
 | 非 `const` 成员函数 | ✅ | 映射到 `&mut self` |
 | `static` 成员函数 | ✅ | 生成独立 shim + `import_lib!` 条目 |
 | `struct`（公开成员默认） | ✅ | 与 `class` 处理一致 |
-| 运算符重载 | 🔜 v4.1 | 计划支持命名 shim |
-| 友元函数 | 🔜 v4.1 | 计划直接提取为全局函数 |
-| Lambda / `std::function` | 🔜 v4.2 | fn ptr / class wrapper 双策略 |
-| RTTI / `typeid` | 🔜 v4.2 | 整数枚举 + 虚函数注入 |
+| 运算符重载 | ✅ | 生成命名 shim（`number_add` 等）并附内联 TODO 提示 |
+| 友元函数 | ✅ | 直接提取为 `import_lib!` 全局函数并附内联 TODO 提示 |
+| Lambda / `std::function` | ✅ | 无状态 → fn ptr；有状态 → class wrapper + 内联 TODO 提示 |
+| RTTI / `typeid` | ✅ | 整数枚举 + 虚函数方案（不依赖 mangled name） |
 
 ---
 
