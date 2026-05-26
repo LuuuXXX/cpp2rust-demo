@@ -500,6 +500,14 @@ fn operator_overload_emits_number_class_and_shims() {
     // Constructor/destructor
     assert!(project.main_rs.contains("fn number_new("));
     assert!(project.main_rs.contains("unsafe fn number_delete("));
+
+    // cpp2rust-todo[OP] comments must appear after operator shim entries
+    assert!(
+        project
+            .main_rs
+            .contains("// cpp2rust-todo[OP]: Consider implementing std::ops traits for Number"),
+        "operator shim entries should carry a cpp2rust-todo[OP] inline comment"
+    );
 }
 
 /// 020_friend_function: friend functions appear as free functions in import_lib!.
@@ -774,4 +782,42 @@ fn inline_method_bodies_stripped_in_class_parse() {
     // return types
     assert_eq!(class.methods[1].return_type.as_deref(), Some("int"));
     assert_eq!(class.methods[2].return_type.as_deref(), Some("bool"));
+}
+
+/// 028_variadic_template: fixed-arity expansion produces sum_2, sum_3, and sum_double_2.
+#[test]
+fn variadic_template_emits_fixed_arity_functions() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/028_variadic_template/cpp"),
+        &root.join("target/test-workspaces/variadic_template_out"),
+        "variadic_template",
+    )
+    .unwrap();
+
+    // Fixed-arity int versions must be present
+    assert!(
+        project.main_rs.contains("fn sum_2("),
+        "sum_2 fixed-arity shim should be in import_lib!"
+    );
+    assert!(
+        project.main_rs.contains("fn sum_3("),
+        "sum_3 fixed-arity shim should be in import_lib!"
+    );
+
+    // Double overload must be present
+    assert!(
+        project.main_rs.contains("fn sum_double_2("),
+        "sum_double_2 double-typed shim should be in import_lib!"
+    );
+
+    // Return types must be mapped correctly
+    assert!(
+        project.main_rs.contains("-> i32"),
+        "int return type should map to i32"
+    );
+    assert!(
+        project.main_rs.contains("-> f64"),
+        "double return type should map to f64"
+    );
 }

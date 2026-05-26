@@ -461,6 +461,11 @@ fn render_import_lib_block(
                 "    {};",
                 render_rust_function(function, &header.classes)
             ));
+            if let Some(class_name) = operator_shim_class(&function.name, &header.classes) {
+                lines.push(format!(
+                    "    // cpp2rust-todo[OP]: Consider implementing std::ops traits for {class_name}"
+                ));
+            }
             if index + 1 != functions.len() {
                 lines.push(String::new());
             }
@@ -469,6 +474,49 @@ fn render_import_lib_block(
 
     lines.push("}".to_string());
     lines.join("\n")
+}
+
+/// Operator suffix names used in generated shim function names.
+const OPERATOR_SHIM_SUFFIXES: &[&str] = &[
+    "add",
+    "sub",
+    "mul",
+    "div",
+    "negate",
+    "increment",
+    "decrement",
+    "inc",
+    "dec",
+    "add_assign",
+    "sub_assign",
+    "mul_assign",
+    "div_assign",
+    "eq",
+    "ne",
+    "lt",
+    "gt",
+    "le",
+    "ge",
+    "index",
+    "call",
+];
+
+/// Returns the class name if `fn_name` appears to be an operator shim for one of the classes.
+/// A function qualifies when the class has at least one operator method AND the function name
+/// follows the pattern `{class_snake}_{operator_suffix}`.
+fn operator_shim_class<'a>(fn_name: &str, classes: &'a [Class]) -> Option<&'a str> {
+    for class in classes {
+        if !class.methods.iter().any(|m| m.is_operator) {
+            continue;
+        }
+        let prefix = to_snake_case(&class.name);
+        if let Some(suffix) = fn_name.strip_prefix(&format!("{prefix}_")) {
+            if OPERATOR_SHIM_SUFFIXES.contains(&suffix) {
+                return Some(&class.name);
+            }
+        }
+    }
+    None
 }
 
 fn render_method_signature(method: &Method) -> String {
