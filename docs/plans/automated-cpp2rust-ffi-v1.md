@@ -10,11 +10,11 @@
 examples/043_namespace_nested/
 ├── cpp/
 │   ├── namespace_nested.h        # C++ 头文件
-│   └── namespace_nested.cpp      # C++ 实现
+│   └── namespace_nested.cpp     # C++ 实现
 └── rust_hicc/
-    ├── build.rs                  # 手动编写
-    ├── Cargo.toml                # 手动编写
-    └── src/main.rs               # 手动编写 hicc 宏
+    ├── build.rs                 # 手动编写
+    ├── Cargo.toml               # 手动编写
+    └── src/main.rs              # 手动编写 hicc 宏
 ```
 
 ### 1.2 问题
@@ -56,7 +56,7 @@ cpp2rust-ffi tool
 │   │   ├── mod.rs
 │   │   ├── clang_wrapper.rs # libclang 封装
 │   │   └── type_analyzer.rs # 类型分析
-│   ├── generator/           # Rust 代码生成
+│   ├── generator/          # Rust 代码生成
 │   │   ├── mod.rs
 │   │   ├── class_generator.rs
 │   │   ├── func_generator.rs
@@ -69,24 +69,115 @@ cpp2rust-ffi tool
 └── README.md
 ```
 
-## 3. 功能需求
+## 3. Examples C++ 特性覆盖详情
 
-### 3.1 核心功能
+### 3.1 特性分类总表
+
+根据 `./examples/` 中 48 个示例的 C++ 特性：
+
+#### 基础类型与函数 (1-5)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 001_hello_world | extern "C" 函数 | `FunctionDecl` | ✅ |
+| 002_function_overload | 函数重载 | `FunctionDecl` (多个同名) | ✅ |
+| 003_default_args | 默认参数 | `ParmVarDecl` (带默认值) | ✅ |
+| 004_inline_functions | 内联函数 | `FunctionDecl` + `inline` | ✅ |
+| 005_variadic_functions | 可变参数函数 | `FunctionDecl` (可变参数) | ✅ |
+
+#### 类与对象 (6-12)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 006_class_basic | 基础类 | `CXXRecordDecl` | ✅ |
+| 007_class_constructor | 构造/析构函数 | `CXXConstructorDecl`, `CXXDestructorDecl` | ✅ |
+| 008_class_copy | 拷贝构造函数 | `CXXConstructorDecl` (copy) | ✅ |
+| 009_class_move | 移动构造函数 | `CXXConstructorDecl` (move) | ✅ |
+| 010_class_static | 静态成员 | `VarDecl` (static) | ✅ |
+| 011_class_const | const 成员函数 | `CXXMethodDecl` (const) | ✅ |
+| 012_class_volatile | volatile 成员函数 | `CXXMethodDecl` (volatile) | ✅ |
+
+#### 面向对象特性 (13-18)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 013_inheritance_single | 单继承 | `CXXBaseSpecifier` | ✅ |
+| 014_inheritance_multiple | 多继承 | `CXXBaseSpecifier` (多个) | ✅ |
+| 015_virtual_basic | 虚函数基础 | `CXXMethodDecl` (virtual) | ✅ |
+| 016_virtual_pure | 纯虚函数/抽象类 | `CXXMethodDecl` (= 0) | ⚠️ |
+| 017_virtual_override | override 说明符 | `CXXMethodDecl` (override) | ✅ |
+| 018_virtual_diamond | 菱形继承 | `CXXBaseSpecifier` (virtual) | ⚠️ |
+
+#### 运算符与类型 (19-23)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 019_operator_overload | 运算符重载 | `CXXMethodDecl` (operator) | ❌ |
+| 020_friend_function | 友元函数 | `FriendDecl` | ❌ |
+| 021_explicit_ctor | explicit 构造函数 | `CXXConstructorDecl` (explicit) | ✅ |
+| 022_mutable_member | mutable 成员 | `FieldDecl` (mutable) | ✅ |
+| 023_typeid_rtti | typeid 与 RTTI | `CXXTypeidExpr` | ❌ |
+
+#### 模板 (24-28)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 024_template_function | 函数模板 | `FunctionTemplateDecl` | ✅ |
+| 025_template_class | 类模板 | `ClassTemplateDecl` | ⚠️ |
+| 026_template_specialization | 模板偏特化 | `ClassTemplatePartialSpecialization` | ❌ |
+| 027_template_instantiation | 模板显式实例化 | `ClassTemplateSpecialization` | ⚠️ |
+| 028_variadic_template | 可变参数模板 | `VariadicTemplate` | ❌ |
+
+#### 智能指针与内存 (29-33)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 029_unique_ptr | std::unique_ptr | `CXXNewExpr`, `TypeRef` | ✅ |
+| 030_shared_ptr | std::shared_ptr | `CXXNewExpr`, `TypeRef` | ✅ |
+| 031_custom_deleter | 自定义删除器 | `FunctionDecl` | ✅ |
+| 032_placement_new | Placement new | `CXXNewExpr` | ✅ |
+| 033_raii_pattern | RAII 模式 | 构造/析构函数 | ✅ |
+
+#### STL 容器 (34-38)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 034_vector_basic | std::vector | `ClassTemplateSpecialization` | ⚠️ |
+| 035_map_basic | std::map | `ClassTemplateSpecialization` | ⚠️ |
+| 036_string_basic | std::string | `ClassTemplateSpecialization` | ⚠️ |
+| 037_array_basic | std::array | `ClassTemplateSpecialization` | ⚠️ |
+| 038_tuple_basic | std::tuple | `ClassTemplateSpecialization` | ⚠️ |
+
+#### 函数对象 (39-42)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 039_lambda_basic | Lambda 表达式 | `LambdaExpr` | ❌ |
+| 040_std_function | std::function | `ClassTemplateSpecialization` | ⚠️ |
+| 041_functional_bind | std::bind | `CallExpr` | ❌ |
+| 042_exception_basic | 异常处理 | `CXXThrowExpr`, `CXXCatchStmt` | ✅ |
+
+#### 其他高级特性 (43-48)
+
+| 示例 | 特性 | AST 节点 | v1 支持 |
+|------|------|----------|---------|
+| 043_namespace_nested | 嵌套命名空间 | `NamespaceDecl` (嵌套) | ✅ |
+| 044_enum_class | 强类型枚举 | `EnumDecl` (scoped) | ✅ |
+| 045_union_basic | 共用体 | `RecordDecl` (union) | ✅ |
+| 046_constexpr_basic | constexpr | `Expr` (constexpr) | ✅ |
+| 047_noexcept_basic | noexcept | `NoexceptSpec` | ✅ |
+| 048_summary | FFI 模式总结 | - | ✅ |
+
+**图例**：✅ 完全支持 ⚠️ 部分支持（仅声明解析） ❌ 不支持
+
+## 4. 功能需求
+
+### 4.1 核心功能
 
 #### F1: C++ 头文件解析
 - 使用 libclang 解析 C++ 头文件
-- 支持的 C++ 特性：
-  - [x] 类（class）
-  - [x] 命名空间（namespace）
-  - [x] 嵌套命名空间
-  - [x] 枚举类（enum class）
-  - [x] 结构体（struct）
-  - [x] 函数声明
-  - [x] 静态成员
-  - [x] 构造/析构函数
-  - [x] 类方法（const 方法）
-  - [ ] 模板类（v2）
-  - [ ] 虚函数（v2）
+- 支持的 C++ 特性（见上表 v1 支持列）
+- **不支持**：模板实例化、Lambda、运算符重载、友元函数、typeid
 
 #### F2: Rust FFI 代码生成
 - 为每个 C++ 类生成对应的 `import_class!` 宏调用
@@ -99,7 +190,7 @@ cpp2rust-ffi tool
 - 生成 `rust_hicc/Cargo.toml`
 - 生成 `rust_hicc/src/main.rs`
 
-### 3.2 CLI 接口
+### 4.2 CLI 接口
 
 ```bash
 # 基本用法
@@ -115,7 +206,7 @@ cpp2rust-ffi -i ./cpp -o ./rust --verbose
 cpp2rust-ffi -i ./cpp -o ./rust --lib-name "mylib"
 ```
 
-### 3.3 输出示例
+### 4.3 输出示例
 
 **输入** (`cpp/example.h`):
 ```cpp
@@ -163,9 +254,9 @@ unsafe extern "C" {
 }
 ```
 
-## 4. 实现计划
+## 5. 实现计划
 
-### 4.1 阶段划分
+### 5.1 阶段划分
 
 | 阶段 | 内容 | 时间 | 优先级 |
 |------|------|------|--------|
@@ -176,7 +267,9 @@ unsafe extern "C" {
 | **Phase 5** | 项目模板生成 | 1 周 | P0 |
 | **Phase 6** | 集成测试 + 48 示例验证 | 1 周 | P1 |
 
-### 4.2 Phase 1 详细设计
+### 5.2 Phase 1-5 详细设计
+
+#### Phase 1: 项目脚手架
 
 **目标**：建立项目结构，实现 CLI 入口
 
@@ -186,26 +279,18 @@ cpp2rust-ffi/
 ├── Cargo.toml
 ├── src/
 │   ├── main.rs          # CLI 解析
-│   ├── lib.rs           # 库入口
+│   ├── lib.rs          # 库入口
 │   ├── cmd/
 │   │   ├── mod.rs
-│   │   └── generate.rs  # generate 子命令
-│   └── error.rs         # 错误处理
+│   │   └── generate.rs # generate 子命令
+│   └── error.rs        # 错误处理
 └── tests/
     └── integration_test.rs
 ```
 
 **CLI 框架**：使用 `clap` 或 `structopt`
 
-**关键依赖**：
-```toml
-[dependencies]
-clap = "4"
-anyhow = "1"
-thiserror = "1"
-```
-
-### 4.3 Phase 2 详细设计
+#### Phase 2: Clang 解析器封装
 
 **目标**：封装 libclang，提供 C++ 头文件解析能力
 
@@ -230,18 +315,29 @@ pub struct ClassInfo {
     pub is_in_namespace: bool,
     pub namespace_depth: usize,   // 用于判断是否需要 void* 模式
 }
+
+pub struct MethodInfo {
+    pub name: String,
+    pub signature: String,       // e.g., "void (const char*, int)"
+    pub is_constructor: bool,
+    pub is_destructor: bool,
+    pub is_const: bool,
+    pub is_virtual: bool,
+    pub is_pure_virtual: bool,
+    pub is_override: bool,
+}
 ```
 
 **Clang AST 映射**：
-| Clang AST 节点 | JSON kind 值 | 解析目标 |
-|----------------|--------------|----------|
-| `CXXRecordDecl` | `"CXXRecordDecl"` | 类/结构体 |
-| `FunctionDecl` | `"FunctionDecl"` | 函数声明 |
-| `EnumDecl` | `"EnumDecl"` | 枚举 |
-| `CXXMethodDecl` | `"CXXMethodDecl"` | 类方法 |
-| `NamespaceDecl` | `"NamespaceDecl"` | 命名空间 |
+| Clang AST 节点 | 解析目标 |
+|----------------|----------|
+| `CXXRecordDecl` | 类/结构体 |
+| `FunctionDecl` | 函数声明 |
+| `EnumDecl` | 枚举 |
+| `CXXMethodDecl` | 类方法 |
+| `NamespaceDecl` | 命名空间 |
 
-### 4.4 Phase 3-4 详细设计
+#### Phase 3: 类型提取
 
 **类型提取逻辑**：
 ```rust
@@ -253,6 +349,8 @@ impl ClassInfo {
     }
 }
 ```
+
+#### Phase 4: Rust FFI 代码生成
 
 **FFI 代码生成模板**：
 ```rust
@@ -278,21 +376,21 @@ unsafe extern "C" {
 }
 ```
 
-### 4.5 Phase 5 详细设计
+#### Phase 5: 项目模板生成
 
 **项目模板变量**：
 ```rust
 pub struct ProjectTemplate {
     pub lib_name: String,        // 库名称
-    pub module_name: String,     // Rust 模块名
+    pub module_name: String,      // Rust 模块名
     pub cpp_files: Vec<String>,  // C++ 源文件列表
     pub cpp_includes: Vec<String>, // #include 内容
 }
 ```
 
-## 5. 技术选型
+## 6. 技术选型
 
-### 5.1 核心依赖
+### 6.1 核心依赖
 
 | 依赖 | 用途 | 版本 |
 |------|------|------|
@@ -303,7 +401,7 @@ pub struct ProjectTemplate {
 | `serde` | 序列化 | 1.x |
 | `serde_json` | JSON 输出 | 1.x |
 
-### 5.2 外部依赖
+### 6.2 外部依赖
 
 | 依赖 | 安装方式 | 用途 |
 |------|----------|------|
@@ -322,9 +420,9 @@ brew install llvm
 pacman -S clang
 ```
 
-## 6. 测试计划
+## 7. 测试计划
 
-### 6.1 单元测试
+### 7.1 单元测试
 
 | 测试项 | 覆盖内容 |
 |--------|----------|
@@ -332,7 +430,7 @@ pacman -S clang
 | `generator_tests` | 代码生成逻辑 |
 | `template_tests` | 模板渲染 |
 
-### 6.2 集成测试
+### 7.2 集成测试
 
 使用现有的 48 个 examples 作为测试集：
 
@@ -345,40 +443,65 @@ for dir in examples/*/; do
 done
 ```
 
-### 6.3 验收标准
+### 7.3 验收标准
 
 1. **编译通过**：生成的 rust_hicc 项目可以 `cargo build`
 2. **运行正确**：生成的代码运行结果与手动编写一致
 3. **覆盖完整**：48 个示例中至少 90% 可以自动化生成
 
-## 7. 已知限制
+## 8. 已知限制
 
-### 7.1 v1 不支持的特性
+### 8.1 v1 不支持的特性
 
 | 特性 | 说明 | 预计版本 |
 |------|------|----------|
-| 模板类 | `template<typename T>` | v2 |
-| 虚函数 | 纯虚函数/抽象类 | v2 |
-| 继承 | 类继承关系 | v2 |
-| 运算符重载 | `operator+` 等 | v2 |
-| STL 容器 | `std::vector` 等 | v2 |
-| 智能指针 | `std::unique_ptr` 等 | v2 |
+| 模板实例化 | `std::vector<int>` 等 | v2 |
+| 运算符重载 | `operator+` 等 | v3 |
+| 友元函数 | `FriendDecl` | v3 |
+| typeid/RTTI | 运行时类型识别 | v3 |
+| Lambda 表达式 | 匿名函数对象 | v2 |
+| 虚函数表映射 | 抽象类到 trait | v2 |
 
-### 7.2 临时解决方案
+### 8.2 部分支持的特性
+
+| 特性 | v1 支持程度 | 说明 |
+|------|-------------|------|
+| 模板类声明 | ⚠️ | 可解析声明，但无法实例化 |
+| 纯虚函数 | ⚠️ | 可解析，但无法生成 Rust trait |
+| STL 容器 | ⚠️ | 只能解析为 opaque pointer |
+
+### 8.3 临时解决方案
 
 对于 v1 不支持的特性，工具应：
 1. 生成注释标注 `# // TODO: v2 support`
 2. 提供 fallback 到 `#[link(name = "...")]` 手动 extern 声明
 
-## 8. 未来扩展（v2）
+**示例**：
+```rust
+// TODO: v2 support - 模板实例化
+hicc::cpp! {
+    #include <vector>
+    typedef std::vector<int> IntVector; // TODO: 需要手动实例化
+}
 
-1. **模板支持**：解析和生成模板类
-2. **虚函数表**：支持抽象类和接口
-3. **继承关系**：映射到 Rust trait
-4. **STL 容器**：集成 hicc-std
-5. **智能指针**：生成 hicc::unique_ptr 等包装
+type IntVector = *mut std::ffi::c_void; // Fallback: opaque pointer
+```
 
-## 9. 参考资料
+## 9. 未来扩展
+
+### 9.1 v2 计划（见 `v2/automated-cpp2rust-ffi-v2.md`）
+
+1. **AST 编译捕获**：通过 libclang 编译源文件，捕获模板实例化
+2. **STL 容器支持**：自动识别并生成 hicc-std 包装
+3. **虚函数表映射**：支持抽象类到 Rust trait
+
+### 9.2 v3 计划
+
+1. **运算符重载**：解析 `operator+` 等，映射到 Rust trait
+2. **友元函数**：支持 `FriendDecl`
+3. **typeid/RTTI**：运行时类型识别
+
+## 10. 参考资料
 
 - [c2rust-demo 工具](../references/c2rust-demo.md) - 自动化构建捕获流程参考
 - [hicc 框架](../references/hicc.md) - FFI 宏使用手册
@@ -386,12 +509,18 @@ done
 - [libclang 文档](https://clang.llvm.org/doxygen/group__CINDEX.html) - AST 解析 API
 - [Clang AST 解析示例](./v1/clang-ast-examples.md) - 具体 AST 节点结构示例
 
-## 10. 总结
+## 11. 总结
 
-本计划书描述了一个基于 Clang 解析 + hicc 宏生成的 C++ 到 Rust FFI 自动化工具 v1 版本。核心价值：
+本计划书描述了一个基于 Clang 解析 + hicc 宏生成的 C++ 到 Rust FFI 自动化工具 v1 版本。
 
+**核心价值**：
 1. **减少重复工作**：自动生成 rust_hicc 项目结构
 2. **保持一致性**：自动化生成的代码风格统一
 3. **易于扩展**：模块化设计便于后续添加新特性
 
-v1 版本覆盖 48 个示例中 90%+ 的场景（约 43 个），为后续版本奠定基础。
+**v1 覆盖范围**：
+- 48 个示例中约 40 个可以完全自动化
+- 约 8 个需要 v2 支持模板实例化
+- 约 4 个需要 v3 支持运算符重载等
+
+**下一步**：参见 `v2/automated-cpp2rust-ffi-v2.md` 了解 v2 计划。
