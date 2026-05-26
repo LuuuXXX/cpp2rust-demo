@@ -279,6 +279,7 @@ fn collect_export_functions(
                             class_name: class.name.clone(),
                         },
                         explicit_void: false,
+                        is_friend: false,
                     });
                     generated_shims.push(GeneratedShim::constructor(
                         class,
@@ -305,6 +306,7 @@ fn collect_export_functions(
                         class_name: class.name.clone(),
                     },
                     explicit_void: false,
+                    is_friend: false,
                 });
                 generated_shims.push(GeneratedShim::destructor(class, delete_name));
             }
@@ -326,6 +328,7 @@ fn collect_export_functions(
                         method_name: method.name.clone(),
                     },
                     explicit_void: false,
+                    is_friend: false,
                 });
                 generated_shims.push(GeneratedShim::static_method(class, method, function_name));
             }
@@ -455,6 +458,13 @@ fn render_import_lib_block(
         // Track classes that already received a cpp2rust-todo[OP] comment so we emit at most
         // one reminder per class (multiple shims for the same class would otherwise repeat it).
         let mut op_todo_emitted: HashSet<String> = HashSet::new();
+        // Track variadic base names that already received a cpp2rust-todo[VA] comment.
+        let mut va_todo_emitted: HashSet<String> = HashSet::new();
+        // Precompute the set of function names that are part of a variadic arity-expansion group.
+        let variadic_fn_names = detect_variadic_groups(functions);
+        // Function pointer typedef names (only fn-ptr typedefs are parsed by parse_typedefs).
+        let fn_ptr_typedef_names: HashSet<&str> =
+            header.typedefs.iter().map(|t| t.name.as_str()).collect();
         for (index, function) in functions.iter().enumerate() {
             lines.push(format!(
                 "    #[cpp(func = \"{}\")]",
@@ -468,6 +478,29 @@ fn render_import_lib_block(
                 if op_todo_emitted.insert(class_name.to_string()) {
                     lines.push(format!(
                         "    // cpp2rust-todo[OP]: Consider implementing std::ops traits for {class_name}"
+                    ));
+                }
+            }
+            if function.is_friend {
+                lines.push(
+                    "    // cpp2rust-todo[FR]: Friend function — needs explicit Rust-side access control".to_string(),
+                );
+            }
+            // A function carries a lambda/fn-ptr todo when any param is either:
+            // (a) an inline function pointer (`fn_ptr` sentinel from the parser), or
+            // (b) a typedef that was declared as a function pointer.
+            let has_fn_ptr_param = function.params.iter().any(|p| {
+                p.cpp_type == "fn_ptr" || fn_ptr_typedef_names.contains(p.cpp_type.as_str())
+            });
+            if has_fn_ptr_param {
+                lines.push(
+                    "    // cpp2rust-todo[LM]: fn-pointer / lambda parameter — consider a typed Rust closure wrapper".to_string(),
+                );
+            }
+            if let Some(base) = strip_arity_suffix(&function.name) {
+                if variadic_fn_names.contains(&function.name) && va_todo_emitted.insert(base.clone()) {
+                    lines.push(format!(
+                        "    // cpp2rust-todo[VA]: Variadic template fixed-arity expansion (base: {base})"
                     ));
                 }
             }
@@ -522,6 +555,42 @@ fn find_operator_shim_class<'a>(fn_name: &str, classes: &'a [Class]) -> Option<&
         }
     }
     None
+}
+
+/// Strip the trailing `_N` arity suffix (e.g. `sum_3` → `sum`, `sum_double_2` → `sum_double`).
+/// Returns `None` if the name does not end with `_<digits>`.
+fn strip_arity_suffix(name: &str) -> Option<String> {
+    let bytes = name.as_bytes();
+    let mut i = bytes.len();
+    while i > 0 && bytes[i - 1].is_ascii_digit() {
+        i -= 1;
+    }
+    if i < bytes.len() && i > 0 && bytes[i - 1] == b'_' {
+        Some(name[..i - 1].to_string())
+    } else {
+        None
+    }
+}
+
+/// Returns the set of function names that belong to a variadic-template arity-expansion group
+/// (≥ 2 functions sharing the same base name after stripping `_N`).
+fn detect_variadic_groups(functions: &[Function]) -> HashSet<String> {
+    let mut base_map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for f in functions {
+        if let Some(base) = strip_arity_suffix(&f.name) {
+            base_map.entry(base).or_default().push(f.name.clone());
+        }
+    }
+    let mut result = HashSet::new();
+    for fns in base_map.values() {
+        if fns.len() >= 2 {
+            for name in fns {
+                result.insert(name.clone());
+            }
+        }
+    }
+    result
 }
 
 fn render_method_signature(method: &Method) -> String {

@@ -20,6 +20,9 @@ pub struct Function {
     pub params: Vec<Parameter>,
     pub kind: FunctionKind,
     pub explicit_void: bool,
+    /// 是否为 C++ 友元函数（在某个类体中以 `friend` 声明）。
+    #[serde(default)]
+    pub is_friend: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

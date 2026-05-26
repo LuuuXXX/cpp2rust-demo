@@ -31,6 +31,7 @@ pub fn parse_header_str(header_name: &str, source: &str) -> Result<ParsedHeader>
     .unwrap();
 
     let mut classes = Vec::new();
+    let mut all_friend_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     for captures in class_regex.captures_iter(&cleaned) {
         let is_template = captures.get(1).is_some(); // template<...> 前缀
         let kind = captures.get(2).unwrap().as_str();
@@ -40,7 +41,11 @@ pub fn parse_header_str(header_name: &str, source: &str) -> Result<ParsedHeader>
         if is_template {
             continue;
         }
-        classes.push(parse_class(kind, name, body));
+        let (class, friend_names) = parse_class(kind, name, body);
+        for fn_name in friend_names {
+            all_friend_names.insert(fn_name);
+        }
+        classes.push(class);
     }
 
     // 先从整个源码（含类定义内部）扫描 typedef
@@ -49,7 +54,10 @@ pub fn parse_header_str(header_name: &str, source: &str) -> Result<ParsedHeader>
     let source_without_classes = class_regex.replace_all(&cleaned, " ");
     let mut functions = Vec::new();
     for statement in split_top_level_statements(&source_without_classes) {
-        if let Some(function) = parse_free_function(&statement) {
+        if let Some(mut function) = parse_free_function(&statement) {
+            if all_friend_names.contains(&function.name) {
+                function.is_friend = true;
+            }
             functions.push(function);
         }
     }
@@ -116,10 +124,11 @@ fn parse_typedefs(source: &str) -> Vec<TypedefAlias> {
     result
 }
 
-fn parse_class(kind: &str, name: &str, body: &str) -> Class {
+fn parse_class(kind: &str, name: &str, body: &str) -> (Class, Vec<String>) {
     let default_public = kind == "struct";
     let mut is_public = default_public;
     let mut methods = Vec::new();
+    let mut friend_fn_names: Vec<String> = Vec::new();
 
     // 先剥离内联方法体（{ ... }），防止方法体中的 `;` 破坏分割逻辑
     let body_no_inline = strip_inline_bodies(body);
@@ -146,9 +155,12 @@ fn parse_class(kind: &str, name: &str, body: &str) -> Class {
             _ => {}
         }
 
-        // friend 声明永远跳过（无论可见性）
+        // friend 声明永远跳过（无论可见性），但记录其函数名
         let stripped = statement.trim_start();
         if stripped.starts_with("friend ") || stripped.starts_with("friend\t") {
+            if let Some(fn_name) = extract_friend_fn_name(stripped) {
+                friend_fn_names.push(fn_name);
+            }
             continue;
         }
 
@@ -166,10 +178,13 @@ fn parse_class(kind: &str, name: &str, body: &str) -> Class {
         }
     }
 
-    Class {
-        name: name.to_string(),
-        methods,
-    }
+    (
+        Class {
+            name: name.to_string(),
+            methods,
+        },
+        friend_fn_names,
+    )
 }
 
 /// 剥离类体中的内联方法体 `{ ... }`，保留声明部分。
@@ -300,6 +315,7 @@ fn parse_free_function(statement: &str) -> Option<Function> {
         params,
         kind: FunctionKind::Free,
         explicit_void,
+        is_friend: false,
     })
 }
 
@@ -404,6 +420,37 @@ fn strip_leading_qualifiers(value: &str) -> &str {
         }
     }
     result
+}
+
+/// 从 `friend int foo(...)` 这样的声明中提取函数名 `foo`。
+/// 返回 None 表示这是 `friend class Foo` 之类的非函数声明。
+fn extract_friend_fn_name(friend_decl: &str) -> Option<String> {
+    // 去掉 "friend " 或 "friend\t" 前缀
+    let after_friend = friend_decl
+        .strip_prefix("friend ")
+        .or_else(|| friend_decl.strip_prefix("friend\t"))?
+        .trim();
+    // 去掉限定符（inline / constexpr 等）
+    let stripped = strip_leading_qualifiers(after_friend);
+    // 找到第一个 `(`
+    let paren_pos = stripped.find('(')?;
+    let before_paren = stripped[..paren_pos].trim();
+    // 提取最后一个 token 作为函数名
+    let fn_name = before_paren.split_whitespace().last()?;
+    // 排除 `friend class Foo` / `friend struct Foo`
+    if fn_name == "class" || fn_name == "struct" {
+        return None;
+    }
+    // 排除 operator
+    if fn_name.contains("operator") {
+        return None;
+    }
+    // 去掉可能的 `*` 前缀（如 `int* foo(...)` 中 `*foo` 不太可能，但防御）
+    let fn_name = fn_name.trim_start_matches('*');
+    if fn_name.is_empty() {
+        return None;
+    }
+    Some(fn_name.to_string())
 }
 
 fn split_return_type_and_name(value: &str) -> Option<(&str, &str)> {

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cpp2rust_ffi::{build_project, parser::parse_header_file, parser::parse_header_str};
+use cpp2rust_ffi::{build_project, parser::parse_header_file, parser::parse_header_str, TodoSummary};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -821,3 +821,123 @@ fn variadic_template_emits_fixed_arity_functions() {
         "double return type should map to f64"
     );
 }
+
+/// 020_friend_function: friend functions carry cpp2rust-todo[FR] inline comments.
+#[test]
+fn friend_function_emits_fr_todo_comments() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/020_friend_function/cpp"),
+        &root.join("target/test-workspaces/friend_function_fr_out"),
+        "friend_function",
+    )
+    .unwrap();
+
+    assert!(
+        project
+            .main_rs
+            .contains("// cpp2rust-todo[FR]: Friend function"),
+        "friend functions should carry a cpp2rust-todo[FR] inline comment"
+    );
+    // TodoSummary should count the FR entries
+    assert!(
+        project.todo_summary.fr_count >= 1,
+        "todo_summary.fr_count should be >= 1 for friend_function example"
+    );
+}
+
+/// 039_lambda_basic: fn-pointer parameters carry cpp2rust-todo[LM] inline comments.
+#[test]
+fn lambda_basic_emits_lm_todo_comments() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/039_lambda_basic/cpp"),
+        &root.join("target/test-workspaces/lambda_basic_lm_out"),
+        "lambda_basic",
+    )
+    .unwrap();
+
+    assert!(
+        project
+            .main_rs
+            .contains("// cpp2rust-todo[LM]: fn-pointer / lambda parameter"),
+        "functions with fn-ptr params should carry a cpp2rust-todo[LM] inline comment"
+    );
+    assert!(
+        project.todo_summary.lm_count >= 1,
+        "todo_summary.lm_count should be >= 1 for lambda_basic example"
+    );
+}
+
+/// 028_variadic_template: arity-expanded functions carry cpp2rust-todo[VA] inline comments.
+#[test]
+fn variadic_template_emits_va_todo_comments() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/028_variadic_template/cpp"),
+        &root.join("target/test-workspaces/variadic_template_va_out"),
+        "variadic_template",
+    )
+    .unwrap();
+
+    assert!(
+        project
+            .main_rs
+            .contains("// cpp2rust-todo[VA]: Variadic template fixed-arity expansion"),
+        "arity-expanded functions should carry a cpp2rust-todo[VA] inline comment"
+    );
+    assert!(
+        project.todo_summary.va_count >= 1,
+        "todo_summary.va_count should be >= 1 for variadic_template example"
+    );
+}
+
+/// TodoSummary counts are consistent with grep on the generated source.
+#[test]
+fn todo_summary_counts_match_source() {
+    let root = repo_root();
+    // Use operator_overload which we know produces [OP] entries
+    let project = build_project(
+        &root.join("examples/019_operator_overload/cpp"),
+        &root.join("target/test-workspaces/todo_summary_check"),
+        "operator_overload",
+    )
+    .unwrap();
+
+    let src = &project.main_rs;
+    let summary = &project.todo_summary;
+
+    assert_eq!(
+        summary.op_count,
+        src.matches("cpp2rust-todo[OP]").count(),
+        "op_count should match grep count"
+    );
+    assert_eq!(
+        summary.fr_count,
+        src.matches("cpp2rust-todo[FR]").count(),
+        "fr_count should match grep count"
+    );
+    assert_eq!(
+        summary.lm_count,
+        src.matches("cpp2rust-todo[LM]").count(),
+        "lm_count should match grep count"
+    );
+    assert_eq!(
+        summary.va_count,
+        src.matches("cpp2rust-todo[VA]").count(),
+        "va_count should match grep count"
+    );
+    assert_eq!(
+        summary.total(),
+        summary.op_count + summary.fr_count + summary.lm_count + summary.va_count,
+        "total() should sum all counts"
+    );
+}
+
+/// TodoSummary::default() yields all-zero counts.
+#[test]
+fn todo_summary_default_is_zero() {
+    let s = TodoSummary::default();
+    assert_eq!(s.total(), 0);
+}
+
