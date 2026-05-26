@@ -1,0 +1,2 @@
+cargo:include=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include
+cargo::rerun-if-changed=build.rs

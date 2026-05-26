@@ -1,0 +1,1 @@
+/root/c2rust/cpp2rust-demo/examples/029_unique_ptr/rust_hicc/target/debug/unique_ptr: /root/c2rust/cpp2rust-demo/examples/029_unique_ptr/rust_hicc/build.rs /root/c2rust/cpp2rust-demo/examples/029_unique_ptr/rust_hicc/src/main.rs

@@ -1,0 +1,110 @@
+cargo:rerun-if-env-changed=CC_FORCE_DISABLE
+CC_FORCE_DISABLE = None
+cargo:rerun-if-env-changed=CXX_x86_64-unknown-linux-gnu
+CXX_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=CXX_x86_64_unknown_linux_gnu
+CXX_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_CXX
+HOST_CXX = None
+cargo:rerun-if-env-changed=CXX
+CXX = None
+cargo:rerun-if-env-changed=CC_ENABLE_DEBUG_OUTPUT
+cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+CRATE_CC_NO_DEFAULTS = None
+cargo:rerun-if-env-changed=CXXFLAGS
+CXXFLAGS = None
+cargo:rerun-if-env-changed=HOST_CXXFLAGS
+HOST_CXXFLAGS = None
+cargo:rerun-if-env-changed=CXXFLAGS_x86_64_unknown_linux_gnu
+CXXFLAGS_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=CXXFLAGS_x86_64-unknown-linux-gnu
+CXXFLAGS_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=CXX_x86_64-unknown-linux-gnu
+CXX_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=CXX_x86_64_unknown_linux_gnu
+CXX_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_CXX
+HOST_CXX = None
+cargo:rerun-if-env-changed=CXX
+CXX = None
+cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+CRATE_CC_NO_DEFAULTS = None
+cargo:rerun-if-env-changed=CXXFLAGS
+CXXFLAGS = None
+cargo:rerun-if-env-changed=HOST_CXXFLAGS
+HOST_CXXFLAGS = None
+cargo:rerun-if-env-changed=CXXFLAGS_x86_64_unknown_linux_gnu
+CXXFLAGS_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=CXXFLAGS_x86_64-unknown-linux-gnu
+CXXFLAGS_x86_64-unknown-linux-gnu = None
+cargo:warning=In file included from /root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/export_type.hpp:8,
+cargo:warning=                 from /root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/export.hpp:9,
+cargo:warning=                 from /root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/helper.hpp:5,
+cargo:warning=                 from /root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/hicc.hpp:5,
+cargo:warning=                 from /root/c2rust/cpp2rust-demo/examples/008_class_copy/rust_hicc/target/debug/build/class_copy-438033968b81eee1/out/src-main.rs.cpp:1:
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/types.hpp: In instantiation of 'static void hicc::Assign<T, true>::assign(T*, T*) [with T = Buffer]':
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/types.hpp:197:69:   required from 'static void hicc::AbiClass<T, M>::write(self_type&, self_type) [with T = Buffer*; M = void; self_type = hicc::AbiClass<Buffer, void>]'
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/types.hpp:166:29:   required from 'static const hicc::AbiClass<T, M>::methods_type& hicc::AbiClass<T, M>::no_destroy_methods() [with T = Buffer*; M = void; methods_type = hicc::AbiClassMethods<Buffer, void>]'
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/types.hpp:247:93:   required from 'static hicc::ClassType<T*, M>::output_type hicc::ClassType<T*, M>::into(T*) [with T = Buffer; M = void; output_type = hicc::AbiClass<Buffer*, void>]'
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/types.hpp:382:63:   required from 'static hicc::AbiValue<T, M>::output_type hicc::AbiValue<T, M>::into(T&&) [with T = Buffer*; M = void; output_type = hicc::AbiClass<Buffer*, void>]'
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/types.hpp:383:81:   required from 'static hicc::AbiValue<T, M>::output_type hicc::AbiValue<T, M>::into_with(std::function<typename std::conditional<std::is_abstract<T>::value, const T&, T>::type()>) [with T = Buffer*; M = void; output_type = hicc::AbiClass<Buffer*, void>; typename std::conditional<std::is_abstract<T>::value, const T&, T>::type = Buffer*]'
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/export_type.hpp:410:41:   required from 'static typename hicc::AbiValue<R, M>::output_type hicc::Method<f, R (*)(ArgTypes ...), M>::method(typename hicc::AbiValue<ArgTypes, M>::input_type ...) [with const void** f = (& id); M = void; R = Buffer*; ArgTypes = {}; typename hicc::AbiValue<R, M>::output_type = hicc::AbiClass<Buffer*, void>]'
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/export.hpp:371:64:   required from 'static typename hicc::ExportType<R (*)(ArgTypes ...), M>::method_type hicc::ExportFunction<false, N, T, R (*)(ArgTypes ...), M>::export_method(R (*)(ArgTypes ...)) [with int N = 73; M = void; T = _hicc_ns_class_copy::ExportMethods; R = Buffer*; ArgTypes = {}; typename hicc::ExportType<R (*)(ArgTypes ...), M>::method_type = hicc::AbiClass<Buffer*, void> (*)()]'
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/export.hpp:393:97:   required from 'typename hicc::ExportType<R (*)(ArgTypes ...), M>::method_type hicc::export_method(R (*)(ArgTypes ...)) [with int N = 73; M = void; T = _hicc_ns_class_copy::ExportMethods; R = Buffer*; ArgTypes = {}; typename ExportType<R (*)(ArgTypes ...), M>::method_type = AbiClass<Buffer*, void> (*)()]'
+cargo:warning=src/main.rs:73:1:   required from here
+cargo:warning=/root/.cargo/registry/src/mirror.xuanwu.openatom.cn-4e6db2b003e739b3/hicc-0.2.3/include/hicc/types.hpp:209:49: warning: implicitly-declared 'constexpr Buffer& Buffer::operator=(const Buffer&)' is deprecated [-Wdeprecated-copy]
+cargo:warning=  209 |     static void assign(T* self, T* val) { *self = std::move(*val); }
+cargo:warning=      |                                           ~~~~~~^~~~~~~~~~~~~~~~~
+cargo:warning=src/main.rs:14:9: note: because 'Buffer' has user-provided 'Buffer::Buffer(const Buffer&)'
+cargo:warning=   14 |         Buffer(const Buffer& other) : size(other.size) {
+cargo:warning=      |         ^~~~~~
+exit status: 0
+exit status: 0
+cargo:rerun-if-env-changed=AR_x86_64-unknown-linux-gnu
+AR_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=AR_x86_64_unknown_linux_gnu
+AR_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_AR
+HOST_AR = None
+cargo:rerun-if-env-changed=AR
+AR = None
+cargo:rerun-if-env-changed=ARFLAGS
+ARFLAGS = None
+cargo:rerun-if-env-changed=HOST_ARFLAGS
+HOST_ARFLAGS = None
+cargo:rerun-if-env-changed=ARFLAGS_x86_64_unknown_linux_gnu
+ARFLAGS_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=ARFLAGS_x86_64-unknown-linux-gnu
+ARFLAGS_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=AR_x86_64-unknown-linux-gnu
+AR_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=AR_x86_64_unknown_linux_gnu
+AR_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_AR
+HOST_AR = None
+cargo:rerun-if-env-changed=AR
+AR = None
+cargo:rerun-if-env-changed=ARFLAGS
+ARFLAGS = None
+cargo:rerun-if-env-changed=HOST_ARFLAGS
+HOST_ARFLAGS = None
+cargo:rerun-if-env-changed=ARFLAGS_x86_64_unknown_linux_gnu
+ARFLAGS_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=ARFLAGS_x86_64-unknown-linux-gnu
+ARFLAGS_x86_64-unknown-linux-gnu = None
+cargo:rustc-link-lib=static=class_copy
+cargo:rustc-link-search=native=/root/c2rust/cpp2rust-demo/examples/008_class_copy/rust_hicc/target/debug/build/class_copy-438033968b81eee1/out
+cargo:rerun-if-env-changed=CXXSTDLIB_x86_64-unknown-linux-gnu
+CXXSTDLIB_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=CXXSTDLIB_x86_64_unknown_linux_gnu
+CXXSTDLIB_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_CXXSTDLIB
+HOST_CXXSTDLIB = None
+cargo:rerun-if-env-changed=CXXSTDLIB
+CXXSTDLIB = None
+cargo:rustc-link-lib=stdc++
+cargo::rustc-link-lib=class_copy
+cargo::rustc-link-lib=stdc++
+cargo::rerun-if-changed=src/main.rs
+cargo::rerun-if-changed=../cpp/class_copy.cpp
+cargo::rerun-if-changed=../cpp/class_copy.h

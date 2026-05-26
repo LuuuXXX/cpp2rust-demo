@@ -1,0 +1,1 @@
+/root/c2rust/cpp2rust-demo/examples/026_template_specialization/rust_hicc/target/debug/template_specialization: /root/c2rust/cpp2rust-demo/examples/026_template_specialization/rust_hicc/build.rs /root/c2rust/cpp2rust-demo/examples/026_template_specialization/rust_hicc/src/main.rs
