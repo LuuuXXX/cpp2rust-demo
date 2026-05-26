@@ -931,7 +931,11 @@ fn todo_summary_counts_match_source() {
     );
     assert_eq!(
         summary.total(),
-        summary.op_count + summary.fr_count + summary.lm_count + summary.va_count,
+        summary.op_count
+            + summary.fr_count
+            + summary.lm_count
+            + summary.rtti_count
+            + summary.va_count,
         "total() should sum all counts"
     );
 }
@@ -941,4 +945,318 @@ fn todo_summary_counts_match_source() {
 fn todo_summary_default_is_zero() {
     let s = TodoSummary::default();
     assert_eq!(s.total(), 0);
+}
+
+/// 023_typeid_rtti: classes with integer type-discriminator methods carry [RTTI] inline TODO.
+/// Verifies v4 §5.1 — [RTTI] tag must appear alongside classes that use getType() patterns.
+#[test]
+fn typeid_rtti_emits_rtti_todo_tag() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/023_typeid_rtti/cpp"),
+        &root.join("target/test-workspaces/typeid_rtti_rtti_tag"),
+        "typeid_rtti",
+    )
+    .unwrap();
+
+    assert!(
+        project.main_rs.contains("cpp2rust-todo[RTTI]"),
+        "RTTI type-discriminator classes should carry a cpp2rust-todo[RTTI] inline comment"
+    );
+    // 023 has 4 classes (Shape, Circle, Rectangle, Triangle) all with getType() → 4 tags.
+    assert_eq!(
+        project.todo_summary.rtti_count, 4,
+        "todo_summary.rtti_count should be 4 for typeid_rtti example (one per class with getType)"
+    );
+}
+
+/// 023_typeid_rtti: rtti_count in TodoSummary matches grep count in generated source.
+#[test]
+fn todo_summary_rtti_count_matches_source() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/023_typeid_rtti/cpp"),
+        &root.join("target/test-workspaces/typeid_rtti_rtti_count"),
+        "typeid_rtti",
+    )
+    .unwrap();
+
+    let src = &project.main_rs;
+    let summary = &project.todo_summary;
+    assert_eq!(
+        summary.rtti_count,
+        src.matches("cpp2rust-todo[RTTI]").count(),
+        "rtti_count should match grep count in generated source"
+    );
+}
+
+/// Non-RTTI examples must not carry a spurious [RTTI] tag.
+/// Critically, 045_union_basic has Variant::get_type() but NO get_type_name() — must NOT fire.
+#[test]
+fn non_rtti_examples_have_no_rtti_tag() {
+    let root = repo_root();
+    for (dir, lib) in [
+        ("examples/001_hello_world/cpp", "hello_world"),
+        ("examples/006_class_basic/cpp", "class_basic"),
+        ("examples/019_operator_overload/cpp", "operator_overload"),
+        ("examples/013_inheritance_single/cpp", "inheritance_single"),
+        // 045: Variant has get_type()→int but NOT get_type_name()→const char* — must be no false positive
+        ("examples/045_union_basic/cpp", "union_basic"),
+    ] {
+        let project = build_project(
+            &root.join(dir),
+            &root.join(format!("target/test-workspaces/no_rtti/{}", lib)),
+            lib,
+        )
+        .unwrap();
+        assert_eq!(
+            project.todo_summary.rtti_count, 0,
+            "{dir} should have rtti_count == 0 (no RTTI pattern)"
+        );
+    }
+}
+
+/// 028_variadic_template: [VA] fires on arity-expansion groups; constructor overloads must not fire.
+#[test]
+fn variadic_template_no_false_positive_on_constructors() {
+    let root = repo_root();
+
+    // 036_string_basic has StringImpl with 3 constructors → _new, _new_1, _new_2.
+    // These must NOT be tagged [VA]; they are constructor overloads, not template expansions.
+    let project_036 = build_project(
+        &root.join("examples/036_string_basic/cpp"),
+        &root.join("target/test-workspaces/no_va_036"),
+        "string_basic",
+    )
+    .unwrap();
+    assert_eq!(
+        project_036.todo_summary.va_count, 0,
+        "036_string_basic constructor overloads must not be tagged [VA]"
+    );
+
+    // 005_variadic_functions has sum_3, sum_5 as C-variadic wrappers for sum(int, ...).
+    // The base `sum` already exists in the function list → must NOT be tagged [VA].
+    let project_005 = build_project(
+        &root.join("examples/005_variadic_functions/cpp"),
+        &root.join("target/test-workspaces/no_va_005"),
+        "variadic_functions",
+    )
+    .unwrap();
+    assert_eq!(
+        project_005.todo_summary.va_count, 0,
+        "005_variadic_functions C-variadic wrappers (sum_3, sum_5) must not be tagged [VA]"
+    );
+
+    // 028_variadic_template must still have [VA] tags (genuine variadic template expansions).
+    let project_028 = build_project(
+        &root.join("examples/028_variadic_template/cpp"),
+        &root.join("target/test-workspaces/va_028"),
+        "variadic_template",
+    )
+    .unwrap();
+    assert!(
+        project_028.todo_summary.va_count >= 2,
+        "028_variadic_template should have at least 2 [VA] tags (genuine variadic expansions)"
+    );
+}
+
+/// 039_lambda_basic: fn-ptr typedef type aliases are emitted inside import_lib!.
+/// Verifies the fix for v4 §4.4.1 — `type IntBinaryOp = extern "C" fn(i32, i32) -> i32;`
+/// must appear so that import_lib! function signatures referencing IntBinaryOp compile.
+#[test]
+fn lambda_basic_emits_fn_ptr_typedef_alias() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/039_lambda_basic/cpp"),
+        &root.join("target/test-workspaces/lambda_basic_typedef_out"),
+        "lambda_basic",
+    )
+    .unwrap();
+
+    // The type alias must be present so that `op: IntBinaryOp` in import_lib! is a valid Rust type.
+    assert!(
+        project
+            .main_rs
+            .contains("type IntBinaryOp = extern \"C\" fn(i32, i32) -> i32;"),
+        "IntBinaryOp typedef should be emitted as a Rust type alias inside import_lib!"
+    );
+}
+
+/// 039_lambda_basic: fn main() demo must NOT call apply_operation with literal `0` for
+/// the fn-pointer parameter — functions with fn-ptr params are skipped in the demo.
+#[test]
+fn lambda_basic_demo_skips_fn_ptr_functions() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/039_lambda_basic/cpp"),
+        &root.join("target/test-workspaces/lambda_basic_demo_out"),
+        "lambda_basic",
+    )
+    .unwrap();
+
+    // apply_operation has an IntBinaryOp (fn-ptr) param; the demo must not call it.
+    assert!(
+        !project.main_rs.contains("apply_operation(0, 0, 0)"),
+        "fn main() must not call apply_operation with literal 0 for a function-pointer param"
+    );
+    assert!(
+        !project.main_rs.contains("apply_twice(0, 0)"),
+        "fn main() must not call apply_twice with literal 0 for a function-pointer param"
+    );
+}
+
+/// 031_custom_deleter: `= delete` copy constructor must NOT generate a shim.
+/// Verifies v4 §9 — generated code must be valid Rust.  The deleted copy constructor
+/// `FileHandle(const FileHandle&) = delete` must be skipped; a shim for it would contain
+/// an invalid Rust identifier (`file_handle&`) and call an inaccessible C++ function.
+#[test]
+fn deleted_constructors_produce_no_shim() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/deleted_ctor_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    // The deleted copy constructor would have been named `file_handle_new_1` if not skipped.
+    // Its presence in import_lib! as `fn file_handle_new_1(file_handle&: const)` would be
+    // invalid Rust — the parameter name contains `&`.
+    assert!(
+        !project.main_rs.contains("file_handle&: const"),
+        "deleted copy constructor must not generate an invalid Rust binding"
+    );
+}
+
+/// 031_custom_deleter: `= delete` methods must not appear in the hicc::cpp! shim body.
+/// The shim body `new FileHandle(FileHandle&)` is invalid C++ (calling a deleted constructor).
+#[test]
+fn deleted_constructor_shim_body_absent() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/deleted_ctor_body_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    // The old broken shim body was `new FileHandle(FileHandle&)` — invalid C++.
+    assert!(
+        !project.main_rs.contains("new FileHandle(FileHandle&)"),
+        "deleted copy constructor must not appear in the hicc::cpp! shim body"
+    );
+}
+
+/// parse_param correctly handles unnamed reference parameters (e.g. `const Foo&`).
+/// When a parameter declaration is a reference type without an explicit name, the parser
+/// must NOT misidentify the type suffix as the parameter name (yielding `foo&: const`).
+/// It should fall back to an anonymous `arg0` name with the full type.
+#[test]
+fn unnamed_reference_param_gets_anonymous_name() {
+    use cpp2rust_ffi::parser::parse_header_str;
+    // Simulate a class with a constructor taking an unnamed const reference (like `= default`)
+    let header_src = r#"
+        class Wrapper {
+        public:
+            Wrapper(const Wrapper&);
+        };
+        Wrapper* wrapper_new_copy(const Wrapper* other);
+    "#;
+    let parsed = parse_header_str("wrapper.h", header_src).unwrap();
+    let class = &parsed.classes[0];
+    // The constructor has one param: `const Wrapper&`
+    let ctor = class
+        .methods
+        .iter()
+        .find(|m| matches!(m.kind, cpp2rust_ffi::ir::MethodKind::Constructor))
+        .expect("constructor must be present");
+    let param = &ctor.params[0];
+    // Parameter name must NOT contain `&` (it was previously mis-parsed as "Wrapper&")
+    assert!(
+        !param.name.contains('&'),
+        "parameter name must not contain '&': got '{}'",
+        param.name
+    );
+    // The type should contain the full reference type
+    assert!(
+        param.cpp_type.contains("Wrapper"),
+        "parameter cpp_type must contain 'Wrapper': got '{}'",
+        param.cpp_type
+    );
+}
+
+/// 031_custom_deleter: `typedef void (*FileDeleter)(struct FileHandle*)` must generate
+/// `type FileDeleter = extern "C" fn(*mut FileHandle)` — NOT `extern "C" fn(struct)`.
+/// Verifies Bug D fix: `parse_typedefs` must not mis-split `struct Foo*` arg as type="struct".
+#[test]
+fn typedef_struct_ptr_arg_maps_to_correct_rust_type() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/typedef_struct_ptr_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    assert!(
+        project
+            .main_rs
+            .contains("type FileDeleter = extern \"C\" fn(*mut FileHandle)"),
+        "FileDeleter typedef should map to `extern \"C\" fn(*mut FileHandle)`, not `fn(struct)`"
+    );
+}
+
+/// 031_custom_deleter: `FileHandle&&` (rvalue reference) in a constructor shim must map to
+/// `*mut FileHandle` — NOT `*mut *mut FileHandle`.
+/// Verifies Bug E fix: `&&` suffix must be handled before single `&` in typemap.
+#[test]
+fn rvalue_ref_param_maps_to_single_pointer() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/rvalue_ref_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    assert!(
+        !project.main_rs.contains("*mut *mut"),
+        "FileHandle&& must map to *mut FileHandle, not *mut *mut FileHandle"
+    );
+    assert!(
+        project
+            .main_rs
+            .contains("fn file_handle_new_1(arg0: *mut FileHandle)"),
+        "file_handle_new_1 should take *mut FileHandle, not *mut *mut FileHandle"
+    );
+}
+
+/// 031_custom_deleter: fn main() must NOT call `file_handle_new` (which takes a FileDeleter
+/// fn-ptr parameter) with literal `0` — that would fail to compile.
+/// Verifies Bug F fix: constructors with fn-ptr typedef params are skipped in the demo.
+#[test]
+fn demo_skips_constructor_with_fn_ptr_typedef_param() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/ctor_fn_ptr_skip_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    assert!(
+        !project
+            .main_rs
+            .contains("file_handle_new(std::ptr::null(), std::ptr::null(), 0)"),
+        "fn main() must not call file_handle_new with literal 0 for a FileDeleter fn-ptr param"
+    );
+}
+
+/// typemap: rvalue reference `T&&` must map to `*mut T` (same as `T&`), not `*mut *mut T`.
+#[test]
+fn typemap_rvalue_ref_maps_same_as_lvalue_ref() {
+    use cpp2rust_ffi::typemap::map_cpp_type_to_rust;
+    assert_eq!(map_cpp_type_to_rust("FileHandle&&"), "*mut FileHandle");
+    assert_eq!(map_cpp_type_to_rust("FileHandle&"), "*mut FileHandle");
+    assert_eq!(map_cpp_type_to_rust("const Foo&&"), "*const Foo");
 }

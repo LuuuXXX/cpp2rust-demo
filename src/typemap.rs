@@ -62,6 +62,17 @@ fn map_custom_or_pointer_type(normalized: &str) -> String {
     if let Some(inner) = normalized.strip_suffix('*') {
         return format!("*mut {}", map_cpp_type_to_rust(inner));
     }
+    // C++ rvalue references (`T&&`) must be handled BEFORE single-`&` so that we don't
+    // recurse twice and produce `*mut *mut T`.  Both `T&` and `T&&` map to raw pointers for FFI.
+    if let Some(inner) = normalized
+        .strip_prefix("const ")
+        .and_then(|value| value.strip_suffix("&&"))
+    {
+        return format!("*const {}", map_cpp_type_to_rust(inner));
+    }
+    if let Some(inner) = normalized.strip_suffix("&&") {
+        return format!("*mut {}", map_cpp_type_to_rust(inner));
+    }
     if let Some(inner) = normalized
         .strip_prefix("const ")
         .and_then(|value| value.strip_suffix('&'))

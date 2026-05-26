@@ -92,8 +92,16 @@ fn parse_typedefs(source: &str) -> Vec<TypedefAlias> {
                 .map(|arg| {
                     // 参数可能有名字，也可能只有类型
                     let arg = arg.trim();
-                    if let Some((ty, _name)) = split_type_and_name(arg) {
-                        map_cpp_type_to_rust(ty)
+                    if let Some((ty, name)) = split_type_and_name(arg) {
+                        // Guard: if the split "name" still contains `*` or `&`, the rfind split
+                        // hit a type qualifier (e.g. "struct FileHandle*" → ty="struct",
+                        // name="FileHandle*").  Fall back to treating the full token as the type.
+                        let sanitized = sanitize_param_name(name);
+                        if sanitized.contains('&') || sanitized.contains('*') {
+                            map_cpp_type_to_rust(arg)
+                        } else {
+                            map_cpp_type_to_rust(ty)
+                        }
                     } else {
                         map_cpp_type_to_rust(arg)
                     }
@@ -161,6 +169,11 @@ fn parse_class(kind: &str, name: &str, body: &str) -> (Class, Vec<String>) {
             if let Some(fn_name) = extract_friend_fn_name(stripped) {
                 friend_fn_names.push(fn_name);
             }
+            continue;
+        }
+
+        // `= delete` 方法（如删除的拷贝构造）不可调用，跳过以避免生成无效 shim。
+        if statement.contains("= delete") {
             continue;
         }
 
@@ -353,10 +366,17 @@ fn parse_param(raw: &str, index: usize) -> Option<Parameter> {
     }
 
     if let Some((cpp_type, name)) = split_type_and_name(without_default) {
-        return Some(Parameter {
-            name: sanitize_param_name(name),
-            cpp_type: normalize_cpp_type(cpp_type),
-        });
+        let sanitized = sanitize_param_name(name);
+        // After sanitize, a valid C identifier never contains `&` or `*`.
+        // If the "name" still has either, it means the split picked up a type qualifier
+        // (e.g. `const FileHandle&` → type="const", name="FileHandle&") rather than a real
+        // identifier.  Fall through to anonymous-parameter handling with the full type.
+        if !sanitized.contains('&') && !sanitized.contains('*') {
+            return Some(Parameter {
+                name: sanitized,
+                cpp_type: normalize_cpp_type(cpp_type),
+            });
+        }
     }
 
     Some(Parameter {
