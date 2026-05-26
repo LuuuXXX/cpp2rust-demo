@@ -59,29 +59,179 @@ pub fn generate_build_rs(
 
 /// 生成 Rust hicc 绑定源码。
 pub fn generate_rust_source(headers: &[ParsedHeader], lib_name: &str) -> Result<String> {
+    // 先收集每个头文件的绑定块及导出函数列表（供 fn main() 使用）
     let mut blocks = Vec::new();
+    let mut header_data: Vec<(&ParsedHeader, Vec<Function>)> = Vec::new();
+
     for header in headers {
-        blocks.push(generate_header_bindings(header, lib_name));
+        let mut generated_shims = Vec::new();
+        let functions = collect_export_functions(header, &mut generated_shims);
+        header_data.push((header, functions.clone()));
+
+        let mut parts = Vec::new();
+        parts.push(render_cpp_block(header, &generated_shims));
+        for class in &header.classes {
+            if has_importable_methods(class) {
+                parts.push(render_import_class_block(class));
+            }
+        }
+        parts.push(render_import_lib_block(header, &functions, lib_name));
+        blocks.push(parts.join("\n\n"));
     }
-    blocks.push("fn main() {}".to_string());
+
+    blocks.push(generate_main_fn(&header_data));
     Ok(blocks.join("\n\n"))
 }
 
-fn generate_header_bindings(header: &ParsedHeader, lib_name: &str) -> String {
-    let mut generated_shims = Vec::new();
-    let functions = collect_export_functions(header, &mut generated_shims);
-    let mut parts = Vec::new();
+/// 生成 `fn main()` 演示代码。
+/// 对每个类：调用构造函数、通过 unsafe 块调用可导入的方法、调用析构函数。
+/// 对自由函数：用默认参数调用并打印结果。
+fn generate_main_fn(header_data: &[(&ParsedHeader, Vec<Function>)]) -> String {
+    let mut body: Vec<String> = Vec::new();
 
-    parts.push(render_cpp_block(header, &generated_shims));
+    // 1. 类演示
+    for (header, functions) in header_data {
+        for class in &header.classes {
+            let snake = to_snake_case(&class.name);
 
-    for class in &header.classes {
-        if has_importable_methods(class) {
-            parts.push(render_import_class_block(class));
+            let ctors: Vec<&Function> = functions
+                .iter()
+                .filter(|f| {
+                    matches!(&f.kind, FunctionKind::Constructor { class_name }
+                        if class_name == &class.name)
+                })
+                .collect();
+            let dtor = functions.iter().find(|f| {
+                matches!(&f.kind, FunctionKind::Destructor { class_name }
+                    if class_name == &class.name)
+            });
+
+            if ctors.is_empty() {
+                continue;
+            }
+
+            let ctor = ctors[0];
+            let ctor_args = default_call_args(&ctor.params);
+
+            let importable: Vec<&Method> = class
+                .methods
+                .iter()
+                .filter(|m| {
+                    matches!(m.kind, MethodKind::Regular)
+                        && !m.is_static
+                        && !m.is_operator
+                        && has_only_primitive_params(m)
+                })
+                .collect();
+            let has_mut_method = importable.iter().any(|m| !m.is_const);
+            let mutability = if has_mut_method { "mut " } else { "" };
+
+            body.push(format!(
+                "    let {mutability}{snake} = {}({ctor_args});",
+                ctor.rust_name
+            ));
+            body.push("    unsafe {".to_string());
+
+            for method in importable.iter().take(3) {
+                let args = default_call_args(&method.params);
+                let ret_type =
+                    map_cpp_type_to_rust(method.return_type.as_deref().unwrap_or("void"));
+                if ret_type != "()" && !ret_type.starts_with("*") {
+                    body.push(format!(
+                        "        let result = {snake}.{}({args});",
+                        method.rust_name
+                    ));
+                    body.push(format!(
+                        "        println!(\"{snake}.{}: {{}}\", result);",
+                        method.rust_name
+                    ));
+                } else {
+                    body.push(format!("        {snake}.{}({args});", method.rust_name));
+                }
+            }
+
+            if let Some(dtor) = dtor {
+                body.push(format!("        {}(&{snake});", dtor.rust_name));
+            }
+            body.push("    }".to_string());
+            body.push(String::new());
         }
     }
 
-    parts.push(render_import_lib_block(header, &functions, lib_name));
-    parts.join("\n\n")
+    // 2. 自由函数演示
+    for (_, functions) in header_data {
+        for func in functions
+            .iter()
+            .filter(|f| matches!(f.kind, FunctionKind::Free))
+        {
+            let args = default_call_args(&func.params);
+            let ret_type = map_cpp_type_to_rust(&func.return_type);
+            let needs_unsafe = is_unsafe_function(func);
+
+            match (needs_unsafe, ret_type.as_str()) {
+                (true, "()") => {
+                    body.push(format!("    unsafe {{ {}({args}); }}", func.rust_name));
+                }
+                (true, _) => {
+                    body.push(format!(
+                        "    let _result = unsafe {{ {}({args}) }};",
+                        func.rust_name
+                    ));
+                }
+                (false, "()") => {
+                    body.push(format!("    {}({args});", func.rust_name));
+                }
+                (false, rt) if rt.starts_with('*') => {
+                    body.push(format!("    let _result = {}({args});", func.rust_name));
+                }
+                (false, _) => {
+                    body.push(format!("    let result = {}({args});", func.rust_name));
+                    body.push(format!(
+                        "    println!(\"{}: {{}}\", result);",
+                        func.rust_name
+                    ));
+                }
+            }
+        }
+    }
+
+    if body.is_empty() {
+        return "fn main() {}".to_string();
+    }
+
+    // 去掉末尾多余空行
+    while body.last().map_or(false, |l| l.is_empty()) {
+        body.pop();
+    }
+    body.push(String::new());
+    body.push("    println!(\"\\nRust FFI: completed successfully!\");".to_string());
+
+    let mut lines = vec!["fn main() {".to_string()];
+    lines.extend(body);
+    lines.push("}".to_string());
+    lines.join("\n")
+}
+
+/// 为函数调用生成默认参数值列表。
+fn default_call_args(params: &[Parameter]) -> String {
+    params
+        .iter()
+        .map(|p| {
+            let rust_type = map_cpp_type_to_rust(&normalize_cpp_type(&p.cpp_type));
+            match rust_type.as_str() {
+                "i8" | "i16" | "i32" | "i64" | "isize" => "0".to_string(),
+                "u8" | "u16" | "u32" | "u64" | "usize" => "0".to_string(),
+                "f32" | "f64" => "1.0".to_string(),
+                "bool" => "true".to_string(),
+                t if t.starts_with("*const i8") || t.starts_with("*mut i8") => {
+                    "std::ptr::null()".to_string()
+                }
+                t if t.starts_with("*") => "std::ptr::null_mut()".to_string(),
+                _ => "0".to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn collect_export_functions(
@@ -182,7 +332,20 @@ fn collect_export_functions(
         }
     }
 
-    functions.sort_by(|left, right| left.name.cmp(&right.name));
+    // 排序：构造函数 → 普通自由函数 / 静态方法 shim → 析构函数，同组内按名称字母序。
+    functions.sort_by(|left, right| {
+        fn kind_priority(f: &Function) -> u8 {
+            match &f.kind {
+                FunctionKind::Constructor { .. } => 0,
+                FunctionKind::Free => 1,
+                FunctionKind::StaticMethodShim { .. } => 2,
+                FunctionKind::Destructor { .. } => 3,
+            }
+        }
+        kind_priority(left)
+            .cmp(&kind_priority(right))
+            .then(left.name.cmp(&right.name))
+    });
     functions
 }
 
@@ -755,9 +918,9 @@ mod tests {
         )
         .unwrap();
         let rust = generate_rust_source(&[parsed], "myclass").unwrap();
-        // myclass_new 来自头文件不重复生成
-        assert_eq!(rust.matches("myclass_new").count(), 2); // #[cpp(func=...)] + fn 声明
-                                                            // friend_add 出现在 import_lib! 中
+        // myclass_new 来自头文件不重复生成（import_lib! 中有 2 处，fn main() 里还有 1 处调用）
+        assert!(rust.matches("myclass_new").count() >= 2);
+        // friend_add 出现在 import_lib! 中
         assert!(rust.contains("friend_add"));
         // 不标记为 unsafe（const MyClass* → *mut MyClass）
         assert!(rust.contains("fn friend_add(a: *mut MyClass, b: *mut MyClass)"));

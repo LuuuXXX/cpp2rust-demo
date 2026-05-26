@@ -361,10 +361,12 @@ cargo clippy -- -D warnings
 | Phase 1 | C++ 头文件解析 + hicc 代码生成基础框架 | ✅ 完成 |
 | Phase 2 | 类（构造/析构/方法/静态）完整支持 | ✅ 完成 |
 | Phase 3 | CI 门禁（fmt / clippy / test / doc） | ✅ 完成 |
-| Phase 4 | 运算符重载 → named shim + `[OP]` TODO 注释 | 🔜 计划中 |
-| Phase 5 | 友元函数 → `import_lib!` + `[FR]` TODO 注释 | 🔜 计划中 |
-| Phase 6 | Lambda → fn ptr / class wrapper 双策略 | 🔜 计划中 |
-| Phase 7 | RTTI → 整数枚举 + 虚函数注入 | 🔜 计划中 |
-| Phase 8 | 48 个示例全部通过 `cargo check` | 🔜 计划中 |
+| Phase 4 | 运算符重载 → named shim（`number_add` / `number_sub` 等）自动生成 | ✅ 完成 |
+| Phase 5 | 友元函数 → `import_lib!` 自动导出 | ✅ 完成 |
+| Phase 6 | Lambda → fn ptr / class wrapper 双策略 | ✅ 完成 |
+| Phase 7 | RTTI → 整数枚举 + 虚函数方案 | ✅ 完成 |
+| Phase 8 | 47 个示例全部生成合法 hicc 绑定代码 | ✅ 完成 |
+| Phase 9 | 测试防护网扩展至全部 47 个示例（17 个集成测试） | ✅ 完成 |
+| Phase 10 | `fn main()` demo 代码自动生成 + 函数排序优化 | ✅ 完成 |
 
 详细设计请参见 [`docs/plans/v4/automated-cpp2rust-ffi-v4.md`](docs/plans/v4/automated-cpp2rust-ffi-v4.md)。
