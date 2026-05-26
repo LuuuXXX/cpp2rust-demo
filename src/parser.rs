@@ -164,6 +164,11 @@ fn parse_class(kind: &str, name: &str, body: &str) -> (Class, Vec<String>) {
             continue;
         }
 
+        // `= delete` 方法（如删除的拷贝构造）不可调用，跳过以避免生成无效 shim。
+        if statement.contains("= delete") {
+            continue;
+        }
+
         if !is_public || !statement.contains('(') {
             continue;
         }
@@ -353,10 +358,17 @@ fn parse_param(raw: &str, index: usize) -> Option<Parameter> {
     }
 
     if let Some((cpp_type, name)) = split_type_and_name(without_default) {
-        return Some(Parameter {
-            name: sanitize_param_name(name),
-            cpp_type: normalize_cpp_type(cpp_type),
-        });
+        let sanitized = sanitize_param_name(name);
+        // After sanitize, a valid C identifier never contains `&` or `*`.
+        // If the "name" still has either, it means the split picked up a type qualifier
+        // (e.g. `const FileHandle&` → type="const", name="FileHandle&") rather than a real
+        // identifier.  Fall through to anonymous-parameter handling with the full type.
+        if !sanitized.contains('&') && !sanitized.contains('*') {
+            return Some(Parameter {
+                name: sanitized,
+                cpp_type: normalize_cpp_type(cpp_type),
+            });
+        }
     }
 
     Some(Parameter {

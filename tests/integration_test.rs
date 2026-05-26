@@ -1104,3 +1104,83 @@ fn lambda_basic_demo_skips_fn_ptr_functions() {
         "fn main() must not call apply_twice with literal 0 for a function-pointer param"
     );
 }
+
+/// 031_custom_deleter: `= delete` copy constructor must NOT generate a shim.
+/// Verifies v4 §9 — generated code must be valid Rust.  The deleted copy constructor
+/// `FileHandle(const FileHandle&) = delete` must be skipped; a shim for it would contain
+/// an invalid Rust identifier (`file_handle&`) and call an inaccessible C++ function.
+#[test]
+fn deleted_constructors_produce_no_shim() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/deleted_ctor_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    // The deleted copy constructor would have been named `file_handle_new_1` if not skipped.
+    // Its presence in import_lib! as `fn file_handle_new_1(file_handle&: const)` would be
+    // invalid Rust — the parameter name contains `&`.
+    assert!(
+        !project.main_rs.contains("file_handle&: const"),
+        "deleted copy constructor must not generate an invalid Rust binding"
+    );
+}
+
+/// 031_custom_deleter: `= delete` methods must not appear in the hicc::cpp! shim body.
+/// The shim body `new FileHandle(FileHandle&)` is invalid C++ (calling a deleted constructor).
+#[test]
+fn deleted_constructor_shim_body_absent() {
+    let root = repo_root();
+    let project = build_project(
+        &root.join("examples/031_custom_deleter/cpp"),
+        &root.join("target/test-workspaces/deleted_ctor_body_031"),
+        "custom_deleter",
+    )
+    .unwrap();
+
+    // The old broken shim body was `new FileHandle(FileHandle&)` — invalid C++.
+    assert!(
+        !project.main_rs.contains("new FileHandle(FileHandle&)"),
+        "deleted copy constructor must not appear in the hicc::cpp! shim body"
+    );
+}
+
+/// parse_param correctly handles unnamed reference parameters (e.g. `const Foo&`).
+/// When a parameter declaration is a reference type without an explicit name, the parser
+/// must NOT misidentify the type suffix as the parameter name (yielding `foo&: const`).
+/// It should fall back to an anonymous `arg0` name with the full type.
+#[test]
+fn unnamed_reference_param_gets_anonymous_name() {
+    use cpp2rust_ffi::parser::parse_header_str;
+    // Simulate a class with a constructor taking an unnamed const reference (like `= default`)
+    let header_src = r#"
+        class Wrapper {
+        public:
+            Wrapper(const Wrapper&);
+        };
+        Wrapper* wrapper_new_copy(const Wrapper* other);
+    "#;
+    let parsed = parse_header_str("wrapper.h", header_src).unwrap();
+    let class = &parsed.classes[0];
+    // The constructor has one param: `const Wrapper&`
+    let ctor = class
+        .methods
+        .iter()
+        .find(|m| matches!(m.kind, cpp2rust_ffi::ir::MethodKind::Constructor))
+        .expect("constructor must be present");
+    let param = &ctor.params[0];
+    // Parameter name must NOT contain `&` (it was previously mis-parsed as "Wrapper&")
+    assert!(
+        !param.name.contains('&'),
+        "parameter name must not contain '&': got '{}'",
+        param.name
+    );
+    // The type should contain the full reference type
+    assert!(
+        param.cpp_type.contains("Wrapper"),
+        "parameter cpp_type must contain 'Wrapper': got '{}'",
+        param.cpp_type
+    );
+}
