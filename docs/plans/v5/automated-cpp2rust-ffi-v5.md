@@ -336,6 +336,17 @@ hicc::import_lib! {
 }
 ```
 
+### 6.3 hicc::cpp! 代码重建策略（分离定义处理）
+
+C++ 源码中类方法常以**分离定义**形式出现（`.h` 声明 + `.cpp` 实现），而 `hicc::cpp!` 块要求方法**全部内联写入 class 体内**。生成器处理流程如下：
+
+1. **提取声明**：从 AST 的 `CXXRecordDecl` 获取 class 骨架和方法签名列表
+2. **提取实现**：从 AST 的 `CXXMethodDecl` 节点的 `get_definition()` 找到方法体，读取对应 SourceRange 内的原始文本（`.cpp2rust` 文件中的行范围）
+3. **重组内联**：将提取的方法体文本嵌入 class 体内；若方法体在系统头中（`is_in_system_header()` 为 true）则不提取实现，只保留声明
+4. **shim 函数**：ctor/dtor 等必要 shim 函数直接追加在 class 定义之后，写入同一 `hicc::cpp!` 块
+
+> **注意**：若源码已是头文件内联定义（方法体直接在 `.h` 中），则 SourceRange 已包含完整实现，无需跨文件拼接。
+
 ---
 
 ## 7. C++ 特性支持
@@ -367,7 +378,7 @@ hicc::import_lib! {
 | 002 | function_overload | 函数重载 | ✅ | `FunctionDecl`（多个同名） | 每个重载签名不同，AST 中各重载独立可见；各重载名称加后缀区分（如 `_i32`, `_f64`），生成 `import_lib!` 条目 |
 | 003 | default_args | 默认参数 | ✅ | `ParmVarDecl`（含默认值） | 默认参数在 C++ 侧展开为多个固定参数重载函数写入 `hicc::cpp!`；`import_lib!` 声明各版本 |
 | 004 | inline_functions | inline 函数 | ✅ | `FunctionDecl` + `inline` | 函数体从 `.cpp2rust` 中提取，内联写入 `hicc::cpp!`；`import_lib!` 照常声明 |
-| 005 | variadic_functions | C 可变参数函数（va_list） | ✅ | `FunctionDecl`（va_list） | 直接映射 C 可变参数；Rust 侧使用 `unsafe` + `...` 参数（不同于 C++ 可变参数模板） |
+| 005 | variadic_functions | C 可变参数函数（va_list） | ✅ | `FunctionDecl`（va_list） | C 可变参数（`...`）无法直接跨 FFI 绑定；在 C++ 侧已存在固定参数 wrapper（如 `sum_3`/`sum_5`），工具检测到这些 wrapper 后直接用裸 `extern "C"` 绑定，**不**通过 hicc 宏；**不**生成 `hicc::cpp!` 块（函数体不内联，直接链接现有符号） |
 
 ---
 
@@ -530,17 +541,21 @@ Phase T  →  Phase 0  →  Phase 1  →  Phase 2 & 3  →  Phase 4  →  Phase 
 
 #### 9.3.1 设计原则
 
-每个 `examples/NNN_*/` 目录已包含**完整的预期输出**：
+每个 `examples/NNN_*/` 目录已包含**完整的参考资料**：
 - `cpp/` → 工具的**输入**（C++ 源码）
-- `rust_hicc/src/main.rs` → 工具的**预期输出**（黄金文件 golden file）
+- `rust_hicc/src/main.rs` → 包含 FFI 脚手架 + 手写 `fn main()` 的**可运行参考文件**
 - `rust_hicc/build.rs` + `Cargo.toml` → 编译/运行验证所需的构建配置
+
+> **重要区分**：工具只能生成 FFI 脚手架（`hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三段），**不能也不应**生成 `fn main()`。`main.rs` 中的 `fn main()` 是手写的演示逻辑，**不属于工具输出范围**。
+>
+> 因此 L1 黄金文件测试**不比对 `main.rs` 全文**，而是只比对其中的 FFI 脚手架段落（`hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!` 块）。工具实际输出的目标文件为 `lib.rs`（无 `fn main()`）。
 
 测试框架分三层，逐层递进：
 
 | 层次 | 名称 | 验证内容 | 触发时机 |
 |------|------|---------|---------|
-| L1 | **黄金文件测试** | 生成内容与 `rust_hicc/src/main.rs` 逐行一致 | 每次提交 |
-| L2 | **编译测试** | 生成的 Rust 代码能通过 `cargo build` | 每次提交 |
+| L1 | **黄金文件测试** | 工具生成的 FFI 脚手架段落与 `rust_hicc/src/main.rs` 中对应段落一致 | 每次提交 |
+| L2 | **编译测试** | 仓库中现有的 `rust_hicc/` 能通过 `cargo build`（基线验证） | 每次提交 |
 | L3 | **运行测试** | `cargo run` 输出与 README 中"运行结果"一致 | 合并前 |
 
 #### 9.3.2 测试目录结构
@@ -559,24 +574,34 @@ cpp2rust-ffi/
 
 #### 9.3.3 L1 黄金文件测试（最核心）
 
+**核心原则**：从 `rust_hicc/src/main.rs` 中提取 `hicc::cpp!`、`hicc::import_class!`、`hicc::import_lib!` 三种块作为黄金片段，与工具生成的 `lib.rs` 对应块进行比对，忽略 `fn main()` 和注释差异。
+
 ```rust
 // tests/l1_golden_tests.rs
-// 工具生成的 main.rs 与仓库中 rust_hicc/src/main.rs 进行对比
+// 工具生成的 lib.rs 中的 FFI 脚手架段落，与 rust_hicc/src/main.rs 中同类段落对比
 
 macro_rules! golden_test {
     ($name:ident, $example:literal) => {
         #[test]
         fn $name() {
             let example_dir = concat!("../examples/", $example);
-            // 1. 用工具生成输出
+            // 1. 用工具生成 lib.rs（只含 hicc 三段，无 fn main）
             let generated = run_tool_on(example_dir);
-            // 2. 读取黄金文件
-            let golden = read_golden(example_dir, "rust_hicc/src/main.rs");
-            // 3. 规范化后对比（忽略空白行差异）
+            // 2. 从黄金文件中提取 hicc 块（跳过 fn main 及其他手写代码）
+            let golden_raw = read_golden(example_dir, "rust_hicc/src/main.rs");
+            let golden = extract_hicc_blocks(&golden_raw);
+            // 3. 规范化后对比（忽略空白行和注释差异）
             assert_eq!(normalize(&generated), normalize(&golden),
-                "Golden file mismatch for {}", $example);
+                "FFI scaffold mismatch for {}", $example);
         }
     };
+}
+
+/// 从文件内容中提取所有 hicc::cpp! / hicc::import_class! / hicc::import_lib! 块
+fn extract_hicc_blocks(src: &str) -> String {
+    // 按行扫描，提取 hicc:: 开头的块直到对应的闭合 }
+    // 跳过 fn main() { ... } 及其他非 hicc 代码
+    todo!("实现块提取逻辑")
 }
 
 golden_test!(test_001_hello_world,            "001_hello_world");
@@ -646,10 +671,13 @@ cargo test 2>&1 | grep -E "^test.*FAILED|^test result"
 
 | 检查项 | 验收条件 |
 |--------|---------|
-| L2 编译测试全部通过 | 48 个黄金文件 `cargo build` 均成功（基线验证） |
-| L3 运行测试全部通过 | 48 个黄金文件 `cargo run` 输出与 README 一致 |
-| L1 测试框架就绪 | 框架代码完整，48 个 L1 测试均可运行（初始均 FAIL，符合预期） |
+| hicc crate 可用 | `hicc = "0.2"` 和 `hicc-build = "0.2"` 可从 crates.io 安装（**前置条件**：若未发布，需在工具项目中通过 `[patch.crates-io]` 或 path 依赖先解决此问题再进行 L2/L3） |
+| L2 编译基线确立 | 至少 001–010 示例 `cargo build` 成功；其余已知可编译示例纳入基线，剩余可在后续 Phase 中补充 |
+| L3 运行基线确立 | 至少 001–010 示例 `cargo run` 输出与 README 一致 |
+| L1 测试框架就绪 | 框架代码完整（含 `extract_hicc_blocks()` 实现），48 个 L1 测试均可运行（初始均 FAIL，符合预期） |
 | CI 集成 | `cargo test --test l1_golden_tests` 在 GitHub Actions 中运行 |
+
+> **说明**：Phase T 不要求全部 48 个示例一次性全部通过 L2/L3，避免单点阻塞。以已知可编译的示例作为基线，后续 Phase 中每完成一批功能，相应示例的 L2/L3 顺带验证通过。
 
 ---
 
@@ -732,6 +760,8 @@ walkdir = "2"
 cc = "1"
 ```
 
+> **关于 hicc crate**：`examples/*/rust_hicc/` 中的黄金文件依赖 `hicc = "0.2"` 和 `hicc-build = "0.2"`（运行时/构建时宏库）。这两个 crate **属于目标用户项目的依赖**，不是本工具本身的依赖——本工具只负责生成引用 hicc 的 Rust 代码，自身不引入 hicc。进入 Phase T 前需确认 `hicc = "0.2"` 已发布到 crates.io 或通过 workspace 路径依赖可用，否则 L2/L3 测试无法编译。
+
 ### 10.2 系统依赖
 
 ```bash
@@ -750,3 +780,5 @@ apt-get install clang libclang-dev g++ libstdc++-dev
 | 隐式模板跨 TU | 类型缺失 | 合并多 AST 分析 |
 | 系统库展开代码庞大 | 解析慢、文件大 | 接受现状；过滤系统头路径 |
 | --feature 范围界定 | feature 边界模糊 | feature 对应 `.cpp2rust/<name>/` 目录，由用户决定分组 |
+| 分离定义方法体提取 | hicc::cpp! 块内容不完整或报错 | 通过 `CXXMethodDecl::get_definition()` + SourceRange 读取原始文本；头文件内联定义无此问题 |
+| hicc crate 不可用 | Phase T L2/L3 编译失败 | Phase T 前先确认 hicc/hicc-build 可从 crates.io 安装；必要时通过 workspace path 依赖提供 |
