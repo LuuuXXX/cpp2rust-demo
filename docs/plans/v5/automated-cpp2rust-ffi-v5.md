@@ -69,6 +69,7 @@ cpp2rust-ffi merge --feature core_lib
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `--feature <name>` | ❌ | feature 名称；省略时默认 `default` |
+| `--skip-failed` | ❌ | 跳过 AST 解析失败的文件，继续处理剩余文件（默认遇到解析错误即终止） |
 | `-- <BUILD_CMD>...` | ✅ | `--` 之后的所有参数原样作为构建命令传入 |
 
 #### `cpp2rust-ffi merge`
@@ -95,11 +96,11 @@ cpp2rust-ffi merge --feature core_lib
 
 ```
 cpp2rust-ffi tool (v5)
+├── hook/                         # LD_PRELOAD Hook 库（与 c2rust-demo 保持一致，置于项目根）
+│   ├── hook.cpp               # C++ 拦截器（新建）
+│   └── Makefile
 ├── src/
 │   ├── main.rs                    # CLI 入口 (init / merge)
-│   ├── hook/                     # LD_PRELOAD Hook 库
-│   │   ├── hook.cpp           # C++ 拦截器（新建）
-│   │   └── Makefile
 │   ├── capture.rs                # 复用：LD_PRELOAD 执行逻辑
 │   ├── ast_parser.rs            # C++ AST 解析（clang crate）
 │   ├── extractor/               # 信息提取
@@ -231,7 +232,9 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     let clang = Clang::new()?;
     let index = Index::new(&clang, false, false);
 
+    // 必须传 -x c++：.cpp2rust 扩展名非标准，clang 默认按 C 解析
     let tu = index.parser(file)
+        .arguments(&["-xc++", "-std=c++17"])
         .detailed_preprocessing(true)
         .parse()
         .unit();
@@ -466,7 +469,7 @@ C++ 源码中类方法常以**分离定义**形式出现（`.h` 声明 + `.cpp` 
 | # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 原因 & 处理方式 |
 |---|------|---------|---------|---------|----------------|
 | 039 | lambda_basic | Lambda 表达式 | ⚠️ `[LM]` | `LambdaExpr` | **不能直接 ✅ 的原因**：有状态 lambda（捕获外部变量）是匿名类型，FFI 无法直接表达捕获列表。**处理方案（双策略，遵循 hicc 用法）**：① 无状态 lambda（空捕获 `[]`）→ 退化为函数指针，直接在 `import_lib!` 中声明为函数指针类型，无 shim。② 有状态 lambda（含捕获）→ `hicc::cpp!` 中生成 class wrapper（`LambdaWrapper`），通过 ctor/call/dtor shim 暴露；Rust 侧通过 `import_class!` 调用 `call()` 方法。追加内联 TODO：`// cpp2rust-todo[LM]: 有状态 lambda，内部捕获状态不透明，已封装为 class wrapper` |
-| 040 | std_function | std::function\<Sig\> | ✅ | `ClassTemplateSpecialization` | `std::function<int(int)>` 签名可从 `ClassTemplateSpecialization` 提取；使用与有状态 lambda 相同的 class wrapper 策略；通过 `import_class!` 调用 `call()` 方法 |
+| 040 | std_function | std::function\<Sig\> | ⚠️ `[LM]` | `ClassTemplateSpecialization` | **同有状态 lambda**——类型擦除容器，签名可推断但捕获状态不透明；统一使用 class wrapper + opaque pointer 策略；通过 `import_class!` 调用 `call()` 方法；追加内联 TODO：`// cpp2rust-todo[LM]: std::function，已封装为 class wrapper` |
 | 041 | functional_bind | std::bind | ✅ | `CallExpr`（bind）/ `CXXRecordDecl` | `std::bind` 产物本质是函数对象（与有状态 lambda 机制相同），使用同一 class wrapper 策略，通过 `import_class!` 完全覆盖 |
 | 042 | exception_basic | C++ 异常处理 | ✅ | `CXXThrowExpr` / `CXXCatchStmt` | 在 `hicc::cpp!` shim 层捕获异常（`try { ... } catch (const std::exception& e) { ... }`），转为错误码 + 错误消息字符串返回；FFI 边界不跨越异常；Rust 侧通过 `import_lib!` 调用 shim |
 
