@@ -133,6 +133,18 @@ unsafe fn circle_area(self_: *mut Circle) -> f64;
 3. **提供独立的工厂函数返回具体类型**
 4. **使用枚举标记不同类型**
 
+## 运行结果
+
+```
+=== Virtual Function FFI with hicc ===
+
+Circle name: Circle
+Circle radius: 5
+Circle area: 78.5398
+
+Rust FFI: Virtual functions work through hicc import_class!
+```
+
 ## 总结
 
 1. **虚函数**：通过 vtable 实现运行时多态

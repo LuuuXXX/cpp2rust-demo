@@ -121,6 +121,17 @@ int derived_getValue2(struct Derived* self) {
 如果存在菱形继承（Derived 同时继承自两个都继承自 Base 的类），
 情况会更复杂，需要虚拟继承。
 
+## 运行结果
+
+```
+Base1 value: 10
+Base2 value: 10
+Derived value: 30
+Computing: 10 + 20 + 30 = 60
+
+Rust FFI: Multiple inheritance with hicc pattern
+```
+
 ## 总结
 
 1. **多继承**：每个基类作为单独的成员

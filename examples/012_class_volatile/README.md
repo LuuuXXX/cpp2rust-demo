@@ -87,6 +87,20 @@ class Device {
 2. **Rust 端**：通过每次独立读取来模拟 volatile 语义
 3. **硬件访问**：通常与内存映射 I/O (mmio) 结合使用
 
+## 运行结果
+
+```
+Reading volatile hardware registers (values may change):
+  Read 0: status=0x12345678, data=0x00000000
+  Read 1: status=0x12345678, data=0x00000000
+  Read 2: status=0x12345678, data=0x00000000
+  Read 3: status=0x12345678, data=0x00000000
+  Read 4: status=0x12345678, data=0x00000000
+
+Rust FFI: volatile qualifier requires volatile pointer in C
+Note: In C, volatile on the pointed-to object matters for hardware registers
+```
+
 ## 总结
 
 1. **volatile 成员函数**：用于硬件寄存器等可能意外改变的状态

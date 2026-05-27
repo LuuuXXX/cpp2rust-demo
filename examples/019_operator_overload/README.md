@@ -121,6 +121,30 @@ impl Add for Number {
 }
 ```
 
+## 运行结果
+
+```
+=== Operator Overload FFI ===
+
+C++ operator overloading becomes named method calls in FFI
+
+Created numbers: a = 10, b = 3
+
+Result of a + b = 13
+Result of a - b = 7
+Result of a * b = 30
+Result of a / b = 3
+
+Unary operators:
+Negation of a = -10
+a compared to b = 7
+
+Rust FFI: Operators become named methods
+a + b -> number_add(a, b)
+a - b -> number_sub(a, b)
+a * b -> number_mul(a, b)
+```
+
 ## 总结
 
 1. **运算符重载**：让类支持运算符操作

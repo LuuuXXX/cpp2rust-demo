@@ -127,6 +127,33 @@ unsafe fn d_getAValue(self_: *mut D) -> i32;
 2. **偏移量直接编码在对象中**
 3. **部分构造/析构**
 
+## 运行结果
+
+```
+=== Diamond Inheritance FFI with hicc ===
+
+Diamond inheritance structure:
+       A
+      / \
+     B   C
+      \ /
+       D
+
+Virtual inheritance ensures only ONE A subobject in D
+
+Values:
+Getting A value (virtual base - single instance)
+  A value (via B): 1
+  B value: 2
+  C value: 2
+  D value: 4
+
+D::compute: a=1 b=2 c=3 d=4
+Sum: 10
+
+Rust FFI: Diamond inheritance works correctly with hicc!
+```
+
 ## 总结
 
 1. **菱形继承**：D 继承 B 和 C，B 和 C 都继承 A
