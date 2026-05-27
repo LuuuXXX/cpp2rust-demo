@@ -29,8 +29,8 @@ pub struct FieldInfo {
     pub is_static: bool,
     /// "public" | "protected" | "private"
     pub accessibility: String,
-    /// 字段的默认值文本（源码提取，可能含 ` = 0`）
-    pub default_value: Option<String>,
+    /// 字段声明的字节范围（用于读取实际的默认值文本）
+    pub field_offset: Option<(u32, u32)>,
 }
 
 /// 类的成员方法（含构造/析构）
@@ -50,6 +50,8 @@ pub struct MethodInfo {
     pub accessibility: String,
     /// 方法定义的字节范围（在 .cpp2rust 文件中）：(start, end)
     pub body_offset: Option<(u32, u32)>,
+    /// 是否是 override（覆盖基类虚函数）
+    pub is_override: bool,
 }
 
 /// 基类说明符
@@ -355,23 +357,18 @@ fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
                     .unwrap_or_default();
                 let accessibility = access_str(child.get_accessibility());
                 // 判断字段是否有内联默认值（如 int value = 0）
-                let has_inline_init = child
-                    .get_children()
-                    .iter()
-                    .any(|c| is_expression_kind(c.get_kind()));
-                let default_value = if has_inline_init {
-                    // 我们只记录"有默认值"，具体值从源码中读
-                    Some(String::new())
-                } else {
-                    None
-                };
+                let field_offset = child.get_range().map(|r| {
+                    let start = r.get_start().get_file_location().offset;
+                    let end = r.get_end().get_file_location().offset;
+                    (start, end)
+                });
                 fields.push(FieldInfo {
                     name: field_name,
                     type_name,
                     is_mutable: child.is_mutable(),
                     is_static: false,
                     accessibility,
-                    default_value,
+                    field_offset,
                 });
             }
             EntityKind::VarDecl => {
@@ -381,13 +378,18 @@ fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
                     .map(|t| t.get_display_name())
                     .unwrap_or_default();
                 let accessibility = access_str(child.get_accessibility());
+                let field_offset = child.get_range().map(|r| {
+                    let start = r.get_start().get_file_location().offset;
+                    let end = r.get_end().get_file_location().offset;
+                    (start, end)
+                });
                 fields.push(FieldInfo {
                     name: field_name,
                     type_name,
                     is_mutable: false,
                     is_static: true,
                     accessibility,
-                    default_value: None,
+                    field_offset,
                 });
             }
             EntityKind::FunctionDecl => {
@@ -444,6 +446,7 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
         is_inline: entity.is_inline_function(),
         accessibility,
         body_offset,
+        is_override: !entity.get_overridden_methods().unwrap_or_default().is_empty(),
     })
 }
 

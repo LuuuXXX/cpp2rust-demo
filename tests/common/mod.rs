@@ -1,13 +1,89 @@
+use cpp2rust_demo::ast_parser;
+use cpp2rust_demo::extractor;
+use cpp2rust_demo::generator::hicc_codegen;
 use std::path::Path;
 use std::process::Command;
 
 /// Run the cpp2rust-demo tool on an example directory.
-/// Returns the generated FFI scaffold content (lib.rs).
-/// Currently returns empty string until Phase 1+ is implemented.
+/// Returns the generated FFI scaffold content (hicc blocks only).
 pub fn run_tool_on(example_dir: &str) -> String {
-    let _ = Path::new(example_dir);
-    // TODO: Phase 1+ - actually run the tool
-    String::new()
+    // 1. 找 .cpp 文件（examples/NNN_name/cpp/*.cpp）
+    let cpp_dir = format!("{}/cpp", example_dir);
+    let cpp_file = find_cpp_file(&cpp_dir);
+    let cpp_file = match cpp_file {
+        Some(p) => p,
+        None => {
+            eprintln!("run_tool_on: no .cpp file found in {}", cpp_dir);
+            return String::new();
+        }
+    };
+
+    // 2. 推导 unit_name（文件名去掉 .cpp）
+    let unit_name = cpp_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unit")
+        .to_string();
+
+    // 3. g++ -E -C file.cpp → 临时 .cpp2rust 文件
+    let tmp_dir = std::env::temp_dir().join(format!("cpp2rust_{}", unit_name));
+    std::fs::create_dir_all(&tmp_dir).ok();
+    let preprocessed = tmp_dir.join(format!("{}.cpp2rust", unit_name));
+
+    let status = Command::new("g++")
+        .args([
+            "-E",
+            "-C",
+            cpp_file.to_str().unwrap(),
+            "-o",
+            preprocessed.to_str().unwrap(),
+        ])
+        .status();
+
+    match status {
+        Ok(s) if s.success() => {}
+        _ => {
+            eprintln!(
+                "run_tool_on: g++ preprocessing failed for {}",
+                cpp_file.display()
+            );
+            return String::new();
+        }
+    }
+
+    // 4. 解析 AST
+    let ast = match ast_parser::parse_preprocessed(&preprocessed) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("run_tool_on: AST parse failed: {}", e);
+            return String::new();
+        }
+    };
+
+    // 5. 读取原始 .cpp 文件的 include 信息
+    let (system_includes, project_header) = extractor::read_source_includes(&cpp_file);
+
+    // 6. 提取 FfiSpec
+    let spec = extractor::extract(
+        &ast,
+        &unit_name,
+        &system_includes,
+        project_header.as_deref(),
+    );
+
+    // 7. 生成 hicc 代码
+    hicc_codegen::generate(&spec)
+}
+
+fn find_cpp_file(dir: &str) -> Option<std::path::PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("cpp") {
+            return Some(path);
+        }
+    }
+    None
 }
 
 /// Extract all hicc::cpp!, hicc::import_class!, hicc::import_lib! blocks from source.

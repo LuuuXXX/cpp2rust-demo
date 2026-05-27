@@ -2,6 +2,7 @@ pub mod ast_parser;
 pub mod capture;
 pub mod error;
 pub mod extractor;
+pub mod ffi_model;
 pub mod generator;
 pub mod instantiation_tracker;
 pub mod layout;
