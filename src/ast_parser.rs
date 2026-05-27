@@ -52,6 +52,8 @@ pub struct MethodInfo {
     pub body_offset: Option<(u32, u32)>,
     /// 是否是 override（覆盖基类虚函数）
     pub is_override: bool,
+    /// 是否是 `= default` 显式默认函数
+    pub is_default: bool,
 }
 
 /// 基类说明符
@@ -447,6 +449,7 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
         accessibility,
         body_offset,
         is_override: !entity.get_overridden_methods().unwrap_or_default().is_empty(),
+        is_default: entity.is_defaulted(),
     })
 }
 

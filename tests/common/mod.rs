@@ -131,10 +131,28 @@ pub fn extract_hicc_blocks(src: &str) -> String {
 /// Normalize source for comparison: collapse whitespace, remove blank lines.
 pub fn normalize(src: &str) -> String {
     src.lines()
-        .map(|l| l.trim())
+        .map(|l| collapse_spaces(l.trim()))
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Collapse multiple consecutive spaces into one (preserves other whitespace).
+fn collapse_spaces(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for c in s.chars() {
+        if c == ' ' {
+            if !prev_space {
+                result.push(c);
+            }
+            prev_space = true;
+        } else {
+            result.push(c);
+            prev_space = false;
+        }
+    }
+    result
 }
 
 /// Read the golden file content from an example's rust_hicc/src/main.rs

@@ -40,10 +40,26 @@ pub fn extract(
     );
 
     // ── import_class! 块列表 ──────────────────
+    // 只为 extern-C 函数签名中引用的类生成 import_class!
+    let extern_c_used_classes: std::collections::HashSet<String> = {
+        let mut set = std::collections::HashSet::new();
+        let all_cn: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
+        for fi in &ast.functions {
+            if !fi.is_extern_c { continue; }
+            for cn in &all_cn {
+                if fi.return_type.contains(cn) ||
+                   fi.params.iter().any(|p| p.type_name.contains(cn)) {
+                    set.insert(cn.to_string());
+                }
+            }
+        }
+        set
+    };
     let class_specs = ast
         .classes
         .iter()
         .filter(|c| !c.name.is_empty())
+        .filter(|c| extern_c_used_classes.is_empty() || extern_c_used_classes.contains(&c.name))
         .filter_map(|ci| build_class_spec(ci, &ast.classes))
         .collect();
 
@@ -138,18 +154,22 @@ fn build_cpp_block(
             emit_class_decl(ci, source_bytes, &mut lines);
             lines.push(String::new());
         }
-        // 方法定义（从源文件读取）
+        // 方法定义（从源文件读取，跳过 = default / = delete 方法）
         for ci in &ast.classes {
             for method in &ci.methods {
+                if method.is_default { continue; }
                 if let Some((start, end)) = method.body_offset {
                     let text = extract_range_text(source_bytes, start, end);
-                    let text = text.trim();
-                    if !text.is_empty() {
-                        for line in text.lines() {
-                            lines.push(line.to_string());
-                        }
-                        lines.push(String::new());
+                    let text = strip_preprocessor_markers(text.trim());
+                    let trimmed = text.trim();
+                    // 跳过不含函数体（= default / = delete）的情况
+                    if trimmed.is_empty() || (!trimmed.contains('{') && (trimmed.contains("= default") || trimmed.contains("= delete"))) {
+                        continue;
                     }
+                    for line in trimmed.lines() {
+                        lines.push(line.to_string());
+                    }
+                    lines.push(String::new());
                 }
             }
         }
@@ -178,13 +198,14 @@ fn build_cpp_block(
         }
     }
 
-    // Ctor/dtor shim 函数（含静态访问器）
+    // Ctor/dtor/standalone shim 函数（含静态访问器）
     let shim_fns = classify_functions(functions, &class_names);
     for (fn_info, shim_kind) in &shim_fns {
-        if matches!(shim_kind, ShimKind::Ctor | ShimKind::Dtor | ShimKind::StaticAccessor) {
+        if !matches!(shim_kind, ShimKind::MethodAccessor) {
             if let Some((start, end)) = fn_info.body_offset {
                 let raw = extract_range_text(source_bytes, start, end);
                 let cleaned = clean_shim_text(&raw);
+                let cleaned = strip_preprocessor_markers(&cleaned);
                 let trimmed = cleaned.trim();
                 if !trimmed.is_empty() {
                     for line in trimmed.lines() {
@@ -283,9 +304,9 @@ fn emit_field_line(field: &FieldInfo, source_bytes: &[u8]) -> String {
         let raw = extract_range_text(source_bytes, start, end);
         let trimmed = raw.trim();
         if !trimmed.is_empty() {
-            // 去掉 struct 前缀，加上 static 关键字（如果需要）
+            // 源文件文本已含 static 关键字，不再重复添加
             let cleaned = clean_shim_text(trimmed);
-            return format!("{}{};", static_kw, cleaned.trim());
+            return format!("{};", cleaned.trim());
         }
     }
     // 回退：构造
@@ -342,8 +363,9 @@ fn build_method_decl(m: &MethodInfo) -> String {
     let const_sfx = if m.is_const { " const" } else { "" };
     let override_sfx = if m.is_override { " override" } else { "" };
     let pure_sfx = if m.is_pure_virtual && !m.is_override { " = 0" } else { "" };
+    let default_sfx = if m.is_default { " = default" } else { "" };
 
-    format!("{}{}{}({}){}{}{}", qualifier, ret, name, params, const_sfx, override_sfx, pure_sfx)
+    format!("{}{}{}({}){}{}{}{}", qualifier, ret, name, params, const_sfx, override_sfx, pure_sfx, default_sfx)
 }
 
 /// 构建单行内联方法（内联风格）
@@ -351,6 +373,12 @@ fn build_inline_method_line(m: &MethodInfo, source_bytes: &[u8], class_name: &st
     if let Some((start, end)) = m.body_offset {
         let raw_text = extract_range_text(source_bytes, start, end);
         let stripped = strip_class_prefix(raw_text.trim(), class_name);
+        let stripped = strip_preprocessor_markers(&stripped);
+
+        // 对静态方法：若提取文本未含 static，补加前缀
+        if m.is_static && !stripped.trim_start().starts_with("static") {
+            return format!("static {}", stripped);
+        }
         return stripped;
     }
 
@@ -365,12 +393,40 @@ fn build_inline_method_line(m: &MethodInfo, source_bytes: &[u8], class_name: &st
     }
 }
 
-/// 清理 shim 函数文本中的 `struct ClassName*` → `ClassName*`
+/// 检测函数体文本是否为空（仅含 `{ }` 或 `: init_list {}`，大括号内无语句）
+fn has_empty_body(text: &str) -> bool {
+    if let Some(open) = text.rfind('{') {
+        if let Some(close) = text.rfind('}') {
+            if close > open {
+                let inner = text[open + 1..close].trim();
+                return inner.is_empty();
+            }
+        }
+    }
+    false
+}
+
+/// 过滤预处理器行号标记，如 `# 26 "file.cpp" 3 4`
+fn strip_preprocessor_markers(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let t = line.trim();
+            if !t.starts_with('#') { return true; }
+            let rest = t[1..].trim_start();
+            // 丢弃 `# <数字> "file"` 形式的行号标记
+            !rest.starts_with(|c: char| c.is_ascii_digit())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 清理 shim 函数文本：去除 `struct ClassName*` → `ClassName*`，`(void)` → `()`
 fn clean_shim_text(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
+        // 去除 `struct ` 前缀（仅出现在行首/空格/换行/括号/逗号之后）
         if i + 7 <= bytes.len() && &bytes[i..i + 7] == b"struct " {
             let prev_ok = i == 0
                 || bytes[i - 1] == b' '
@@ -382,6 +438,12 @@ fn clean_shim_text(text: &str) -> String {
                 i += 7;
                 continue;
             }
+        }
+        // 将 `(void)` → `()`（C 风格无参数声明）
+        if i + 6 <= bytes.len() && &bytes[i..i + 6] == b"(void)" {
+            result.push_str("()");
+            i += 6;
+            continue;
         }
         result.push(bytes[i] as char);
         i += 1;
@@ -483,11 +545,18 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         Some(cpp_to_rust(&m.return_type))
     };
 
-    // C++ 方法签名：type-only 参数，指针紧贴类型
+    // C++ 方法签名：含参数名（仅当参数名非空），指针紧贴类型
     let param_types: Vec<String> = m
         .params
         .iter()
-        .map(|p| normalize_ptr_spacing(clean_type(&p.type_name)))
+        .map(|p| {
+            let ty = normalize_ptr_spacing(clean_type(&p.type_name));
+            if p.name.is_empty() || p.name == "_" {
+                ty
+            } else {
+                format!("{} {}", ty, p.name)
+            }
+        })
         .collect();
     let ret_clean = normalize_ptr_spacing(clean_type(&m.return_type));
     let const_suffix = if m.is_const { " const" } else { "" };
@@ -505,14 +574,27 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
 // ─────────────────────────────────────────────
 
 fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&str]) -> LibSpec {
-    let fwd_decls: Vec<String> =
-        class_names.iter().map(|n| format!("class {};", n)).collect();
-
     let shims = classify_functions(functions, class_names);
     let fn_bindings: Vec<FnBinding> = shims
         .iter()
         .filter(|(_, k)| !matches!(k, ShimKind::MethodAccessor))
         .map(|(fi, _)| build_fn_binding(fi))
+        .collect();
+
+    // 前向声明：只包含在函数签名中实际引用的类（按原始顺序）
+    let used_classes: std::collections::HashSet<&str> = fn_bindings.iter()
+        .flat_map(|fb| {
+            class_names.iter().filter(move |cn| {
+                fb.cpp_sig.contains(*cn)
+                    || fb.params.iter().any(|(_, t)| t.contains(*cn))
+                    || fb.ret_type.as_ref().map(|r| r.contains(*cn)).unwrap_or(false)
+            })
+        })
+        .copied()
+        .collect();
+    let fwd_decls: Vec<String> = class_names.iter()
+        .filter(|cn| used_classes.contains(**cn))
+        .map(|n| format!("class {};", n))
         .collect();
 
     LibSpec { link_name: unit_name.to_string(), fwd_decls, fn_bindings }
@@ -712,7 +794,9 @@ pub fn normalize_ptr_spacing(ty: &str) -> String {
 /// 读取原始 .cpp 和 .h 文件的 include 行
 ///
 /// 返回 (system_includes, project_header)
-/// system_includes 顺序：header 优先，然后 cpp 中新增
+/// 顺序规则：
+///   1. header-only includes（只在 .h 中出现、不在 .cpp 中出现）按 .h 顺序排前
+///   2. cpp includes（.cpp 中出现的系统 include）按 .cpp 文件中出现的顺序排后
 pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<String>) {
     let cpp_content = fs::read_to_string(cpp_path).unwrap_or_default();
 
@@ -720,40 +804,30 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
     let h_path = cpp_path.with_extension("h");
     let h_content = fs::read_to_string(&h_path).unwrap_or_default();
 
-    let mut system: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut project: Option<String> = None;
 
-    // 读取 .h 文件中的系统 include（优先放入）
-    let mut in_cpp_section = false;
-    for line in h_content.lines() {
-        let t = line.trim();
-        // 粗略检测 #ifdef __cplusplus 之后的部分（C++ 专用区域）
-        if t == "#ifdef __cplusplus" || t.starts_with("#if defined(__cplusplus") {
-            in_cpp_section = true;
-        } else if t == "#endif" {
-            // 不重置 in_cpp_section，因为有多个 #endif
-        }
-        if let Some(rest) = t.strip_prefix("#include ") {
+    // 收集 .h 中的系统 include（保序）
+    let h_includes: Vec<String> = h_content.lines()
+        .filter_map(|line| {
+            let t = line.trim();
+            let rest = t.strip_prefix("#include ")?;
             let rest = rest.trim();
-            if rest.starts_with('<') {
-                let inc = format!("#include {}", rest);
-                if seen.insert(inc.clone()) {
-                    system.push(inc);
-                }
-            }
-        }
-    }
+            if rest.starts_with('<') { Some(format!("#include {}", rest)) } else { None }
+        })
+        .collect();
+    let h_set: std::collections::HashSet<String> = h_includes.iter().cloned().collect();
 
-    // 读取 .cpp 文件中的 include
+    // 收集 .cpp 中的系统 include（保序）
+    let mut cpp_includes: Vec<String> = Vec::new();
+    let mut cpp_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for line in cpp_content.lines() {
         let t = line.trim();
         if let Some(rest) = t.strip_prefix("#include ") {
             let rest = rest.trim();
             if rest.starts_with('<') {
                 let inc = format!("#include {}", rest);
-                if seen.insert(inc.clone()) {
-                    system.push(inc);
+                if cpp_seen.insert(inc.clone()) {
+                    cpp_includes.push(inc);
                 }
             } else if rest.starts_with('"') {
                 let hdr = rest.trim_matches('"');
@@ -763,6 +837,28 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
             }
         }
     }
+    let cpp_set: std::collections::HashSet<String> = cpp_includes.iter().cloned().collect();
 
+    // 合并：header-only 优先（按 .h 顺序），然后 cpp 中的按顺序
+    let mut system: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // 1. header-only includes
+    for inc in &h_includes {
+        if !cpp_set.contains(inc) {
+            if seen.insert(inc.clone()) {
+                system.push(inc.clone());
+            }
+        }
+    }
+
+    // 2. cpp includes（按 cpp 文件顺序，含同时出现在 header 中的）
+    for inc in &cpp_includes {
+        if seen.insert(inc.clone()) {
+            system.push(inc.clone());
+        }
+    }
+
+    let _ = h_set; // suppress unused warning
     (system, project)
 }
