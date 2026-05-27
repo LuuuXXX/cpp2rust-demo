@@ -133,24 +133,25 @@ examples/
 | 037 | array_basic | array | 固定数组 |
 | 038 | tuple_basic | tuple | 异构集合 |
 
-### 第八部分：函数对象（039-040）
+### 第八部分：函数对象（039-042）
 
 | 编号 | 名称 | C++ 特性 | FFI 模式 |
 |------|------|----------|----------|
 | 039 | lambda_basic | lambda | 闭包模拟 |
 | 040 | std_function | std::function | 函数包装器 |
+| 041 | functional_bind | std::bind | 部分应用模拟 |
+| 042 | exception_basic | 异常处理 | 错误码模式 |
 
-### 第九部分：高级特性（041-047）
+### 第九部分：其他高级特性（043-048）
 
 | 编号 | 名称 | C++ 特性 | FFI 模式 |
 |------|------|----------|----------|
-| 041 | functional_bind | std::bind | 部分应用模拟 |
-| 042 | exception_basic | 异常处理 | 错误码模式 |
 | 043 | namespace_nested | 嵌套命名空间 | 命名空间映射 |
 | 044 | enum_class | 强类型枚举 | 类型安全枚举 |
 | 045 | union_basic | 共用体 | 内存overlay |
 | 046 | constexpr_basic | constexpr | 编译期计算 |
 | 047 | noexcept_basic | noexcept | 异常规格 |
+| 048 | summary | 综合 FFI 模式 | 所有策略组合 |
 
 ## 构建所有示例
 
