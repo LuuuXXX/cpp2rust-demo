@@ -6,7 +6,7 @@ hicc::cpp! {
     public:
         Stack<int> impl;
     public:
-        IntStack() = default
+        IntStack() = default;
         int size() const { return impl.size(); }
         bool empty() const { return impl.empty(); }
         void push(int value) { impl.push(value); }
@@ -18,7 +18,7 @@ hicc::cpp! {
     public:
         Stack<double> impl;
     public:
-        DoubleStack() = default
+        DoubleStack() = default;
         int size() const { return impl.size(); }
         bool empty() const { return impl.empty(); }
         void push(double value) { impl.push(value); }
@@ -141,4 +141,5 @@ fn main() {
     println!("Stack<int> -> IntStack");
     println!("Stack<double> -> DoubleStack");
 }
+
 

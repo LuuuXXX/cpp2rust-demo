@@ -111,3 +111,4 @@ fn main() {
     println!("\nRust FFI: Multiple inheritance with hicc pattern");
 }
 
+

@@ -32,3 +32,4 @@ fn main() {
     println!("\nRust FFI: Inline and normal functions work the same way!");
 }
 
+

@@ -140,3 +140,4 @@ fn main() {
     println!("\nRust FFI: Virtual functions work through hicc import_class!");
 }
 
+

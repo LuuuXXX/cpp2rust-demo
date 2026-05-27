@@ -22,7 +22,7 @@ hicc::cpp! {
 }
         FileHandle(const FileHandle &) = default;
         FileHandle & operator=(const FileHandle &) {}
-        FileHandle(FileHandle &&) = default = default;
+        FileHandle(FileHandle &&) = default;
         FileHandle & operator=(FileHandle &&) = default {}
         bool is_open() const {
     return file_ != nullptr;
@@ -177,3 +177,4 @@ fn main() {
     println!("3. Rust 可以传入自己的清理函数");
     println!("4. 适用于文件、内存、网络连接等资源");
 }
+

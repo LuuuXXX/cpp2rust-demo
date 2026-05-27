@@ -194,3 +194,4 @@ fn main() {
     println!("5. hicc import_class! 不支持嵌套命名空间，使用 raw extern \"C\"");
 }
 
+

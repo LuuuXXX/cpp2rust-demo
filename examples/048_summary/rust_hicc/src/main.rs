@@ -4,7 +4,6 @@
 hicc::cpp! {
     #include <cstdint>
 
-    // Simple counter for demonstration
     class Counter {
         int value = 0;
     public:
@@ -23,15 +22,12 @@ hicc::cpp! {
         delete self;
     }
 
-    // Simple add function (noexcept)
     int safe_add(int a, int b) noexcept {
         return a + b;
     }
 
-    // const value
-    const int MAX_SIZE = 100;
-
     int get_max_size() {
+        const int MAX_SIZE = 100;
         return MAX_SIZE;
     }
 }
@@ -61,7 +57,7 @@ hicc::import_lib! {
     #[cpp(func = "void counter_delete(Counter* self)")]
     unsafe fn counter_delete(self_: *mut Counter);
 
-    #[cpp(func = "int safe_add(int a, int b) noexcept")]
+    #[cpp(func = "int safe_add(int, int)")]
     fn safe_add(a: i32, b: i32) -> i32;
 
     #[cpp(func = "int get_max_size()")]
@@ -144,3 +140,4 @@ fn main() {
     println!("6. constexpr computed at compile time");
     println!("7. noexcept is part of function signature in FFI");
 }
+

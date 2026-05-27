@@ -374,18 +374,36 @@ fn build_inline_method_line(m: &MethodInfo, source_bytes: &[u8], class_name: &st
         let raw_text = extract_range_text(source_bytes, start, end);
         let stripped = strip_class_prefix(raw_text.trim(), class_name);
         let stripped = strip_preprocessor_markers(&stripped);
+        let stripped = stripped.trim().to_string();
 
         // 对静态方法：若提取文本未含 static，补加前缀
         if m.is_static && !stripped.trim_start().starts_with("static") {
-            return format!("static {}", stripped);
+            let s = format!("static {}", stripped);
+            // 补全末尾分号（libclang range 有时不包含 `;`）
+            return if !s.ends_with(';') && !s.ends_with('}') {
+                format!("{};", s)
+            } else {
+                s
+            };
         }
-        return stripped;
+        // 补全末尾分号（libclang range 有时不包含 `;`）
+        return if !stripped.ends_with(';') && !stripped.ends_with('}') {
+            format!("{};", stripped)
+        } else {
+            stripped
+        };
     }
 
     // 没有 body_offset → 生成 `= default;` 或 `{}`
     let decl = build_method_decl(m);
     if m.is_constructor || m.is_destructor {
-        format!("{} = default;", decl)
+        // is_default 时 build_method_decl 已含 " = default"，直接加分号；
+        // 否则补充 " = default;"（用于无实现的普通 ctor/dtor）
+        if m.is_default {
+            format!("{};", decl)
+        } else {
+            format!("{} = default;", decl)
+        }
     } else if m.is_pure_virtual {
         format!("{};", decl)
     } else {

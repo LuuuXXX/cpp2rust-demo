@@ -145,3 +145,4 @@ fn main() {
     println!("\nRust FFI: Diamond inheritance works correctly with hicc!");
 }
 
+

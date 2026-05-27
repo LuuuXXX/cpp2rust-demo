@@ -167,3 +167,4 @@ fn main() {
     println!("通用版本: IntHolder, DoubleHolder");
     println!("偏特化: StringHolder (处理 char*)");
 }
+

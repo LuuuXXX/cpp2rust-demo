@@ -107,3 +107,4 @@ fn main() {
     println!("\nRust FFI: Static members work!");
 }
 
+
