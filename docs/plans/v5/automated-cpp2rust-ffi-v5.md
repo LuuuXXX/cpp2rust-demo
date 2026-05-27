@@ -15,6 +15,10 @@ v5 通过 **LD_PRELOAD 编译拦截**机制，在真实编译过程中捕获 C++
 | `hook/hook.c` | `references/c2rust-demo/hook/` | 预处理捕获逻辑（C 版本，参考结构） |
 | `src/capture.rs` | `references/c2rust-demo/src/` | LD_PRELOAD 执行逻辑 |
 
+> **⚠️ 注意：`references/c2rust-demo/` 目录当前为空**，`hook.c` 和 `capture.rs` 均不存在于本仓库。
+> 实现 Phase 0 前，需从 c2rust-demo 上游项目手动获取这两个文件并放入对应目录，
+> 或直接参考其公开源码从零编写 `hook.cpp`（无需 `hook.c`，只需了解其结构）。
+
 **注意**：需在本仓库中新建 `hook/hook.cpp`，参考 `hook.c` 的结构，将编译器列表和文件扩展名改为 C++ 版本。  
 c2rust-demo 针对 C 编译器（`gcc`/`clang`/`cc`），cpp2rust 需改为 C++ 编译器（`g++`/`clang++`/`c++`）。
 
@@ -380,7 +384,7 @@ hicc::import_lib! {
 | 015 | virtual_basic | 虚函数 | ✅ | `CXXMethodDecl`（virtual） | 通过 opaque pointer 调用虚函数；直接 `import_class!`，hicc 宏负责虚表 dispatch，无 shim |
 | 016 | virtual_pure | 纯虚/抽象类 | ✅ | `CXXMethodDecl`（= 0） | 抽象类只生成 `class Foo;` 前向声明；子类方法通过 `import_class!` 直接绑定，无 shim |
 | 017 | virtual_override | override | ✅ | `CXXMethodDecl`（override） | override 语义透传；Rust 侧调用方式与普通虚函数相同，直接 `import_class!` |
-| 018 | virtual_diamond | 菱形继承（virtual 继承） | ✅ | `CXXBaseSpecifier`（virtual） | 共享基类通过 opaque pointer 统一访问；生成 `{class}_as_{base}()` 类型转换 shim（必要，因为需要指针调整） |
+| 018 | virtual_diamond | 菱形继承（virtual 继承） | ✅ | `CXXBaseSpecifier`（virtual） | 共享基类通过 opaque pointer 统一访问；**不**生成 `as_base()` 类型转换 shim；而是为每个需要从 Rust 侧调用的继承方法生成独立命名 shim（如 `d_getAValue(D*)`），在 shim 内部通过派生类指针直接调用，无需指针调整 |
 
 ---
 
@@ -400,11 +404,11 @@ hicc::import_lib! {
 
 | # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 原因 & 处理方式 |
 |---|------|---------|---------|---------|----------------|
-| 024 | template_function | 函数模板 | ✅ | `FunctionTemplateDecl` + `ClassTemplateSpecialization` | 忽略模板声明；AST 中每个实例化版本（如 `do_swap<int>` → `swap_int`）已独立可见，直接生成 `import_lib!` 条目，无 shim |
+| 024 | template_function | 函数模板 | ✅ | `FunctionTemplateDecl` + `ClassTemplateSpecialization` | 忽略模板声明；在 `hicc::cpp!` 中为每个实例化版本生成命名 C 包装函数（如 `swap_int(int*,int*)`），调用对应模板实例（`do_swap<int>`）；再在 `import_lib!` 中绑定这些包装函数。**包装函数本身属于必要 shim**（模板实例化的 C 兼容导出层） |
 | 025 | template_class | 类模板 | ✅ | `ClassTemplateSpecialization` | 忽略模板声明；只处理实际实例化的具体类型（如 `Stack<int>`），按普通类生成 ctor/dtor shim + `import_class!` 方法绑定 |
 | 026 | template_specialization | 模板偏特化 | ✅ | `ClassTemplatePartialSpecialization` | 偏特化本身视为实例化路径之一；解析时只收集通过该特化路径实例化的类型 |
 | 027 | template_instantiation | 显式模板实例化 | ✅ | `ClassTemplateSpecialization` | 显式实例化（`template class Foo<int>;`）直接在 AST 中可见 |
-| 028 | variadic_template | 可变参数模板 | ⚠️ `[VA]` | `VariadicTemplate` / `CallExpr` | **不能直接 ✅ 的原因**：C++ 可变参数模板（`...Args`）是编译期展开，FFI 无法表达"任意数量参数"。**处理方案**：扫描 AST 中所有调用点，为每种（参数数量 × 类型组合）生成一个固定参数版本。追加内联 TODO：`// cpp2rust-todo[VA]: 可变参数模板，已展开 N 个调用点，新增调用时需手动添加对应版本` |
+| 028 | variadic_template | 可变参数模板 | ⚠️ `[VA]` | `VariadicTemplate` / `CallExpr` | **不能直接 ✅ 的原因**：C++ 可变参数模板（`...Args`）是编译期展开，FFI 无法表达"任意数量参数"。**处理方案**：在 `hicc::cpp!` 中生成 wrapper 类（如 `SumCalculator`），将每种参数数量版本封装为独立静态方法（`calculate_1`/`calculate_2` 等），再生成 C 兼容包装函数（`sum_1`/`sum_2` 等）；`import_lib!` 绑定各包装函数。追加内联 TODO：`// cpp2rust-todo[VA]: 可变参数模板，已按调用点展开 N 个版本，新增参数组合时需手动添加对应版本` |
 
 ---
 
@@ -422,13 +426,17 @@ hicc::import_lib! {
 
 ### 7.8 STL 容器（034–038）
 
+> **核心策略**：STL 容器的模板方法签名复杂，不能直接通过 `import_class!` 绑定 `std::vector<T>` 等。
+> 必须先在 `hicc::cpp!` 中生成**薄 wrapper 类**（如 `IntVector` 封装 `std::vector<int>`），
+> 再对 wrapper 类做 `import_class!` 绑定，并为 ctor/dtor 生成必要 shim。
+
 | # | 示例 | C++ 特性 | 支持状态 | AST 节点 | 处理方式 |
 |---|------|---------|---------|---------|---------|
-| 034 | vector_basic | std::vector\<T\> | ✅ | `ClassTemplateSpecialization` | opaque pointer；`vec_new`/`vec_delete` 是必要 shim（ctor/dtor）；`push`/`get`/`size` 等通过 `import_class!` 直接绑定 |
-| 035 | map_basic | std::map\<K,V\> | ✅ | `ClassTemplateSpecialization` | 同上；`map_new`/`map_delete` 是必要 shim；`insert`/`find`/`erase` 等通过 `import_class!` 直接绑定 |
-| 036 | string_basic | std::string | ✅ | `ClassTemplateSpecialization` | `str_new`/`str_delete` 是必要 shim；`c_str()`/`length()` 等通过 `import_class!` 直接绑定；跨 FFI 传字符串用 `*const i8` |
-| 037 | array_basic | std::array\<T,N\> | ✅ | `ClassTemplateSpecialization` | 固定大小数组，ctor/dtor 是必要 shim；按索引访问通过 `import_class!` 直接绑定；N 在实例化时已知 |
-| 038 | tuple_basic | std::tuple\<T...\> | ✅ | `ClassTemplateSpecialization` | ctor/dtor 是必要 shim；按位置 `get<N>()` 通过 `import_class!` 直接绑定；元素类型在实例化时已知 |
+| 034 | vector_basic | std::vector\<T\> | ✅ | `ClassTemplateSpecialization` | **生成 wrapper 类**（如 `IntVector` 封装 `VectorImpl<int>`）；`vec_new`/`vec_delete` 是必要 shim（ctor/dtor）；`push_back`/`get`/`size` 等通过 `import_class!` 绑定 wrapper 类方法 |
+| 035 | map_basic | std::map\<K,V\> | ✅ | `ClassTemplateSpecialization` | **生成 wrapper 类**（如 `StringIntMap` 封装 `MapImpl<string,int>`）；`map_new`/`map_delete` 是必要 shim；`insert`/`find`/`erase` 等通过 `import_class!` 绑定 wrapper 类方法 |
+| 036 | string_basic | std::string | ✅ | `ClassTemplateSpecialization` | **生成 wrapper 类**封装 `std::string`；`str_new`/`str_delete` 是必要 shim；`c_str()`/`length()` 等通过 `import_class!` 绑定 wrapper 类方法；跨 FFI 传字符串用 `*const i8` |
+| 037 | array_basic | std::array\<T,N\> | ✅ | `ClassTemplateSpecialization` | **生成 wrapper 类**封装 `std::array<T,N>`；ctor/dtor 是必要 shim；按索引访问通过 `import_class!` 绑定 wrapper 类方法；N 在实例化时已知 |
+| 038 | tuple_basic | std::tuple\<T...\> | ✅ | `ClassTemplateSpecialization` | **生成 wrapper 类**封装 `std::tuple<T...>`；ctor/dtor 是必要 shim；按位置 `get<N>()` 通过 `import_class!` 绑定；元素类型在实例化时已知 |
 
 ---
 
@@ -461,7 +469,7 @@ hicc::import_lib! {
 | TAG | 示例 | C++ 特性 | 不能完全自动的根本原因 | 自动降级策略 | 用户剩余工作 |
 |-----|------|---------|---------------------|------------|------------|
 | `[OP]` | 019 | 运算符重载 | C ABI 无运算符符号；FFI 边界只能传命名函数 | 每个运算符生成命名 shim（`{class}_{add/sub/...}`），写入 `hicc::cpp!` + `import_lib!` | 可选：手动实现 `impl std::ops::Add<T> for T` 等 Rust trait |
-| `[VA]` | 028 | 可变参数模板 | `...Args` 参数包是编译期展开，FFI 运行期无法表达"任意数量参数" | 扫描 AST 中所有调用点，为每种（参数数量 × 类型组合）生成一个固定参数版本 | 若需要新的参数数量组合，手动在 `hicc::cpp!` 和 `import_lib!` 中添加对应版本 |
+| `[VA]` | 028 | 可变参数模板 | `...Args` 参数包是编译期展开，FFI 运行期无法表达"任意数量参数" | 在 `hicc::cpp!` 中生成 wrapper 类（如 `SumCalculator`），按参数数量和类型组合分别封装为静态方法，再生成 C 兼容命名包装函数（`sum_1`/`sum_2` 等）；`import_lib!` 绑定各包装函数 | 若需要新的参数数量或类型组合，手动在 `hicc::cpp!` 中为 wrapper 类添加对应静态方法和包装函数，并在 `import_lib!` 中声明 |
 | `[LM]` | 039 | 有状态 Lambda | 有状态 lambda 是匿名闭包类型，FFI 无法表达捕获列表；无法自动推断 `operator()` 的真实签名 | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + opaque pointer 封装 | 若需要在 Rust 侧传递 Rust 闭包给 C++ 回调，需手动编写 trampoline |
 | `[LM]` | 040 | std::function | 同有状态 lambda——类型擦除容器，签名可推断但捕获状态不透明 | 统一使用 class wrapper + opaque pointer 策略 | 可选：手动实现 Rust 闭包 → C++ std::function 适配层 |
 
@@ -638,18 +646,22 @@ cargo test 2>&1 | grep -E "^test.*FAILED|^test result"
 
 ### 9.4 Phase 0 - Hook 机制（新建 `hook.cpp`）
 
+> **⚠️ 前置条件**：`references/c2rust-demo/` 目录当前为空。
+> 实现前需从 c2rust-demo 上游项目获取 `hook/hook.c` 和 `src/capture.rs`，
+> 或直接参考其公开源码从零编写（无需物理文件，按下述任务描述即可实现等价功能）。
+
 **任务**：
-1. [ ] 创建 `hook/hook.cpp`，逻辑参考 `references/c2rust-demo/hook/hook.c`（注意 c2rust-demo 中使用的是 `cc -E`，此处改为 `c++ -E`）
+1. [ ] 创建 `hook/hook.cpp`，逻辑参考 `references/c2rust-demo/hook/hook.c` 或其公开源码（注意 c2rust-demo 中使用的是 `cc -E`，此处改为 `c++ -E`）
 2. [ ] 修改编译器列表：`gcc, clang, cc` → `g++, clang++, c++`（支持 versioned 如 `g++-13`）
 3. [ ] 修改文件扩展名支持：`.c` → `.cpp, .cc, .cxx, .c++, .C, .cp`
 4. [ ] 输出预处理文件（`.cpp2rust`），使用 `-E -C`（保留注释和行号 marker）
-5. [ ] 复制 `references/c2rust-demo/src/capture.rs`，并做以下适配：
-   - 将所有 `C2RUST_FEATURE_ROOT` → `CPP2RUST_FEATURE_ROOT`
-   - 将所有 `C2RUST_PROJECT_ROOT` → `CPP2RUST_PROJECT_ROOT`
-   - 将所有 `C2RUST_CXX` → `CPP2RUST_CXX`
-   - 将所有 `C2RUST_DEBUG` → `CPP2RUST_DEBUG`
-   - 将 `.c2rust` 目录引用 → `.cpp2rust`（与 `CPP2RUST_FEATURE_ROOT` 默认值保持一致）
-6. [ ] 复制 `hook/Makefile` 并适配
+5. [ ] 编写 `src/capture.rs`（参考 c2rust-demo 的同名文件结构，从零实现或改写）并做以下适配：
+   - 使用 `CPP2RUST_FEATURE_ROOT`（对应 c2rust-demo 的 `C2RUST_FEATURE_ROOT`）
+   - 使用 `CPP2RUST_PROJECT_ROOT`（对应 `C2RUST_PROJECT_ROOT`）
+   - 使用 `CPP2RUST_CXX`（对应 `C2RUST_CXX`）
+   - 使用 `CPP2RUST_DEBUG`（对应 `C2RUST_DEBUG`）
+   - 输出目录使用 `.cpp2rust`（对应 `.c2rust`）
+6. [ ] 创建 `hook/Makefile`
 
 **Phase 0 完成标准**：
 ```bash
@@ -680,6 +692,7 @@ LD_PRELOAD=/path/to/libhook.so make
 2. [ ] 输入文件为 `.cpp2rust`（`g++ -E -C` 产物）
 3. [ ] 支持 `CXXRecordDecl`、`CXXMethodDecl` 等 C++ 节点
 4. [ ] 支持 `ClassTemplateSpecialization` 模板实例化
+5. [ ] **实现系统头过滤**：使用 `cursor.location().is_in_system_header()` 跳过系统头展开的节点，只保留用户代码节点（`g++ -E -C` 处理含 `#include <vector>` 的文件会产生数万行系统头代码，不过滤将导致大量无关 `std::allocator` 等模板特化被误提取）
 
 **Phase 1 完成标准**：
 ```bash
