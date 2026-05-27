@@ -1,11 +1,8 @@
 hicc::cpp! {
-    #include <cstdio>
-
-    // 可变参数模板示例 - Sum 函数
-    // 由于 FFI 无法直接处理可变参数，我们提供固定参数的版本
+    #include <iostream>
+    #include <cstdarg>
 
     class SumCalculator {
-    public:
         static int calculate_zero() { return 0; }
         static int calculate_1(int a) { return a; }
         static int calculate_2(int a, int b) { return a + b; }
@@ -16,19 +13,18 @@ hicc::cpp! {
         static double calculate_double_3(double a, double b, double c) { return a + b + c; }
         static double calculate_double_4(double a, double b, double c, double d) { return a + b + c + d; }
         static const char* get_format(int count) {
-            switch (count) {
-                case 0: return "sum()";
-                case 1: return "sum(%d)";
-                case 2: return "sum(%d, %d)";
-                case 3: return "sum(%d, %d, %d)";
-                case 4: return "sum(%d, %d, %d, %d)";
-                case 5: return "sum(%d, %d, %d, %d, %d)";
-                default: return "unknown";
-            }
-        }
+    switch (count) {
+        case 0: return "sum()";
+        case 1: return "sum(%d)";
+        case 2: return "sum(%d, %d)";
+        case 3: return "sum(%d, %d, %d)";
+        case 4: return "sum(%d, %d, %d, %d)";
+        case 5: return "sum(%d, %d, %d, %d, %d)";
+        default: return "unknown";
+    }
+}
     };
 
-    // C-compatible wrapper functions
     int sum_zero() {
         return SumCalculator::calculate_zero();
     }
@@ -76,32 +72,32 @@ hicc::import_lib! {
     #[cpp(func = "int sum_zero()")]
     fn sum_zero() -> i32;
 
-    #[cpp(func = "int sum_1(int a)")]
+    #[cpp(func = "int sum_1(int)")]
     fn sum_1(a: i32) -> i32;
 
-    #[cpp(func = "int sum_2(int a, int b)")]
+    #[cpp(func = "int sum_2(int, int)")]
     fn sum_2(a: i32, b: i32) -> i32;
 
-    #[cpp(func = "int sum_3(int a, int b, int c)")]
+    #[cpp(func = "int sum_3(int, int, int)")]
     fn sum_3(a: i32, b: i32, c: i32) -> i32;
 
-    #[cpp(func = "int sum_4(int a, int b, int c, int d)")]
+    #[cpp(func = "int sum_4(int, int, int, int)")]
     fn sum_4(a: i32, b: i32, c: i32, d: i32) -> i32;
 
-    #[cpp(func = "int sum_5(int a, int b, int c, int d, int e)")]
+    #[cpp(func = "int sum_5(int, int, int, int, int)")]
     fn sum_5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32;
 
-    #[cpp(func = "double sum_double_2(double a, double b)")]
+    #[cpp(func = "double sum_double_2(double, double)")]
     fn sum_double_2(a: f64, b: f64) -> f64;
 
-    #[cpp(func = "double sum_double_3(double a, double b, double c)")]
+    #[cpp(func = "double sum_double_3(double, double, double)")]
     fn sum_double_3(a: f64, b: f64, c: f64) -> f64;
 
-    #[cpp(func = "double sum_double_4(double a, double b, double c, double d)")]
+    #[cpp(func = "double sum_double_4(double, double, double, double)")]
     fn sum_double_4(a: f64, b: f64, c: f64, d: f64) -> f64;
 
-    #[cpp(func = "const char* sum_getFormat(int count)")]
-    fn sum_getFormat(count: i32) -> *const i8;
+    #[cpp(func = "const char* sum_getFormat(int)")]
+    unsafe fn sum_get_format(count: i32) -> *const i8;
 }
 
 fn main() {

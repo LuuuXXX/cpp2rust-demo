@@ -1,78 +1,76 @@
 hicc::cpp! {
-    #include <cstdio>
-    #include <cstdlib>
+    #include <iostream>
     #include <cstring>
+    #include <cstdlib>
+    #include <cstdio>
 
-    // IntHolder - 通用版本
     class IntHolder {
         int value_;
     public:
-        explicit IntHolder(int value) : value_(value) {}
+        IntHolder(int value) : value_(value) {}
         ~IntHolder() {}
         int get() const { return value_; }
         const char* describe() const {
-            static char buf[64];
-            snprintf(buf, sizeof(buf), "IntHolder(value=%d)", value_);
-            return buf;
-        }
+    static char buf[64];
+    snprintf(buf, sizeof(buf), "IntHolder(value=%d)", value_);
+    return buf;
+}
+    };
+
+    class DoubleHolder {
+        double value_;
+    public:
+        DoubleHolder(double value) : value_(value) {}
+        ~DoubleHolder() {}
+        double get() const { return value_; }
+        const char* describe() const {
+    static char buf[64];
+    snprintf(buf, sizeof(buf), "DoubleHolder(value=%.5f)", value_);
+    return buf;
+}
+    };
+
+    class StringHolder {
+        char* value_;
+        int length_;
+    public:
+        StringHolder(const char* value) {
+    value_ = strdup(value);
+    length_ = strlen(value);
+}
+        ~StringHolder() {
+    if (value_) free(value_);
+}
+        const char* get() const { return value_; }
+        const char* describe() const {
+    static char buf[256];
+    snprintf(buf, sizeof(buf), "StringHolder(value=\"%s\", length=%d)", value_, length_);
+    return buf;
+}
     };
 
     IntHolder* intholder_new(int value) {
         return new IntHolder(value);
     }
 
-    void intholder_delete(IntHolder* self_) {
-        if (self_) delete self_;
+    void intholder_delete(IntHolder* self) {
+        if (self) delete self;
     }
-
-    // DoubleHolder - 通用版本
-    class DoubleHolder {
-        double value_;
-    public:
-        explicit DoubleHolder(double value) : value_(value) {}
-        ~DoubleHolder() {}
-        double get() const { return value_; }
-        const char* describe() const {
-            static char buf[64];
-            snprintf(buf, sizeof(buf), "DoubleHolder(value=%.5f)", value_);
-            return buf;
-        }
-    };
 
     DoubleHolder* doubleholder_new(double value) {
         return new DoubleHolder(value);
     }
 
-    void doubleholder_delete(DoubleHolder* self_) {
-        if (self_) delete self_;
+    void doubleholder_delete(DoubleHolder* self) {
+        if (self) delete self;
     }
-
-    // StringHolder - char* 特化版本
-    class StringHolder {
-        char* value_;
-        int length_;
-    public:
-        explicit StringHolder(const char* value) {
-            value_ = strdup(value);
-            length_ = strlen(value);
-        }
-        ~StringHolder() {
-            if (value_) free(value_);
-        }
-        const char* get() const { return value_; }
-        const char* describe() const {
-            static char buf[256];
-            snprintf(buf, sizeof(buf), "StringHolder(value=\"%s\", length=%d)", value_, length_);
-            return buf;
-        }
-    };
 
     StringHolder* stringholder_new(const char* value) {
         return new StringHolder(value);
     }
 
-    void stringholder_delete(StringHolder* self_) {
-        if (self_) delete self_;
+    void stringholder_delete(StringHolder* self) {
+        if (self) delete self;
     }
 }
 
@@ -83,25 +81,29 @@ hicc::import_class! {
         fn get(&self) -> i32;
 
         #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const i8;
+        fn describe(&self) -> *const u8;
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "DoubleHolder")]
     class DoubleHolder {
         #[cpp(method = "double get() const")]
         fn get(&self) -> f64;
 
         #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const i8;
+        fn describe(&self) -> *const u8;
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "StringHolder")]
     class StringHolder {
         #[cpp(method = "const char* get() const")]
-        fn get(&self) -> *const i8;
+        fn get(&self) -> *const u8;
 
         #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const i8;
+        fn describe(&self) -> *const u8;
     }
 }
 
@@ -109,21 +111,25 @@ hicc::import_lib! {
     #![link_name = "template_specialization"]
 
     class IntHolder;
-    #[cpp(func = "IntHolder* intholder_new(int value)")]
+    class DoubleHolder;
+    class StringHolder;
+
+    #[cpp(func = "IntHolder* intholder_new(int)")]
     fn intholder_new(value: i32) -> *mut IntHolder;
-    #[cpp(func = "void intholder_delete(IntHolder* self_)")]
+
+    #[cpp(func = "void intholder_delete(IntHolder* self)")]
     unsafe fn intholder_delete(self_: *mut IntHolder);
 
-    class DoubleHolder;
-    #[cpp(func = "DoubleHolder* doubleholder_new(double value)")]
+    #[cpp(func = "DoubleHolder* doubleholder_new(double)")]
     fn doubleholder_new(value: f64) -> *mut DoubleHolder;
-    #[cpp(func = "void doubleholder_delete(DoubleHolder* self_)")]
+
+    #[cpp(func = "void doubleholder_delete(DoubleHolder* self)")]
     unsafe fn doubleholder_delete(self_: *mut DoubleHolder);
 
-    class StringHolder;
-    #[cpp(func = "StringHolder* stringholder_new(const char* value)")]
-    fn stringholder_new(value: *const i8) -> *mut StringHolder;
-    #[cpp(func = "void stringholder_delete(StringHolder* self_)")]
+    #[cpp(func = "StringHolder* stringholder_new(const char*)")]
+    unsafe fn stringholder_new(value: *const i8) -> *mut StringHolder;
+
+    #[cpp(func = "void stringholder_delete(StringHolder* self)")]
     unsafe fn stringholder_delete(self_: *mut StringHolder);
 }
 

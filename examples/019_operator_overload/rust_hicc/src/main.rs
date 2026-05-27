@@ -4,19 +4,19 @@ hicc::cpp! {
     class Number {
         int value;
     public:
-        Number(int v);
-        ~Number();
-        int getValue() const;
-        Number operator+(const Number& other) const;
-        Number operator-(const Number& other) const;
-        Number operator*(const Number& other) const;
-        Number operator/(const Number& other) const;
-        int compare(const Number& other) const;
-        Number operator-() const;
-        Number& operator++();
-        Number& operator--();
-        Number& operator+=(const Number& other);
-        Number& operator-=(const Number& other);
+        Number(int v) : value(v) {}
+        ~Number() {}
+        int getValue() const { return value; }
+        Number operator+(const Number& other) const { return Number(value + other.value); }
+        Number operator-() const { return Number(-value); }
+        Number operator*(const Number& other) const { return Number(value * other.value); }
+        Number operator/(const Number& other) const { return Number(value / other.value); }
+        int compare(const Number& other) const { return value - other.value; }
+        Number operator-() const {}
+        Number& operator++() { ++value; return *this; }
+        Number& operator--() { --value; return *this; }
+        Number& operator+=(const Number& other) { value += other.value; return *this; }
+        Number& operator-=(const Number& other) { value -= other.value; return *this; }
     };
 
     Number* number_new(int value) {
@@ -26,71 +26,43 @@ hicc::cpp! {
     void number_delete(Number* self) {
         delete self;
     }
-
-    int number_getValue(Number* self) {
-        return self->getValue();
-    }
-
-    Number* number_add(Number* self, Number* other) {
-        return new Number(self->operator+(*other));
-    }
-
-    Number* number_sub(Number* self, Number* other) {
-        return new Number(self->operator-(*other));
-    }
-
-    Number* number_mul(Number* self, Number* other) {
-        return new Number(self->operator*(*other));
-    }
-
-    Number* number_div(Number* self, Number* other) {
-        return new Number(self->operator/(*other));
-    }
-
-    int number_compare(Number* self, Number* other) {
-        return self->compare(*other);
-    }
-
-    Number* number_negate(Number* self) {
-        return new Number(self->operator-());
-    }
-
-    Number* number_increment(Number* self) {
-        return &self->operator++();
-    }
-
-    Number* number_decrement(Number* self) {
-        return &self->operator--();
-    }
-
-    void number_add_assign(Number* self, Number* other) {
-        self->operator+=(*other);
-    }
-
-    void number_sub_assign(Number* self, Number* other) {
-        self->operator-=(*other);
-    }
-
-    Number::Number(int v) : value(v) {}
-    Number::~Number() {}
-    int Number::getValue() const { return value; }
-    Number Number::operator+(const Number& other) const { return Number(value + other.value); }
-    Number Number::operator-(const Number& other) const { return Number(value - other.value); }
-    Number Number::operator*(const Number& other) const { return Number(value * other.value); }
-    Number Number::operator/(const Number& other) const { return Number(value / other.value); }
-    int Number::compare(const Number& other) const { return value - other.value; }
-    Number Number::operator-() const { return Number(-value); }
-    Number& Number::operator++() { ++value; return *this; }
-    Number& Number::operator--() { --value; return *this; }
-    Number& Number::operator+=(const Number& other) { value += other.value; return *this; }
-    Number& Number::operator-=(const Number& other) { value -= other.value; return *this; }
 }
 
 hicc::import_class! {
     #[cpp(class = "Number")]
     class Number {
         #[cpp(method = "int getValue() const")]
-        fn getValue(&self) -> i32;
+        fn get_value(&self) -> i32;
+
+        #[cpp(method = "Number operator+(const Number & other) const")]
+        fn operator+(&self, other: *const Number) -> Number;
+
+        #[cpp(method = "Number operator-(const Number & other) const")]
+        fn operator-(&self, other: *const Number) -> Number;
+
+        #[cpp(method = "Number operator*(const Number & other) const")]
+        fn operator*(&self, other: *const Number) -> Number;
+
+        #[cpp(method = "Number operator/(const Number & other) const")]
+        fn operator/(&self, other: *const Number) -> Number;
+
+        #[cpp(method = "int compare(const Number & other) const")]
+        fn compare(&self, other: *const Number) -> i32;
+
+        #[cpp(method = "Number operator-() const")]
+        fn operator-(&self) -> Number;
+
+        #[cpp(method = "Number & operator++()")]
+        fn operator++(&mut self) -> *mut Number;
+
+        #[cpp(method = "Number & operator--()")]
+        fn operator--(&mut self) -> *mut Number;
+
+        #[cpp(method = "Number & operator+=(const Number & other)")]
+        fn operator+=(&mut self, other: *const Number) -> *mut Number;
+
+        #[cpp(method = "Number & operator-=(const Number & other)")]
+        fn operator-=(&mut self, other: *const Number) -> *mut Number;
     }
 }
 
@@ -99,44 +71,11 @@ hicc::import_lib! {
 
     class Number;
 
-    #[cpp(func = "Number* number_new(int value)")]
+    #[cpp(func = "Number* number_new(int)")]
     fn number_new(value: i32) -> *mut Number;
 
     #[cpp(func = "void number_delete(Number* self)")]
     unsafe fn number_delete(self_: *mut Number);
-
-    #[cpp(func = "int number_getValue(Number* self)")]
-    fn number_getValue(self_: *mut Number) -> i32;
-
-    #[cpp(func = "Number* number_add(Number* self, Number* other)")]
-    fn number_add(self_: *mut Number, other: *mut Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_sub(Number* self, Number* other)")]
-    fn number_sub(self_: *mut Number, other: *mut Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_mul(Number* self, Number* other)")]
-    fn number_mul(self_: *mut Number, other: *mut Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_div(Number* self, Number* other)")]
-    fn number_div(self_: *mut Number, other: *mut Number) -> *mut Number;
-
-    #[cpp(func = "int number_compare(Number* self, Number* other)")]
-    fn number_compare(self_: *mut Number, other: *mut Number) -> i32;
-
-    #[cpp(func = "Number* number_negate(Number* self)")]
-    fn number_negate(self_: *mut Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_increment(Number* self)")]
-    fn number_increment(self_: *mut Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_decrement(Number* self)")]
-    fn number_decrement(self_: *mut Number) -> *mut Number;
-
-    #[cpp(func = "void number_add_assign(Number* self, Number* other)")]
-    fn number_add_assign(self_: *mut Number, other: *mut Number);
-
-    #[cpp(func = "void number_sub_assign(Number* self, Number* other)")]
-    fn number_sub_assign(self_: *mut Number, other: *mut Number);
 }
 
 fn main() {
@@ -192,3 +131,4 @@ fn main() {
         number_delete(&b);
     }
 }
+

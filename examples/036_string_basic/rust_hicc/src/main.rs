@@ -1,68 +1,51 @@
 hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
     #include <string>
+    #include <cstring>
     #include <algorithm>
     #include <cctype>
 
-    class String {
+    class StringImpl {
     public:
         std::string data;
-        String() : data() {}
-        explicit String(const char* str) : data(str ? str : "") {}
-        explicit String(const char* str, unsigned long len) : data(str ? std::string(str, len) : "") {}
-        ~String() { data.clear(); }
-        unsigned long size() const { return data.size(); }
-        unsigned long length() const { return data.length(); }
-        bool empty() const { return data.empty(); }
-        const char* c_str() const { return data.c_str(); }
-        int compare(const char* other) const { return other ? data.compare(other) : 1; }
-        bool equals(const char* other) const { return other ? data == other : data.empty(); }
-        void append(const char* other) { if (other) data += other; }
-        void clear() { data.clear(); }
-        void to_upper() {
-            std::transform(data.begin(), data.end(), data.begin(), ::toupper);
-        }
-        void to_lower() {
-            std::transform(data.begin(), data.end(), data.begin(), ::tolower);
-        }
+    public:
+        StringImpl(const char* str, size_t len) : data(str ? std::string(str, len) : "") {
+}
+        StringImpl(const char* str) = default;
+        StringImpl(const char* str, size_t len) = default;
+        ~StringImpl() {
+    data.clear();
+}
     };
 
-    String* string_new() { return new String(); }
-    String* string_new_from(const char* str) { return new String(str); }
-    void string_delete(String* self) { delete self; }
+    struct String {
+    public:
+        StringImpl* impl;
+        String(const char* str, size_t len) : impl(new StringImpl(str, len)) {
 }
+        String(const char* str) = default;
+        String(const char* str, size_t len) = default;
+        ~String() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-hicc::import_class! {
-    #[cpp(class = "String")]
-    class String {
-        #[cpp(method = "unsigned long size() const")]
-        fn size(&self) -> u64;
+    String* string_new() {
+        return new String();
+    }
 
-        #[cpp(method = "unsigned long length() const")]
-        fn length(&self) -> u64;
+    String* string_new_from(const char* str) {
+        return new String(str);
+    }
 
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
+    String* string_new_from_len(const char* str, size_t len) {
+        return new String(str, len);
+    }
 
-        #[cpp(method = "const char* c_str() const")]
-        fn c_str(&self) -> *const i8;
-
-        #[cpp(method = "int compare(const char*) const")]
-        fn compare(&self, other: *const i8) -> i32;
-
-        #[cpp(method = "bool equals(const char*) const")]
-        fn equals(&self, other: *const i8) -> bool;
-
-        #[cpp(method = "void append(const char*)")]
-        fn append(&mut self, other: *const i8);
-
-        #[cpp(method = "void clear()")]
-        fn clear(&mut self);
-
-        #[cpp(method = "void to_upper()")]
-        fn to_upper(&mut self);
-
-        #[cpp(method = "void to_lower()")]
-        fn to_lower(&mut self);
+    void string_delete(String* self) {
+        delete self;
     }
 }
 
@@ -74,8 +57,11 @@ hicc::import_lib! {
     #[cpp(func = "String* string_new()")]
     fn string_new() -> *mut String;
 
-    #[cpp(func = "String* string_new_from(const char* str)")]
-    fn string_new_from(str: *const i8) -> *mut String;
+    #[cpp(func = "String* string_new_from(const char*)")]
+    unsafe fn string_new_from(str: *const i8) -> *mut String;
+
+    #[cpp(func = "String* string_new_from_len(const char*, size_t)")]
+    unsafe fn string_new_from_len(str: *const i8, len: usize) -> *mut String;
 
     #[cpp(func = "void string_delete(String* self)")]
     unsafe fn string_delete(self_: *mut String);
@@ -128,3 +114,4 @@ fn main() {
     println!("3. 修改操作直接在原字符串上进行");
     println!("4. CString 用于 Rust 到 C 的转换");
 }
+

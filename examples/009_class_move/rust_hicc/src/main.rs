@@ -6,72 +6,67 @@ hicc::cpp! {
         int* data;
         int size;
     public:
-        UniqueVector() : data(nullptr), size(0) {}
-        UniqueVector(int* data, int size) : size(size) {
-            this->data = new int[size];
-            std::memcpy(this->data, data, size * sizeof(int));
-        }
-        ~UniqueVector() {
-            delete[] data;
-        }
         UniqueVector(UniqueVector&& other) noexcept : data(other.data), size(other.size) {
-            other.data = nullptr;
-            other.size = 0;
-        }
+    other.data = nullptr;
+    other.size = 0;
+}
+        UniqueVector(int* data, int size) = default;
+        ~UniqueVector() {
+    delete[] data;
+}
+        UniqueVector(UniqueVector && other) = default;
         UniqueVector& operator=(UniqueVector&& other) noexcept {
-            if (this != &other) {
-                delete[] data;
-                data = other.data;
-                size = other.size;
-                other.data = nullptr;
-                other.size = 0;
-            }
-            return *this;
-        }
+    if (this != &other) {
+        delete[] data;
+        data = other.data;
+        size = other.size;
+        other.data = nullptr;
+        other.size = 0;
+    }
+    return *this;
+}
         int get(int index) const {
-            if (index >= 0 && index < size) {
-                return data[index];
-            }
-            return 0;
-        }
+    if (index >= 0 && index < size) {
+        return data[index];
+    }
+    return 0;
+}
         void set(int index, int value) {
-            if (index >= 0 && index < size) {
-                data[index] = value;
-            }
-        }
+    if (index >= 0 && index < size) {
+        data[index] = value;
+    }
+}
         int getSize() const {
-            return size;
-        }
+    return size;
+}
         void moveFrom(UniqueVector& src) {
-            delete[] data;
-            data = src.data;
-            size = src.size;
-            src.data = nullptr;
-            src.size = 0;
-        }
+    delete[] data;
+    data = src.data;
+    size = src.size;
+    src.data = nullptr;
+    src.size = 0;
+}
     };
 
     UniqueVector* unique_vector_new() {
         return new UniqueVector();
     }
 
-    UniqueVector* unique_vector_new_with_data(int* data, int size) {
+    UniqueVector* unique_vector_newWithData(int* data, int size) {
         return new UniqueVector(data, size);
     }
 
     void unique_vector_delete(UniqueVector* self) {
         delete self;
     }
-
-    void unique_vector_move(UniqueVector* dest, UniqueVector* src) {
-        std::cout << "Moving UniqueVector: " << src->getSize() << " -> " << dest->getSize() << std::endl;
-        dest->moveFrom(*src);
-    }
 }
 
 hicc::import_class! {
     #[cpp(class = "UniqueVector")]
     class UniqueVector {
+        #[cpp(method = "UniqueVector & operator=(UniqueVector && other)")]
+        fn operator=(&mut self, other: *mut *mut UniqueVector) -> *mut UniqueVector;
+
         #[cpp(method = "int get(int index) const")]
         fn get(&self, index: i32) -> i32;
 
@@ -79,7 +74,10 @@ hicc::import_class! {
         fn set(&mut self, index: i32, value: i32);
 
         #[cpp(method = "int getSize() const")]
-        fn size(&self) -> i32;
+        fn get_size(&self) -> i32;
+
+        #[cpp(method = "void moveFrom(UniqueVector & src)")]
+        fn move_from(&mut self, src: *mut UniqueVector);
     }
 }
 
@@ -91,14 +89,11 @@ hicc::import_lib! {
     #[cpp(func = "UniqueVector* unique_vector_new()")]
     fn unique_vector_new() -> *mut UniqueVector;
 
-    #[cpp(func = "UniqueVector* unique_vector_new_with_data(int* data, int size)")]
-    fn unique_vector_new_with_data(data: *mut i32, size: i32) -> *mut UniqueVector;
+    #[cpp(func = "UniqueVector* unique_vector_newWithData(int*, int)")]
+    unsafe fn unique_vector_new_with_data(data: *mut i32, size: i32) -> *mut UniqueVector;
 
     #[cpp(func = "void unique_vector_delete(UniqueVector* self)")]
     unsafe fn unique_vector_delete(self_: *mut UniqueVector);
-
-    #[cpp(func = "void unique_vector_move(UniqueVector* dest, UniqueVector* src)")]
-    fn unique_vector_move(dest: &mut UniqueVector, src: &mut UniqueVector);
 }
 
 fn main() {
@@ -130,3 +125,4 @@ fn main() {
 
     println!("\nRust FFI: Move semantics work!");
 }
+

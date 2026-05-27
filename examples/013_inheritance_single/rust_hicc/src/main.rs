@@ -1,6 +1,7 @@
 hicc::cpp! {
-    #include <string>
     #include <iostream>
+    #include <cstring>
+    #include <string>
 
     class Animal {
     protected:
@@ -78,11 +79,11 @@ hicc::import_class! {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const u8;
 
-        #[cpp(method = "void speak() const")]
-        fn speak(&self);
-
         #[cpp(method = "void bark() const")]
         fn bark(&self);
+
+        #[cpp(method = "void speak() const")]
+        fn speak(&self);
     }
 }
 
@@ -92,14 +93,14 @@ hicc::import_lib! {
     class Animal;
     class Dog;
 
-    #[cpp(func = "Animal* animal_new(const char* name)")]
-    fn animal_new(name: *const u8) -> *mut Animal;
+    #[cpp(func = "Animal* animal_new(const char*)")]
+    unsafe fn animal_new(name: *const i8) -> *mut Animal;
 
     #[cpp(func = "void animal_delete(Animal* self)")]
     unsafe fn animal_delete(self_: *mut Animal);
 
-    #[cpp(func = "Dog* dog_new(const char* name)")]
-    fn dog_new(name: *const u8) -> *mut Dog;
+    #[cpp(func = "Dog* dog_new(const char*)")]
+    unsafe fn dog_new(name: *const i8) -> *mut Dog;
 
     #[cpp(func = "void dog_delete(Dog* self)")]
     unsafe fn dog_delete(self_: *mut Dog);
@@ -144,3 +145,4 @@ fn decode_cstr(ptr: *const u8) -> String {
         String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string()
     }
 }
+

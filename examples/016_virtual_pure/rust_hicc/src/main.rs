@@ -36,7 +36,9 @@ hicc::cpp! {
     }
 
     double Circle::area() const {
-        return M_PI * radius * radius;
+        return 
+              3.14159265358979323846 
+                   * radius * radius;
     }
 
     const char* Circle::getName() const {
@@ -89,10 +91,10 @@ hicc::import_lib! {
 
     class AbstractShape;
 
-    #[cpp(func = "AbstractShape* abstract_shape_create_circle(double radius)")]
+    #[cpp(func = "AbstractShape* abstract_shape_create_circle(double)")]
     fn abstract_shape_create_circle(radius: f64) -> *mut AbstractShape;
 
-    #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double width, double height)")]
+    #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double, double)")]
     fn abstract_shape_create_rectangle(width: f64, height: f64) -> *mut AbstractShape;
 
     #[cpp(func = "void abstract_shape_delete(AbstractShape* self)")]
@@ -143,3 +145,4 @@ fn main() {
 
     println!("\nRust FFI: Pure virtual functions work through hicc!");
 }
+

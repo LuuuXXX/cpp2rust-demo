@@ -1,41 +1,61 @@
 hicc::cpp! {
-    #include <cstring>
+    #include <cstddef>
     #include <cstdint>
+    #include <iostream>
+    #include <cstring>
 
-    // Type constants for Variant
-    const int VALUE_TYPE_INT = 0;
-    const int VALUE_TYPE_FLOAT = 1;
-    const int VALUE_TYPE_STRING = 2;
-
-    // Variant class with anonymous union
     class Variant {
         int type_;
         union {
-            int int_value_;
-            float float_value_;
-            char string_buffer_[64];
-        } data_;
+        int int_value_;
+        float float_value_;
+        char string_buffer_[64];
+    } data_;
     public:
-        Variant();
-        ~Variant();
-        int get_type() const { return type_; }
-        void set_int(int value);
-        void set_float(float value);
-        void set_string(const char* value);
-        int get_int() const;
-        float get_float() const;
-        const char* get_string() const;
+        Variant() : type_(VALUE_TYPE_INT) {
+    data_.int_value_ = 0;
+}
+        ~Variant() {}
+        int get_type() const {
+    return type_;
+}
+        void set_int(int value) {
+    type_ = VALUE_TYPE_INT;
+    data_.int_value_ = value;
+}
+        void set_float(float value) {
+    type_ = VALUE_TYPE_FLOAT;
+    data_.float_value_ = value;
+}
+        void set_string(const char* value) {
+    type_ = VALUE_TYPE_STRING;
+    if (value) {
+        strncpy(data_.string_buffer_, value, 63);
+        data_.string_buffer_[63] = '\0';
+    } else {
+        data_.string_buffer_[0] = '\0';
+    }
+}
+        int get_int() const {
+    if (type_ == VALUE_TYPE_INT) {
+        return data_.int_value_;
+    }
+    return 0;
+}
+        float get_float() const {
+    if (type_ == VALUE_TYPE_FLOAT) {
+        return data_.float_value_;
+    }
+    return 0.0f;
+}
+        const char* get_string() const {
+    if (type_ == VALUE_TYPE_STRING) {
+        return data_.string_buffer_;
+    }
+    return "";
+}
     };
 
-    // Anonymous union struct for direct memory overlay demo
-    struct IntFloatUnion {
-        union {
-            int int_value;
-            float float_value;
-        } data;
-    };
-
-    // Factory functions for Variant
     Variant* variant_new_int(int value) {
         auto* v = new Variant();
         v->set_int(value);
@@ -58,39 +78,6 @@ hicc::cpp! {
         delete self;
     }
 
-    int variant_get_type(const Variant* self) {
-        if (self) return self->get_type();
-        return VALUE_TYPE_INT;
-    }
-
-    int variant_get_int(const Variant* self) {
-        if (self) return self->get_int();
-        return 0;
-    }
-
-    float variant_get_float(const Variant* self) {
-        if (self) return self->get_float();
-        return 0.0f;
-    }
-
-    const char* variant_get_string(const Variant* self) {
-        if (self) return self->get_string();
-        return "";
-    }
-
-    void variant_set_int(Variant* self, int value) {
-        if (self) self->set_int(value);
-    }
-
-    void variant_set_float(Variant* self, float value) {
-        if (self) self->set_float(value);
-    }
-
-    void variant_set_string(Variant* self, const char* value) {
-        if (self) self->set_string(value);
-    }
-
-    // IntFloatUnion accessors
     int union_get_int(const IntFloatUnion* u) {
         if (u) return u->data.int_value;
         return 0;
@@ -123,7 +110,7 @@ hicc::import_class! {
         fn set_float(&mut self, value: f32);
 
         #[cpp(method = "void set_string(const char* value)")]
-        fn set_string(&mut self, value: *const i8);
+        fn set_string(&mut self, value: *const u8);
 
         #[cpp(method = "int get_int() const")]
         fn get_int(&self) -> i32;
@@ -132,7 +119,7 @@ hicc::import_class! {
         fn get_float(&self) -> f32;
 
         #[cpp(method = "const char* get_string() const")]
-        fn get_string(&self) -> *const i8;
+        fn get_string(&self) -> *const u8;
     }
 }
 
@@ -140,52 +127,30 @@ hicc::import_lib! {
     #![link_name = "union_basic"]
 
     class Variant;
-    struct IntFloatUnion;
 
-    #[cpp(func = "Variant* variant_new_int(int value)")]
+    #[cpp(func = "Variant* variant_new_int(int)")]
     fn variant_new_int(value: i32) -> *mut Variant;
 
-    #[cpp(func = "Variant* variant_new_float(float value)")]
+    #[cpp(func = "Variant* variant_new_float(float)")]
     fn variant_new_float(value: f32) -> *mut Variant;
 
-    #[cpp(func = "Variant* variant_new_string(const char* value)")]
-    fn variant_new_string(value: *const i8) -> *mut Variant;
+    #[cpp(func = "Variant* variant_new_string(const char*)")]
+    unsafe fn variant_new_string(value: *const i8) -> *mut Variant;
 
     #[cpp(func = "void variant_delete(Variant* self)")]
     unsafe fn variant_delete(self_: *mut Variant);
 
-    #[cpp(func = "int variant_get_type(const Variant* self)")]
-    fn variant_get_type(self_: *mut Variant) -> i32;
-
-    #[cpp(func = "int variant_get_int(const Variant* self)")]
-    fn variant_get_int(self_: *mut Variant) -> i32;
-
-    #[cpp(func = "float variant_get_float(const Variant* self)")]
-    fn variant_get_float(self_: *mut Variant) -> f32;
-
-    #[cpp(func = "const char* variant_get_string(const Variant* self)")]
-    fn variant_get_string(self_: *mut Variant) -> *const i8;
-
-    #[cpp(func = "void variant_set_int(Variant* self, int value)")]
-    fn variant_set_int(self_: *mut Variant, value: i32);
-
-    #[cpp(func = "void variant_set_float(Variant* self, float value)")]
-    fn variant_set_float(self_: *mut Variant, value: f32);
-
-    #[cpp(func = "void variant_set_string(Variant* self, const char* value)")]
-    fn variant_set_string(self_: *mut Variant, value: *const i8);
-
-    #[cpp(func = "int union_get_int(const IntFloatUnion* u)")]
+    #[cpp(func = "int union_get_int(const struct IntFloatUnion*)")]
     fn union_get_int(u: *const IntFloatUnion) -> i32;
 
-    #[cpp(func = "float union_get_float(const IntFloatUnion* u)")]
+    #[cpp(func = "float union_get_float(const struct IntFloatUnion*)")]
     fn union_get_float(u: *const IntFloatUnion) -> f32;
 
-    #[cpp(func = "void union_set_int(IntFloatUnion* u, int value)")]
-    fn union_set_int(u: *mut IntFloatUnion, value: i32);
+    #[cpp(func = "void union_set_int(IntFloatUnion*, int)")]
+    unsafe fn union_set_int(u: *mut IntFloatUnion, value: i32);
 
-    #[cpp(func = "void union_set_float(IntFloatUnion* u, float value)")]
-    fn union_set_float(u: *mut IntFloatUnion, value: f32);
+    #[cpp(func = "void union_set_float(IntFloatUnion*, float)")]
+    unsafe fn union_set_float(u: *mut IntFloatUnion, value: f32);
 }
 
 // Type constants
@@ -245,3 +210,4 @@ fn main() {
     println!("4. Often used to save memory or for type punning");
     println!("5. FFI passes union via variant wrapper");
 }
+

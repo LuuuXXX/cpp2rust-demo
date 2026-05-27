@@ -1,62 +1,27 @@
 hicc::cpp! {
-    #include <iostream>
-
-    template<typename T>
-    void do_swap(T* a, T* b) {
-        T temp = *a;
-        *a = *b;
-        *b = temp;
-    }
-
-    void swap_int(int* a, int* b) {
-        std::cout << "swap_int called" << std::endl;
-        do_swap<int>(a, b);
-    }
-
-    void swap_double(double* a, double* b) {
-        std::cout << "swap_double called" << std::endl;
-        do_swap<double>(a, b);
-    }
-
-    void swap_char(char* a, char* b) {
-        std::cout << "swap_char called" << std::endl;
-        do_swap<char>(a, b);
-    }
-
-    void swap_int_array(int* arr, int i, int j) {
-        std::cout << "swap_int_array: arr[" << i << "] <-> arr[" << j << "]" << std::endl;
-        do_swap<int>(&arr[i], &arr[j]);
-    }
-
-    int get_int_array(int* arr, int idx) {
-        return arr[idx];
-    }
-
-    void set_int_array(int* arr, int idx, int value) {
-        arr[idx] = value;
-    }
+    #include "template_function.h"
 }
 
 hicc::import_lib! {
     #![link_name = "template_function"]
 
-    #[cpp(func = "void swap_int(int* a, int* b)")]
-    fn swap_int(a: *mut i32, b: *mut i32);
+    #[cpp(func = "void swap_int(int*, int*)")]
+    unsafe fn swap_int(a: *mut i32, b: *mut i32);
 
-    #[cpp(func = "void swap_double(double* a, double* b)")]
-    fn swap_double(a: *mut f64, b: *mut f64);
+    #[cpp(func = "void swap_double(double*, double*)")]
+    unsafe fn swap_double(a: *mut f64, b: *mut f64);
 
-    #[cpp(func = "void swap_char(char* a, char* b)")]
-    fn swap_char(a: *mut i8, b: *mut i8);
+    #[cpp(func = "void swap_char(char*, char*)")]
+    unsafe fn swap_char(a: *mut i8, b: *mut i8);
 
-    #[cpp(func = "void swap_int_array(int* arr, int i, int j)")]
-    fn swap_int_array(arr: *mut i32, i: i32, j: i32);
+    #[cpp(func = "void swap_int_array(int*, int, int)")]
+    unsafe fn swap_int_array(arr: *mut i32, i: i32, j: i32);
 
-    #[cpp(func = "int get_int_array(int* arr, int idx)")]
-    fn get_int_array(arr: *mut i32, idx: i32) -> i32;
+    #[cpp(func = "int get_int_array(int*, int)")]
+    unsafe fn get_int_array(arr: *mut i32, idx: i32) -> i32;
 
-    #[cpp(func = "void set_int_array(int* arr, int idx, int value)")]
-    fn set_int_array(arr: *mut i32, idx: i32, value: i32);
+    #[cpp(func = "void set_int_array(int*, int, int)")]
+    unsafe fn set_int_array(arr: *mut i32, idx: i32, value: i32);
 }
 
 fn main() {
@@ -99,3 +64,4 @@ fn main() {
     println!("每个模板实例 = 一个独立的 C 函数");
     println!("swap_int, swap_double, swap_char 是三个不同的函数");
 }
+

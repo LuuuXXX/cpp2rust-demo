@@ -2,7 +2,124 @@
 // 使用 raw extern "C" 模式
 
 hicc::cpp! {
-    #include "enum_class.h"
+    #include <cstddef>
+    #include <cstdint>
+    #include <iostream>
+
+    class example_OperationResult {
+        ErrorCode error_;
+        State state_;
+        Flags flags_;
+    public:
+        OperationResult() = default;
+        ~OperationResult() = default;
+        void set_error(int code) {}
+        int get_error() const {}
+        void set_state(unsigned char s) {}
+        unsigned char get_state() const {}
+        void set_flags(unsigned int f) {}
+        unsigned int get_flags() const {}
+    };
+
+    example::OperationResult* operation_result_new() {
+        return new example::OperationResult();
+    }
+
+    void operation_result_delete(example::OperationResult* p) {
+        delete p;
+    }
+
+    void operation_result_set_error(example::OperationResult* p, int error_code) {
+        if (p) p->set_error(error_code);
+    }
+
+    int operation_result_get_error(example::OperationResult* p) {
+        if (p) return p->get_error();
+        return 0;
+    }
+
+    void operation_result_set_state(example::OperationResult* p, unsigned char state) {
+        if (p) p->set_state(state);
+    }
+
+    unsigned char operation_result_get_state(example::OperationResult* p) {
+        if (p) return p->get_state();
+        return 0;
+    }
+
+    void operation_result_set_flags(example::OperationResult* p, unsigned int flags) {
+        if (p) p->set_flags(flags);
+    }
+
+    unsigned int operation_result_get_flags(example::OperationResult* p) {
+        if (p) return p->get_flags();
+        return 0;
+    }
+
+    unsigned int combine_flags(unsigned int f1, unsigned int f2) {
+        return f1 | f2;
+    }
+
+    int has_flag(unsigned int flags, unsigned int flag) {
+        return (flags & flag) == flag;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "example_OperationResult")]
+    class example_OperationResult {
+        #[cpp(method = "void set_error(int code)")]
+        fn set_error(&mut self, code: i32);
+
+        #[cpp(method = "int get_error() const")]
+        fn get_error(&self) -> i32;
+
+        #[cpp(method = "void set_state(unsigned char s)")]
+        fn set_state(&mut self, s: u8);
+
+        #[cpp(method = "unsigned char get_state() const")]
+        fn get_state(&self) -> u8;
+
+        #[cpp(method = "void set_flags(unsigned int f)")]
+        fn set_flags(&mut self, f: u32);
+
+        #[cpp(method = "unsigned int get_flags() const")]
+        fn get_flags(&self) -> u32;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "enum_class"]
+
+    #[cpp(func = "example::OperationResult* operation_result_new()")]
+    fn operation_result_new() -> *mut example::OperationResult;
+
+    #[cpp(func = "void operation_result_delete(example::OperationResult*)")]
+    unsafe fn operation_result_delete(p: *mut example::OperationResult);
+
+    #[cpp(func = "void operation_result_set_error(example::OperationResult*, int)")]
+    unsafe fn operation_result_set_error(p: *mut example::OperationResult, error_code: i32);
+
+    #[cpp(func = "int operation_result_get_error(example::OperationResult*)")]
+    unsafe fn operation_result_get_error(p: *mut example::OperationResult) -> i32;
+
+    #[cpp(func = "void operation_result_set_state(example::OperationResult*, unsigned char)")]
+    unsafe fn operation_result_set_state(p: *mut example::OperationResult, state: u8);
+
+    #[cpp(func = "unsigned char operation_result_get_state(example::OperationResult*)")]
+    unsafe fn operation_result_get_state(p: *mut example::OperationResult) -> u8;
+
+    #[cpp(func = "void operation_result_set_flags(example::OperationResult*, unsigned int)")]
+    unsafe fn operation_result_set_flags(p: *mut example::OperationResult, flags: u32);
+
+    #[cpp(func = "unsigned int operation_result_get_flags(example::OperationResult*)")]
+    unsafe fn operation_result_get_flags(p: *mut example::OperationResult) -> u32;
+
+    #[cpp(func = "unsigned int combine_flags(unsigned int, unsigned int)")]
+    fn combine_flags(f1: u32, f2: u32) -> u32;
+
+    #[cpp(func = "int has_flag(unsigned int, unsigned int)")]
+    fn has_flag(flags: u32, flag: u32) -> i32;
 }
 
 // 使用 opaque pointer 别名
@@ -109,3 +226,4 @@ fn main() {
     println!("4. Rust 端定义相应常量来模拟枚举");
     println!("5. 强类型枚举更安全，避免枚举值混淆");
 }
+

@@ -1,7 +1,8 @@
 hicc::cpp! {
-    #include <string>
     #include <iostream>
     #include <cmath>
+    #include <cstring>
+    #include <string>
 
     class Shape {
     protected:
@@ -39,7 +40,9 @@ hicc::cpp! {
     Circle::~Circle() {}
 
     double Circle::area() const {
-        return M_PI * radius * radius;
+        return 
+              3.14159265358979323846 
+                   * radius * radius;
     }
 
     double Circle::getRadius() const {
@@ -77,11 +80,11 @@ hicc::import_class! {
 hicc::import_class! {
     #[cpp(class = "Circle")]
     class Circle {
-        #[cpp(method = "double area() const")]
-        fn area(&self) -> f64;
-
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const u8;
+
+        #[cpp(method = "double area() const")]
+        fn area(&self) -> f64;
 
         #[cpp(method = "double getRadius() const")]
         fn get_radius(&self) -> f64;
@@ -100,7 +103,7 @@ hicc::import_lib! {
     #[cpp(func = "void shape_delete(Shape* self)")]
     unsafe fn shape_delete(self_: *mut Shape);
 
-    #[cpp(func = "Circle* circle_new(double radius)")]
+    #[cpp(func = "Circle* circle_new(double)")]
     fn circle_new(radius: f64) -> *mut Circle;
 
     #[cpp(func = "void circle_delete(Circle* self)")]
@@ -136,3 +139,4 @@ fn main() {
 
     println!("\nRust FFI: Virtual functions work through hicc import_class!");
 }
+

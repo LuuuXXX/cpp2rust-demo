@@ -6,23 +6,23 @@ hicc::cpp! {
         static int instance_count;
     public:
         Counter() : value(0) {
-            instance_count++;
-        }
+    instance_count++;
+}
         ~Counter() {
-            instance_count--;
-        }
+    instance_count--;
+}
         int getValue() const {
-            return value;
-        }
+    return value;
+}
         void increment() {
-            value++;
-        }
+    value++;
+}
         static int getInstanceCount() {
-            return instance_count;
-        }
+    return instance_count;
+}
         static void resetInstanceCount() {
-            instance_count = 0;
-        }
+    instance_count = 0;
+}
     };
 
     int Counter::instance_count = 0;
@@ -106,3 +106,4 @@ fn main() {
 
     println!("\nRust FFI: Static members work!");
 }
+

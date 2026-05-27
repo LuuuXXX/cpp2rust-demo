@@ -1,59 +1,118 @@
 hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
     #include <array>
+    #include <string>
+    #include <cstring>
 
-    template<typename T, unsigned long N>
-    class ArrayImpl {
+    class IntArray5Impl {
     public:
-        std::array<T, N> data;
-        ArrayImpl() : data() {}
-        explicit ArrayImpl(const T* values) {
-            if (values) {
-                for (unsigned long i = 0; i < N; ++i) {
-                    data[i] = values[i];
-                }
-            }
+        std::array<int, 5> data;
+    public:
+        IntArray5Impl(const int* values) : data() {
+    if (values) {
+        for (size_t i = 0; i < 5; ++i) {
+            data[i] = values[i];
         }
-    };
-
-    class IntArray5 {
-    public:
-        ArrayImpl<int, 5>* impl;
-        IntArray5() : impl(new ArrayImpl<int, 5>()) {}
-        explicit IntArray5(const int* values) : impl(new ArrayImpl<int, 5>(values)) {}
-        ~IntArray5() { delete impl; }
-        unsigned long size() const { return 5; }
-        bool empty() const { return false; }
-        int get(unsigned long index) const { return index < 5 ? impl->data[index] : 0; }
-        void set(unsigned long index, int value) { if (index < 5) impl->data[index] = value; }
-        int* data() { return impl->data.data(); }
-        int at(unsigned long index) const { return impl->data.at(index); }
-    };
-
-    IntArray5* int_array5_new() { return new IntArray5(); }
-    IntArray5* int_array5_new_from(const int* values) { return new IntArray5(values); }
-    void int_array5_delete(IntArray5* self) { delete self; }
+    }
 }
+        IntArray5Impl(const int* values) = default;
+        ~IntArray5Impl() {
+}
+    };
 
-hicc::import_class! {
-    #[cpp(class = "IntArray5")]
-    class IntArray5 {
-        #[cpp(method = "unsigned long size() const")]
-        fn size(&self) -> u64;
+    class DoubleArray3Impl {
+    public:
+        std::array<double, 3> data;
+    public:
+        DoubleArray3Impl(const double* values) : data() {
+    if (values) {
+        for (size_t i = 0; i < 3; ++i) {
+            data[i] = values[i];
+        }
+    }
+}
+        DoubleArray3Impl(const double* values) = default;
+        ~DoubleArray3Impl() {
+}
+    };
 
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
+    class StringArray4Impl {
+    public:
+        std::array<std::string, 4> data;
+        bool initialized[4];
+    public:
+        StringArray4Impl() : data(), initialized{false, false, false, false} {
+}
+        ~StringArray4Impl() {
+}
+    };
 
-        #[cpp(method = "int get(unsigned long) const")]
-        fn get(&self, index: u64) -> i32;
+    struct IntArray5 {
+    public:
+        IntArray5Impl* impl;
+        IntArray5(const int* values) : impl(new IntArray5Impl(values)) {
+}
+        IntArray5(const int* values) = default;
+        ~IntArray5() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-        #[cpp(method = "void set(unsigned long, int)")]
-        fn set(&mut self, index: u64, value: i32);
+    struct DoubleArray3 {
+    public:
+        DoubleArray3Impl* impl;
+        DoubleArray3(const double* values) : impl(new DoubleArray3Impl(values)) {
+}
+        DoubleArray3(const double* values) = default;
+        ~DoubleArray3() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-        #[cpp(method = "int* data()")]
-        fn data(&mut self) -> *mut i32;
+    struct StringArray4 {
+    public:
+        StringArray4Impl* impl;
+        StringArray4() : impl(new StringArray4Impl()) {
+}
+        ~StringArray4() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-        #[cpp(method = "int at(unsigned long) const")]
-        fn at(&self, index: u64) -> i32;
+    IntArray5* int_array5_new() {
+        return new IntArray5();
+    }
+
+    IntArray5* int_array5_new_from(const int* values) {
+        return new IntArray5(values);
+    }
+
+    void int_array5_delete(IntArray5* self) {
+        delete self;
+    }
+
+    DoubleArray3* double_array3_new() {
+        return new DoubleArray3();
+    }
+
+    DoubleArray3* double_array3_new_from(const double* values) {
+        return new DoubleArray3(values);
+    }
+
+    void double_array3_delete(DoubleArray3* self) {
+        delete self;
+    }
+
+    StringArray4* string_array4_new() {
+        return new StringArray4();
+    }
+
+    void string_array4_delete(StringArray4* self) {
+        delete self;
     }
 }
 
@@ -61,15 +120,32 @@ hicc::import_lib! {
     #![link_name = "array_basic"]
 
     class IntArray5;
+    class DoubleArray3;
+    class StringArray4;
 
     #[cpp(func = "IntArray5* int_array5_new()")]
     fn int_array5_new() -> *mut IntArray5;
 
-    #[cpp(func = "IntArray5* int_array5_new_from(const int* values)")]
+    #[cpp(func = "IntArray5* int_array5_new_from(const int*)")]
     fn int_array5_new_from(values: *const i32) -> *mut IntArray5;
 
     #[cpp(func = "void int_array5_delete(IntArray5* self)")]
     unsafe fn int_array5_delete(self_: *mut IntArray5);
+
+    #[cpp(func = "DoubleArray3* double_array3_new()")]
+    fn double_array3_new() -> *mut DoubleArray3;
+
+    #[cpp(func = "DoubleArray3* double_array3_new_from(const double*)")]
+    fn double_array3_new_from(values: *const f64) -> *mut DoubleArray3;
+
+    #[cpp(func = "void double_array3_delete(DoubleArray3* self)")]
+    unsafe fn double_array3_delete(self_: *mut DoubleArray3);
+
+    #[cpp(func = "StringArray4* string_array4_new()")]
+    fn string_array4_new() -> *mut StringArray4;
+
+    #[cpp(func = "void string_array4_delete(StringArray4* self)")]
+    unsafe fn string_array4_delete(self_: *mut StringArray4);
 }
 
 fn main() {
@@ -126,3 +202,4 @@ fn main() {
     println!("3. data() 返回原始指针用于批量访问");
     println!("4. 与 Rust 的 [T; N] 数组语义相似");
 }
+

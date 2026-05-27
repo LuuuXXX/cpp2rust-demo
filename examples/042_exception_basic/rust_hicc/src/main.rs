@@ -1,77 +1,82 @@
 hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
     #include <stdexcept>
     #include <cstring>
 
-    // Exception info structure
-    struct ExceptionInfo {
+    class ExceptionInfo {
+    public:
         int code;
         char message[256];
-        ExceptionInfo() : code(0) { message[0] = '\0'; }
-        void clear() { code = 0; message[0] = '\0'; }
+    public:
+        ExceptionInfo() : code(0) {
+    message[0] = '\0';
+}
+        void clear() {
+    code = 0;
+    message[0] = '\0';
+}
         void set(int c, const char* msg) {
-            code = c;
-            strncpy(message, msg, 255);
-            message[255] = '\0';
-        }
+    code = c;
+    strncpy(message, msg, 255);
+    message[255] = '\0';
+}
     };
 
-    // Calculator with exception handling
-    // In real FFI, we DON'T throw - we just set error codes
-    class Calculator {
+    class CalculatorImpl {
+    public:
         ExceptionInfo last_exception;
     public:
-        Calculator() = default;
-        ~Calculator() = default;
-        void clear_exception() { last_exception.clear(); }
-        int get_exception() { return last_exception.code; }
-
+        CalculatorImpl() {}
+        ~CalculatorImpl() {}
+        void clear_exception() {
+    last_exception.clear();
+}
+        int get_exception() {
+    return last_exception.code;
+}
         int divide(int a, int b) {
-            if (b == 0) {
-                last_exception.set(3, "Division by zero");
-                return 0;  // Return 0 on error, caller checks exception
-            }
-            return a / b;
-        }
-
+    if (b == 0) {
+        last_exception.set(3, "Division by zero");
+        throw std::runtime_error("Division by zero");
+    }
+    return a / b;
+}
+        int safe_get(int* arr, int size, int index) {
+    if (index < 0 || index >= size) {
+        last_exception.set(2, "Index out of range");
+        throw std::out_of_range("Index out of range");
+    }
+    return arr[index];
+}
         int string_to_int(const char* str) {
-            if (!str || *str == '\0') {
-                last_exception.set(1, "Empty string");
-                return 0;
-            }
-            char* end;
-            int result = std::strtol(str, &end, 10);
-            if (*end != '\0') {
-                last_exception.set(1, "Invalid number format");
-                return 0;
-            }
-            return result;
-        }
+    if (!str || *str == '\0') {
+        last_exception.set(1, "Empty string");
+        throw std::invalid_argument("Empty string");
+    }
+    char* end;
+    int result = std::strtol(str, &end, 10);
+    if (*end != '\0') {
+        last_exception.set(1, "Invalid number format");
+        throw std::invalid_argument("Invalid number format");
+    }
+    return result;
+}
     };
 
-    // Factory functions
+    struct Calculator {
+    public:
+        CalculatorImpl* impl;
+        Calculator() : impl(new CalculatorImpl()) {}
+        ~Calculator() { delete impl; }
+    };
+
     Calculator* calculator_new() {
         return new Calculator();
     }
 
     void calculator_delete(Calculator* self) {
         delete self;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "Calculator")]
-    class Calculator {
-        #[cpp(method = "void clear_exception()")]
-        fn clear_exception(&mut self);
-
-        #[cpp(method = "int get_exception()")]
-        fn get_exception(&mut self) -> i32;
-
-        #[cpp(method = "int divide(int a, int b)")]
-        fn divide(&mut self, a: i32, b: i32) -> i32;
-
-        #[cpp(method = "int string_to_int(const char* str)")]
-        fn string_to_int(&mut self, str: *const i8) -> i32;
     }
 }
 
@@ -143,3 +148,4 @@ fn main() {
     println!("4. Clear exception state before next operation");
     println!("5. Never throw in FFI boundary - use error codes instead");
 }
+

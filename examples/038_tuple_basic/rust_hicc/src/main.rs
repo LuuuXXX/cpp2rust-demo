@@ -1,98 +1,107 @@
 hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
     #include <tuple>
     #include <string>
+    #include <cstring>
 
-    class Tuple2 {
+    class Tuple2Impl {
     public:
         std::tuple<int, std::string> data;
-        Tuple2(int first, const char* second) : data(first, second ? second : "") {}
-        int get_first() const { return std::get<0>(data); }
-        const char* get_second() const {
-            static thread_local std::string temp;
-            temp = std::get<1>(data);
-            return temp.c_str();
-        }
+    public:
+        Tuple2Impl(int first, const char* second) : data(first, second ? second : "") {
+}
+        ~Tuple2Impl() {
+}
     };
 
-    class Tuple3 {
+    class Tuple3Impl {
     public:
         std::tuple<int, double, std::string> data;
-        Tuple3(int first, double second, const char* third) : data(first, second, third ? third : "") {}
-        int get_first() const { return std::get<0>(data); }
-        double get_second() const { return std::get<1>(data); }
-        const char* get_third() const {
-            static thread_local std::string temp;
-            temp = std::get<2>(data);
-            return temp.c_str();
-        }
+    public:
+        Tuple3Impl(int first, double second, const char* third)
+    : data(first, second, third ? third : "") {
+}
+        ~Tuple3Impl() {
+}
     };
 
-    class Tuple4 {
+    class Tuple4Impl {
     public:
         std::tuple<int, double, std::string, int> data;
-        Tuple4(int first, double second, const char* third, int fourth) : data(first, second, third ? third : "", fourth) {}
-        int get_first() const { return std::get<0>(data); }
-        double get_second() const { return std::get<1>(data); }
-        const char* get_third() const {
-            static thread_local std::string temp;
-            temp = std::get<2>(data);
-            return temp.c_str();
-        }
-        int get_fourth() const { return std::get<3>(data); }
+    public:
+        Tuple4Impl(int first, double second, const char* third, int fourth)
+    : data(first, second, third ? third : "", fourth) {
+}
+        ~Tuple4Impl() {
+}
     };
 
-    Tuple2* tuple2_new(int first, const char* second) { return new Tuple2(first, second); }
-    void tuple2_delete(Tuple2* self) { delete self; }
-
-    Tuple3* tuple3_new(int first, double second, const char* third) { return new Tuple3(first, second, third); }
-    void tuple3_delete(Tuple3* self) { delete self; }
-
-    Tuple4* tuple4_new(int first, double second, const char* third, int fourth) { return new Tuple4(first, second, third, fourth); }
-    void tuple4_delete(Tuple4* self) { delete self; }
-
-    Tuple2* make_int_string_pair(int i, const char* s) { return new Tuple2(i, s); }
-    Tuple3* make_int_double_string(int i, double d, const char* s) { return new Tuple3(i, d, s); }
+    struct Tuple2 {
+    public:
+        Tuple2Impl* impl;
+        Tuple2(int first, const char* second) : impl(new Tuple2Impl(first, second)) {
 }
+        ~Tuple2() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-hicc::import_class! {
-    #[cpp(class = "Tuple2")]
-    class Tuple2 {
-        #[cpp(method = "int get_first() const")]
-        fn get_first(&self) -> i32;
+    struct Tuple3 {
+    public:
+        Tuple3Impl* impl;
+        Tuple3(int first, double second, const char* third)
+    : impl(new Tuple3Impl(first, second, third)) {
+}
+        ~Tuple3() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-        #[cpp(method = "const char* get_second() const")]
-        fn get_second(&self) -> *const i8;
+    struct Tuple4 {
+    public:
+        Tuple4Impl* impl;
+        Tuple4(int first, double second, const char* third, int fourth)
+    : impl(new Tuple4Impl(first, second, third, fourth)) {
+}
+        ~Tuple4() {
+    delete impl;
+    impl = nullptr;
+}
+    };
+
+    Tuple2* tuple2_new(int first, const char* second) {
+        return new Tuple2(first, second);
     }
-}
 
-hicc::import_class! {
-    #[cpp(class = "Tuple3")]
-    class Tuple3 {
-        #[cpp(method = "int get_first() const")]
-        fn get_first(&self) -> i32;
-
-        #[cpp(method = "double get_second() const")]
-        fn get_second(&self) -> f64;
-
-        #[cpp(method = "const char* get_third() const")]
-        fn get_third(&self) -> *const i8;
+    void tuple2_delete(Tuple2* self) {
+        delete self;
     }
-}
 
-hicc::import_class! {
-    #[cpp(class = "Tuple4")]
-    class Tuple4 {
-        #[cpp(method = "int get_first() const")]
-        fn get_first(&self) -> i32;
+    Tuple3* tuple3_new(int first, double second, const char* third) {
+        return new Tuple3(first, second, third);
+    }
 
-        #[cpp(method = "double get_second() const")]
-        fn get_second(&self) -> f64;
+    void tuple3_delete(Tuple3* self) {
+        delete self;
+    }
 
-        #[cpp(method = "const char* get_third() const")]
-        fn get_third(&self) -> *const i8;
+    Tuple4* tuple4_new(int first, double second, const char* third, int fourth) {
+        return new Tuple4(first, second, third, fourth);
+    }
 
-        #[cpp(method = "int get_fourth() const")]
-        fn get_fourth(&self) -> i32;
+    void tuple4_delete(Tuple4* self) {
+        delete self;
+    }
+
+    Tuple2* make_int_string_pair(int i, const char* s) {
+        return new Tuple2(i, s);
+    }
+
+    Tuple3* make_int_double_string(int i, double d, const char* s) {
+        return new Tuple3(i, d, s);
     }
 }
 
@@ -104,28 +113,28 @@ hicc::import_lib! {
     class Tuple4;
 
     #[cpp(func = "Tuple2* tuple2_new(int, const char*)")]
-    fn tuple2_new(first: i32, second: *const i8) -> *mut Tuple2;
+    unsafe fn tuple2_new(first: i32, second: *const i8) -> *mut Tuple2;
 
     #[cpp(func = "void tuple2_delete(Tuple2* self)")]
     unsafe fn tuple2_delete(self_: *mut Tuple2);
 
     #[cpp(func = "Tuple3* tuple3_new(int, double, const char*)")]
-    fn tuple3_new(first: i32, second: f64, third: *const i8) -> *mut Tuple3;
+    unsafe fn tuple3_new(first: i32, second: f64, third: *const i8) -> *mut Tuple3;
 
     #[cpp(func = "void tuple3_delete(Tuple3* self)")]
     unsafe fn tuple3_delete(self_: *mut Tuple3);
 
     #[cpp(func = "Tuple4* tuple4_new(int, double, const char*, int)")]
-    fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> *mut Tuple4;
+    unsafe fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> *mut Tuple4;
 
     #[cpp(func = "void tuple4_delete(Tuple4* self)")]
     unsafe fn tuple4_delete(self_: *mut Tuple4);
 
     #[cpp(func = "Tuple2* make_int_string_pair(int, const char*)")]
-    fn make_int_string_pair(i: i32, s: *const i8) -> *mut Tuple2;
+    unsafe fn make_int_string_pair(i: i32, s: *const i8) -> *mut Tuple2;
 
     #[cpp(func = "Tuple3* make_int_double_string(int, double, const char*)")]
-    fn make_int_double_string(i: i32, d: f64, s: *const i8) -> *mut Tuple3;
+    unsafe fn make_int_double_string(i: i32, d: f64, s: *const i8) -> *mut Tuple3;
 }
 
 fn main() {
@@ -198,3 +207,4 @@ fn main() {
     println!("3. FFI 需要为每个元素类型提供独立的 getter 函数");
     println!("4. 字符串等复杂类型需要额外的内存管理");
 }
+

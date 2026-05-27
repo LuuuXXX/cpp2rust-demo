@@ -2,22 +2,11 @@ hicc::cpp! {
     #include <iostream>
     #include <stack>
 
-    template<typename T>
-    class Stack {
-    public:
-        std::stack<T> data;
-        Stack() = default;
-        int size() const { return static_cast<int>(data.size()); }
-        bool empty() const { return data.empty(); }
-        void push(T value) { data.push(value); }
-        T top() const { return data.top(); }
-        void pop() { data.pop(); }
-    };
-
     class IntStack {
     public:
         Stack<int> impl;
-        IntStack() = default;
+    public:
+        IntStack() = default
         int size() const { return impl.size(); }
         bool empty() const { return impl.empty(); }
         void push(int value) { impl.push(value); }
@@ -28,7 +17,8 @@ hicc::cpp! {
     class DoubleStack {
     public:
         Stack<double> impl;
-        DoubleStack() = default;
+    public:
+        DoubleStack() = default
         int size() const { return impl.size(); }
         bool empty() const { return impl.empty(); }
         void push(double value) { impl.push(value); }
@@ -36,7 +26,7 @@ hicc::cpp! {
         void pop() { impl.pop(); }
     };
 
-    IntStack* intstack_new(void) {
+    IntStack* intstack_new() {
         return new IntStack();
     }
 
@@ -44,52 +34,12 @@ hicc::cpp! {
         delete self;
     }
 
-    int intstack_size(IntStack* self) {
-        return self->impl.size();
-    }
-
-    int intstack_empty(IntStack* self) {
-        return self->impl.empty() ? 1 : 0;
-    }
-
-    void intstack_push(IntStack* self, int value) {
-        self->impl.push(value);
-    }
-
-    int intstack_top(IntStack* self) {
-        return self->impl.top();
-    }
-
-    void intstack_pop(IntStack* self) {
-        self->impl.pop();
-    }
-
-    DoubleStack* doublestack_new(void) {
+    DoubleStack* doublestack_new() {
         return new DoubleStack();
     }
 
     void doublestack_delete(DoubleStack* self) {
         delete self;
-    }
-
-    int doublestack_size(DoubleStack* self) {
-        return self->impl.size();
-    }
-
-    int doublestack_empty(DoubleStack* self) {
-        return self->impl.empty() ? 1 : 0;
-    }
-
-    void doublestack_push(DoubleStack* self, double value) {
-        self->impl.push(value);
-    }
-
-    double doublestack_top(DoubleStack* self) {
-        return self->impl.top();
-    }
-
-    void doublestack_pop(DoubleStack* self) {
-        self->impl.pop();
     }
 }
 
@@ -111,7 +61,9 @@ hicc::import_class! {
         #[cpp(method = "void pop()")]
         fn pop(&mut self);
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "DoubleStack")]
     class DoubleStack {
         #[cpp(method = "int size() const")]
@@ -143,41 +95,11 @@ hicc::import_lib! {
     #[cpp(func = "void intstack_delete(IntStack* self)")]
     unsafe fn intstack_delete(self_: *mut IntStack);
 
-    #[cpp(func = "int intstack_size(IntStack* self)")]
-    fn intstack_size(self_: *mut IntStack) -> i32;
-
-    #[cpp(func = "int intstack_empty(IntStack* self)")]
-    fn intstack_empty(self_: *mut IntStack) -> i32;
-
-    #[cpp(func = "void intstack_push(IntStack* self, int value)")]
-    fn intstack_push(self_: *mut IntStack, value: i32);
-
-    #[cpp(func = "int intstack_top(IntStack* self)")]
-    fn intstack_top(self_: *mut IntStack) -> i32;
-
-    #[cpp(func = "void intstack_pop(IntStack* self)")]
-    fn intstack_pop(self_: *mut IntStack);
-
     #[cpp(func = "DoubleStack* doublestack_new()")]
     fn doublestack_new() -> *mut DoubleStack;
 
     #[cpp(func = "void doublestack_delete(DoubleStack* self)")]
     unsafe fn doublestack_delete(self_: *mut DoubleStack);
-
-    #[cpp(func = "int doublestack_size(DoubleStack* self)")]
-    fn doublestack_size(self_: *mut DoubleStack) -> i32;
-
-    #[cpp(func = "int doublestack_empty(DoubleStack* self)")]
-    fn doublestack_empty(self_: *mut DoubleStack) -> i32;
-
-    #[cpp(func = "void doublestack_push(DoubleStack* self, double value)")]
-    fn doublestack_push(self_: *mut DoubleStack, value: f64);
-
-    #[cpp(func = "double doublestack_top(DoubleStack* self)")]
-    fn doublestack_top(self_: *mut DoubleStack) -> f64;
-
-    #[cpp(func = "void doublestack_pop(DoubleStack* self)")]
-    fn doublestack_pop(self_: *mut DoubleStack);
 }
 
 fn main() {
@@ -219,3 +141,4 @@ fn main() {
     println!("Stack<int> -> IntStack");
     println!("Stack<double> -> DoubleStack");
 }
+

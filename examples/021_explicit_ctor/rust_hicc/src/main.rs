@@ -4,10 +4,10 @@ hicc::cpp! {
     class Widget {
         int value;
     public:
-        Widget(int v);
-        explicit Widget(double v);
-        ~Widget();
-        int getValue() const;
+        Widget(double v) : value(static_cast<int>(v)) {}
+        Widget(double v) = default;
+        ~Widget() {}
+        int getValue() const { return value; }
     };
 
     Widget* widget_new(int value) {
@@ -25,22 +25,13 @@ hicc::cpp! {
     void widget_delete(Widget* self) {
         delete self;
     }
-
-    int widget_getValue(Widget* self) {
-        return self->getValue();
-    }
-
-    Widget::Widget(int v) : value(v) {}
-    Widget::Widget(double v) : value(static_cast<int>(v)) {}
-    Widget::~Widget() {}
-    int Widget::getValue() const { return value; }
 }
 
 hicc::import_class! {
     #[cpp(class = "Widget")]
     class Widget {
         #[cpp(method = "int getValue() const")]
-        fn getValue(&self) -> i32;
+        fn get_value(&self) -> i32;
     }
 }
 
@@ -49,20 +40,17 @@ hicc::import_lib! {
 
     class Widget;
 
-    #[cpp(func = "Widget* widget_new(int value)")]
+    #[cpp(func = "Widget* widget_new(int)")]
     fn widget_new(value: i32) -> *mut Widget;
 
-    #[cpp(func = "Widget* widget_fromInt(int value)")]
-    fn widget_fromInt(value: i32) -> *mut Widget;
+    #[cpp(func = "Widget* widget_fromInt(int)")]
+    fn widget_from_int(value: i32) -> *mut Widget;
 
-    #[cpp(func = "Widget* widget_fromDouble(double value)")]
-    fn widget_fromDouble(value: f64) -> *mut Widget;
+    #[cpp(func = "Widget* widget_fromDouble(double)")]
+    fn widget_from_double(value: f64) -> *mut Widget;
 
     #[cpp(func = "void widget_delete(Widget* self)")]
     unsafe fn widget_delete(self_: *mut Widget);
-
-    #[cpp(func = "int widget_getValue(Widget* self)")]
-    fn widget_getValue(self_: *mut Widget) -> i32;
 }
 
 fn main() {
@@ -88,3 +76,4 @@ fn main() {
     println!("\nRust FFI: explicit 不影响 FFI - 只是禁止隐式转换");
     println!("在 FFI 中，所有构造函数都是显式调用的");
 }
+

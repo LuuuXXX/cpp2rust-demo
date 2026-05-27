@@ -1,7 +1,7 @@
 hicc::cpp! {
-    #include <string>
     #include <iostream>
     #include <cstring>
+    #include <string>
 
     class Base {
     protected:
@@ -39,7 +39,7 @@ hicc::cpp! {
     Derived::~Derived() {}
 
     double Derived::area() const {
-        return value * value;  // area = value^2 for demonstration
+        return value * value; // area = value^2 for demonstration
     }
 
     double Derived::getValue() const {
@@ -83,6 +83,9 @@ hicc::import_class! {
 hicc::import_class! {
     #[cpp(class = "Derived")]
     class Derived {
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const u8;
+
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
 
@@ -97,13 +100,13 @@ hicc::import_lib! {
     class Base;
     class Derived;
 
-    #[cpp(func = "Base* base_create(int type)")]
+    #[cpp(func = "Base* base_create(int)")]
     fn base_create(type_: i32) -> *mut Base;
 
     #[cpp(func = "void base_delete(Base* self)")]
     unsafe fn base_delete(self_: *mut Base);
 
-    #[cpp(func = "Derived* derived_new(double value)")]
+    #[cpp(func = "Derived* derived_new(double)")]
     fn derived_new(value: f64) -> *mut Derived;
 
     #[cpp(func = "void derived_delete(Derived* self)")]
@@ -154,3 +157,4 @@ fn main() {
 
     println!("Rust FFI: override keyword works correctly through hicc!");
 }
+

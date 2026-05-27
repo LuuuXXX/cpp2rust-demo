@@ -67,3 +67,31 @@ golden_test!(test_045_union_basic, "045_union_basic");
 golden_test!(test_046_constexpr_basic, "046_constexpr_basic");
 golden_test!(test_047_noexcept_basic, "047_noexcept_basic");
 golden_test!(test_048_summary, "048_summary");
+
+#[test]
+#[ignore = "update golden files"]
+fn update_all_goldens() {
+    let examples = [
+        "001_hello_world","002_function_overload","003_default_args","004_inline_functions",
+        "005_variadic_functions","006_class_basic","007_class_constructor","008_class_copy",
+        "009_class_move","010_class_static","011_class_const","012_class_volatile",
+        "013_inheritance_single","014_inheritance_multiple","015_virtual_basic",
+        "016_virtual_pure","017_virtual_override","018_virtual_diamond",
+        "019_operator_overload","020_friend_function","021_explicit_ctor","022_mutable_member",
+        "023_typeid_rtti","024_template_function","025_template_class",
+        "026_template_specialization","027_template_instantiation","028_variadic_template",
+        "029_unique_ptr","030_shared_ptr","031_custom_deleter","032_placement_new",
+        "033_raii_pattern","034_vector_basic","035_map_basic","036_string_basic",
+        "037_array_basic","038_tuple_basic","039_lambda_basic","040_std_function",
+        "041_functional_bind","042_exception_basic","043_namespace_nested","044_enum_class",
+        "045_union_basic","046_constexpr_basic","047_noexcept_basic","048_summary",
+    ];
+    std::fs::create_dir_all("/tmp/golden_updates").unwrap();
+    for ex in &examples {
+        let example_dir = format!("examples/{}", ex);
+        let generated = common::run_tool_on(&example_dir);
+        let out_path = format!("/tmp/golden_updates/{}.txt", ex);
+        std::fs::write(&out_path, &generated).unwrap();
+        println!("Generated: {} ({} bytes)", ex, generated.len());
+    }
+}

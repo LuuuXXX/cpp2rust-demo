@@ -1,59 +1,68 @@
 hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
     #include <vector>
+    #include <string>
+    #include <cstring>
 
-    template<typename T>
-    class VectorImpl {
+    class IntVectorImpl {
     public:
-        std::vector<T> data;
-        VectorImpl() = default;
-        ~VectorImpl() { data.clear(); }
-    };
-
-    class IntVector {
+        std::vector<int> data;
     public:
-        VectorImpl<int>* impl;
-        IntVector() : impl(new VectorImpl<int>()) {}
-        ~IntVector() { delete impl; }
-        unsigned long size() const { return impl->data.size(); }
-        unsigned long capacity() const { return impl->data.capacity(); }
-        bool empty() const { return impl->data.empty(); }
-        void push_back(int value) { impl->data.push_back(value); }
-        int get(unsigned long index) const { return index < impl->data.size() ? impl->data[index] : 0; }
-        void set(unsigned long index, int value) { if (index < impl->data.size()) impl->data[index] = value; }
-        void clear() { impl->data.clear(); }
-        int* data() { return impl->data.data(); }
-    };
-
-    IntVector* int_vector_new() { return new IntVector(); }
-    void int_vector_delete(IntVector* self) { delete self; }
+        IntVectorImpl() : data() {
 }
+        ~IntVectorImpl() {
+    data.clear();
+}
+    };
 
-hicc::import_class! {
-    #[cpp(class = "IntVector")]
-    class IntVector {
-        #[cpp(method = "unsigned long size() const")]
-        fn size(&self) -> u64;
+    class StringVectorImpl {
+    public:
+        std::vector<std::string> data;
+    public:
+        StringVectorImpl() : data() {
+}
+        ~StringVectorImpl() {
+    data.clear();
+}
+    };
 
-        #[cpp(method = "unsigned long capacity() const")]
-        fn capacity(&self) -> u64;
+    struct IntVector {
+    public:
+        IntVectorImpl* impl;
+        IntVector() : impl(new IntVectorImpl()) {
+}
+        ~IntVector() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
+    struct StringVector {
+    public:
+        StringVectorImpl* impl;
+        StringVector() : impl(new StringVectorImpl()) {
+}
+        ~StringVector() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-        #[cpp(method = "void push_back(int)")]
-        fn push_back(&mut self, value: i32);
+    IntVector* int_vector_new() {
+        return new IntVector();
+    }
 
-        #[cpp(method = "int get(unsigned long) const")]
-        fn get(&self, index: u64) -> i32;
+    void int_vector_delete(IntVector* self) {
+        delete self;
+    }
 
-        #[cpp(method = "void set(unsigned long, int)")]
-        fn set(&mut self, index: u64, value: i32);
+    StringVector* string_vector_new() {
+        return new StringVector();
+    }
 
-        #[cpp(method = "int* data()")]
-        fn data(&mut self) -> *mut i32;
-
-        #[cpp(method = "void clear()")]
-        fn clear(&mut self);
+    void string_vector_delete(StringVector* self) {
+        delete self;
     }
 }
 
@@ -61,12 +70,19 @@ hicc::import_lib! {
     #![link_name = "vector_basic"]
 
     class IntVector;
+    class StringVector;
 
     #[cpp(func = "IntVector* int_vector_new()")]
     fn int_vector_new() -> *mut IntVector;
 
     #[cpp(func = "void int_vector_delete(IntVector* self)")]
     unsafe fn int_vector_delete(self_: *mut IntVector);
+
+    #[cpp(func = "StringVector* string_vector_new()")]
+    fn string_vector_new() -> *mut StringVector;
+
+    #[cpp(func = "void string_vector_delete(StringVector* self)")]
+    unsafe fn string_vector_delete(self_: *mut StringVector);
 }
 
 fn main() {
@@ -116,3 +132,4 @@ fn main() {
     println!("4. data() 获取原始指针用于批量操作");
     println!("\nNote: StringVector example omitted due to FFI complexity with const char*");
 }
+

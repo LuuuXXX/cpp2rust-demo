@@ -6,43 +6,40 @@ hicc::cpp! {
         int* data;
         int size;
     public:
-        Buffer() : data(nullptr), size(0) {}
-        explicit Buffer(int sz) : size(sz) {
-            data = new int[sz];
-            std::memset(data, 0, sz * sizeof(int));
-        }
         Buffer(const Buffer& other) : size(other.size) {
-            data = new int[other.size];
-            std::memcpy(data, other.data, other.size * sizeof(int));
-        }
+    data = new int[other.size];
+    std::memcpy(data, other.data, other.size * sizeof(int));
+}
+        Buffer(int sz) = default;
+        Buffer(const Buffer & other) = default;
         ~Buffer() {
-            delete[] data;
-        }
+    delete[] data;
+}
         void set(int index, int value) {
-            if (index >= 0 && index < size) {
-                data[index] = value;
-            }
-        }
+    if (index >= 0 && index < size) {
+        data[index] = value;
+    }
+}
         int get(int index) const {
-            if (index >= 0 && index < size) {
-                return data[index];
-            }
-            return 0;
-        }
+    if (index >= 0 && index < size) {
+        return data[index];
+    }
+    return 0;
+}
         int getSize() const {
-            return size;
-        }
+    return size;
+}
     };
 
     Buffer* buffer_new() {
         return new Buffer();
     }
 
-    Buffer* buffer_new_with_size(int size) {
+    Buffer* buffer_newWithSize(int size) {
         return new Buffer(size);
     }
 
-    Buffer* buffer_new_copy(const Buffer* other) {
+    Buffer* buffer_newCopy(const Buffer* other) {
         return new Buffer(*other);
     }
 
@@ -61,7 +58,7 @@ hicc::import_class! {
         fn get(&self, index: i32) -> i32;
 
         #[cpp(method = "int getSize() const")]
-        fn size(&self) -> i32;
+        fn get_size(&self) -> i32;
     }
 }
 
@@ -73,11 +70,11 @@ hicc::import_lib! {
     #[cpp(func = "Buffer* buffer_new()")]
     fn buffer_new() -> *mut Buffer;
 
-    #[cpp(func = "Buffer* buffer_new_with_size(int size)")]
+    #[cpp(func = "Buffer* buffer_newWithSize(int)")]
     fn buffer_new_with_size(size: i32) -> *mut Buffer;
 
-    #[cpp(func = "Buffer* buffer_new_copy(const Buffer* other)")]
-    fn buffer_new_copy(other: &Buffer) -> *mut Buffer;
+    #[cpp(func = "Buffer* buffer_newCopy(const struct Buffer* other)")]
+    fn buffer_new_copy(other: *const Buffer) -> *mut Buffer;
 
     #[cpp(func = "void buffer_delete(Buffer* self)")]
     unsafe fn buffer_delete(self_: *mut Buffer);
@@ -125,3 +122,4 @@ fn main() {
 
     println!("\nRust FFI: Copy constructor pattern works!");
 }
+

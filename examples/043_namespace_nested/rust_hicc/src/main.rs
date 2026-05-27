@@ -2,72 +2,138 @@
 // 使用 raw extern "C" 模式，完全避开 hicc 宏
 
 hicc::cpp! {
+    #include <cstddef>
     #include <iostream>
     #include <cstring>
 
-    namespace foo { namespace bar { namespace config {
+    class config_ConfigManager {
+        int values_[MAX_ENTRIES];
+        const char* keys_[MAX_ENTRIES];
+        size_t count_;
+    public:
+        static constexpr size_t MAX_ENTRIES = 10;
+    public:
+        ConfigManager() = default;
+        ~ConfigManager() = default;
+        void set_value(const char* key, int value) {}
+        int get_value(const char* key) const {}
+    };
 
-        class ConfigManager {
-        public:
-            static constexpr size_t MAX_ENTRIES = 10;
-        private:
-            int values_[MAX_ENTRIES];
-            const char* keys_[MAX_ENTRIES];
-            size_t count_;
-        public:
-            ConfigManager() : count_(0) {
-                for (size_t i = 0; i < MAX_ENTRIES; ++i) {
-                    keys_[i] = nullptr;
-                    values_[i] = 0;
-                }
-            }
-            ~ConfigManager() {
-                for (size_t i = 0; i < count_; ++i) {
-                    if (keys_[i]) delete[] keys_[i];
-                }
-            }
-            void set_value(const char* key, int value) {
-                if (!key) return;
-                for (size_t i = 0; i < count_; ++i) {
-                    if (keys_[i] && strcmp(keys_[i], key) == 0) {
-                        values_[i] = value;
-                        return;
-                    }
-                }
-                if (count_ < MAX_ENTRIES) {
-                    size_t len = strlen(key);
-                    char* new_key = new char[len + 1];
-                    strcpy(new_key, key);
-                    keys_[count_] = new_key;
-                    values_[count_] = value;
-                    ++count_;
-                }
-            }
-            int get_value(const char* key) const {
-                if (!key) return 0;
-                for (size_t i = 0; i < count_; ++i) {
-                    if (keys_[i] && strcmp(keys_[i], key) == 0) return values_[i];
-                }
-                return 0;
-            }
-        };
+    const size_t config_ConfigManager::MAX_ENTRIES;
 
-    }}}
+    class baz_DataProcessor {
+        int multiplier_;
+    public:
+        DataProcessor() = default;
+        ~DataProcessor() = default;
+        int process(int input) const {}
+    };
 
-    namespace foo { namespace baz {
+    void* config_manager_new() {
+        return new foo::bar::config::ConfigManager();
+    }
 
-        class DataProcessor {
-        private:
-            int multiplier_;
-        public:
-            DataProcessor() : multiplier_(1) {}
-            ~DataProcessor() {}
-            int process(int input) const {
-                return input * multiplier_;
-            }
-        };
+    void config_manager_delete(void* self) {
+        if (self) {
+            delete static_cast<foo::bar::config::ConfigManager*>(self);
+        }
+    }
 
-    }}
+    void config_manager_set_value(void* self, const char* key, int value) {
+        if (self) {
+            static_cast<foo::bar::config::ConfigManager*>(self)->set_value(key, value);
+        }
+    }
+
+    int config_manager_get_value(void* self, const char* key) {
+        if (self) {
+            return static_cast<foo::bar::config::ConfigManager*>(self)->get_value(key);
+        }
+        return 0;
+    }
+
+    int string_length(const char* str) {
+        if (!str) return 0;
+        return strlen(str);
+    }
+
+    void* data_processor_new() {
+        return new foo::baz::DataProcessor();
+    }
+
+    void data_processor_delete(void* self) {
+        if (self) {
+            delete static_cast<foo::baz::DataProcessor*>(self);
+        }
+    }
+
+    int data_processor_process(void* self, int input) {
+        if (self) {
+            return static_cast<foo::baz::DataProcessor*>(self)->process(input);
+        }
+        return input;
+    }
+
+    const char* get_version() {
+        return "1.0.0";
+    }
+
+    int get_build_number() {
+        return 42;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "config_ConfigManager")]
+    class config_ConfigManager {
+        #[cpp(method = "void set_value(const char* key, int value)")]
+        fn set_value(&mut self, key: *const u8, value: i32);
+
+        #[cpp(method = "int get_value(const char* key) const")]
+        fn get_value(&self, key: *const u8) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "baz_DataProcessor")]
+    class baz_DataProcessor {
+        #[cpp(method = "int process(int input) const")]
+        fn process(&self, input: i32) -> i32;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "namespace_nested"]
+
+    #[cpp(func = "void* config_manager_new()")]
+    fn config_manager_new() -> *mut void;
+
+    #[cpp(func = "void config_manager_delete(void*)")]
+    unsafe fn config_manager_delete(self_: *mut void);
+
+    #[cpp(func = "void config_manager_set_value(void*, const char*, int)")]
+    unsafe fn config_manager_set_value(self_: *mut void, key: *const i8, value: i32);
+
+    #[cpp(func = "int config_manager_get_value(void*, const char*)")]
+    unsafe fn config_manager_get_value(self_: *mut void, key: *const i8) -> i32;
+
+    #[cpp(func = "int string_length(const char*)")]
+    unsafe fn string_length(str: *const i8) -> i32;
+
+    #[cpp(func = "void* data_processor_new()")]
+    fn data_processor_new() -> *mut void;
+
+    #[cpp(func = "void data_processor_delete(void*)")]
+    unsafe fn data_processor_delete(self_: *mut void);
+
+    #[cpp(func = "int data_processor_process(void*, int)")]
+    unsafe fn data_processor_process(self_: *mut void, input: i32) -> i32;
+
+    #[cpp(func = "const char* get_version()")]
+    unsafe fn get_version() -> *const i8;
+
+    #[cpp(func = "int get_build_number()")]
+    fn get_build_number() -> i32;
 }
 
 // 使用 opaque pointer 别名
@@ -127,3 +193,4 @@ fn main() {
     println!("4. Rust 端使用 opaque pointer 模式");
     println!("5. hicc import_class! 不支持嵌套命名空间，使用 raw extern \"C\"");
 }
+

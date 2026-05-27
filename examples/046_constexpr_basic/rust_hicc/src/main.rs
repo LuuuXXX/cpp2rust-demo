@@ -1,39 +1,20 @@
 hicc::cpp! {
     #include <cstddef>
+    #include <iostream>
 
-    // Compile-time array size constant
-    const int ARRAY_SIZE = 10;
-
-    namespace example {
-        // Compile-time fibonacci calculation using template
-        template<int N>
-        constexpr int fibonacci() {
-            if constexpr (N <= 1) {
-                return N;
-            } else {
-                return fibonacci<N - 1>() + fibonacci<N - 2>();
-            }
-        }
-
-        // Compile-time computed fibonacci value
-        // fibonacci<10>() = 55
-        static constexpr int FIB_10 = fibonacci<10>();
-
-        // Compile-time point with constexpr constructor and methods
-        struct ConstexprPoint {
-            int x;
-            int y;
-
-            constexpr ConstexprPoint(int x, int y) : x(x), y(y) {}
-
-            constexpr int manhattan_distance() const {
-                return (x > 0 ? x : -x) + (y > 0 ? y : -y);
-            }
-        };
+    struct example_ConstexprPoint {
+    public:
+        int x;
+        int y;
+        constexpr ConstexprPoint(int x, int y) : x(x), y(y) {}
+        constexpr int manhattan_distance() const {
+        return (x > 0 ? x : -x) + (y > 0 ? y : -y);
     }
+    };
 
-    // Runtime functions using constexpr values
     int get_fibonacci_10() {
+        std::cout << "get_fibonacci_10() called, returning compile-time computed value: "
+                  << example::FIB_10 << std::endl;
         return example::FIB_10;
     }
 
@@ -67,19 +48,27 @@ hicc::cpp! {
     }
 }
 
+hicc::import_class! {
+    #[cpp(class = "example_ConstexprPoint")]
+    class example_ConstexprPoint {
+        #[cpp(method = "int manhattan_distance() const")]
+        fn manhattan_distance(&self) -> i32;
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "constexpr_basic"]
 
     #[cpp(func = "int get_fibonacci_10()")]
     fn get_fibonacci_10() -> i32;
 
-    #[cpp(func = "int manhattan_distance(int x, int y)")]
+    #[cpp(func = "int manhattan_distance(int, int)")]
     fn manhattan_distance(x: i32, y: i32) -> i32;
 
-    #[cpp(func = "int constexpr_sum_array(const int* arr, int size)")]
+    #[cpp(func = "int constexpr_sum_array(const int*, int)")]
     fn constexpr_sum_array(arr: *const i32, size: i32) -> i32;
 
-    #[cpp(func = "int constexpr_find_max(const int* arr, int size)")]
+    #[cpp(func = "int constexpr_find_max(const int*, int)")]
     fn constexpr_find_max(arr: *const i32, size: i32) -> i32;
 
     #[cpp(func = "int get_array_size()")]
@@ -134,3 +123,4 @@ fn main() {
     println!("4. FFI constexpr values passed via preprocessor macros");
     println!("5. Rust const fn can achieve similar functionality");
 }
+

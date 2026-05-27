@@ -1,70 +1,68 @@
 hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
     #include <map>
     #include <string>
+    #include <cstring>
 
-    template<typename K, typename V>
-    class MapImpl {
+    class StringIntMapImpl {
     public:
-        std::map<K, V> data;
-        MapImpl() = default;
-        ~MapImpl() { data.clear(); }
-    };
-
-    class StringIntMap {
+        std::map<std::string, int> data;
     public:
-        MapImpl<std::string, int>* impl;
-        StringIntMap() : impl(new MapImpl<std::string, int>()) {}
-        ~StringIntMap() { delete impl; }
-        unsigned long size() const { return impl->data.size(); }
-        bool empty() const { return impl->data.empty(); }
-        bool insert(const char* key, int value) {
-            if (!key) return false;
-            auto result = impl->data.insert({std::string(key), value});
-            return result.second;
-        }
-        bool erase(const char* key) {
-            if (!key) return false;
-            return impl->data.erase(std::string(key)) > 0;
-        }
-        void clear() { impl->data.clear(); }
-        int get(const char* key) const {
-            if (!key) return 0;
-            auto it = impl->data.find(std::string(key));
-            if (it != impl->data.end()) return it->second;
-            return 0;
-        }
-        void set(const char* key, int value) {
-            if (key) impl->data[std::string(key)] = value;
-        }
-    };
-
-    StringIntMap* string_int_map_new() { return new StringIntMap(); }
-    void string_int_map_delete(StringIntMap* self) { delete self; }
+        StringIntMapImpl() : data() {
 }
+        ~StringIntMapImpl() {
+    data.clear();
+}
+    };
 
-hicc::import_class! {
-    #[cpp(class = "StringIntMap")]
-    class StringIntMap {
-        #[cpp(method = "unsigned long size() const")]
-        fn size(&self) -> u64;
+    class IntStringMapImpl {
+    public:
+        std::map<int, std::string> data;
+    public:
+        IntStringMapImpl() : data() {
+}
+        ~IntStringMapImpl() {
+    data.clear();
+}
+    };
 
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
+    struct StringIntMap {
+    public:
+        StringIntMapImpl* impl;
+        StringIntMap() : impl(new StringIntMapImpl()) {
+}
+        ~StringIntMap() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-        #[cpp(method = "bool insert(const char*, int)")]
-        fn insert(&mut self, key: *const i8, value: i32) -> bool;
+    struct IntStringMap {
+    public:
+        IntStringMapImpl* impl;
+        IntStringMap() : impl(new IntStringMapImpl()) {
+}
+        ~IntStringMap() {
+    delete impl;
+    impl = nullptr;
+}
+    };
 
-        #[cpp(method = "bool erase(const char*)")]
-        fn erase(&mut self, key: *const i8) -> bool;
+    StringIntMap* string_int_map_new() {
+        return new StringIntMap();
+    }
 
-        #[cpp(method = "void clear()")]
-        fn clear(&mut self);
+    void string_int_map_delete(StringIntMap* self) {
+        delete self;
+    }
 
-        #[cpp(method = "int get(const char*) const")]
-        fn get(&self, key: *const i8) -> i32;
+    IntStringMap* int_string_map_new() {
+        return new IntStringMap();
+    }
 
-        #[cpp(method = "void set(const char*, int)")]
-        fn set(&mut self, key: *const i8, value: i32);
+    void int_string_map_delete(IntStringMap* self) {
+        delete self;
     }
 }
 
@@ -72,12 +70,19 @@ hicc::import_lib! {
     #![link_name = "map_basic"]
 
     class StringIntMap;
+    class IntStringMap;
 
     #[cpp(func = "StringIntMap* string_int_map_new()")]
     fn string_int_map_new() -> *mut StringIntMap;
 
     #[cpp(func = "void string_int_map_delete(StringIntMap* self)")]
     unsafe fn string_int_map_delete(self_: *mut StringIntMap);
+
+    #[cpp(func = "IntStringMap* int_string_map_new()")]
+    fn int_string_map_new() -> *mut IntStringMap;
+
+    #[cpp(func = "void int_string_map_delete(IntStringMap* self)")]
+    unsafe fn int_string_map_delete(self_: *mut IntStringMap);
 }
 
 fn main() {
@@ -136,3 +141,4 @@ fn main() {
     println!("4. 删除: erase(key) -> size_t");
     println!("5. 字符串键需要 CString 转换");
 }
+

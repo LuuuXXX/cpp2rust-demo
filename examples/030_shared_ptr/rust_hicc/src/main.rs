@@ -1,64 +1,68 @@
 hicc::cpp! {
+    #include <string>
     #include <iostream>
     #include <memory>
+    #include <cstring>
     #include <unordered_map>
 
-    // SharedData - 模拟 shared_ptr
     class SharedData {
         std::string name_;
     public:
         int value;
-        SharedData(const char* n) : name_(n ? n : ""), value(0) {}
-        ~SharedData() {}
-        int useCount() const { return 1; }  // Simplified
-        const char* getName() const { return name_.c_str(); }
-        SharedData* clone() const { return new SharedData(name_.c_str()); }
-        void reset() { name_.clear(); }
-        bool expired() const { return name_.empty(); }
+    public:
+        SharedData(const char* n) : name_(n ? n : ""), value(0) {
+}
+        ~SharedData() {
+}
+        int useCount() const {
+    return 1; // Simplified - actual shared_ptr would have ref count
+}
+        const char* getName() const {
+    return name_.c_str();
+}
+        SharedData* clone() const {
+    return new SharedData(name_.c_str());
+}
+        void reset() {
+    name_.clear();
+}
     };
 
-    // Cache - 演示 weak_ptr 的作用（缓存）
     class Cache {
         std::unordered_map<std::string, void*> data_;
     public:
-        Cache() : data_() {}
-        ~Cache() {}
+        Cache() : data_() {
+}
+        ~Cache() {
+}
         SharedData* get(const char* name) {
-            if (!name) return nullptr;
-            std::string key(name);
-            auto it = data_.find(key);
-            if (it != data_.end()) {
-                return reinterpret_cast<SharedData*>(it->second);
-            }
-            SharedData* new_data = new SharedData(name);
-            data_[key] = reinterpret_cast<void*>(new_data);
-            return new_data;
-        }
+    if (!name) return nullptr;
+    std::string key(name);
+    auto it = data_.find(key);
+    if (it != data_.end()) {
+        return reinterpret_cast<SharedData*>(it->second);
+    }
+    // If not found, create new and store
+    SharedData* new_data = new SharedData(name);
+    data_[key] = reinterpret_cast<void*>(new_data);
+    return new_data;
+}
     };
 
-    // Factory functions
     SharedData* shareddata_new(const char* name) {
         return new SharedData(name);
     }
 
-    void shareddata_delete(SharedData* self_) {
-        delete self_;
-    }
-
-    SharedData* shareddata_clone(SharedData* self_) {
-        return self_ ? self_->clone() : nullptr;
-    }
-
-    void shareddata_reset(SharedData* self_) {
-        if (self_) self_->reset();
+    void shareddata_delete(SharedData* self) {
+        delete self;
     }
 
     Cache* cache_new() {
         return new Cache();
     }
 
-    void cache_delete(Cache* self_) {
-        delete self_;
+    void cache_delete(Cache* self) {
+        delete self;
     }
 }
 
@@ -69,22 +73,21 @@ hicc::import_class! {
         fn use_count(&self) -> i32;
 
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const i8;
+        fn get_name(&self) -> *const u8;
 
         #[cpp(method = "SharedData* clone() const")]
         fn clone(&self) -> *mut SharedData;
 
         #[cpp(method = "void reset()")]
         fn reset(&mut self);
-
-        #[cpp(method = "bool expired() const")]
-        fn expired(&self) -> bool;
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "Cache")]
     class Cache {
         #[cpp(method = "SharedData* get(const char* name)")]
-        fn get(&mut self, name: *const i8) -> *mut SharedData;
+        fn get(&mut self, name: *const u8) -> *mut SharedData;
     }
 }
 
@@ -92,19 +95,18 @@ hicc::import_lib! {
     #![link_name = "shared_ptr"]
 
     class SharedData;
-    #[cpp(func = "SharedData* shareddata_new(const char* name)")]
-    fn shareddata_new(name: *const i8) -> *mut SharedData;
-    #[cpp(func = "void shareddata_delete(SharedData* self_)")]
-    unsafe fn shareddata_delete(self_: *mut SharedData);
-    #[cpp(func = "SharedData* shareddata_clone(SharedData* self_)")]
-    fn shareddata_clone(self_: *mut SharedData) -> *mut SharedData;
-    #[cpp(func = "void shareddata_reset(SharedData* self_)")]
-    fn shareddata_reset(self_: *mut SharedData);
-
     class Cache;
+
+    #[cpp(func = "SharedData* shareddata_new(const char*)")]
+    unsafe fn shareddata_new(name: *const i8) -> *mut SharedData;
+
+    #[cpp(func = "void shareddata_delete(SharedData* self)")]
+    unsafe fn shareddata_delete(self_: *mut SharedData);
+
     #[cpp(func = "Cache* cache_new()")]
     fn cache_new() -> *mut Cache;
-    #[cpp(func = "void cache_delete(Cache* self_)")]
+
+    #[cpp(func = "void cache_delete(Cache* self)")]
     unsafe fn cache_delete(self_: *mut Cache);
 }
 

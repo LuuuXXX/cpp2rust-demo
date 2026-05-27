@@ -1,51 +1,59 @@
 hicc::cpp! {
+    #include <string>
     #include <iostream>
     #include <memory>
     #include <cstring>
 
-    // UniqueBuffer - 模拟 unique_ptr 自动内存管理
     class UniqueBuffer {
         std::string data;
     public:
-        UniqueBuffer(int sz) : data(sz, '\0') {}
-        ~UniqueBuffer() {}
-        int getSize() const { return static_cast<int>(data.size()); }
-        char* getData() { return data.data(); }
-        int useCount() const { return 1; }  // unique_ptr always has use count of 1
+        UniqueBuffer(int sz) : data(sz, '\0') {
+}
+        ~UniqueBuffer() {
+}
+        int getSize() const {
+    return static_cast<int>(data.size());
+}
+        char* getData() {
+    return data.data();
+}
+        UniqueBuffer move() {
+    return UniqueBuffer(*this);
+}
+        int useCount() const {
+    return 1; // unique_ptr always has use count of 1
+}
     };
 
     class Processor {
         std::string buffer;
     public:
-        Processor() : buffer() {}
-        ~Processor() {}
+        Processor() : buffer() {
+}
+        ~Processor() {
+}
         char* process(const char* input) {
-            if (input) {
-                buffer = std::string(input) + " [processed]";
-            }
-            return const_cast<char*>(buffer.c_str());
-        }
+    if (input) {
+        buffer = std::string(input) + " [processed]";
+    }
+    return const_cast<char*>(buffer.c_str());
+}
     };
 
-    // Factory functions returning std::unique_ptr
     UniqueBuffer* uniquebuffer_new(int size) {
         return new UniqueBuffer(size);
     }
 
-    void uniquebuffer_delete(UniqueBuffer* self_) {
-        delete self_;
+    void uniquebuffer_delete(UniqueBuffer* self) {
+        delete self;
     }
 
     Processor* processor_new() {
         return new Processor();
     }
 
-    void processor_delete(Processor* self_) {
-        delete self_;
-    }
-
-    char* processor_process(Processor* self_, const char* input) {
-        return self_->process(input);
+    void processor_delete(Processor* self) {
+        delete self;
     }
 }
 
@@ -56,16 +64,21 @@ hicc::import_class! {
         fn get_size(&self) -> i32;
 
         #[cpp(method = "char* getData()")]
-        fn get_data(&mut self) -> *mut i8;
+        fn get_data(&mut self) -> *mut u8;
+
+        #[cpp(method = "UniqueBuffer move()")]
+        fn move(&mut self) -> UniqueBuffer;
 
         #[cpp(method = "int useCount() const")]
         fn use_count(&self) -> i32;
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "Processor")]
     class Processor {
         #[cpp(method = "char* process(const char* input)")]
-        fn process(&mut self, input: *const i8) -> *mut i8;
+        fn process(&mut self, input: *const u8) -> *mut u8;
     }
 }
 
@@ -73,15 +86,18 @@ hicc::import_lib! {
     #![link_name = "unique_ptr"]
 
     class UniqueBuffer;
-    #[cpp(func = "UniqueBuffer* uniquebuffer_new(int size)")]
+    class Processor;
+
+    #[cpp(func = "UniqueBuffer* uniquebuffer_new(int)")]
     fn uniquebuffer_new(size: i32) -> *mut UniqueBuffer;
-    #[cpp(func = "void uniquebuffer_delete(UniqueBuffer* self_)")]
+
+    #[cpp(func = "void uniquebuffer_delete(UniqueBuffer* self)")]
     unsafe fn uniquebuffer_delete(self_: *mut UniqueBuffer);
 
-    class Processor;
     #[cpp(func = "Processor* processor_new()")]
     fn processor_new() -> *mut Processor;
-    #[cpp(func = "void processor_delete(Processor* self_)")]
+
+    #[cpp(func = "void processor_delete(Processor* self)")]
     unsafe fn processor_delete(self_: *mut Processor);
 }
 
