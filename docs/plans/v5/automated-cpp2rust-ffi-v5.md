@@ -37,7 +37,7 @@ cp ../cpp2rust-demo/references/c2rust-demo/src/capture.rs ./src/
 
 # Step 1: 编译拦截（捕获预处理文件 + 目标文件）
 cd cpp-project/
-CPP2RUST_FEATURE_ROOT=.cpp2rust/v5 \
+CPP2RUST_FEATURE_ROOT=.cpp2rust \
 CPP2RUST_PROJECT_ROOT=/path/to/cpp-project \
 CPP2RUST_CXX=g++ \
 LD_PRELOAD=/path/to/libhook.so \
@@ -45,7 +45,7 @@ LD_PRELOAD=/path/to/libhook.so \
 
 # Step 2: 初始化（指定 feature 组织输出）
 cpp2rust-ffi init \
-    -i .cpp2rust/v5 \
+    -i .cpp2rust \
     -o ./rust_hicc \
     --feature core_lib          # 可选；省略则处理全部文件
 
@@ -64,7 +64,7 @@ cpp2rust-ffi merge \
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `-i / --input` | ✅ | 捕获产物输入目录（`.cpp2rust/v5/`） |
+| `-i / --input` | ✅ | 捕获产物输入目录（`.cpp2rust/`） |
 | `-o / --output` | ✅ | Rust 项目输出目录 |
 | `--feature <name>` | ❌ | 只处理指定 feature 的文件；省略则处理全部 |
 | `--dry-run` | ❌ | 只打印将要生成的文件，不实际写入 |
@@ -196,7 +196,7 @@ g++ -E -C \
 ### 4.3 输出目录结构
 
 ```
-.cpp2rust/v5/
+.cpp2rust/
 ├── c/                           # 预处理文件（.cpp2rust）
 │   └── src/
 │       ├── foo.cpp.cpp2rust     # 宏展开后的 C++ 代码
@@ -208,7 +208,7 @@ g++ -E -C \
 └── targets.list                 # 链接目标列表
 
 # 当使用 --feature <name> 时：
-.cpp2rust/v5/
+.cpp2rust/
 └── features/
     └── <name>/
         ├── c/
@@ -271,10 +271,10 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
 
 ```bash
 # hook.cpp 额外捕获：在调用真实编译器时，同时保存 .o 输出
-cp foo.cpp.o .cpp2rust/v5/obj/src/foo.cpp.o
+cp foo.cpp.o .cpp2rust/obj/src/foo.cpp.o
 
 # 工具侧：对每个 .o 文件运行 nm --demangle
-nm --demangle -C .cpp2rust/v5/obj/src/foo.cpp.o
+nm --demangle -C .cpp2rust/obj/src/foo.cpp.o
 ```
 
 **nm 输出示例**：
@@ -739,8 +739,8 @@ cargo test 2>&1 | grep -E "^test.*FAILED|^test result"
 # 在 001_hello_world 上运行 hook，验证 .cpp2rust 文件产出
 cd examples/001_hello_world/cpp
 LD_PRELOAD=/path/to/libhook.so make
-# 应在 .cpp2rust/v5/c/ 下产出 hello_world.cpp.cpp2rust
-# 应在 .cpp2rust/v5/obj/ 下产出 hello_world.cpp.o
+# 应在 .cpp2rust/c/ 下产出 hello_world.cpp.cpp2rust
+# 应在 .cpp2rust/obj/ 下产出 hello_world.cpp.o
 ```
 
 ---
@@ -755,7 +755,7 @@ LD_PRELOAD=/path/to/libhook.so make
 **Phase 0a 完成标准**：
 ```bash
 # 对 006_class_basic 的 .o 文件运行符号提取，应输出分类结果
-cargo run -- symbols .cpp2rust/v5/obj/src/class_basic.cpp.o
+cargo run -- symbols .cpp2rust/obj/src/class_basic.cpp.o
 # 应输出:
 # [global_fn] counter_new() -> Counter*
 # [global_fn] counter_delete(Counter*)
@@ -839,4 +839,4 @@ apt-get install clang libclang-dev g++ libstdc++-dev binutils
 | C++ AST 节点遗漏 | 功能缺失 | 扩展解析逻辑；符号提取可作为补充 |
 | 隐式模板跨 TU | 类型缺失 | 合并多 AST 分析；符号提取可发现跨 TU 实例化 |
 | 系统库展开代码庞大 | 解析慢、文件大 | 接受现状；符号提取可用于快速跳过系统库符号 |
-| --feature 范围界定 | feature 边界模糊 | feature 对应 `.cpp2rust/v5/features/<name>/` 目录，由用户决定分组 |
+| --feature 范围界定 | feature 边界模糊 | feature 对应 `.cpp2rust/features/<name>/` 目录，由用户决定分组 |
