@@ -585,7 +585,7 @@ macro_rules! golden_test {
     ($name:ident, $example:literal) => {
         #[test]
         fn $name() {
-            let example_dir = concat!("../examples/", $example);
+            let example_dir = concat!("examples/", $example);
             // 1. 用工具生成 lib.rs（只含 hicc 三段，无 fn main）
             let generated = run_tool_on(example_dir);
             // 2. 从黄金文件中提取 hicc 块（跳过 fn main 及其他手写代码）
@@ -625,7 +625,7 @@ golden_test!(test_048_summary,               "048_summary");
 fn compile_001_hello_world() {
     let status = Command::new("cargo")
         .args(["build"])
-        .current_dir("../examples/001_hello_world/rust_hicc")
+        .current_dir("examples/001_hello_world/rust_hicc")
         .status().unwrap();
     assert!(status.success());
 }
@@ -642,12 +642,12 @@ fn compile_001_hello_world() {
 
 fn expected_output(example: &str) -> String {
     // 从 README.md 中提取 "## 运行结果" 代码块
-    parse_readme_run_result(&format!("../examples/{}/README.md", example))
+    parse_readme_run_result(&format!("examples/{}/README.md", example))
 }
 
 #[test]
 fn run_001_hello_world() {
-    let output = cargo_run("../examples/001_hello_world/rust_hicc");
+    let output = cargo_run("examples/001_hello_world/rust_hicc");
     assert_eq!(output.trim(), expected_output("001_hello_world").trim());
 }
 ```
