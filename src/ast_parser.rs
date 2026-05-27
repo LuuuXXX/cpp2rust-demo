@@ -27,6 +27,10 @@ pub struct FieldInfo {
     pub type_name: String,
     pub is_mutable: bool,
     pub is_static: bool,
+    /// "public" | "protected" | "private"
+    pub accessibility: String,
+    /// 字段的默认值文本（源码提取，可能含 ` = 0`）
+    pub default_value: Option<String>,
 }
 
 /// 类的成员方法（含构造/析构）
@@ -42,6 +46,10 @@ pub struct MethodInfo {
     pub is_constructor: bool,
     pub is_destructor: bool,
     pub is_inline: bool,
+    /// "public" | "protected" | "private"
+    pub accessibility: String,
+    /// 方法定义的字节范围（在 .cpp2rust 文件中）：(start, end)
+    pub body_offset: Option<(u32, u32)>,
 }
 
 /// 基类说明符
@@ -92,6 +100,8 @@ pub struct FunctionInfo {
     pub is_extern_c: bool,
     /// 如果是友元函数提取出来的，记录其所属类名
     pub friend_of: Option<String>,
+    /// 函数定义的字节范围（在 .cpp2rust 文件中）：(start, end)
+    pub body_offset: Option<(u32, u32)>,
 }
 
 /// 顶层 AST 结果
@@ -130,8 +140,9 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     };
 
     let root = tu.get_entity();
+
+    // 第一遍：收集类/函数/枚举声明
     for entity in root.get_children() {
-        // 过滤系统头
         if entity
             .get_location()
             .map(|l| l.is_in_system_header())
@@ -139,16 +150,13 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         {
             continue;
         }
-
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
                 if let Some(ci) = extract_class(&entity) {
                     ast.classes.push(ci);
                 }
             }
-            EntityKind::ClassTemplate => {
-                // 类模板声明本身不处理；只关心实例化结果（下方）
-            }
+            EntityKind::ClassTemplate => {}
             EntityKind::ClassTemplatePartialSpecialization => {
                 if let Some(ci) = extract_class(&entity) {
                     ast.classes.push(ci);
@@ -159,23 +167,69 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                     ast.functions.push(fi);
                 }
             }
-            EntityKind::FunctionTemplate => {
-                // 函数模板声明本身不处理
-            }
+            EntityKind::FunctionTemplate => {}
             EntityKind::EnumDecl => {
                 if let Some(ei) = extract_enum(&entity) {
                     ast.enums.push(ei);
                 }
             }
             EntityKind::Namespace => {
-                // 命名空间：递归提取其子节点（展平命名空间前缀）
                 collect_namespace(&entity, &mut ast);
             }
             EntityKind::LinkageSpec => {
-                // extern "C" { ... }
                 collect_linkage_spec(&entity, &mut ast);
             }
             _ => {}
+        }
+    }
+
+    // 第二遍：收集类外方法定义（带方法体）并更新 body_offset
+    for entity in root.get_children() {
+        if entity
+            .get_location()
+            .map(|l| l.is_in_system_header())
+            .unwrap_or(true)
+        {
+            continue;
+        }
+
+        let kind = entity.get_kind();
+        let is_method_def = matches!(
+            kind,
+            EntityKind::Method | EntityKind::Constructor | EntityKind::Destructor
+        ) && entity.is_definition();
+
+        if is_method_def {
+            if let Some(range) = entity.get_range() {
+                let start = range.get_start().get_file_location().offset;
+                let end = range.get_end().get_file_location().offset;
+                let method_name = entity.get_name().unwrap_or_default();
+                if let Some(parent) = entity.get_semantic_parent() {
+                    if let Some(class_name) = parent.get_name() {
+                        if let Some(class) =
+                            ast.classes.iter_mut().find(|c| c.name == class_name)
+                        {
+                            if let Some(method) =
+                                class.methods.iter_mut().find(|m| m.name == method_name)
+                            {
+                                method.body_offset = Some((start, end));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 更新类外函数定义的 body_offset
+        if kind == EntityKind::FunctionDecl && entity.is_definition() {
+            if let Some(range) = entity.get_range() {
+                let start = range.get_start().get_file_location().offset;
+                let end = range.get_end().get_file_location().offset;
+                let fn_name = entity.get_name().unwrap_or_default();
+                if let Some(func) = ast.functions.iter_mut().find(|f| f.name == fn_name) {
+                    func.body_offset = Some((start, end));
+                }
+            }
         }
     }
 
@@ -299,30 +353,45 @@ fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
                     .get_type()
                     .map(|t| t.get_display_name())
                     .unwrap_or_default();
+                let accessibility = access_str(child.get_accessibility());
+                // 判断字段是否有内联默认值（如 int value = 0）
+                let has_inline_init = child
+                    .get_children()
+                    .iter()
+                    .any(|c| is_expression_kind(c.get_kind()));
+                let default_value = if has_inline_init {
+                    // 我们只记录"有默认值"，具体值从源码中读
+                    Some(String::new())
+                } else {
+                    None
+                };
                 fields.push(FieldInfo {
                     name: field_name,
                     type_name,
                     is_mutable: child.is_mutable(),
                     is_static: false,
+                    accessibility,
+                    default_value,
                 });
             }
             EntityKind::VarDecl => {
-                // 静态成员变量
                 let field_name = child.get_name().unwrap_or_default();
                 let type_name = child
                     .get_type()
                     .map(|t| t.get_display_name())
                     .unwrap_or_default();
+                let accessibility = access_str(child.get_accessibility());
                 fields.push(FieldInfo {
                     name: field_name,
                     type_name,
                     is_mutable: false,
                     is_static: true,
+                    accessibility,
+                    default_value: None,
                 });
             }
             EntityKind::FunctionDecl => {
-                // 友元函数：在当前类提取为 FunctionInfo（交给 FunctionInfo.friend_of 标记）
-                // 不放入 methods；由 ast.functions 收集（上层处理）
+                // 友元函数声明 — 不放入 methods
             }
             _ => {}
         }
@@ -349,6 +418,18 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
     let params = extract_params(entity);
     let is_constructor = entity.get_kind() == EntityKind::Constructor;
     let is_destructor = entity.get_kind() == EntityKind::Destructor;
+    let accessibility = access_str(entity.get_accessibility());
+
+    // 内联方法定义：直接含方法体
+    let body_offset = if entity.is_definition() {
+        entity.get_range().map(|r| {
+            let start = r.get_start().get_file_location().offset;
+            let end = r.get_end().get_file_location().offset;
+            (start, end)
+        })
+    } else {
+        None
+    };
 
     Some(MethodInfo {
         name,
@@ -361,6 +442,8 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
         is_constructor,
         is_destructor,
         is_inline: entity.is_inline_function(),
+        accessibility,
+        body_offset,
     })
 }
 
@@ -378,6 +461,16 @@ fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Opti
         .map(|t| t.is_variadic())
         .unwrap_or(false);
 
+    let body_offset = if entity.is_definition() {
+        entity.get_range().map(|r| {
+            let start = r.get_start().get_file_location().offset;
+            let end = r.get_end().get_file_location().offset;
+            (start, end)
+        })
+    } else {
+        None
+    };
+
     Some(FunctionInfo {
         name,
         return_type,
@@ -386,6 +479,7 @@ fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Opti
         is_variadic,
         is_extern_c: false,
         friend_of: friend_of.map(String::from),
+        body_offset,
     })
 }
 
@@ -471,6 +565,14 @@ fn is_expression_kind(kind: EntityKind) -> bool {
             | EntityKind::UnexposedExpr
             | EntityKind::CStyleCastExpr
     )
+}
+
+fn access_str(acc: Option<clang::Accessibility>) -> String {
+    match acc {
+        Some(clang::Accessibility::Public) => "public".to_string(),
+        Some(clang::Accessibility::Protected) => "protected".to_string(),
+        Some(clang::Accessibility::Private) | None => "private".to_string(),
+    }
 }
 
 // ─────────────────────────────────────────────
