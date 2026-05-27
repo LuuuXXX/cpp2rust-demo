@@ -147,6 +147,21 @@ impl Drop for FileHandle {
 3. **生命周期**：Rust 侧需要确保删除器在对象生命周期内有效
 4. **错误处理**：FFI 边界需要处理 nullptr 情况
 
+## 运行结果
+
+```
+=== 031_custom_deleter - 自定义删除器 ===
+
+Written 22 bytes
+[DEFAULT] Closing file: test_default.txt
+
+Rust FFI: 自定义删除器模式
+1. C++ 允许传递函数指针作为删除器
+2. 删除器在对象销毁时自动调用
+3. Rust 可以传入自己的清理函数
+4. 适用于文件、内存、网络连接等资源
+```
+
 ## 总结
 
 - 自定义删除器是 C++ RAII 的延伸

@@ -113,6 +113,21 @@ extern "C" fn rust_add(a: i32, b: i32) -> i32 {
 3. **Rust 闭包**：可以转换为函数指针
 4. **FFI 传递**：函数指针可以直接传递
 
+## 运行结果
+
+```
+=== 039_lambda_basic - Lambda 表达式 ===
+
+--- BinaryOp Demo ---
+Stored: a=10, b=20, result=30
+Stored: a=5, b=3, result=8
+
+Rust FFI: Lambda 表达式映射
+1. 函数指针可以通过 FFI 传递
+2. 捕获状态的 lambda 需要包装在类中
+3. 此示例展示基本的类封装模式
+```
+
 ## 总结
 
 - 无捕获的 lambda 可以作为函数指针传递

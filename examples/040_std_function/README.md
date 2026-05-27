@@ -137,6 +137,26 @@ extern "C" fn rust_callback(value: i32) -> i32 {
 - **策略模式**：运行时选择算法
 - **观察者模式**：事件通知
 
+## 运行结果
+
+```
+=== 040_std_function - std::function 回调 ===
+
+--- CallbackWrapper Demo ---
+process(5) with multiplier=2: 10
+get_value(): 10
+process(7) with multiplier=3: 21
+
+--- Processor Demo ---
+Set input: 21
+Simulated result (input * 2): 42
+
+Rust FFI: std::function 回调映射
+1. std::function 存储可调用对象
+2. 回调可用于事件处理
+3. 此示例展示基本的回调封装模式
+```
+
 ## 总结
 
 - std::function 提供类型擦除的可调用对象包装
