@@ -1,1 +1,1 @@
-/root/c2rust/cpp2rust-demo/examples/028_variadic_template/rust_hicc/target/debug/variadic_template: /root/c2rust/cpp2rust-demo/examples/028_variadic_template/rust_hicc/build.rs /root/c2rust/cpp2rust-demo/examples/028_variadic_template/rust_hicc/src/main.rs
+/tmp/workspace/LuuuXXX/cpp2rust-demo/examples/028_variadic_template/rust_hicc/target/debug/variadic_template: /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/028_variadic_template/rust_hicc/build.rs /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/028_variadic_template/rust_hicc/src/main.rs

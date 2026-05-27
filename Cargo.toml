@@ -1,0 +1,21 @@
+[package]
+name = "cpp2rust-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "Automated C++ to Rust FFI scaffold generator via LD_PRELOAD interception"
+
+[[bin]]
+name = "cpp2rust-ffi"
+path = "src/main.rs"
+
+[dependencies]
+clang = "2"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+tempfile = "3"
+
+[build-dependencies]
+cc = "1"

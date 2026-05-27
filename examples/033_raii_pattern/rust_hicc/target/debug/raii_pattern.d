@@ -1,1 +1,1 @@
-/root/c2rust/cpp2rust-demo/examples/033_raii_pattern/rust_hicc/target/debug/raii_pattern: /root/c2rust/cpp2rust-demo/examples/033_raii_pattern/rust_hicc/build.rs /root/c2rust/cpp2rust-demo/examples/033_raii_pattern/rust_hicc/src/main.rs
+/tmp/workspace/LuuuXXX/cpp2rust-demo/examples/033_raii_pattern/rust_hicc/target/debug/raii_pattern: /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/033_raii_pattern/rust_hicc/build.rs /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/033_raii_pattern/rust_hicc/src/main.rs
