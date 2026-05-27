@@ -608,7 +608,7 @@ fn extract_hicc_blocks(src: &str) -> String {
 golden_test!(test_001_hello_world,            "001_hello_world");
 golden_test!(test_002_function_overload,      "002_function_overload");
 golden_test!(test_003_default_args,           "003_default_args");
-// ... 003–048 全部列出
+// ... 004–048 全部列出
 golden_test!(test_048_summary,               "048_summary");
 ```
 
