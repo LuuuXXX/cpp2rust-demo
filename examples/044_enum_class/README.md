@@ -173,6 +173,31 @@ cargo run
 | 转换 | `static_cast<int>` | 直接使用整数 |
 | 类型安全 | 编译期检查 | 运行时检查 |
 
+## 运行结果
+
+```
+=== 044_enum_class - 强类型枚举 ===
+
+--- ErrorCode Demo ---
+Error: InvalidInput (code=1)
+Error: NotFound (code=3)
+
+--- State Demo ---
+State: Running (value=1)
+State: Paused (value=2)
+
+--- Flags Demo ---
+Flags: 011 (read=true, write=true, execute=false)
+Combined flags: 101
+
+--- 总结 ---
+1. enum class 是强类型，不会隐式转换为 int
+2. 可以指定底层类型：enum class Foo : int
+3. FFI 传递枚举值作为整数
+4. Rust 端定义相应常量来模拟枚举
+5. 强类型枚举更安全，避免枚举值混淆
+```
+
 ## 总结
 
 1. `enum class` 是强类型枚举，不会隐式转换为整数

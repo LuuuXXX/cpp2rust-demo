@@ -1,1 +1,1 @@
-/tmp/workspace/LuuuXXX/cpp2rust-demo/examples/032_placement_new/rust_hicc/target/debug/placement_new: /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/032_placement_new/rust_hicc/build.rs /tmp/workspace/LuuuXXX/cpp2rust-demo/examples/032_placement_new/rust_hicc/src/main.rs
+/root/c2rust/cpp2rust-demo/examples/032_placement_new/rust_hicc/target/debug/placement_new: /root/c2rust/cpp2rust-demo/examples/032_placement_new/rust_hicc/build.rs /root/c2rust/cpp2rust-demo/examples/032_placement_new/rust_hicc/src/main.rs
