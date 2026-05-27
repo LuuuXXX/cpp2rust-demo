@@ -86,6 +86,10 @@ cpp2rust-ffi merge \
 | `CPP2RUST_CXX` | ❌ | C++ 编译器，默认检测 g++/clang++/c++ |
 | `CPP2RUST_DEBUG` | ❌ | 设置为 1 输出调试日志 |
 
+> **与 c2rust-demo 的命名区别**：c2rust-demo 使用 `C2RUST_FEATURE_ROOT` 和 `.c2rust/` 目录；
+> cpp2rust 有意采用 `CPP2RUST_*` 和 `.cpp2rust/` 以避免与系统上其他 c2rust 工具产生目录/变量冲突。
+> 复制 `capture.rs` 后需将其中所有 `C2RUST_` 前缀改为 `CPP2RUST_`，`.c2rust` 目录引用改为 `.cpp2rust`。
+
 ---
 
 ## 3. 技术架构
@@ -722,7 +726,12 @@ cargo test 2>&1 | grep -E "^test.*FAILED|^test result"
 3. [ ] 修改文件扩展名支持：`.c` → `.cpp, .cc, .cxx, .c++, .C, .cp`
 4. [ ] 输出预处理文件（`.cpp2rust`），使用 `-E -C`（保留注释和行号 marker）
 5. [ ] 额外：将编译产生的 `.o` 文件复制到 `obj/` 目录（供 Phase 0a 使用）
-6. [ ] 复制 `references/c2rust-demo/src/capture.rs`
+6. [ ] 复制 `references/c2rust-demo/src/capture.rs`，并做以下适配：
+   - 将所有 `C2RUST_FEATURE_ROOT` → `CPP2RUST_FEATURE_ROOT`
+   - 将所有 `C2RUST_PROJECT_ROOT` → `CPP2RUST_PROJECT_ROOT`
+   - 将所有 `C2RUST_CXX` → `CPP2RUST_CXX`
+   - 将所有 `C2RUST_DEBUG` → `CPP2RUST_DEBUG`
+   - 将 `.c2rust` 目录引用 → `.cpp2rust`（与 `CPP2RUST_FEATURE_ROOT` 默认值保持一致）
 7. [ ] 复制 `hook/Makefile` 并适配
 
 **Phase 0 完成标准**：
