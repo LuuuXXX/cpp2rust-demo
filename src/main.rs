@@ -21,6 +21,8 @@ enum Commands {
     Init(InitArgs),
     /// Merge generated per-symbol outputs into module-level files
     Merge(MergeArgs),
+    /// Parse a .cpp2rust file and print the AST structure (for debugging)
+    Parse(ParseArgs),
 }
 
 #[derive(Args)]
@@ -49,6 +51,24 @@ struct MergeArgs {
     /// Feature name (default: "default")
     #[arg(long, default_value = "default")]
     feature: String,
+}
+
+#[derive(Args)]
+struct ParseArgs {
+    /// Path to the .cpp2rust file to parse
+    file: std::path::PathBuf,
+}
+
+fn run_parse(args: ParseArgs) -> Result<()> {
+    let file = &args.file;
+    if !file.exists() {
+        return Err(anyhow!("file not found: {}", file.display()));
+    }
+    println!("Parsing: {}", file.display());
+    println!();
+    let ast = ast_parser::parse_preprocessed(file)?;
+    ast.print_tree();
+    Ok(())
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
@@ -116,17 +136,35 @@ fn run_init(args: InitArgs) -> Result<()> {
         return Ok(());
     }
 
-    println!("\nRunning AST parser stub...");
-    match ast_parser::parse_preprocessed(&selected[0]) {
-        Ok(ast) => println!("Parsed AST for {}", ast.file.display()),
-        Err(err) => println!("{}", err),
+    println!("\nRunning AST parser on selected files...");
+    let mut parse_errors = 0usize;
+    for path in &selected {
+        match ast_parser::parse_preprocessed(path) {
+            Ok(ast) => {
+                println!(
+                    "  {} → {} class(es), {} fn(s), {} enum(s)",
+                    path.display(),
+                    ast.classes.len(),
+                    ast.functions.len(),
+                    ast.enums.len()
+                );
+            }
+            Err(err) => {
+                parse_errors += 1;
+                if args.skip_failed {
+                    eprintln!("  Warning: parse failed for {}: {:#}", path.display(), err);
+                } else {
+                    return Err(err);
+                }
+            }
+        }
     }
 
-    if args.skip_failed {
-        println!("--skip-failed is not implemented yet (stub).");
+    if parse_errors > 0 {
+        println!("\nWarning: {} file(s) failed to parse (--skip-failed active).", parse_errors);
     }
 
-    println!("\n✓ cpp2rust-demo init completed for Phase T/0.");
+    println!("\n✓ cpp2rust-demo init completed for Phase 1.");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── c/          (captured .cpp2rust files)");
@@ -141,6 +179,7 @@ fn main() {
     let result = match cli.command {
         Commands::Init(args) => run_init(args),
         Commands::Merge(args) => run_merge(args),
+        Commands::Parse(args) => run_parse(args),
     };
     if let Err(e) = result {
         eprintln!("Error: {:#}", e);
