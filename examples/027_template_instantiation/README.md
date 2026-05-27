@@ -60,6 +60,24 @@ template class Matrix<int>;  // 实际实例化
 - 减少编译时间和二进制大小
 - 在 FFI 中，我们可以预先实例化需要的类型
 
+## 运行结果
+
+```
+=== 027_template_instantiation - 模板显式实例化 ===
+
+   1   2   3
+   4   5   6
+   7   8   9
+
+ 1.1 2.2
+ 3.3 4.4
+
+Rust FFI: 显式实例化将模板绑定到具体类型
+extern template 声明可在库中预实例化
+Matrix<int> -> IntMatrix
+Matrix<double> -> DoubleMatrix
+```
+
 ## 总结
 
 - 显式实例化是模板 FFI 的标准方法

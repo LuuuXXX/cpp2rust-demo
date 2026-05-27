@@ -69,6 +69,25 @@ void buffer_delete(Buffer*);  // 释放 unique_ptr
 
 hicc-std 库提供了 `std::unique_ptr` 的安全 Rust 包装，可以直接使用。
 
+## 运行结果
+
+```
+=== 029_unique_ptr - std::unique_ptr ===
+
+Buffer size: 16
+Buffer data: 
+Use count: 1 (unique_ptr always = 1)
+
+Processed result: Hello, unique_ptr! [processed]
+
+Rust FFI: unique_ptr 的处理方式
+1. C++ 侧管理对象生命周期
+2. Rust 侧通过 FFI 函数调用管理
+3. 相当于 Rust 的 Box<T>
+
+hicc-std 提供了 std::unique_ptr 的安全 Rust 包装
+```
+
 ## 总结
 
 - `unique_ptr` 的 FFI 相对简单（独占所有权）

@@ -76,6 +76,33 @@ unsafe fn shareddata_expired(self_: *mut SharedData) -> i32;
 | 释放 | 计数为 0 时 | Rust 仍需显式 delete |
 | weak_ptr | `lock()` 获取 shared_ptr | `expired()` 检查 + 创建新 |
 
+## 运行结果
+
+```
+=== 030_shared_ptr - std::shared_ptr + weak_ptr ===
+
+Created SharedData: TestData
+Use count: 1
+
+Cloned SharedData: TestData
+Use count (shared): 1
+
+After reset:
+data1 expired: true
+
+
+Cache demo:
+cached1a and cached1b point to same cache entry
+
+Rust FFI: shared_ptr 的处理方式
+1. C++ 侧管理引用计数
+2. Rust 侧通过 FFI 函数操作
+3. 相当于 Rust 的 Arc<T>
+
+weak_ptr 用于缓存，避免循环引用
+相当于 Rust 的 Weak<T>
+```
+
 ## 总结
 
 - `shared_ptr` 的 FFI 需要导出引用计数操作函数
