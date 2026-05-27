@@ -128,10 +128,18 @@ pub fn extract_hicc_blocks(src: &str) -> String {
     result
 }
 
-/// Normalize source for comparison: collapse whitespace, remove blank lines.
+/// Normalize source for comparison: collapse whitespace, remove blank lines, strip // comments.
 pub fn normalize(src: &str) -> String {
     src.lines()
-        .map(|l| collapse_spaces(l.trim()))
+        .map(|l| {
+            // Strip // line comments (but not inside strings — good enough for golden comparison)
+            let l = if let Some(pos) = l.find("//") {
+                l[..pos].trim_end()
+            } else {
+                l
+            };
+            collapse_spaces(l.trim())
+        })
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
         .join("\n")

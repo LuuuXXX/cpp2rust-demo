@@ -98,6 +98,19 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     cpp.to_string()
 }
 
+/// `cpp_to_rust` 的 FFI 函数版本：`char*` 映射为有符号 `i8`（C 标准 char 为 signed）。
+/// 用于 import_lib! 函数绑定；import_class! 方法绑定继续使用 `cpp_to_rust`（返回 `u8`）。
+pub fn cpp_to_rust_ffi(cpp: &str) -> String {
+    let cpp = cpp.trim();
+    if cpp == "const char *" || cpp == "const char*" || cpp == "char const *" {
+        return "*const i8".to_string();
+    }
+    if cpp == "char *" || cpp == "char*" {
+        return "*mut i8".to_string();
+    }
+    cpp_to_rust(cpp)
+}
+
 /// 构造 C++ 函数签名字符串（用于 #[cpp(func = "...")]）
 ///
 /// 例：`counter_new() -> Counter*` → `Counter* counter_new()`

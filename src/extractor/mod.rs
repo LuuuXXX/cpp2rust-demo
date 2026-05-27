@@ -10,7 +10,7 @@ pub mod type_mapper;
 use crate::ast_parser::{ClassInfo, CppAst, FieldInfo, FunctionInfo, MethodInfo, ParamInfo};
 use crate::ffi_model::{ClassSpec, FfiSpec, FnBinding, LibSpec, MethodBinding, SelfKind};
 use std::fs;
-use type_mapper::{clean_type, cpp_to_rust, to_snake_case};
+use type_mapper::{clean_type, cpp_to_rust, cpp_to_rust_ffi, to_snake_case};
 
 // ─────────────────────────────────────────────
 //  公共入口
@@ -578,7 +578,7 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
     let fn_bindings: Vec<FnBinding> = shims
         .iter()
         .filter(|(_, k)| !matches!(k, ShimKind::MethodAccessor))
-        .map(|(fi, _)| build_fn_binding(fi))
+        .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
 
     // 前向声明：只包含在函数签名中实际引用的类（按原始顺序）
@@ -600,31 +600,36 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
     LibSpec { link_name: unit_name.to_string(), fwd_decls, fn_bindings }
 }
 
-fn build_fn_binding(fi: &FunctionInfo) -> FnBinding {
+fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let rust_name = to_snake_case(&fi.name);
     let params: Vec<(String, String)> = fi
         .params
         .iter()
-        .map(|p| (sanitize_param_name(&p.name), cpp_to_rust(&p.type_name)))
+        .map(|p| (sanitize_param_name(&p.name), cpp_to_rust_ffi(&p.type_name)))
         .collect();
 
     let ret_type = if fi.return_type.is_empty() || fi.return_type == "void" {
         None
     } else {
-        let rt = cpp_to_rust(&fi.return_type);
+        let rt = cpp_to_rust_ffi(&fi.return_type);
         if rt.is_empty() { None } else { Some(rt) }
     };
 
-    // unsafe: 参数中有 *mut T 类型
-    let is_unsafe = params.iter().any(|(_, t)| t.starts_with("*mut "));
+    // unsafe: 参数中有 *mut T 类型，或参数/返回值含原始 C 字符串（*const i8 / *mut i8）
+    let is_unsafe = params.iter().any(|(_, t)| {
+        t.starts_with("*mut ")
+            || t == "*const i8"
+            || t == "*mut i8"
+    }) || ret_type.as_deref().map_or(false, |r| r == "*const i8" || r == "*mut i8");
 
-    // 构造 C++ 函数签名（类型后紧贴 *，保留参数名）
+    // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名
     let param_parts: Vec<String> = fi
         .params
         .iter()
         .map(|p| {
             let ty = normalize_ptr_spacing(clean_type(&p.type_name));
-            if !p.name.is_empty() && p.name != "_" {
+            let is_class_ptr = class_names.iter().any(|cn| p.type_name.contains(cn));
+            if is_class_ptr && !p.name.is_empty() && p.name != "_" {
                 format!("{} {}", ty, p.name)
             } else {
                 ty.to_string()
