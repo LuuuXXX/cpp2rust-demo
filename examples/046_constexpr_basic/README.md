@@ -109,6 +109,33 @@ cargo build
 | 模板参数 | `fibonacci<10>()` | 泛型 `fib::<10>()` ( nightly ) |
 | 宏 | `#define ARRAY_SIZE 10` | 编译期常量 |
 
+## 运行结果
+
+```
+=== 046_constexpr_basic - constexpr ===
+
+--- Compile-time Fibonacci ---
+fibonacci<10>() = 55 (computed at compile time)
+Rust equivalent: fib(10) = 55 (also compile time)
+
+--- Runtime Manhattan Distance ---
+manhattan_distance(3, 4) = 7
+manhattan_distance(-3, -4) = 7
+manhattan_distance(10, -5) = 15
+
+--- Array Operations ---
+Array: [1, 5, 3, 9, 2, 8, 4, 7, 6, 0]
+Sum: 45
+Max: 9
+
+--- Summary ---
+1. constexpr specifies expression computed at compile time
+2. constexpr functions must satisfy compile-time evaluation conditions
+3. constexpr variables have determined values at compile time
+4. FFI constexpr values passed via preprocessor macros
+5. Rust const fn can achieve similar functionality
+```
+
 ## 总结
 
 1. `constexpr` 指定表达式在编译期计算

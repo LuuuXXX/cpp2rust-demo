@@ -126,6 +126,30 @@ struct Number* number_add(struct Number* a, struct Number* b) {
 }
 ```
 
+## 运行结果
+
+```
+=== Friend Function FFI ===
+
+Friend functions in C++ can access private members of a class
+
+Created MyClass objects:
+  a.value = 10
+  b.value = 20
+
+Friend function operations:
+Friend function getSum: 10 + 20 = 30
+  Sum: 30
+Friend function getProduct: 10 * 20 = 200
+  Product: 200
+Friend function compare: a < b
+  Compare: -1
+
+Rust FFI: Friend functions are just regular functions
+In C FFI, we can access struct members directly
+The 'friend' relationship is a C++ access control concept
+```
+
 ## 总结
 
 1. **友元函数**：获得访问 private 成员的普通函数

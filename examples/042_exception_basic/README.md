@@ -110,6 +110,37 @@ cargo build
 | 异常传递 | 直接传播 | 通过错误码模拟 |
 | 多异常类型 | 不同异常类 | 枚举变体 |
 
+## 运行结果
+
+```
+=== 042_exception_basic - Exception Handling ===
+
+--- Division Tests ---
+10 / 2 = 5
+  10 / 2: No exception
+
+Testing division by zero:
+10 / 0 = 0 (returns 0, check exception)
+  10 / 0: Runtime error exception
+
+After clearing exception:
+20 / 4 = 5
+  20 / 4: No exception
+
+--- String to Int Tests ---
+string_to_int("123") = 123
+  string_to_int("123"): No exception
+string_to_int("abc") = 0 (returns 0, check exception)
+  string_to_int("abc"): Invalid argument exception
+
+--- Summary ---
+1. C++ exceptions CANNOT propagate across FFI boundary
+2. Common FFI pattern: set error code, return error value
+3. Check exception/error state after each call
+4. Clear exception state before next operation
+5. Never throw in FFI boundary - use error codes instead
+```
+
 ## 总结
 
 1. C++ 异常不能直接跨 FFI 边界传播到 Rust

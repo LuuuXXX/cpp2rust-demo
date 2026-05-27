@@ -48,6 +48,25 @@ fn stringholder_get(self_: *mut StringHolder) -> *const i8;
 | 特化检测 | 编译器自动选择 | 手动区分 |
 | 字符串处理 | 特殊实现 | 独立结构处理 |
 
+## 运行结果
+
+```
+=== 026_template_specialization - 模板偏特化 ===
+
+IntHolder(value=42)
+  get(): 42
+
+DoubleHolder(value=3.14159)
+  get(): 3.14159
+
+StringHolder(value="Hello, World!", length=13)
+  get(): Hello, World!
+
+Rust FFI: 每个模板特化是独立的结构
+通用版本: IntHolder, DoubleHolder
+偏特化: StringHolder (处理 char*)
+```
+
 ## 总结
 
 - 模板偏特化在 FFI 中需要为每个特化创建独立结构

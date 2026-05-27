@@ -149,6 +149,34 @@ impl Drop for CppString {
 3. **内存管理**：Rust 侧通过 Drop trait 释放
 4. **CString 转换**：Rust 字符串转为 C 字符串
 
+## 运行结果
+
+```
+=== 036_string_basic - std::string ===
+
+--- Creation Demo ---
+Created: "Hello"
+Size: 5, Length: 5
+Empty: false
+
+--- Comparison Demo ---
+Compare with 'Hello': 0
+Equals 'Hello': true
+
+--- Concatenation Demo ---
+After append: "Hello, World!"
+
+--- Case Conversion Demo ---
+To upper: "HELLO WORLD"
+To lower: "hello world"
+
+Rust FFI: std::string 映射
+1. C++ 字符串映射为 opaque 指针
+2. 字符串内容通过 c_str() 获取
+3. 修改操作直接在原字符串上进行
+4. CString 用于 Rust 到 C 的转换
+```
+
 ## 总结
 
 - std::string 是 C++ 标准字符串类型

@@ -48,6 +48,22 @@ fn widget_fromDouble(value: f64) -> *mut Widget;
 | 函数调用 | 可能隐式：`Widget w = 42;` | 始终显式：`widget_fromInt(42)` |
 | FFI 签名 | `Widget* widget_fromInt(int)` | `fn widget_fromInt(value: i32) -> *mut Widget` |
 
+## 运行结果
+
+```
+=== 021_explicit_ctor - explicit 构造函数 ===
+
+C++ explicit 关键字防止隐式类型转换
+
+Created with implicit ctor: value = 42
+
+Created with explicit int ctor: value = 100
+Created with explicit double ctor: value = 3
+
+Rust FFI: explicit 不影响 FFI - 只是禁止隐式转换
+在 FFI 中，所有构造函数都是显式调用的
+```
+
 ## 总结
 
 - `explicit` 是编译时检查，不影响运行时 FFI 调用

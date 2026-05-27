@@ -121,6 +121,34 @@ hicc::import_lib! {
 3. **索引访问**：`std::get<index>`
 4. **FFI 映射**：需要为每个位置提供独立的 getter
 
+## 运行结果
+
+```
+=== 038_tuple_basic - std::tuple ===
+
+--- Tuple2 (int, string) Demo ---
+Tuple2: first=42, second=hello
+
+--- Tuple3 (int, double, string) Demo ---
+Tuple3: first=100, second=3.14159, third=world
+
+--- Tuple4 (int, double, string, int) Demo ---
+Tuple4 elements:
+  [0] = 1
+  [1] = 2.71828
+  [2] = tuple
+  [3] = 4
+
+--- Helper Functions Demo ---
+make_int_string_pair: (10, pair)
+
+Rust FFI: std::tuple 映射
+1. std::tuple 是异构容器的编译时固定版本
+2. 通过 std::get<N>(tuple) 访问元素
+3. FFI 需要为每个元素类型提供独立的 getter 函数
+4. 字符串等复杂类型需要额外的内存管理
+```
+
 ## 总结
 
 - std::tuple 是固定大小的异构容器

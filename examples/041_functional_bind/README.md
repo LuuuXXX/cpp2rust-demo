@@ -119,6 +119,31 @@ cargo build
 | 成员函数绑定 | `std::bind(&Class::method, obj, _1)` | 间接调用 |
 | 占位符 | `std::placeholders::_1` | 通过参数传递实现 |
 
+## 运行结果
+
+```
+=== 041_functional_bind - std::bind 绑定 ===
+
+--- Adder Demo (绑定基础值) ---
+Result of adder.add(50): 150
+Result of adder.add(30): 130
+
+--- Multiplier Demo (绑定乘数) ---
+multiply(6) = 42
+multiply(11) = 77
+
+--- StringProcessor Demo (成员函数绑定) ---
+Count of 'l': 3
+Count of 'o': 2
+Count of 'h': 1
+
+--- 总结 ---
+1. std::bind 创建部分应用的函数对象
+2. 可以绑定函数、成员函数、参数值
+3. 通过 opaque pointer 在 FFI 间传递绑定后的函数
+4. _1, _2 等占位符表示未绑定的参数位置
+```
+
 ## 总结
 
 1. `std::bind` 创建部分应用的函数对象

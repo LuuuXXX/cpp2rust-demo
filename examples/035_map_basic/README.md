@@ -122,6 +122,33 @@ hicc::import_lib! {
 3. **查找语义**：返回 1/0 表示成功/失败
 4. **输出参数**：使用指针返回查找结果
 
+## 运行结果
+
+```
+=== 035_map_basic - std::map ===
+
+--- StringIntMap Demo ---
+Empty: true
+Insert 'one' = 1: true
+Insert 'two' = 2: true
+Insert 'three' = 3: true
+Insert 'four' = 4: true
+Insert 'five' = 5: true
+Size: 5
+Get 'one': 1
+Set 'one' = 100, now: 100
+Erase 'five': true
+Size after erase: 4
+After clear, size: 0
+
+Rust FFI: std::map 映射
+1. map 是有序关联容器（红黑树实现）
+2. 插入: insert(key, value) -> bool
+3. 查找: find(key) -> iterator 或 end()
+4. 删除: erase(key) -> size_t
+5. 字符串键需要 CString 转换
+```
+
 ## 总结
 
 - std::map 是有序关联容器

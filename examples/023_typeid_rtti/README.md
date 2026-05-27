@@ -44,6 +44,24 @@ match shape_getType(shape) {
 | 类型名称 | `ti.name()` | 编译器特定，无法可靠传递 |
 | 类型比较 | `ti == typeid(Circle)` | 枚举值比较 |
 
+## 运行结果
+
+```
+=== 023_typeid_rtti - typeid 与 RTTI ===
+
+
+Using typeid to determine runtime type:
+Circle: type=-1, name=Circle, area=0.00
+Rectangle: type=-1, area=0.00
+Triangle: type=-1, area=0.00
+Deleting Shape
+Deleting Shape
+Deleting Shape
+
+Rust FFI: typeid 变成类型枚举或字符串比较
+RTTI 信息在 FFI 边界丢失，需在 C++ 侧导出类型信息
+```
+
 ## 总结
 
 - C++ RTTI 信息无法直接传递到 Rust

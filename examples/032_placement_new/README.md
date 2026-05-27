@@ -120,6 +120,26 @@ hicc::import_lib! {
 - **嵌入式系统**：避免动态分配
 - **游戏开发**：对象池管理
 
+## 运行结果
+
+```
+=== 032_placement_new - Placement New ===
+
+Buffer created with capacity: 1024
+Buffer data at: 0x...
+Buffer capacity: 1024
+Buffer constructed size: 0
+
+--- VectorBuffer Demo ---
+VectorBuffer element size: 4
+
+Rust FFI: Placement New 模式
+1. 在预分配内存中构造对象
+2. 使用 placement new: new (address) Constructor(args)
+3. 适用于内存池、STL 容器实现
+4. Rust 需要手动管理内存布局
+```
+
 ## 总结
 
 - Placement new 允许在指定内存地址构造对象

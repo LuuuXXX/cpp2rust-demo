@@ -110,6 +110,19 @@ struct Derived {
 | `dog.speak()` | `dog_speak(dog)` |
 | `dog.bark()` | `dog_bark(dog)` |
 
+## 运行结果
+
+```
+Animal name: Generic Animal
+Generic Animal makes a sound
+
+Dog name: Buddy
+Buddy barks: Woof! Woof!
+Buddy barks: Woof! Woof!
+
+Rust FFI: Single inheritance with hicc pattern
+```
+
 ## 总结
 
 1. **单继承**：派生类包含基类作为第一个成员

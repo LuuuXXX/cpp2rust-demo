@@ -116,6 +116,29 @@ class Derived : public Base {
 // FFI 只看到结果：vtable 中是 Derived::area
 ```
 
+## 运行结果
+
+```
+=== Virtual Override FFI with hicc ===
+
+The 'override' keyword explicitly marks method overriding in C++
+
+Creating Base
+Creating Derived (as Base*)
+--- Calling through Base pointer ---
+Name: Base
+Area: 0.0000
+
+--- Calling through Derived (as Base*) ---
+Name: Derived
+Area: 1764.0000
+
+override ensures Derived::area() is called not Base::area()
+This is polymorphism: same interface, different implementations
+
+Rust FFI: override keyword works correctly through hicc!
+```
+
 ## 总结
 
 1. **override**：确保派生类方法覆盖基类虚函数

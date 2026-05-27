@@ -152,6 +152,34 @@ cargo build
 cargo run
 ```
 
+## 运行结果
+
+```
+=== 043_namespace_nested - 嵌套命名空间 ===
+
+--- foo::bar::config::ConfigManager ---
+timeout = 30
+retry = 3
+port = 8080
+
+--- string_length ---
+string_length("Hello, World!") = 13
+
+--- foo::baz::DataProcessor ---
+process(42) = 42
+
+--- Top-level Functions ---
+version = 1.0.0
+build_number = 42
+
+--- 总结 ---
+1. C++ 嵌套命名空间：foo::bar::config
+2. 命名空间影响符号名称
+3. FFI 声明使用完全限定名称
+4. Rust 端使用 opaque pointer 模式
+5. hicc import_class! 不支持嵌套命名空间，使用 raw extern "C"
+```
+
 ## 总结
 
 1. C++ 嵌套命名空间可以任意深度嵌套（如 `foo::bar::config`）

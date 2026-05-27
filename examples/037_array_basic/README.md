@@ -112,6 +112,39 @@ hicc::import_lib! {
 3. **栈分配**：更高效的内存布局
 4. **数据指针**：`data()` 返回连续内存
 
+## 运行结果
+
+```
+=== 037_array_basic - std::array ===
+
+--- IntArray5 Demo ---
+Size: 5
+Empty: false
+Elements:
+  [0] = 0
+  [1] = 10
+  [2] = 20
+  [3] = 30
+  [4] = 40
+at(2) = 20
+Data pointer: 0x...
+
+--- IntArray5 from values Demo ---
+Size: 5
+Elements:
+  [0] = 1
+  [1] = 2
+  [2] = 3
+  [3] = 4
+  [4] = 5
+
+Rust FFI: std::array 映射
+1. std::array 是固定大小的数组容器
+2. 大小在编译时确定（模板参数）
+3. data() 返回原始指针用于批量访问
+4. 与 Rust 的 [T; N] 数组语义相似
+```
+
 ## 总结
 
 - std::array 是固定大小的数组容器
