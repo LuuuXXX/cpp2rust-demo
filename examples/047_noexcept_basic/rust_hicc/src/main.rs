@@ -11,7 +11,6 @@ hicc::cpp! {
     other.value_ = 0;
 }
         ~NoexceptMover() {}
-        NoexceptMover(NoexceptMover && other) = default;
         NoexceptMover& operator=(NoexceptMover&& other) noexcept {
     if (this != &other) {
         value_ = other.value_;
@@ -22,8 +21,6 @@ hicc::cpp! {
         int get_value() const {
     return value_;
 }
-        NoexceptMover(const NoexceptMover &) = default;
-        NoexceptMover & operator=(const NoexceptMover &) {}
     };
 
     int noexcept_add(int a, int b) noexcept {
@@ -136,5 +133,6 @@ fn main() {
     println!("4. noexcept functions cannot call potentially throwing functions");
     println!("5. In FFI, noexcept is part of function signature");
 }
+
 
 

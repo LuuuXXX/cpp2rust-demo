@@ -208,15 +208,22 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 let start = range.get_start().get_file_location().offset;
                 let end = range.get_end().get_file_location().offset;
                 let method_name = entity.get_name().unwrap_or_default();
+                let param_count = entity.get_arguments().map(|a| a.len()).unwrap_or(0);
                 if let Some(parent) = entity.get_semantic_parent() {
                     if let Some(class_name) = parent.get_name() {
                         if let Some(class) =
                             ast.classes.iter_mut().find(|c| c.name == class_name)
                         {
-                            if let Some(method) =
-                                class.methods.iter_mut().find(|m| m.name == method_name)
-                            {
-                                method.body_offset = Some((start, end));
+                            // 先按名称+参数数量精确匹配，回退到仅名称匹配
+                            let idx = class
+                                .methods
+                                .iter()
+                                .position(|m| m.name == method_name && m.params.len() == param_count)
+                                .or_else(|| {
+                                    class.methods.iter().position(|m| m.name == method_name)
+                                });
+                            if let Some(i) = idx {
+                                class.methods[i].body_offset = Some((start, end));
                             }
                         }
                     }

@@ -10,10 +10,12 @@ hicc::cpp! {
     public:
         std::string data;
     public:
+        StringImpl() : data() {
+}
+        StringImpl(const char* str) : data(str ? str : "") {
+}
         StringImpl(const char* str, size_t len) : data(str ? std::string(str, len) : "") {
 }
-        StringImpl(const char* str) = default;
-        StringImpl(const char* str, size_t len) = default;
         ~StringImpl() {
     data.clear();
 }
@@ -22,10 +24,12 @@ hicc::cpp! {
     struct String {
     public:
         StringImpl* impl;
+        String() : impl(new StringImpl()) {
+}
+        String(const char* str) : impl(new StringImpl(str)) {
+}
         String(const char* str, size_t len) : impl(new StringImpl(str, len)) {
 }
-        String(const char* str) = default;
-        String(const char* str, size_t len) = default;
         ~String() {
     delete impl;
     impl = nullptr;
@@ -114,5 +118,6 @@ fn main() {
     println!("3. 修改操作直接在原字符串上进行");
     println!("4. CString 用于 Rust 到 C 的转换");
 }
+
 
 

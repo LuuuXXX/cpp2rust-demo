@@ -9,6 +9,8 @@ hicc::cpp! {
     public:
         std::array<int, 5> data;
     public:
+        IntArray5Impl() : data() {
+}
         IntArray5Impl(const int* values) : data() {
     if (values) {
         for (size_t i = 0; i < 5; ++i) {
@@ -16,7 +18,6 @@ hicc::cpp! {
         }
     }
 }
-        IntArray5Impl(const int* values) = default;
         ~IntArray5Impl() {
 }
     };
@@ -25,6 +26,8 @@ hicc::cpp! {
     public:
         std::array<double, 3> data;
     public:
+        DoubleArray3Impl() : data() {
+}
         DoubleArray3Impl(const double* values) : data() {
     if (values) {
         for (size_t i = 0; i < 3; ++i) {
@@ -32,7 +35,6 @@ hicc::cpp! {
         }
     }
 }
-        DoubleArray3Impl(const double* values) = default;
         ~DoubleArray3Impl() {
 }
     };
@@ -51,9 +53,10 @@ hicc::cpp! {
     struct IntArray5 {
     public:
         IntArray5Impl* impl;
+        IntArray5() : impl(new IntArray5Impl()) {
+}
         IntArray5(const int* values) : impl(new IntArray5Impl(values)) {
 }
-        IntArray5(const int* values) = default;
         ~IntArray5() {
     delete impl;
     impl = nullptr;
@@ -63,9 +66,10 @@ hicc::cpp! {
     struct DoubleArray3 {
     public:
         DoubleArray3Impl* impl;
+        DoubleArray3() : impl(new DoubleArray3Impl()) {
+}
         DoubleArray3(const double* values) : impl(new DoubleArray3Impl(values)) {
 }
-        DoubleArray3(const double* values) = default;
         ~DoubleArray3() {
     delete impl;
     impl = nullptr;
@@ -202,5 +206,6 @@ fn main() {
     println!("3. data() 返回原始指针用于批量访问");
     println!("4. 与 Rust 的 [T; N] 数组语义相似");
 }
+
 
 

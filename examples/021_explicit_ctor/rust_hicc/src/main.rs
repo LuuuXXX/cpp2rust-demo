@@ -5,7 +5,6 @@ hicc::cpp! {
         int value;
     public:
         Widget(double v) : value(static_cast<int>(v)) {}
-        Widget(double v) = default;
         ~Widget() {}
         int getValue() const { return value; }
     };
@@ -76,5 +75,6 @@ fn main() {
     println!("\nRust FFI: explicit 不影响 FFI - 只是禁止隐式转换");
     println!("在 FFI 中，所有构造函数都是显式调用的");
 }
+
 
 

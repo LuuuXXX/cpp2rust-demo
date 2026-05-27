@@ -11,9 +11,10 @@ hicc::cpp! {
         std::mutex mtx_;
         std::string name_;
     public:
+        Mutex() : mtx_(), name_("unnamed") {
+}
         Mutex(const char* name) : mtx_(), name_(name ? name : "unnamed") {
 }
-        Mutex(const char* name) = default;
         ~Mutex() {
 }
         void lock() {
@@ -42,8 +43,6 @@ hicc::cpp! {
         mutex_->unlock();
     }
 }
-        ScopedLock(ScopedLock && other) = default;
-        ScopedLock(const ScopedLock &) = default;
         ScopedLock & operator=(const ScopedLock &) {}
     };
 
@@ -62,7 +61,6 @@ hicc::cpp! {
         file_.close();
     }
 }
-        FileLock(const FileLock &) = default;
         FileLock & operator=(const FileLock &) {}
         void lock() {
     mtx_.lock();
@@ -215,4 +213,5 @@ fn main() {
     println!("3. FFI 边界: ScopedLock 对象在 Rust 析构时自动释放");
     println!("4. 推荐模式: Rust 封装 RAII guard 类型");
 }
+
 

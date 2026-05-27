@@ -243,11 +243,29 @@ fn emit_class_inline(ci: &ClassInfo, source_bytes: &[u8], lines: &mut Vec<String
 
     emit_fields_by_access(ci, source_bytes, lines);
 
-    let pub_methods: Vec<&MethodInfo> = ci
+    // 对 public 方法去重：同名+同参数数量时优先保留有 body_offset 的版本，
+    // 按原始顺序输出每个 (name, param_count) 键的第一次出现位置。
+    let all_pub: Vec<&MethodInfo> = ci
         .methods
         .iter()
         .filter(|m| m.accessibility == "public")
         .collect();
+
+    let mut seen_keys: Vec<(&str, usize)> = Vec::new();
+    let mut pub_methods: Vec<&MethodInfo> = Vec::new();
+    for m in &all_pub {
+        let key = (m.name.as_str(), m.params.len());
+        if !seen_keys.contains(&key) {
+            seen_keys.push(key);
+            // 若存在同签名的有-body 版本，则用它替代第一次出现的无-body 版本
+            let best = all_pub
+                .iter()
+                .find(|x| x.name == m.name && x.params.len() == m.params.len() && x.body_offset.is_some())
+                .copied()
+                .unwrap_or(m);
+            pub_methods.push(best);
+        }
+    }
 
     if !pub_methods.is_empty() {
         let has_non_pub = !ci.fields.is_empty()

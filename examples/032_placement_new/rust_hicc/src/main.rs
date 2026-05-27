@@ -21,7 +21,6 @@ hicc::cpp! {
         data_ = nullptr;
     }
 }
-        Buffer(const Buffer &) = default;
         Buffer & operator=(const Buffer &) {}
         void* data() {
     return static_cast<void*>(data_);
@@ -195,4 +194,5 @@ fn main() {
     println!("3. 适用于内存池、STL 容器实现");
     println!("4. Rust 需要手动管理内存布局");
 }
+
 

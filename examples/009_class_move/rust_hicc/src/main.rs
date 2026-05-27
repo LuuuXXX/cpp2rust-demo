@@ -6,15 +6,18 @@ hicc::cpp! {
         int* data;
         int size;
     public:
+        UniqueVector() : data(nullptr), size(0) {}
+        UniqueVector(int* data, int size) : size(size) {
+    this->data = new int[size];
+    std::memcpy(this->data, data, size * sizeof(int));
+}
+        ~UniqueVector() {
+    delete[] data;
+}
         UniqueVector(UniqueVector&& other) noexcept : data(other.data), size(other.size) {
     other.data = nullptr;
     other.size = 0;
 }
-        UniqueVector(int* data, int size) = default;
-        ~UniqueVector() {
-    delete[] data;
-}
-        UniqueVector(UniqueVector && other) = default;
         UniqueVector& operator=(UniqueVector&& other) noexcept {
     if (this != &other) {
         delete[] data;
@@ -125,5 +128,6 @@ fn main() {
 
     println!("\nRust FFI: Move semantics work!");
 }
+
 
 

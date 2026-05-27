@@ -8,11 +8,11 @@ hicc::cpp! {
         ~Number() {}
         int getValue() const { return value; }
         Number operator+(const Number& other) const { return Number(value + other.value); }
-        Number operator-() const { return Number(-value); }
+        Number operator-(const Number& other) const { return Number(value - other.value); }
         Number operator*(const Number& other) const { return Number(value * other.value); }
         Number operator/(const Number& other) const { return Number(value / other.value); }
         int compare(const Number& other) const { return value - other.value; }
-        Number operator-() const {}
+        Number operator-() const { return Number(-value); }
         Number& operator++() { ++value; return *this; }
         Number& operator--() { --value; return *this; }
         Number& operator+=(const Number& other) { value += other.value; return *this; }
@@ -131,5 +131,6 @@ fn main() {
         number_delete(&b);
     }
 }
+
 
 

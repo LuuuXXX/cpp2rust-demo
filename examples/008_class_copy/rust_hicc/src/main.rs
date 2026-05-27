@@ -6,12 +6,11 @@ hicc::cpp! {
         int* data;
         int size;
     public:
+        Buffer() : data(nullptr), size(0) {}
         Buffer(const Buffer& other) : size(other.size) {
     data = new int[other.size];
     std::memcpy(data, other.data, other.size * sizeof(int));
 }
-        Buffer(int sz) = default;
-        Buffer(const Buffer & other) = default;
         ~Buffer() {
     delete[] data;
 }
@@ -122,5 +121,6 @@ fn main() {
 
     println!("\nRust FFI: Copy constructor pattern works!");
 }
+
 
 
