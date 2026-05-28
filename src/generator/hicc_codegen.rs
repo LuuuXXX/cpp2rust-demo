@@ -67,6 +67,10 @@ pub fn generate(spec: &FfiSpec) -> String {
     }
 
     // ── hicc::import_lib! ─────────────────────
+    // 当没有任何绑定内容时（void* opaque 模式等），跳过整个块
+    if spec.lib_spec.fn_bindings.is_empty() && spec.lib_spec.fwd_decls.is_empty() {
+        return out;
+    }
     out.push('\n');
     out.push_str("hicc::import_lib! {\n");
     out.push_str(&format!("    #![link_name = \"{}\"]\n", spec.lib_spec.link_name));

@@ -29,23 +29,11 @@ pub fn extract(
     // 去重：对于同名函数，只保留一个（有 body_offset 的优先；否则 is_extern_c=false 优先）
     let functions = dedup_functions(&ast.functions);
 
-    // ── hicc::cpp! 块内容 ──────────────────────
-    let cpp_block_lines = build_cpp_block(
-        ast,
-        &functions,
-        &source_bytes,
-        system_includes,
-        project_header,
-        has_classes,
-    );
-
-    // ── import_class! 块列表 ──────────────────
-    // 只为函数签名中引用的类生成 import_class!
+    // ── 计算函数签名中引用的类名集合 ─────────────
     // 先检查 extern-C 函数，若无则检查所有函数（有些 header 不用 extern "C" 包裹）
     let used_classes: std::collections::HashSet<String> = {
         let mut set = std::collections::HashSet::new();
         let all_cn: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        // 优先 extern-C 函数，其次所有函数
         let candidate_fns: Vec<&FunctionInfo> = {
             let extern_c: Vec<&FunctionInfo> = ast.functions.iter().filter(|f| f.is_extern_c).collect();
             if extern_c.is_empty() { ast.functions.iter().collect() } else { extern_c }
@@ -60,8 +48,41 @@ pub fn extract(
         }
         set
     };
-    // 若无类被函数签名引用（void*/命名空间模式），跳过 import_class! 和 import_lib!
-    let class_specs: Vec<ClassSpec> = if used_classes.is_empty() && !ast.classes.is_empty() {
+
+    // ── 检测命名空间/opaque 类模式 ───────────────
+    // 当且仅当：有类存在 AND 无类名出现在函数签名 AND 至少一个 extern-C 函数的参数/返回类型
+    // 包含 `::` 或 `void*`（说明类通过命名空间限定类型或 opaque 指针暴露，hicc 无法处理）
+    // 这区分了：
+    //   043: void* opaque 指针（命名空间类）→ 压制所有块，只生成空 cpp!
+    //   044: example::OperationResult* 命名空间类型指针 → 同样压制
+    //   028: int/double 原始类型（辅助类）→ 正常生成
+    let namespace_class_mode = has_classes && used_classes.is_empty() && {
+        ast.functions.iter().any(|f| f.is_extern_c && {
+            let rt = &f.return_type;
+            rt.contains("::") || rt.contains("void *") || rt.contains("void*") ||
+            f.params.iter().any(|p| {
+                let t = &p.type_name;
+                t.contains("::") || t.contains("void *") || t.contains("void*")
+            })
+        })
+    };
+
+    // ── hicc::cpp! 块内容 ──────────────────────
+    let cpp_block_lines = if namespace_class_mode {
+        Vec::new()  // 空块：命名空间类体不应内联到 hicc cpp 中
+    } else {
+        build_cpp_block(
+            ast,
+            &functions,
+            &source_bytes,
+            system_includes,
+            project_header,
+            has_classes,
+        )
+    };
+
+    // ── import_class! 块列表 ──────────────────
+    let class_specs: Vec<ClassSpec> = if namespace_class_mode {
         Vec::new()
     } else {
         ast.classes
@@ -73,14 +94,17 @@ pub fn extract(
     };
 
     // ── import_lib! 块 ────────────────────────
-    // 当无类被函数引用时也跳过 import_lib!（void*/命名空间模式）
-    let lib_spec = if used_classes.is_empty() && !ast.classes.is_empty() {
-        crate::ffi_model::LibSpec { link_name: unit_name.to_string(), fwd_decls: Vec::new(), fn_bindings: Vec::new() }
+    let lib_spec = if namespace_class_mode {
+        // 命名空间类模式：不生成 import_lib!（fn_bindings 为空时 codegen 会跳过该块）
+        crate::ffi_model::LibSpec {
+            link_name: unit_name.to_string(),
+            fwd_decls: Vec::new(),
+            fn_bindings: Vec::new(),
+        }
     } else {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
         build_lib_spec(&functions, unit_name, &class_names)
     };
-
 
     FfiSpec {
         unit_name: unit_name.to_string(),
