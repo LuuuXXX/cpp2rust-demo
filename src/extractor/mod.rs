@@ -40,12 +40,17 @@ pub fn extract(
     );
 
     // ── import_class! 块列表 ──────────────────
-    // 只为 extern-C 函数签名中引用的类生成 import_class!
-    let extern_c_used_classes: std::collections::HashSet<String> = {
+    // 只为函数签名中引用的类生成 import_class!
+    // 先检查 extern-C 函数，若无则检查所有函数（有些 header 不用 extern "C" 包裹）
+    let used_classes: std::collections::HashSet<String> = {
         let mut set = std::collections::HashSet::new();
         let all_cn: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        for fi in &ast.functions {
-            if !fi.is_extern_c { continue; }
+        // 优先 extern-C 函数，其次所有函数
+        let candidate_fns: Vec<&FunctionInfo> = {
+            let extern_c: Vec<&FunctionInfo> = ast.functions.iter().filter(|f| f.is_extern_c).collect();
+            if extern_c.is_empty() { ast.functions.iter().collect() } else { extern_c }
+        };
+        for fi in &candidate_fns {
             for cn in &all_cn {
                 if fi.return_type.contains(cn) ||
                    fi.params.iter().any(|p| p.type_name.contains(cn)) {
@@ -55,17 +60,27 @@ pub fn extract(
         }
         set
     };
-    let class_specs = ast
-        .classes
-        .iter()
-        .filter(|c| !c.name.is_empty())
-        .filter(|c| extern_c_used_classes.is_empty() || extern_c_used_classes.contains(&c.name))
-        .filter_map(|ci| build_class_spec(ci, &ast.classes))
-        .collect();
+    // 若无类被函数签名引用（void*/命名空间模式），跳过 import_class! 和 import_lib!
+    let class_specs: Vec<ClassSpec> = if used_classes.is_empty() && !ast.classes.is_empty() {
+        Vec::new()
+    } else {
+        ast.classes
+            .iter()
+            .filter(|c| !c.name.is_empty())
+            .filter(|c| used_classes.is_empty() || used_classes.contains(&c.name))
+            .filter_map(|ci| build_class_spec(ci, &ast.classes))
+            .collect()
+    };
 
     // ── import_lib! 块 ────────────────────────
-    let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-    let lib_spec = build_lib_spec(&functions, unit_name, &class_names);
+    // 当无类被函数引用时也跳过 import_lib!（void*/命名空间模式）
+    let lib_spec = if used_classes.is_empty() && !ast.classes.is_empty() {
+        crate::ffi_model::LibSpec { link_name: unit_name.to_string(), fwd_decls: Vec::new(), fn_bindings: Vec::new() }
+    } else {
+        let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
+        build_lib_spec(&functions, unit_name, &class_names)
+    };
+
 
     FfiSpec {
         unit_name: unit_name.to_string(),

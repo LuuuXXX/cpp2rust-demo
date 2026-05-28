@@ -19,15 +19,30 @@ hicc::cpp! {
     }
 
     int friend_function_getSum(const MyClass* a, const MyClass* b) {
-        return a->getValue() + b->getValue();
+        int sum = a->secret_value + b->secret_value;
+        std::cout << "Friend function getSum: " << a->secret_value
+                  << " + " << b->secret_value << " = " << sum << std::endl;
+        return sum;
     }
 
     int friend_function_getProduct(const MyClass* a, const MyClass* b) {
-        return a->getValue() * b->getValue();
+        int product = a->secret_value * b->secret_value;
+        std::cout << "Friend function getProduct: " << a->secret_value
+                  << " * " << b->secret_value << " = " << product << std::endl;
+        return product;
     }
 
     int friend_function_compare(const MyClass* a, const MyClass* b) {
-        return a->getValue() - b->getValue();
+        if (a->secret_value < b->secret_value) {
+            std::cout << "Friend function compare: a < b" << std::endl;
+            return -1;
+        } else if (a->secret_value > b->secret_value) {
+            std::cout << "Friend function compare: a > b" << std::endl;
+            return 1;
+        } else {
+            std::cout << "Friend function compare: a == b" << std::endl;
+            return 0;
+        }
     }
 }
 
@@ -53,13 +68,13 @@ hicc::import_lib! {
     #[cpp(func = "void myclass_delete(MyClass* self)")]
     unsafe fn myclass_delete(self_: *mut MyClass);
 
-    #[cpp(func = "int friend_function_getSum(const MyClass*, const MyClass*)")]
-    fn friend_function_getSum(a: *const MyClass, b: *const MyClass) -> i32;
+    #[cpp(func = "int friend_function_getSum(const MyClass* a, const MyClass* b)")]
+    fn friend_function_get_sum(a: *const MyClass, b: *const MyClass) -> i32;
 
-    #[cpp(func = "int friend_function_getProduct(const MyClass*, const MyClass*)")]
-    fn friend_function_getProduct(a: *const MyClass, b: *const MyClass) -> i32;
+    #[cpp(func = "int friend_function_getProduct(const MyClass* a, const MyClass* b)")]
+    fn friend_function_get_product(a: *const MyClass, b: *const MyClass) -> i32;
 
-    #[cpp(func = "int friend_function_compare(const MyClass*, const MyClass*)")]
+    #[cpp(func = "int friend_function_compare(const MyClass* a, const MyClass* b)")]
     fn friend_function_compare(a: *const MyClass, b: *const MyClass) -> i32;
 }
 

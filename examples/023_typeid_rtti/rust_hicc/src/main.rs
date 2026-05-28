@@ -3,10 +3,6 @@ hicc::cpp! {
     #include <typeinfo>
     #include <cmath>
 
-    #define SHAPE_TYPE_CIRCLE 1
-    #define SHAPE_TYPE_RECTANGLE 2
-    #define SHAPE_TYPE_TRIANGLE 3
-
     class Shape {
     public:
         virtual ~Shape() = default;
@@ -95,7 +91,7 @@ hicc::import_class! {
         fn get_type(&self) -> i32;
 
         #[cpp(method = "const char* getTypeName() const")]
-        fn get_type_name(&self) -> *const u8;
+        fn get_type_name(&self) -> *const i8;
 
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;

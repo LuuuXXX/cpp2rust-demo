@@ -42,12 +42,12 @@ hicc::cpp! {
         int getSize() const {
     return size;
 }
-        void moveFrom(UniqueVector* src) {
+        void moveFrom(UniqueVector& src) {
     delete[] data;
-    data = src->data;
-    size = src->size;
-    src->data = nullptr;
-    src->size = 0;
+    data = src.data;
+    size = src.size;
+    src.data = nullptr;
+    src.size = 0;
 }
     };
 
@@ -61,6 +61,11 @@ hicc::cpp! {
 
     void unique_vector_delete(UniqueVector* self) {
         delete self;
+    }
+
+    void unique_vector_move(UniqueVector* dest, UniqueVector* src) {
+        std::cout << "Moving UniqueVector: " << src->getSize() << " -> " << dest->getSize() << std::endl;
+        dest->moveFrom(*src);
     }
 }
 
@@ -76,7 +81,7 @@ hicc::import_class! {
         #[cpp(method = "int getSize() const")]
         fn get_size(&self) -> i32;
 
-        #[cpp(method = "void moveFrom(UniqueVector* src)")]
+        #[cpp(method = "void moveFrom(UniqueVector & src)")]
         fn move_from(&mut self, src: *mut UniqueVector);
     }
 }
@@ -94,6 +99,9 @@ hicc::import_lib! {
 
     #[cpp(func = "void unique_vector_delete(UniqueVector* self)")]
     unsafe fn unique_vector_delete(self_: *mut UniqueVector);
+
+    #[cpp(func = "void unique_vector_move(UniqueVector* dest, UniqueVector* src)")]
+    unsafe fn unique_vector_move(dest: *mut UniqueVector, src: *mut UniqueVector);
 }
 
 fn main() {

@@ -7,19 +7,13 @@ hicc::cpp! {
         int size;
     public:
         Buffer() : data(nullptr), size(0) {}
-        Buffer(int n) : data(new int[n]()), size(n) {}
+        Buffer(int sz) : size(sz) {
+    data = new int[sz];
+    std::memset(data, 0, sz * sizeof(int));
+}
         Buffer(const Buffer& other) : size(other.size) {
     data = new int[other.size];
     std::memcpy(data, other.data, other.size * sizeof(int));
-}
-        Buffer& operator=(const Buffer& other) {
-    if (this != &other) {
-        delete[] data;
-        size = other.size;
-        data = new int[size];
-        std::memcpy(data, other.data, size * sizeof(int));
-    }
-    return *this;
 }
         ~Buffer() {
     delete[] data;

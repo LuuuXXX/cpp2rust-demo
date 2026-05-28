@@ -7,11 +7,11 @@ hicc::cpp! {
     class NoexceptMover {
         int value_;
     public:
-        NoexceptMover(int v) : value_(v) {}
+        NoexceptMover(int value) : value_(value) {}
+        ~NoexceptMover() {}
         NoexceptMover(NoexceptMover&& other) noexcept : value_(other.value_) {
     other.value_ = 0;
 }
-        ~NoexceptMover() {}
         NoexceptMover& operator=(NoexceptMover&& other) noexcept {
     if (this != &other) {
         value_ = other.value_;
@@ -22,6 +22,8 @@ hicc::cpp! {
         int get_value() const {
     return value_;
 }
+        NoexceptMover(const NoexceptMover &) = default;
+        NoexceptMover & operator=(const NoexceptMover &) {}
     };
 
     int noexcept_add(int a, int b) noexcept {
@@ -56,8 +58,13 @@ hicc::cpp! {
         delete self;
     }
 
-    NoexceptMover* noexcept_mover_move(NoexceptMover* src) {
-        return new NoexceptMover(std::move(*src));
+    NoexceptMover* noexcept_mover_move(NoexceptMover* other) noexcept {
+        if (other) {
+            auto* moved = new NoexceptMover(std::move(*other));
+            std::cout << "noexcept_mover_move: transferred ownership" << std::endl;
+            return moved;
+        }
+        return nullptr;
     }
 
     int is_noexcept(int (*)(int, int)) noexcept {
@@ -99,8 +106,8 @@ hicc::import_lib! {
     #[cpp(func = "void noexcept_mover_delete(NoexceptMover* self)")]
     unsafe fn noexcept_mover_delete(self_: *mut NoexceptMover);
 
-    #[cpp(func = "NoexceptMover* noexcept_mover_move(NoexceptMover*)")]
-    fn noexcept_mover_move(src: *mut NoexceptMover) -> *mut NoexceptMover;
+    #[cpp(func = "NoexceptMover* noexcept_mover_move(NoexceptMover* other)")]
+    unsafe fn noexcept_mover_move(other: *mut NoexceptMover) -> *mut NoexceptMover;
 }
 
 fn main() {
