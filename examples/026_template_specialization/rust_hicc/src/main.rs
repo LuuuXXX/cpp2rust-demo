@@ -138,7 +138,7 @@ fn main() {
 
     // IntHolder (通用版本)
     let ih = intholder_new(42);
-    let ih_desc = unsafe { std::ffi::CStr::from_ptr(ih.describe()) };
+    let ih_desc = unsafe { std::ffi::CStr::from_ptr(ih.describe() as *const i8) };
     println!("{}", ih_desc.to_string_lossy());
     println!("  get(): {}", ih.get());
     unsafe { intholder_delete(&ih) };
@@ -147,7 +147,7 @@ fn main() {
 
     // DoubleHolder (通用版本)
     let dh = doubleholder_new(3.14159);
-    let dh_desc = unsafe { std::ffi::CStr::from_ptr(dh.describe()) };
+    let dh_desc = unsafe { std::ffi::CStr::from_ptr(dh.describe() as *const i8) };
     println!("{}", dh_desc.to_string_lossy());
     println!("  get(): {:.5}", dh.get());
     unsafe { doubleholder_delete(&dh) };
@@ -156,10 +156,10 @@ fn main() {
 
     // StringHolder (char* 特化版本)
     let s = std::ffi::CString::new("Hello, World!").expect("CString::new failed");
-    let sh = stringholder_new(s.as_ptr());
-    let sh_desc = unsafe { std::ffi::CStr::from_ptr(sh.describe()) };
+    let sh = unsafe { stringholder_new(s.as_ptr()) };
+    let sh_desc = unsafe { std::ffi::CStr::from_ptr(sh.describe() as *const i8) };
     println!("{}", sh_desc.to_string_lossy());
-    let sh_val = unsafe { std::ffi::CStr::from_ptr(sh.get()) };
+    let sh_val = unsafe { std::ffi::CStr::from_ptr(sh.get() as *const i8) };
     println!("  get(): {}", sh_val.to_string_lossy());
     unsafe { stringholder_delete(&sh) };
 

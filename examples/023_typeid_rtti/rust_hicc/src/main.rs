@@ -3,6 +3,10 @@ hicc::cpp! {
     #include <typeinfo>
     #include <cmath>
 
+    #define SHAPE_TYPE_CIRCLE 1
+    #define SHAPE_TYPE_RECTANGLE 2
+    #define SHAPE_TYPE_TRIANGLE 3
+
     class Shape {
     public:
         virtual ~Shape() = default;
@@ -125,19 +129,19 @@ fn main() {
 
     println!("\nUsing typeid to determine runtime type:");
     println!("Circle: type={}, name={}, area={:.2}",
-        shape_getType(&circle),
+        circle.get_type(),
         "Circle",
-        shape_area(&circle)
+        circle.area()
     );
 
     println!("Rectangle: type={}, area={:.2}",
-        shape_getType(&rect),
-        shape_area(&rect)
+        rect.get_type(),
+        rect.area()
     );
 
     println!("Triangle: type={}, area={:.2}",
-        shape_getType(&triangle),
-        shape_area(&triangle)
+        triangle.get_type(),
+        triangle.area()
     );
 
     unsafe {

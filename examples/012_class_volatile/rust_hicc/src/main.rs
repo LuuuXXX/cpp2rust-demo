@@ -40,10 +40,10 @@ hicc::import_class! {
     #[cpp(class = "HardwareDevice")]
     class HardwareDevice {
         #[cpp(method = "volatile uint32_t readStatus()")]
-        fn read_status(&mut self) -> volatile uint32_t;
+        fn read_status(&mut self) -> u32;
 
         #[cpp(method = "volatile uint32_t readData()")]
-        fn read_data(&mut self) -> volatile uint32_t;
+        fn read_data(&mut self) -> u32;
 
         #[cpp(method = "void init()")]
         fn init(&mut self);
@@ -68,16 +68,16 @@ hicc::import_lib! {
 fn main() {
     let mut device = hardware_device_new();
 
-    hardware_device_init(&mut device);
+    device.init();
 
     println!("Reading volatile hardware registers (values may change):");
     for i in 0..5 {
-        let status = hardware_device_read_status(&mut device);
-        let data = hardware_device_read_data(&mut device);
+        let status = device.read_status();
+        let data = device.read_data();
         println!("  Read {}: status=0x{:08x}, data=0x{:08x}", i, status, data);
     }
 
-    hardware_device_reset(&mut device);
+    device.reset();
 
     unsafe {
         hardware_device_delete(&device);

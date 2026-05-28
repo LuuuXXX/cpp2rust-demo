@@ -107,11 +107,8 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "Buffer")]
     class Buffer {
-        #[cpp(method = "Buffer & operator=(const Buffer &)")]
-        fn operator=(&mut self, arg: *const Buffer) -> *mut Buffer;
-
         #[cpp(method = "void* data()")]
-        fn data(&mut self) -> *mut void;
+        fn data(&mut self) -> *mut u8;
 
         #[cpp(method = "size_t capacity() const")]
         fn capacity(&self) -> usize;
@@ -120,18 +117,15 @@ hicc::import_class! {
         fn size(&self) -> usize;
 
         #[cpp(method = "void* construct(size_t offset)")]
-        fn construct(&mut self, offset: usize) -> *mut void;
+        fn construct(&mut self, offset: usize) -> *mut u8;
     }
 }
 
 hicc::import_class! {
     #[cpp(class = "VectorBuffer")]
     class VectorBuffer {
-        #[cpp(method = "VectorBuffer & operator=(const VectorBuffer &)")]
-        fn operator=(&mut self, arg: *const VectorBuffer) -> *mut VectorBuffer;
-
         #[cpp(method = "void* data()")]
-        fn data(&mut self) -> *mut void;
+        fn data(&mut self) -> *mut u8;
 
         #[cpp(method = "size_t element_size() const")]
         fn element_size(&self) -> usize;

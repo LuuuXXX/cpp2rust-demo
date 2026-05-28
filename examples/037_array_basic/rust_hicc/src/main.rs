@@ -61,6 +61,12 @@ hicc::cpp! {
     delete impl;
     impl = nullptr;
 }
+        size_t size() const { return impl->data.size(); }
+        bool empty() const { return impl->data.empty(); }
+        void set(size_t i, int val) { impl->data[i] = val; }
+        int get(size_t i) const { return impl->data[i]; }
+        int at(size_t i) const { return impl->data.at(i); }
+        int* data() { return impl->data.data(); }
     };
 
     struct DoubleArray3 {
@@ -74,6 +80,7 @@ hicc::cpp! {
     delete impl;
     impl = nullptr;
 }
+        size_t size() const { return impl->data.size(); }
     };
 
     struct StringArray4 {
@@ -85,6 +92,7 @@ hicc::cpp! {
     delete impl;
     impl = nullptr;
 }
+        size_t size() const { return impl->data.size(); }
     };
 
     IntArray5* int_array5_new() {
@@ -117,6 +125,45 @@ hicc::cpp! {
 
     void string_array4_delete(StringArray4* self) {
         delete self;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "IntArray5")]
+    class IntArray5 {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "void set(size_t, int)")]
+        fn set(&mut self, i: usize, val: i32);
+
+        #[cpp(method = "int get(size_t) const")]
+        fn get(&self, i: usize) -> i32;
+
+        #[cpp(method = "int at(size_t) const")]
+        fn at(&self, i: usize) -> i32;
+
+        #[cpp(method = "int* data()")]
+        fn data(&mut self) -> *mut i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "DoubleArray3")]
+    class DoubleArray3 {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StringArray4")]
+    class StringArray4 {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
     }
 }
 

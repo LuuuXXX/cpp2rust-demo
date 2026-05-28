@@ -3,6 +3,7 @@ hicc::cpp! {
     #include <cstdarg>
 
     class SumCalculator {
+    public:
         static int calculate_zero() { return 0; }
         static int calculate_1(int a) { return a; }
         static int calculate_2(int a, int b) { return a + b; }

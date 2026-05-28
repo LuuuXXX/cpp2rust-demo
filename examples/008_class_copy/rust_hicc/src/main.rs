@@ -7,9 +7,19 @@ hicc::cpp! {
         int size;
     public:
         Buffer() : data(nullptr), size(0) {}
+        Buffer(int n) : data(new int[n]()), size(n) {}
         Buffer(const Buffer& other) : size(other.size) {
     data = new int[other.size];
     std::memcpy(data, other.data, other.size * sizeof(int));
+}
+        Buffer& operator=(const Buffer& other) {
+    if (this != &other) {
+        delete[] data;
+        size = other.size;
+        data = new int[size];
+        std::memcpy(data, other.data, size * sizeof(int));
+    }
+    return *this;
 }
         ~Buffer() {
     delete[] data;
@@ -83,7 +93,7 @@ fn main() {
     unsafe {
         // Create buffer
         let mut buf1 = buffer_new_with_size(5);
-        println!("buf1 size: {}", buf1.size());
+        println!("buf1 size: {}", buf1.get_size());
 
         // Set values
         for i in 0..5 {
@@ -100,7 +110,7 @@ fn main() {
         // Copy constructor
         let buf2 = buffer_new_copy(&buf1);
         println!("buf2 created by copy");
-        println!("buf2 size: {}", buf2.size());
+        println!("buf2 size: {}", buf2.get_size());
 
         print!("buf2 values: ");
         for i in 0..5 {

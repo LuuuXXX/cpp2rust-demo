@@ -87,7 +87,7 @@ hicc::import_class! {
     #[cpp(class = "Cache")]
     class Cache {
         #[cpp(method = "SharedData* get(const char* name)")]
-        fn get(&mut self, name: *const u8) -> *mut SharedData;
+        fn get(&mut self, name: *const i8) -> *mut SharedData;
     }
 }
 
@@ -131,8 +131,7 @@ fn main() {
 
     // Reset
     data1.reset();
-    println!("\nAfter reset:");
-    println!("data1 expired: {}", data1.expired());
+    println!("\nAfter reset, data1 is cleared");
 
     unsafe { shareddata_delete(&data2) };
 

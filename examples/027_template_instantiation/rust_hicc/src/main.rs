@@ -3,6 +3,28 @@ hicc::cpp! {
     #include <vector>
     #include <iomanip>
 
+    template<typename T>
+    class Matrix {
+        std::vector<T> data_;
+        int rows_;
+        int cols_;
+    public:
+        Matrix(int rows, int cols) : rows_(rows), cols_(cols), data_(rows * cols, T{}) {}
+        int rows() const { return rows_; }
+        int cols() const { return cols_; }
+        T get(int row, int col) const { return data_[row * cols_ + col]; }
+        void set(int row, int col, T value) { data_[row * cols_ + col] = value; }
+        void print() const {
+            for (int r = 0; r < rows_; ++r) {
+                for (int c = 0; c < cols_; ++c) {
+                    std::cout << data_[r * cols_ + c];
+                    if (c + 1 < cols_) std::cout << " ";
+                }
+                std::cout << std::endl;
+            }
+        }
+    };
+
     class IntMatrix {
         Matrix<int>* impl_;
     public:

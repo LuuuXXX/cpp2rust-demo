@@ -36,6 +36,13 @@ hicc::cpp! {
     delete impl;
     impl = nullptr;
 }
+        bool insert(const char* key, int val) { return impl->data.insert({key, val}).second; }
+        int get(const char* key) const { return impl->data.count(key) ? impl->data.at(key) : 0; }
+        void set(const char* key, int val) { impl->data[key] = val; }
+        bool erase(const char* key) { return impl->data.erase(key) > 0; }
+        size_t size() const { return impl->data.size(); }
+        bool empty() const { return impl->data.empty(); }
+        void clear() { impl->data.clear(); }
     };
 
     struct IntStringMap {
@@ -47,6 +54,7 @@ hicc::cpp! {
     delete impl;
     impl = nullptr;
 }
+        size_t size() const { return impl->data.size(); }
     };
 
     StringIntMap* string_int_map_new() {
@@ -63,6 +71,40 @@ hicc::cpp! {
 
     void int_string_map_delete(IntStringMap* self) {
         delete self;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StringIntMap")]
+    class StringIntMap {
+        #[cpp(method = "bool insert(const char*, int)")]
+        fn insert(&mut self, key: *const i8, val: i32) -> bool;
+
+        #[cpp(method = "int get(const char*) const")]
+        fn get(&self, key: *const i8) -> i32;
+
+        #[cpp(method = "void set(const char*, int)")]
+        fn set(&mut self, key: *const i8, val: i32);
+
+        #[cpp(method = "bool erase(const char*)")]
+        fn erase(&mut self, key: *const i8) -> bool;
+
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "void clear()")]
+        fn clear(&mut self);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "IntStringMap")]
+    class IntStringMap {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
     }
 }
 

@@ -3,6 +3,9 @@ hicc::cpp! {
     #include <cstdio>
     #include <cstring>
 
+    class FileHandle;
+    typedef void (*FileDeleter)(FileHandle*);
+
     class FileHandle {
         FILE* file_;
         FileDeleter deleter_;
@@ -98,26 +101,17 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "FileHandle")]
     class FileHandle {
-        #[cpp(method = "FileHandle & operator=(const FileHandle &)")]
-        fn operator=(&mut self, arg: *const FileHandle) -> *mut FileHandle;
-
-        #[cpp(method = "FileHandle & operator=(FileHandle &&)")]
-        fn operator=(&mut self, arg: *mut *mut FileHandle) -> *mut FileHandle;
-
         #[cpp(method = "bool is_open() const")]
         fn is_open(&self) -> bool;
 
         #[cpp(method = "int read(char* buffer, int size)")]
-        fn read(&mut self, buffer: *mut u8, size: i32) -> i32;
+        fn read(&mut self, buffer: *mut i8, size: i32) -> i32;
 
         #[cpp(method = "int write(const char* data, int size)")]
-        fn write(&mut self, data: *const u8, size: i32) -> i32;
+        fn write(&mut self, data: *const i8, size: i32) -> i32;
 
         #[cpp(method = "const char* filename() const")]
-        fn filename(&self) -> *const u8;
-
-        #[cpp(method = "FILE* file()")]
-        fn file(&mut self) -> *mut FILE;
+        fn filename(&self) -> *const i8;
 
         #[cpp(method = "void close_file()")]
         fn close_file(&mut self);
@@ -131,9 +125,6 @@ hicc::import_lib! {
     #![link_name = "custom_deleter"]
 
     class FileHandle;
-
-    #[cpp(func = "FileHandle* file_open(const char*, const char*, FileDeleter)")]
-    unsafe fn file_open(filename: *const i8, mode: *const i8, deleter: FileDeleter) -> *mut FileHandle;
 
     #[cpp(func = "FileHandle* file_open_default(const char*, const char*)")]
     unsafe fn file_open_default(filename: *const i8, mode: *const i8) -> *mut FileHandle;
@@ -155,7 +146,7 @@ fn main() {
     let filename = std::ffi::CString::new("test_default.txt").expect("CString::new failed");
     let mode = std::ffi::CString::new("w").expect("CString::new failed");
 
-    let handle = file_open_default(filename.as_ptr(), mode.as_ptr());
+    let handle = unsafe { file_open_default(filename.as_ptr(), mode.as_ptr()) };
     if handle.is_null() {
         println!("Failed to open file");
         return;
@@ -163,11 +154,11 @@ fn main() {
 
     // 写入数据
     let data = std::ffi::CString::new("Hello, custom deleter!").expect("CString::new failed");
-    let written = file_write(&handle, data.as_ptr(), data.to_bytes().len() as i32);
+    let written = handle.write(data.as_ptr(), data.to_bytes().len() as i32);
     println!("Written {} bytes", written);
 
     // 关闭文件
-    unsafe { file_close(&handle) };
+    handle.close_file();
 
     println!("\nRust FFI: 自定义删除器模式");
     println!("1. C++ 允许传递函数指针作为删除器");

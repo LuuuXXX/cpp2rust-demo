@@ -66,9 +66,6 @@ hicc::import_class! {
         #[cpp(method = "char* getData()")]
         fn get_data(&mut self) -> *mut u8;
 
-        #[cpp(method = "UniqueBuffer move()")]
-        fn move(&mut self) -> UniqueBuffer;
-
         #[cpp(method = "int useCount() const")]
         fn use_count(&self) -> i32;
     }
@@ -78,7 +75,7 @@ hicc::import_class! {
     #[cpp(class = "Processor")]
     class Processor {
         #[cpp(method = "char* process(const char* input)")]
-        fn process(&mut self, input: *const u8) -> *mut u8;
+        fn process(&mut self, input: *const i8) -> *mut i8;
     }
 }
 

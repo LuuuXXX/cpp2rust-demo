@@ -69,6 +69,14 @@ hicc::cpp! {
         CalculatorImpl* impl;
         Calculator() : impl(new CalculatorImpl()) {}
         ~Calculator() { delete impl; }
+        void clear_exception() { impl->clear_exception(); }
+        int get_exception() { return impl->get_exception(); }
+        int divide(int a, int b) {
+    try { return impl->divide(a, b); } catch (...) { return 0; }
+}
+        int string_to_int(const char* str) {
+    try { return impl->string_to_int(str); } catch (...) { return 0; }
+}
     };
 
     Calculator* calculator_new() {
@@ -77,6 +85,23 @@ hicc::cpp! {
 
     void calculator_delete(Calculator* self) {
         delete self;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Calculator")]
+    class Calculator {
+        #[cpp(method = "void clear_exception()")]
+        fn clear_exception(&mut self);
+
+        #[cpp(method = "int get_exception()")]
+        fn get_exception(&mut self) -> i32;
+
+        #[cpp(method = "int divide(int, int)")]
+        fn divide(&mut self, a: i32, b: i32) -> i32;
+
+        #[cpp(method = "int string_to_int(const char*)")]
+        fn string_to_int(&mut self, str: *const i8) -> i32;
     }
 }
 

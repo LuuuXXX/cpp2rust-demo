@@ -34,6 +34,15 @@ hicc::cpp! {
     delete impl;
     impl = nullptr;
 }
+        const char* c_str() const { return impl->data.c_str(); }
+        size_t size() const { return impl->data.size(); }
+        size_t length() const { return impl->data.length(); }
+        bool empty() const { return impl->data.empty(); }
+        int compare(const char* str) const { return impl->data.compare(str ? str : ""); }
+        bool equals(const char* str) const { return impl->data == (str ? str : ""); }
+        void append(const char* str) { if (str) impl->data += str; }
+        void to_upper() { for (auto& c : impl->data) c = std::toupper((unsigned char)c); }
+        void to_lower() { for (auto& c : impl->data) c = std::tolower((unsigned char)c); }
     };
 
     String* string_new() {
@@ -53,6 +62,38 @@ hicc::cpp! {
     }
 }
 
+hicc::import_class! {
+    #[cpp(class = "String")]
+    class String {
+        #[cpp(method = "const char* c_str() const")]
+        fn c_str(&self) -> *const i8;
+
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "size_t length() const")]
+        fn length(&self) -> usize;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "int compare(const char*) const")]
+        fn compare(&self, str: *const i8) -> i32;
+
+        #[cpp(method = "bool equals(const char*) const")]
+        fn equals(&self, str: *const i8) -> bool;
+
+        #[cpp(method = "void append(const char*)")]
+        fn append(&mut self, str: *const i8);
+
+        #[cpp(method = "void to_upper()")]
+        fn to_upper(&mut self);
+
+        #[cpp(method = "void to_lower()")]
+        fn to_lower(&mut self);
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "string_basic"]
 
@@ -62,10 +103,10 @@ hicc::import_lib! {
     fn string_new() -> *mut String;
 
     #[cpp(func = "String* string_new_from(const char*)")]
-    unsafe fn string_new_from(str: *const i8) -> *mut String;
+    fn string_new_from(str: *const i8) -> *mut String;
 
     #[cpp(func = "String* string_new_from_len(const char*, size_t)")]
-    unsafe fn string_new_from_len(str: *const i8, len: usize) -> *mut String;
+    fn string_new_from_len(str: *const i8, len: usize) -> *mut String;
 
     #[cpp(func = "void string_delete(String* self)")]
     unsafe fn string_delete(self_: *mut String);

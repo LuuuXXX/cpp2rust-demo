@@ -36,6 +36,14 @@ hicc::cpp! {
     delete impl;
     impl = nullptr;
 }
+        void push_back(int val) { impl->data.push_back(val); }
+        int get(size_t i) const { return impl->data[i]; }
+        void set(size_t i, int val) { impl->data[i] = val; }
+        size_t size() const { return impl->data.size(); }
+        bool empty() const { return impl->data.empty(); }
+        size_t capacity() const { return impl->data.capacity(); }
+        int* data() { return impl->data.data(); }
+        void clear() { impl->data.clear(); }
     };
 
     struct StringVector {
@@ -47,6 +55,7 @@ hicc::cpp! {
     delete impl;
     impl = nullptr;
 }
+        size_t size() const { return impl->data.size(); }
     };
 
     IntVector* int_vector_new() {
@@ -63,6 +72,43 @@ hicc::cpp! {
 
     void string_vector_delete(StringVector* self) {
         delete self;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "IntVector")]
+    class IntVector {
+        #[cpp(method = "void push_back(int)")]
+        fn push_back(&mut self, val: i32);
+
+        #[cpp(method = "int get(size_t) const")]
+        fn get(&self, i: usize) -> i32;
+
+        #[cpp(method = "void set(size_t, int)")]
+        fn set(&mut self, i: usize, val: i32);
+
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "size_t capacity() const")]
+        fn capacity(&self) -> usize;
+
+        #[cpp(method = "int* data()")]
+        fn data(&mut self) -> *mut i32;
+
+        #[cpp(method = "void clear()")]
+        fn clear(&mut self);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StringVector")]
+    class StringVector {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
     }
 }
 

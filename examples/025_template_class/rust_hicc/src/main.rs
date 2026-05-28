@@ -4,7 +4,7 @@ hicc::cpp! {
 
     class IntStack {
     public:
-        Stack<int> impl;
+        std::stack<int> impl;
     public:
         IntStack() = default;
         int size() const { return impl.size(); }
@@ -16,7 +16,7 @@ hicc::cpp! {
 
     class DoubleStack {
     public:
-        Stack<double> impl;
+        std::stack<double> impl;
     public:
         DoubleStack() = default;
         int size() const { return impl.size(); }
@@ -106,34 +106,34 @@ fn main() {
     println!("=== 025_template_class - 类模板 ===\n");
 
     // IntStack
-    let int_stack = intstack_new();
-    println!("IntStack empty: {}", intstack_empty(&int_stack) == 1);
+    let mut int_stack = intstack_new();
+    println!("IntStack empty: {}", int_stack.empty());
 
-    intstack_push(&int_stack, 10);
-    intstack_push(&int_stack, 20);
-    intstack_push(&int_stack, 30);
+    int_stack.push(10);
+    int_stack.push(20);
+    int_stack.push(30);
 
-    println!("IntStack size: {}", intstack_size(&int_stack));
-    println!("IntStack top: {}", intstack_top(&int_stack));
-    intstack_pop(&int_stack);
-    println!("After pop, top: {}", intstack_top(&int_stack));
+    println!("IntStack size: {}", int_stack.size());
+    println!("IntStack top: {}", int_stack.top());
+    int_stack.pop();
+    println!("After pop, top: {}", int_stack.top());
 
     unsafe { intstack_delete(&int_stack) };
 
     println!();
 
     // DoubleStack
-    let double_stack = doublestack_new();
-    println!("DoubleStack empty: {}", doublestack_empty(&double_stack) == 1);
+    let mut double_stack = doublestack_new();
+    println!("DoubleStack empty: {}", double_stack.empty());
 
-    doublestack_push(&double_stack, 1.1);
-    doublestack_push(&double_stack, 2.2);
-    doublestack_push(&double_stack, 3.3);
+    double_stack.push(1.1);
+    double_stack.push(2.2);
+    double_stack.push(3.3);
 
-    println!("DoubleStack size: {}", doublestack_size(&double_stack));
-    println!("DoubleStack top: {}", doublestack_top(&double_stack));
-    doublestack_pop(&double_stack);
-    println!("After pop, top: {}", doublestack_top(&double_stack));
+    println!("DoubleStack size: {}", double_stack.size());
+    println!("DoubleStack top: {}", double_stack.top());
+    double_stack.pop();
+    println!("After pop, top: {}", double_stack.top());
 
     unsafe { doublestack_delete(&double_stack) };
 

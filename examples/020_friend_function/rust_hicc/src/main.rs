@@ -17,6 +17,18 @@ hicc::cpp! {
     void myclass_delete(MyClass* self) {
         delete self;
     }
+
+    int friend_function_getSum(const MyClass* a, const MyClass* b) {
+        return a->getValue() + b->getValue();
+    }
+
+    int friend_function_getProduct(const MyClass* a, const MyClass* b) {
+        return a->getValue() * b->getValue();
+    }
+
+    int friend_function_compare(const MyClass* a, const MyClass* b) {
+        return a->getValue() - b->getValue();
+    }
 }
 
 hicc::import_class! {
@@ -40,6 +52,15 @@ hicc::import_lib! {
 
     #[cpp(func = "void myclass_delete(MyClass* self)")]
     unsafe fn myclass_delete(self_: *mut MyClass);
+
+    #[cpp(func = "int friend_function_getSum(const MyClass*, const MyClass*)")]
+    fn friend_function_getSum(a: *const MyClass, b: *const MyClass) -> i32;
+
+    #[cpp(func = "int friend_function_getProduct(const MyClass*, const MyClass*)")]
+    fn friend_function_getProduct(a: *const MyClass, b: *const MyClass) -> i32;
+
+    #[cpp(func = "int friend_function_compare(const MyClass*, const MyClass*)")]
+    fn friend_function_compare(a: *const MyClass, b: *const MyClass) -> i32;
 }
 
 fn main() {
@@ -50,8 +71,8 @@ fn main() {
     let b = myclass_new(20);
 
     println!("Created MyClass objects:");
-    println!("  a.value = {}", myclass_getValue(&a));
-    println!("  b.value = {}", myclass_getValue(&b));
+    println!("  a.value = {}", a.get_value());
+    println!("  b.value = {}", b.get_value());
     println!();
 
     // Friend functions: can access private members

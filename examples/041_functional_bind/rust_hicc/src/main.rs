@@ -49,6 +49,7 @@ hicc::cpp! {
         AdderImpl* impl;
         Adder(int base_value) : impl(new AdderImpl(base_value)) {}
         ~Adder() { delete impl; }
+        int add(int value) { return impl->add(value); }
     };
 
     struct Multiplier {
@@ -56,6 +57,7 @@ hicc::cpp! {
         MultiplierImpl* impl;
         Multiplier(int factor) : impl(new MultiplierImpl(factor)) {}
         ~Multiplier() { delete impl; }
+        int multiply(int value) { return impl->multiply(value); }
     };
 
     struct StringProcessor {
@@ -63,7 +65,12 @@ hicc::cpp! {
         StringProcessorImpl* impl;
         StringProcessor() : impl(new StringProcessorImpl()) {}
         ~StringProcessor() { delete impl; }
+        void set_target(const char* t) { impl->set_target(t); }
+        int count_char(char ch) { return impl->count_char(ch); }
     };
+
+    int add_five_impl(int a, int b);
+    int add_ten_impl(int a, int b);
 
     Adder* adder_new(int base_value) {
         return new Adder(base_value);
@@ -105,6 +112,33 @@ hicc::cpp! {
     int add_ten_impl(int a, int b) {
         std::cout << "add_ten called: " << a << " + 10 = " << (a + 10) << std::endl;
         return a + 10;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Adder")]
+    class Adder {
+        #[cpp(method = "int add(int)")]
+        fn add(&self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Multiplier")]
+    class Multiplier {
+        #[cpp(method = "int multiply(int)")]
+        fn multiply(&self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StringProcessor")]
+    class StringProcessor {
+        #[cpp(method = "void set_target(const char*)")]
+        fn set_target(&mut self, t: *const i8);
+
+        #[cpp(method = "int count_char(char)")]
+        fn count_char(&mut self, ch: i8) -> i32;
     }
 }
 

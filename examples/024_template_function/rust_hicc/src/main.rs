@@ -31,7 +31,7 @@ fn main() {
     let mut a = 10i32;
     let mut b = 20i32;
     println!("Before swap: a = {}, b = {}", a, b);
-    swap_int(&mut a, &mut b);
+    unsafe { swap_int(&mut a, &mut b); }
     println!("After swap: a = {}, b = {}", a, b);
 
     println!();
@@ -40,7 +40,7 @@ fn main() {
     let mut x = 3.14f64;
     let mut y = 2.71f64;
     println!("Before swap: x = {}, y = {}", x, y);
-    swap_double(&mut x, &mut y);
+    unsafe { swap_double(&mut x, &mut y); }
     println!("After swap: x = {}, y = {}", x, y);
 
     println!();
@@ -49,7 +49,7 @@ fn main() {
     let mut c1 = b'A' as i8;
     let mut c2 = b'B' as i8;
     println!("Before swap: c1 = {}, c2 = {}", c1 as u8 as char, c2 as u8 as char);
-    swap_char(&mut c1, &mut c2);
+    unsafe { swap_char(&mut c1, &mut c2); }
     println!("After swap: c1 = {}, c2 = {}", c1 as u8 as char, c2 as u8 as char);
 
     println!();
@@ -57,7 +57,7 @@ fn main() {
     // swap in array
     let mut arr = [1i32, 2, 3, 4, 5];
     println!("Array before swap(0,4): {:?}", arr);
-    swap_int_array(arr.as_mut_ptr(), 0, 4);
+    unsafe { swap_int_array(arr.as_mut_ptr(), 0, 4); }
     println!("Array after swap(0,4): {:?}", arr);
 
     println!("\nRust FFI: 模板必须在 C++ 侧实例化");

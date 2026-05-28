@@ -75,6 +75,10 @@ hicc::cpp! {
         std::cout << "Sum: " << (a_value + b_value + c_value + d_value) << std::endl;
     }
 
+    int d_get_a_value(D* self) {
+        return self->getAValue();
+    }
+
     D* d_new(int a, int b, int c, int d) {
         return new D(a, b, c, d);
     }
@@ -87,9 +91,6 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "D")]
     class D {
-        #[cpp(method = "int getAValue() const")]
-        fn get_a_value(&self) -> i32;
-
         #[cpp(method = "int getBValue() const")]
         fn get_b_value(&self) -> i32;
 
@@ -108,6 +109,9 @@ hicc::import_lib! {
     #![link_name = "virtual_diamond"]
 
     class D;
+
+    #[cpp(func = "int d_get_a_value(D*)")]
+    fn d_get_a_value(self_: *mut D) -> i32;
 
     #[cpp(func = "D* d_new(int, int, int, int)")]
     fn d_new(a: i32, b: i32, c: i32, d: i32) -> *mut D;
