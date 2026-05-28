@@ -3,8 +3,13 @@ name = "cpp2rust-demo"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
-description = "C++ to Rust Safe FFI scaffolding generator"
+description = "C++ to Rust Safe FFI scaffolding generator — auto-generates hicc-based FFI bindings from C++ source via LD_PRELOAD build capture and libclang AST analysis"
 license = "MIT"
+repository = "https://github.com/LuuuXXX/cpp2rust-demo"
+homepage = "https://github.com/LuuuXXX/cpp2rust-demo"
+readme = "README.md"
+keywords = ["ffi", "cpp", "rust", "bindgen", "hicc"]
+categories = ["development-tools", "external-ffi-bindings"]
 
 [[bin]]
 name = "cpp2rust-demo"

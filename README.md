@@ -97,3 +97,89 @@ cd rust_hicc && cargo run
 ## 许可
 
 本项目仅供学习参考。
+
+## cpp2rust-demo 工具：端到端使用示例
+
+以下演示对一个真实 C++ 项目执行完整的 `init → merge` 流程。
+
+### 前提条件
+
+```bash
+# 系统依赖（Ubuntu/Debian）
+sudo apt-get install clang libclang-dev g++ libstdc++-dev
+
+# 安装工具
+cargo install --path .
+```
+
+### 1. init —— 捕获构建 + 生成 FFI 脚手架
+
+在目标 C++ 项目根目录执行：
+
+```bash
+# 以单文件项目为例
+cd /path/to/my-cpp-project
+cpp2rust-demo init -- g++ -shared -fPIC mylib.cpp -o libmylib.so
+```
+
+工具会：
+1. 通过 LD_PRELOAD 拦截编译过程，产出 `.cpp2rust` 预处理文件
+2. 用 libclang 解析宏展开后的 C++ AST
+3. 交互式选择要绑定的文件
+4. 在 `.cpp2rust/default/rust/` 下生成 hicc 三段式 FFI 脚手架
+
+`init` 完成后的输出示例：
+```
+=== cpp2rust-demo init ===
+Project root : /path/to/my-cpp-project
+Feature      : default
+...
+  mylib.cpp.cpp2rust → 2 class(es), 5 fn(s), 0 enum(s)  [142 ms]
+
+⚠ Degraded features (require manual attention):
+  [OP] × 2
+  → Search for 'cpp2rust-todo' in generated files to find these locations.
+
+✓ cpp2rust-demo init completed.
+```
+
+### 2. merge —— 合并多编译单元 FFI 输出
+
+当项目有多个源文件时，`merge` 将各 unit 输出去重合并：
+
+```bash
+# 合并单个 feature
+cpp2rust-demo merge --feature default --output mylib
+
+# 合并多个 feature（如分别拦截了不同构建目标）
+cpp2rust-demo merge --feature core --feature extra --output mylib
+```
+
+合并后在 `.cpp2rust/mylib/rust/` 下生成：
+- `src/lib.rs`：单文件，包含去重后的所有 hicc 块
+- `Cargo.toml`：可直接 `cargo build` 的 Rust crate
+
+### 3. 手动完善降级特性
+
+搜索生成代码中的 `cpp2rust-todo` 注释，按 TAG 说明手动完善：
+
+| TAG | 原因 | 需手动操作 |
+|-----|------|-----------|
+| `[OP]` | 运算符重载（C ABI 无符号） | 为生成的命名 shim 添加 Rust 运算符 trait 实现 |
+| `[VA]` | 可变参数模板 | 检查展开版本数量是否满足需求 |
+| `[LM]` | Lambda / std::function | 检查 class wrapper 的 `call()` 签名是否正确 |
+| `[PARSE_FAILED]` | 文件解析失败（--skip-failed 时） | 手动编写对应 FFI 绑定 |
+
+---
+
+## 局限性
+
+| 场景 | 说明 |
+|------|------|
+| **命名空间类** | 含 `::` 的类型或 `void*` opaque 指针的编译单元会压制 import_class!/import_lib! 块（仅生成空 cpp!），需手动绑定 |
+| **运算符重载** | 生成命名 shim + `[OP]` TODO，运算符 trait 需手动实现 |
+| **有状态 Lambda / std::function** | 生成 class wrapper，捕获列表需手动完善 |
+| **可变参数模板** | 按参数数量展开有限版本，超出范围的调用需手动添加 |
+| **Windows** | 当前仅支持 Linux（依赖 LD_PRELOAD 机制） |
+| **业务逻辑** | 工具只生成 FFI 绑定层（`lib.rs`），`fn main()` 和业务代码需手动编写 |
+

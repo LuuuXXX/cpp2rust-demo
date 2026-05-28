@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ── L0: 编译工具本身 ─────────────────────────────────────────────
+  build:
+    name: Build (cpp2rust-demo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --all-targets
+
+  # ── 单元测试 ─────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run unit tests (lib)
+        run: cargo test --lib
+
+  # ── L1: Golden 测试（代码生成准确性）────────────────────────────
+  l1-golden:
+    name: L1 Golden tests
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # L1 测试须单线程运行（clang 全局状态竞争）
+      - name: Run L1 golden tests
+        run: |
+          cargo test --test l1_golden_tests -- \
+            --include-ignored \
+            --test-threads=1
+
+  # ── L2: 编译测试（所有示例 rust_hicc/ 可 cargo build）───────────
+  l2-compile:
+    name: L2 Compile tests
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run L2 compile tests
+        run: cargo test --test l2_compile_tests
+
+  # ── L3: 运行测试（cargo run 输出与 README 一致）────────────────
+  # 依赖完整运行时环境（共享库链接），仅在 push 时执行
+  l3-run:
+    name: L3 Run tests
+    runs-on: ubuntu-latest
+    needs: [l1-golden, l2-compile]
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build C++ shared libraries for all examples
+        run: |
+          for dir in examples/*/cpp; do
+            example=$(basename $(dirname "$dir"))
+            echo "Building C++ lib for $example..."
+            (cd "$dir" && g++ -shared -fPIC *.cpp -o "lib${example##*_}.so" 2>/dev/null || true)
+          done
+
+      - name: Run L3 run tests
+        run: |
+          cargo test --test l3_run_tests -- \
+            --include-ignored \
+            --test-threads=1

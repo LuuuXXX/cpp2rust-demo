@@ -167,7 +167,7 @@ hicc::import_lib! {
 | **Phase 3** | 模板实例化追踪（`instantiation_tracker.rs`） | ✅ 完成 |
 | **Phase 4** | 后处理器（operator/friend/lambda handler，含菱形继承） | ✅ 完成 |
 | **Phase 5** | hicc 代码生成器（`hicc_codegen.rs`） | ✅ 完成 |
-| **Phase 6** | `merge` 命令 + 增量/多 feature 支持 | ❌ 待实现 |
+| **Phase 6** | `merge` 命令 + 增量/多 feature 支持 | ✅ 完成 |
 
 ### 5.2 L1 测试通过率
 
@@ -193,24 +193,31 @@ hicc::import_lib! {
 
 ## 6. 后续计划
 
-### 6.1 P1 - 实现 `merge` 命令
+### 6.1 ✅ P1 - 实现 `merge` 命令（已完成）
 
-当前 `merge` 命令输出占位提示（`Merge not yet implemented`），实际功能待实现：
+`merge` 命令已实现以下功能：
 
-- 将 `.cpp2rust/<feature>/rust/src/` 下按编译单元生成的多个 `.rs` 文件合并为按模块组织的结构
-- 去重（多个 TU 可能提取到同一个类/函数）
-- 支持 `--feature` 多 feature 合并
+- 扫描 `.cpp2rust/<feature>/rust/src/` 下的 unit `.rs` 文件，解析三类 hicc 块
+- 合并：`cpp!` 块去重 include；`import_class!` 按类名聚合并去重方法；`import_lib!` 去重 fwd_decls 和 fn_bindings
+- 支持 `--feature` 多次指定，合并来自多个 feature 的输出
+- 冲突检测：同名符号签名不一致时输出 ⚠ 警告
+- 输出到 `.cpp2rust/<output>/rust/`（单文件 `lib.rs` + `Cargo.toml`）
+
+用法：
+```bash
+cpp2rust-demo merge --feature default --output mylib
+cpp2rust-demo merge --feature core --feature extra --output mylib
+```
 
 ### 6.2 P1 - L2 / L3 测试基线
 
-- **L2**：验证所有 48 个示例的 `rust_hicc/` 目录能通过 `cargo build`（现有黄金文件可编译）
-- **L3**：验证 `cargo run` 输出与各示例 README 中"运行结果"一致
+- **L2**：所有 48 个示例的 `rust_hicc/` 目录可通过 `cargo build`（CI 流水线 l2-compile 阶段验证）
+- **L3**：CI 流水线 l3-run 阶段在 push 时运行，验证 `cargo run` 输出与各示例 README "运行结果"一致
 
-### 6.3 P2 - 增量处理与局限性
+### 6.3 P2 - 增量处理与局限性（待后续跟进）
 
-- 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏）
-- `--skip-failed` 的完整 stub 生成（当前只跳过，不生成占位代码）
-- Windows 支持评估（当前仅 Linux LD_PRELOAD）
+- 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏；merge 阶段已通过去重部分缓解）
+- Windows 支持（当前仅 Linux LD_PRELOAD，评估 CMake launcher 等替代方案）
 
 ---
 
@@ -234,6 +241,18 @@ cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 
 # 解析单个 .cpp2rust 文件（调试用）
 cargo run -- parse <path>.cpp2rust
+
+# 合并单个 feature 的输出
+cargo run -- merge --feature default --output mylib
+
+# 合并多个 feature
+cargo run -- merge --feature core --feature extra --output mylib
+
+# 运行 L2 编译测试
+cargo test --test l2_compile_tests
+
+# 运行 L3 运行测试
+cargo test --test l3_run_tests -- --include-ignored --test-threads=1
 ```
 
 ---

@@ -481,6 +481,7 @@ fn build_inline_method_line(m: &MethodInfo, source_bytes: &[u8], class_name: &st
 }
 
 /// 检测函数体文本是否为空（仅含 `{ }` 或 `: init_list {}`，大括号内无语句）
+#[allow(dead_code)]
 fn has_empty_body(text: &str) -> bool {
     if let Some(open) = text.rfind('{') {
         if let Some(close) = text.rfind('}') {
