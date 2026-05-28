@@ -65,29 +65,6 @@ hicc::cpp! {
         return handle;
     }
 
-    void file_close(FileHandle* handle) {
-        if (handle) {
-            FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-            fh->invoke_deleter();
-        }
-    }
-
-    int file_read(FileHandle* handle, char* buffer, int size) {
-        if (!handle) return -1;
-        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-        return fh->read(buffer, size);
-    }
-
-    int file_write(FileHandle* handle, const char* data, int size) {
-        if (!handle) return -1;
-        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-        return fh->write(data, size);
-    }
-
-    FileHandle* file_open_default(const char* filename, const char* mode) {
-        return file_open(filename, mode, default_file_deleter);
-    }
-
     void default_file_deleter(FileHandle* handle) {
         if (handle) {
             FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
@@ -116,6 +93,29 @@ hicc::cpp! {
             delete fh;
         }
     }
+
+    void file_close(FileHandle* handle) {
+        if (handle) {
+            FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
+            fh->invoke_deleter();
+        }
+    }
+
+    int file_read(FileHandle* handle, char* buffer, int size) {
+        if (!handle) return -1;
+        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
+        return fh->read(buffer, size);
+    }
+
+    int file_write(FileHandle* handle, const char* data, int size) {
+        if (!handle) return -1;
+        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
+        return fh->write(data, size);
+    }
+
+    FileHandle* file_open_default(const char* filename, const char* mode) {
+        return file_open(filename, mode, default_file_deleter);
+    }
 }
 
 hicc::import_class! {
@@ -133,9 +133,6 @@ hicc::import_class! {
         #[cpp(method = "const char* filename() const")]
         fn filename(&self) -> *const i8;
 
-        #[cpp(method = "FILE* file()")]
-        fn file(&mut self) -> *mut FILE;
-
         #[cpp(method = "void close_file()")]
         fn close_file(&mut self);
 
@@ -148,9 +145,6 @@ hicc::import_lib! {
     #![link_name = "custom_deleter"]
 
     class FileHandle;
-
-    #[cpp(func = "FileHandle* file_open(const char*, const char*, FileDeleter)")]
-    unsafe fn file_open(filename: *const i8, mode: *const i8, deleter: FileDeleter) -> *mut FileHandle;
 
     #[cpp(func = "void file_close(FileHandle* handle)")]
     unsafe fn file_close(handle: *mut FileHandle);

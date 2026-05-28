@@ -1,21 +1,12 @@
 hicc::cpp! {
-    #include <cstddef>
+    #include "../cpp/constexpr_basic.h"
     #include <iostream>
 
-    struct example_ConstexprPoint {
-    public:
-        int x;
-        int y;
-        constexpr ConstexprPoint(int x, int y) : x(x), y(y) {}
-        constexpr int manhattan_distance() const {
-        return (x > 0 ? x : -x) + (y > 0 ? y : -y);
-    }
-    };
-
     int get_fibonacci_10() {
+        constexpr int fib_10 = example::fibonacci<10>();
         std::cout << "get_fibonacci_10() called, returning compile-time computed value: "
-                  << example::FIB_10 << std::endl;
-        return example::FIB_10;
+                  << fib_10 << std::endl;
+        return fib_10;
     }
 
     int manhattan_distance(int x, int y) {

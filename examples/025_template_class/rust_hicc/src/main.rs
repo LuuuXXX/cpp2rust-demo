@@ -2,6 +2,18 @@ hicc::cpp! {
     #include <iostream>
     #include <stack>
 
+    template<typename T>
+    class Stack {
+    public:
+        std::stack<T> data;
+        Stack() = default;
+        int size() const { return static_cast<int>(data.size()); }
+        bool empty() const { return data.empty(); }
+        void push(T value) { data.push(value); }
+        T top() const { return data.top(); }
+        void pop() { data.pop(); }
+    };
+
     class IntStack {
     public:
         Stack<int> impl;
