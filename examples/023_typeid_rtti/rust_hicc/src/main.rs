@@ -3,10 +3,6 @@ hicc::cpp! {
     #include <typeinfo>
     #include <cmath>
 
-    static const int SHAPE_TYPE_CIRCLE = 1;
-    static const int SHAPE_TYPE_RECTANGLE = 2;
-    static const int SHAPE_TYPE_TRIANGLE = 3;
-
     class Shape {
     public:
         virtual ~Shape() = default;

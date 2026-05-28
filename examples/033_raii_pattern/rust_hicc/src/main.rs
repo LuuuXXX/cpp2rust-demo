@@ -51,7 +51,6 @@ hicc::cpp! {
 }
         ScopedLock(const ScopedLock &) = default;
         ScopedLock & operator=(const ScopedLock &) {}
-        bool is_locked() const { return owns_lock_; }
     };
 
     class FileLock {
@@ -128,14 +127,6 @@ hicc::import_class! {
 
         #[cpp(method = "const char* name() const")]
         fn name(&self) -> *const i8;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "ScopedLock")]
-    class ScopedLock {
-        #[cpp(method = "bool is_locked() const")]
-        fn is_locked(&self) -> bool;
     }
 }
 

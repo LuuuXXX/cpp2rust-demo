@@ -9,10 +9,10 @@ hicc::cpp! {
     public:
         HardwareDevice() : status_reg(0xA5A5A5A5), data_reg(0), config_reg(0) {}
         ~HardwareDevice() {}
-        uint32_t readStatus() {
+        volatile uint32_t readStatus() volatile {
     return status_reg;
 }
-        uint32_t readData() {
+        volatile uint32_t readData() volatile {
     return data_reg;
 }
         void init() {

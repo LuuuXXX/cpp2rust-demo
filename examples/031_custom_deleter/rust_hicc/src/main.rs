@@ -3,9 +3,6 @@ hicc::cpp! {
     #include <cstdio>
     #include <cstring>
 
-    class FileHandle;
-    typedef void (*FileDeleter)(FileHandle*);
-
     class FileHandle {
         FILE* file_;
         FileDeleter deleter_;
@@ -26,7 +23,7 @@ hicc::cpp! {
         FileHandle(const FileHandle &) = default;
         FileHandle & operator=(const FileHandle &) {}
         FileHandle(FileHandle &&) = default;
-        FileHandle & operator=(FileHandle &&) = default;
+        FileHandle & operator=(FileHandle &&) = default {}
         bool is_open() const {
     return file_ != nullptr;
 }
@@ -41,6 +38,9 @@ hicc::cpp! {
         const char* filename() const {
     return filename_ ? filename_ : "";
 }
+        FILE* file() {
+    return file_;
+}
         void close_file() {
     if (file_) {
         std::fclose(file_);
@@ -53,8 +53,6 @@ hicc::cpp! {
     }
 }
     };
-
-    void default_file_deleter(FileHandle* handle);
 
     FileHandle* file_open(const char* filename, const char* mode, FileDeleter deleter) {
         FileHandle* handle = new FileHandle(filename, mode, deleter);
@@ -133,6 +131,9 @@ hicc::import_class! {
         #[cpp(method = "const char* filename() const")]
         fn filename(&self) -> *const i8;
 
+        #[cpp(method = "FILE* file()")]
+        fn file(&mut self) -> *mut FILE;
+
         #[cpp(method = "void close_file()")]
         fn close_file(&mut self);
 
@@ -145,6 +146,9 @@ hicc::import_lib! {
     #![link_name = "custom_deleter"]
 
     class FileHandle;
+
+    #[cpp(func = "FileHandle* file_open(const char*, const char*, FileDeleter)")]
+    unsafe fn file_open(filename: *const i8, mode: *const i8, deleter: FileDeleter) -> *mut FileHandle;
 
     #[cpp(func = "void file_close(FileHandle* handle)")]
     unsafe fn file_close(handle: *mut FileHandle);

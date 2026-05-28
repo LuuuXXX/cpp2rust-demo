@@ -4,11 +4,6 @@ hicc::cpp! {
     #include <cstring>
     #include <new>
 
-    struct SimpleValue {
-    public:
-        int value;
-    };
-
     class Buffer {
         char* data_;
         size_t capacity_;
@@ -80,6 +75,11 @@ hicc::cpp! {
         std::memset(data_, 0, capacity_ * element_size_);
     }
 }
+    };
+
+    struct SimpleValue {
+    public:
+        int value;
     };
 
     Buffer* buffer_new(size_t capacity) {

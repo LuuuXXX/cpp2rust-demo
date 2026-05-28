@@ -2,22 +2,20 @@ hicc::cpp! {
     #include <cstddef>
     #include <iostream>
 
-    struct ConstexprPoint {
+    struct example_ConstexprPoint {
     public:
         int x;
         int y;
         constexpr ConstexprPoint(int x, int y) : x(x), y(y) {}
         constexpr int manhattan_distance() const {
-            return (x > 0 ? x : -x) + (y > 0 ? y : -y);
-        }
+        return (x > 0 ? x : -x) + (y > 0 ? y : -y);
+    }
     };
-
-    static const int FIB_10 = 55;
 
     int get_fibonacci_10() {
         std::cout << "get_fibonacci_10() called, returning compile-time computed value: "
-                  << FIB_10 << std::endl;
-        return FIB_10;
+                  << example::FIB_10 << std::endl;
+        return example::FIB_10;
     }
 
     int manhattan_distance(int x, int y) {
@@ -44,8 +42,6 @@ hicc::cpp! {
         }
         return max_val;
     }
-
-    static const int ARRAY_SIZE = 10;
 
     int get_array_size() {
         return ARRAY_SIZE;

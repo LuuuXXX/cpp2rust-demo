@@ -176,7 +176,7 @@ hicc::import_lib! {
 | 层 | 状态 |
 |----|------|
 | **L1**（golden 比对） | ✅ 49 / 49（100%） |
-| **L2**（编译测试）| ✅ 48 / 48 通过；0 个标记 `#[ignore]` |
+| **L2**（编译测试）| ✅ 36 / 36 活跃测试通过；12 个标记 `#[ignore]`（待修复） |
 | **L3**（运行测试）| CI 阶段验证，本地未全量运行 |
 
 ### 5.3 已完成的主要修复记录
@@ -192,7 +192,7 @@ hicc::import_lib! {
 | 对齐 `lambda_handler.rs` class wrapper 格式（wrapper 类名、`call()` 签名） | 039、040 |
 | CI 系统依赖修正：将 `libstdc++-dev` 改为 `libstdc++-14-dev`（Ubuntu 24.04 适配） | — |
 | 将 17 个预存在 L2 编译失败标记为 `#[ignore]`，使 CI l2-compile 阶段绿色通过 | 009、012、020、023、025、027、031–033、036、038–041、045 |
-| 修复全部 17 个 L2 编译失败；L2 通过率从 31/48 提升至 **48/48（100%）** | 009、012、020、023、025、027、031–033、036、038–041、045–047 |
+| 修复 5 个 L2 编译失败（027/032/036/038/047）；L2 活跃通过率从 31/48 提升至 **36/36（12 仍 ignore）** | 027、032、036、038、047 |
 | `cargo clippy` 清零（7 处 warning：drop-reference / and_then-Some / format-literal / map_or / collapsible-if / manual-strip） | — |
 
 ---
@@ -220,29 +220,34 @@ cpp2rust-demo merge --feature core --feature extra --output mylib
 - Ubuntu 24.04 依赖由 `libstdc++-dev` 改为 `libstdc++-14-dev`
 - 17 个预存在 L2 编译失败标记为 `#[ignore]`，CI l2-compile 阶段恢复绿色
 
-### 6.3 ✅ P1 - 修复全部 17 个 L2 编译失败（已完成）
+### 6.3 🔄 P1 - L2 编译失败修复进度
 
-以下示例均已修复并通过 L2 编译测试（`#[ignore]` 已全部移除）：
+**已修复（5 个，`#[ignore]` 已移除）：**
 
 | 编号 | 示例名 | 修复方式 |
 |------|--------|---------|
-| 009 | class_move | 移除不兼容的 `move_from` 方法；改用独立 `unique_vector_move` 函数 |
-| 012 | class_volatile | 移除 `volatile` 限定符（hicc 不支持 volatile 方法） |
-| 020 | friend_function | 添加 `friend` 声明；将参数改为 `MyClass*` |
-| 023 | typeid_rtti | 在 C++ 块中定义 `SHAPE_TYPE_*` 常量 |
-| 025 | template_class | 替换 `Stack<T>` 为 `std::stack<T>`；修正 `size()` 类型转换 |
 | 027 | template_instantiation | 在 `hicc::cpp!` 块中定义完整的 `Matrix<T>` 模板类 |
-| 031 | custom_deleter | 添加 `FileDeleter` typedef；修正 `= default {}` 语法；前向声明 `default_file_deleter` |
 | 032 | placement_new | 移动 `struct SimpleValue` 定义到 `class Buffer` 前 |
-| 033 | raii_pattern | 添加 `is_locked()` 方法及 `ScopedLock` 的 `import_class!` 块 |
 | 036 | string_basic | 为 `string_new_from` 调用添加 `unsafe {}` 块 |
 | 038 | tuple_basic | 为 `tuple*_new` 调用添加 `unsafe {}` 块 |
-| 039 | lambda_basic | 添加 `IntBinaryOp` typedef；为 wrapper 类添加方法；添加 `import_class!` 块；重写 `main()` |
-| 040 | std_function | 为 4 个 wrapper 类添加方法；添加 `import_class!` 块；重写 `main()` |
-| 041 | functional_bind | 在 C++ 块中将 impl 函数移到调用者之前 |
-| 045 | union_basic | 在 C++ 块中定义 `IntFloatUnion` 结构体 |
-| 046 | constexpr_basic | 重命名 `example_ConstexprPoint`；定义 `FIB_10` 和 `ARRAY_SIZE` 常量 |
 | 047 | noexcept_basic | 为 `noexcept_mover_move` 调用添加 `unsafe {}` 块 |
+
+**仍在 `#[ignore]`（12 个，需工具层修复）：**
+
+| 编号 | 示例名 | 根本原因 |
+|------|--------|---------|
+| 009 | class_move | `T&` 参数被映射为 `*mut T`；hicc 要求 `&mut T`（type_mapper 需修复） |
+| 012 | class_volatile | `volatile` 方法限定符未生成到 `import_class!`（MethodInfo 缺少 `is_volatile` 字段） |
+| 020 | friend_function | 生成的 shim 直接访问 `private` 成员；需改为调用公有方法 |
+| 023 | typeid_rtti | `hicc::cpp!` 内联方法体引用 `SHAPE_TYPE_*` 常量，但项目头文件未被包含 |
+| 025 | template_class | `hicc::cpp!` 中引用 `Stack<int>` 但模板定义来自项目头文件 |
+| 031 | custom_deleter | `FILE*` / `FileDeleter`（函数指针 typedef）缺少 Rust 类型映射 |
+| 033 | raii_pattern | `ScopedLock` 无公有方法，无法生成 `import_class!`，导致 Rust 类型未定义 |
+| 039 | lambda_basic | `hicc::cpp!` 生成的 wrapper 调用 `add_impl` 等未声明函数 |
+| 040 | std_function | 无方法类的 `import_class!` 导致 `hicc::AbiClassMethods<T, void>` 编译错误 |
+| 041 | functional_bind | 同 039：wrapper 调用未声明的 `add_five_impl` 等函数 |
+| 045 | union_basic | 同 023：`VALUE_TYPE_*` 常量来自项目头文件，未包含在 `hicc::cpp!` 中 |
+| 046 | constexpr_basic | `constexpr` 常量（`ARRAY_SIZE`、`FIB_10`）在 `hicc::cpp!` 中不可见 |
 
 ### 6.4 P2 - 增量处理与局限性（待后续跟进）
 

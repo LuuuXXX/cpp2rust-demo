@@ -4,10 +4,10 @@ hicc::cpp! {
 
     class IntStack {
     public:
-        std::stack<int> impl;
+        Stack<int> impl;
     public:
         IntStack() = default;
-        int size() const { return (int)impl.size(); }
+        int size() const { return impl.size(); }
         bool empty() const { return impl.empty(); }
         void push(int value) { impl.push(value); }
         int top() const { return impl.top(); }
@@ -16,10 +16,10 @@ hicc::cpp! {
 
     class DoubleStack {
     public:
-        std::stack<double> impl;
+        Stack<double> impl;
     public:
         DoubleStack() = default;
-        int size() const { return (int)impl.size(); }
+        int size() const { return impl.size(); }
         bool empty() const { return impl.empty(); }
         void push(double value) { impl.push(value); }
         double top() const { return impl.top(); }

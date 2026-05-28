@@ -69,16 +69,6 @@ hicc::cpp! {
         int count_char(char ch) { return impl->count_char(ch); }
     };
 
-    int add_five_impl(int a, int b) {
-        std::cout << "add_five called: " << a << " + 5 = " << (a + 5) << std::endl;
-        return a + 5;
-    }
-
-    int add_ten_impl(int a, int b) {
-        std::cout << "add_ten called: " << a << " + 10 = " << (a + 10) << std::endl;
-        return a + 10;
-    }
-
     Adder* adder_new(int base_value) {
         return new Adder(base_value);
     }
@@ -109,6 +99,16 @@ hicc::cpp! {
 
     void string_processor_delete(StringProcessor* self) {
         delete self;
+    }
+
+    int add_five_impl(int a, int b) {
+        std::cout << "add_five called: " << a << " + 5 = " << (a + 5) << std::endl;
+        return a + 5;
+    }
+
+    int add_ten_impl(int a, int b) {
+        std::cout << "add_ten called: " << a << " + 10 = " << (a + 10) << std::endl;
+        return a + 10;
     }
 }
 

@@ -4,10 +4,6 @@ hicc::cpp! {
     #include <iostream>
     #include <cstring>
 
-    static const int VALUE_TYPE_INT = 0;
-    static const int VALUE_TYPE_FLOAT = 1;
-    static const int VALUE_TYPE_STRING = 2;
-
     class Variant {
         int type_;
         union {
@@ -81,13 +77,6 @@ hicc::cpp! {
     void variant_delete(Variant* self) {
         delete self;
     }
-
-    struct IntFloatUnion {
-        union {
-            int int_value;
-            float float_value;
-        } data;
-    };
 
     int union_get_int(const IntFloatUnion* u) {
         if (u) return u->data.int_value;
