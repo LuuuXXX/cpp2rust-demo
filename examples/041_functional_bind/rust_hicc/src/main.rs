@@ -113,6 +113,22 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
+    #[cpp(class = "Adder")]
+    class Adder {
+        #[cpp(method = "int add(int value)")]
+        fn add(&mut self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Multiplier")]
+    class Multiplier {
+        #[cpp(method = "int multiply(int value)")]
+        fn multiply(&mut self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
     #[cpp(class = "StringProcessor")]
     class StringProcessor {
         #[cpp(method = "void set_target(const char* t)")]
@@ -130,29 +146,17 @@ hicc::import_lib! {
     class Multiplier;
     class StringProcessor;
 
-    #[cpp(class = "Adder")]
-    class Adder {
-        #[cpp(method = "int add(int value)")]
-        fn add(&mut self, value: i32) -> i32;
+    #[cpp(func = "Adder* adder_new(int)")]
+    fn adder_new(base_value: i32) -> *mut Adder;
 
-        #[cpp(func = "Adder* adder_new(int)")]
-        fn new(base_value: i32) -> *mut Adder;
+    #[cpp(func = "void adder_delete(Adder* self)")]
+    unsafe fn adder_delete(self_: *mut Adder);
 
-        #[cpp(func = "void adder_delete(Adder* self)")]
-        unsafe fn delete(self_: *mut Adder);
-    }
+    #[cpp(func = "Multiplier* multiplier_new(int)")]
+    fn multiplier_new(factor: i32) -> *mut Multiplier;
 
-    #[cpp(class = "Multiplier")]
-    class Multiplier {
-        #[cpp(method = "int multiply(int value)")]
-        fn multiply(&mut self, value: i32) -> i32;
-
-        #[cpp(func = "Multiplier* multiplier_new(int)")]
-        fn new(factor: i32) -> *mut Multiplier;
-
-        #[cpp(func = "void multiplier_delete(Multiplier* self)")]
-        unsafe fn delete(self_: *mut Multiplier);
-    }
+    #[cpp(func = "void multiplier_delete(Multiplier* self)")]
+    unsafe fn multiplier_delete(self_: *mut Multiplier);
 
     #[cpp(func = "int add_five(int)")]
     fn add_five(a: i32) -> i32;
@@ -215,6 +219,7 @@ fn main() {
     println!("3. 通过 opaque pointer 在 FFI 间传递绑定后的函数");
     println!("4. _1, _2 等占位符表示未绑定的参数位置");
 }
+
 
 
 

@@ -114,6 +114,23 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
+    #[cpp(class = "Mutex")]
+    class Mutex {
+        #[cpp(method = "void lock()")]
+        fn lock(&mut self);
+
+        #[cpp(method = "void unlock()")]
+        fn unlock(&mut self);
+
+        #[cpp(method = "bool try_lock()")]
+        fn try_lock(&mut self) -> bool;
+
+        #[cpp(method = "const char* name() const")]
+        fn name(&self) -> *const i8;
+    }
+}
+
+hicc::import_class! {
     #[cpp(class = "FileLock")]
     class FileLock {
         #[cpp(method = "void lock()")]
@@ -134,26 +151,11 @@ hicc::import_lib! {
     class ScopedLock;
     class FileLock;
 
-    #[cpp(class = "Mutex")]
-    class Mutex {
-        #[cpp(method = "void lock()")]
-        fn lock(&mut self);
+    #[cpp(func = "Mutex* mutex_new()")]
+    fn mutex_new() -> *mut Mutex;
 
-        #[cpp(method = "void unlock()")]
-        fn unlock(&mut self);
-
-        #[cpp(method = "bool try_lock()")]
-        fn try_lock(&mut self) -> bool;
-
-        #[cpp(method = "const char* name() const")]
-        fn name(&self) -> *const i8;
-
-        #[cpp(func = "Mutex* mutex_new()")]
-        fn new() -> *mut Mutex;
-
-        #[cpp(func = "void mutex_delete(Mutex* self)")]
-        unsafe fn delete(self_: *mut Mutex);
-    }
+    #[cpp(func = "void mutex_delete(Mutex* self)")]
+    unsafe fn mutex_delete(self_: *mut Mutex);
 
     #[cpp(func = "ScopedLock* scoped_lock_new(Mutex* mutex)")]
     unsafe fn scoped_lock_new(mutex: *mut Mutex) -> *mut ScopedLock;
@@ -208,5 +210,6 @@ fn main() {
     println!("3. FFI 边界: ScopedLock 对象在 Rust 析构时自动释放");
     println!("4. 推荐模式: Rust 封装 RAII guard 类型");
 }
+
 
 

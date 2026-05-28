@@ -43,12 +43,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "template_class"]
-
-    class IntStack;
-    class DoubleStack;
-
+hicc::import_class! {
     #[cpp(class = "IntStack")]
     class IntStack {
         #[cpp(method = "int size() const")]
@@ -65,14 +60,10 @@ hicc::import_lib! {
 
         #[cpp(method = "void pop()")]
         fn pop(&mut self);
-
-        #[cpp(func = "IntStack* intstack_new()")]
-        fn new() -> *mut IntStack;
-
-        #[cpp(func = "void intstack_delete(IntStack* self)")]
-        unsafe fn delete(self_: *mut IntStack);
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "DoubleStack")]
     class DoubleStack {
         #[cpp(method = "int size() const")]
@@ -89,13 +80,26 @@ hicc::import_lib! {
 
         #[cpp(method = "void pop()")]
         fn pop(&mut self);
-
-        #[cpp(func = "DoubleStack* doublestack_new()")]
-        fn new() -> *mut DoubleStack;
-
-        #[cpp(func = "void doublestack_delete(DoubleStack* self)")]
-        unsafe fn delete(self_: *mut DoubleStack);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "template_class"]
+
+    class IntStack;
+    class DoubleStack;
+
+    #[cpp(func = "IntStack* intstack_new()")]
+    fn intstack_new() -> *mut IntStack;
+
+    #[cpp(func = "void intstack_delete(IntStack* self)")]
+    unsafe fn intstack_delete(self_: *mut IntStack);
+
+    #[cpp(func = "DoubleStack* doublestack_new()")]
+    fn doublestack_new() -> *mut DoubleStack;
+
+    #[cpp(func = "void doublestack_delete(DoubleStack* self)")]
+    unsafe fn doublestack_delete(self_: *mut DoubleStack);
 }
 
 fn main() {
@@ -137,6 +141,7 @@ fn main() {
     println!("Stack<int> -> IntStack");
     println!("Stack<double> -> DoubleStack");
 }
+
 
 
 

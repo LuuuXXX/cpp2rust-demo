@@ -90,11 +90,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "typeid_rtti"]
-
-    class Shape;
-
+hicc::import_class! {
     #[cpp(class = "Shape")]
     class Shape {
         #[cpp(method = "int getType() const")]
@@ -105,19 +101,25 @@ hicc::import_lib! {
 
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
-
-        #[cpp(func = "Shape* shape_new_circle(double)")]
-        fn new_circle(radius: f64) -> *mut Shape;
-
-        #[cpp(func = "Shape* shape_new_rectangle(double, double)")]
-        fn new_rectangle(width: f64, height: f64) -> *mut Shape;
-
-        #[cpp(func = "Shape* shape_new_triangle(double, double)")]
-        fn new_triangle(base: f64, height: f64) -> *mut Shape;
-
-        #[cpp(func = "void shape_delete(Shape* self)")]
-        unsafe fn delete(self_: *mut Shape);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "typeid_rtti"]
+
+    class Shape;
+
+    #[cpp(func = "Shape* shape_new_circle(double)")]
+    fn shape_new_circle(radius: f64) -> *mut Shape;
+
+    #[cpp(func = "Shape* shape_new_rectangle(double, double)")]
+    fn shape_new_rectangle(width: f64, height: f64) -> *mut Shape;
+
+    #[cpp(func = "Shape* shape_new_triangle(double, double)")]
+    fn shape_new_triangle(base: f64, height: f64) -> *mut Shape;
+
+    #[cpp(func = "void shape_delete(Shape* self)")]
+    unsafe fn shape_delete(self_: *mut Shape);
 }
 
 fn main() {
@@ -153,6 +155,7 @@ fn main() {
     println!("\nRust FFI: typeid 变成类型枚举或字符串比较");
     println!("RTTI 信息在 FFI 边界丢失，需在 C++ 侧导出类型信息");
 }
+
 
 
 
