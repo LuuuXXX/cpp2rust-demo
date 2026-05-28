@@ -168,7 +168,7 @@ jobs:
           for dir in examples/*/cpp; do
             example=$(basename $(dirname "$dir"))
             echo "Building C++ lib for $example..."
-            (cd "$dir" && g++ -shared -fPIC *.cpp -o "lib${example##*_}.so" 2>/dev/null || true)
+            (cd "$dir" && g++ -shared -fPIC *.cpp -o "lib${example##*_}.so") || echo "⚠ Failed to build C++ lib for $example (skipping)"
           done
 
       - name: Run L3 run tests

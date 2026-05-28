@@ -75,13 +75,8 @@ pub fn merge_units(
         merge_lib(&mut spec, &unit, &mut fn_attr_to_sig, &mut fwd_decl_seen);
     }
 
-    // lib_spec 用合并后的 link_name
-    spec.fn_bindings.iter_mut().for_each(|_| {}); // no-op, link_name stored separately
-
-    // 存储 link_name 到一个约定字段（在 emit 阶段使用）
-    // 通过 emit_merged_rs 的参数传递，无需存储在 MergedSpec 中
-
-    let _ = merge_link_name; // 将在 emit_merged_rs 中使用
+    // merge_link_name 通过 emit_merged_rs 的参数传递，无需存储在 MergedSpec 中
+    drop(merge_link_name);
 
     spec
 }

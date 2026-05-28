@@ -139,9 +139,9 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 
     // 报告冲突
     if !merged_spec.conflicts.is_empty() {
-        println!("\n\u{26a0} {} conflict(s) detected:", merged_spec.conflicts.len());
+        eprintln!("\n⚠ {} conflict(s) detected:", merged_spec.conflicts.len());
         for c in &merged_spec.conflicts {
-            println!("  {}", c);
+            eprintln!("  {}", c);
         }
     }
 

@@ -182,8 +182,8 @@ fn count_brace_delta(line: &str) -> i32 {
         }
         if !in_string {
             if ch == '{' {
-                // 跳过 `#!{` 和 `#[` 中的花括号不计（属性宏）
-                if prev_char != '!' && prev_char != '[' {
+                // 跳过 `macro!{` 形式（`{` 紧接 `!`）中的花括号不计（宏调用块由外层计数）
+                if prev_char != '!' {
                     delta += 1;
                 }
             } else if ch == '}' {
