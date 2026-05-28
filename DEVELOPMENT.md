@@ -176,7 +176,7 @@ hicc::import_lib! {
 
 | 层 | 状态 |
 |----|------|
-| **L1**（golden 比对） | ✅ 49 / 49（100%） |
+| **L1**（golden 比对） | ✅ 48 / 48（100%） |
 | **L2**（编译测试）| ✅ 37 / 37 活跃测试通过；11 个标记 `#[ignore]`（待修复） |
 | **L3**（运行测试）| CI 阶段验证，本地未全量运行 |
 
@@ -197,6 +197,7 @@ hicc::import_lib! {
 | 修复 5 个 L2 编译失败（032/036/038/047/047）；009/012 `#[ignore]` 移除；L2 活跃通过率从 31/48 提升至 **37/37（11 仍 ignore）** | 032、036、038、047 |
 | `cargo clippy` 清零（7 处 warning：drop-reference / and_then-Some / format-literal / map_or / collapsible-if / manual-strip） | — |
 | 回退 hicc class body 语法：`hicc_codegen.rs` 恢复 `import_class!` + 自由函数格式（`associated_fns` 不再内联到 `import_lib!` class body），并同步 21 个 golden 文件；修复 CI L2 编译失败 | 006–008、010–011、013–015、017–019、021–022、026、029–030、032、036、038、042、048 |
+| 同步 8 个 `#[ignore]` 示例的 golden 文件，使其与新的 `import_class!` + 自由函数格式对齐；L1 全量通过（48 / 48） | 020、023、025、027、031、033、041、045 |
 
 ---
 
