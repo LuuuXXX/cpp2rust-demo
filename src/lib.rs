@@ -6,5 +6,6 @@ pub mod ffi_model;
 pub mod generator;
 pub mod instantiation_tracker;
 pub mod layout;
+pub mod merger;
 pub mod postprocessor;
 pub mod selector;

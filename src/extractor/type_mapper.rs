@@ -65,7 +65,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
             let inner_rust = cpp_to_rust(inner);
             if inner_rust.is_empty() {
                 // `const void *` → `*const u8`
-                return format!("*const u8");
+                return "*const u8".to_string();
             }
             return format!("*const {}", inner_rust);
         }
@@ -85,7 +85,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
             let inner = inner.trim();
             let inner_rust = cpp_to_rust(inner);
             if inner_rust.is_empty() {
-                return format!("*const u8");
+                return "*const u8".to_string();
             }
             return format!("*const {}", inner_rust);
         }

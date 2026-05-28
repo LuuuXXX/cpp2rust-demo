@@ -7,7 +7,9 @@ use cpp2rust_demo::extractor;
 use cpp2rust_demo::generator::hicc_codegen;
 use cpp2rust_demo::generator::project_generator;
 use cpp2rust_demo::layout::{self, FeatureLayout};
+use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
+use std::time::Instant;
 
 #[derive(Parser)]
 #[command(name = "cpp2rust-demo")]
@@ -51,9 +53,13 @@ struct InitArgs {
 
 #[derive(Args)]
 struct MergeArgs {
-    /// Feature name (default: "default")
+    /// Feature name(s) to merge (default: "default"; can be specified multiple times)
     #[arg(long, default_value = "default")]
-    feature: String,
+    feature: Vec<String>,
+
+    /// Output feature name for the merged project (default: "merged")
+    #[arg(long, default_value = "merged")]
+    output: String,
 }
 
 #[derive(Args)]
@@ -71,30 +77,104 @@ fn run_parse(args: ParseArgs) -> Result<()> {
     println!();
     let ast = ast_parser::parse_preprocessed(file)?;
     ast.print_tree();
+
+    // 模板实例化统计
+    let template_classes: Vec<_> = ast.classes.iter().filter(|c| !c.template_args.is_empty()).collect();
+    if !template_classes.is_empty() {
+        println!();
+        println!("Template instantiations ({}):", template_classes.len());
+        for tc in &template_classes {
+            println!("  {} <{}>", tc.name, tc.template_args.join(", "));
+        }
+    }
+
     Ok(())
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
-    let feature = &args.feature;
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
-    let feature_root = project_root.join(".cpp2rust").join(feature);
+
+    let features: Vec<String> = args.feature;
+    let output_name = &args.output;
 
     println!("=== cpp2rust-demo merge ===");
     println!("Project root : {}", project_root.display());
-    println!("Feature      : {}", feature);
+    println!("Feature(s)   : {}", features.join(", "));
+    println!("Output       : {}", output_name);
     println!();
 
-    if !feature_root.exists() {
-        return Err(anyhow!(
-            "feature '{}' not found at {}; run init first",
+    // 收集所有 feature 下的 unit .rs 文件
+    let mut all_unit_paths: Vec<std::path::PathBuf> = Vec::new();
+
+    for feature in &features {
+        let feature_root = project_root.join(".cpp2rust").join(feature);
+        if !feature_root.exists() {
+            return Err(anyhow!(
+                "feature '{}' not found at {}; run init first",
+                feature,
+                feature_root.display()
+            ));
+        }
+        let src_dir = feature_root.join("rust").join("src");
+        let unit_files = merger::collect_unit_rs_files(&src_dir);
+        println!(
+            "  Feature '{}': {} unit file(s) in {}",
             feature,
-            feature_root.display()
-        ));
+            unit_files.len(),
+            src_dir.display()
+        );
+        all_unit_paths.extend(unit_files);
     }
 
-    println!("Merge not yet implemented (future phase).");
-    println!("Existing feature root: {}", feature_root.display());
+    if all_unit_paths.is_empty() {
+        println!("\nNo unit .rs files found. Run 'init' first.");
+        return Ok(());
+    }
+
+    println!("\nMerging {} unit file(s)...", all_unit_paths.len());
+
+    // 合并
+    let merged_spec = merger::merge_units(&all_unit_paths, output_name);
+
+    // 报告冲突
+    if !merged_spec.conflicts.is_empty() {
+        eprintln!("\n⚠ {} conflict(s) detected:", merged_spec.conflicts.len());
+        for c in &merged_spec.conflicts {
+            eprintln!("  {}", c);
+        }
+    }
+
+    // 生成合并后的 Rust 代码
+    let merged_rs = merger::emit_merged_rs(&merged_spec, output_name);
+
+    // 写出到 .cpp2rust/<output>/rust/
+    let output_layout = FeatureLayout::new(project_root.clone(), output_name);
+    output_layout.create_dirs()?;
+
+    // 写 lib.rs（合并内容）
+    let src_dir = output_layout.rust_dir.join("src");
+    std::fs::create_dir_all(&src_dir)
+        .map_err(|e| anyhow!("create src dir: {}", e))?;
+    let lib_rs_path = src_dir.join("lib.rs");
+    std::fs::write(&lib_rs_path, &merged_rs)
+        .map_err(|e| anyhow!("write lib.rs: {}", e))?;
+
+    // 写 Cargo.toml
+    project_generator::write_cargo_toml(&output_layout.rust_dir, output_name)?;
+
+    println!("\n\u{2713} cpp2rust-demo merge completed.");
+    println!("\nMerge summary:");
+    println!(
+        "  {} class(es), {} fn binding(s), {} include line(s)",
+        merged_spec.class_order.len(),
+        merged_spec.fn_bindings.len(),
+        merged_spec.cpp_lines.iter().filter(|l| l.contains("#include")).count(),
+    );
+    println!("\nOutput:");
+    println!("  {}", lib_rs_path.display());
+    println!("  {}", output_layout.rust_dir.join("Cargo.toml").display());
+
     Ok(())
 }
 
@@ -142,8 +222,12 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\nRunning AST parser and code generation on selected files...");
     let mut unit_names: Vec<String> = Vec::new();
     let mut parse_errors = 0usize;
+    // 降级特性统计：tag → 出现次数
+    let mut degraded_tags: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
     for path in &selected {
+        let file_start = Instant::now();
+
         // 从 `.cpp2rust` 路径推导原始 `.cpp` 路径
         // hook 命名规则：<c_dir>/<relative_from_project_root>.cpp2rust
         // 例：<c_dir>/src/foo.cpp.cpp2rust → project_root/src/foo.cpp
@@ -166,14 +250,6 @@ fn run_init(args: InitArgs) -> Result<()> {
 
         match ast_parser::parse_preprocessed(path) {
             Ok(ast) => {
-                println!(
-                    "  {} → {} class(es), {} fn(s), {} enum(s)",
-                    path.display(),
-                    ast.classes.len(),
-                    ast.functions.len(),
-                    ast.enums.len()
-                );
-
                 let (system_includes, project_header) =
                     extractor::read_source_includes(&original_cpp);
                 let spec = extractor::extract(
@@ -183,13 +259,39 @@ fn run_init(args: InitArgs) -> Result<()> {
                     project_header.as_deref(),
                 );
                 let code = hicc_codegen::generate(&spec);
+
+                // 统计降级特性（扫描生成代码中的 cpp2rust-todo 标签）
+                count_degraded_tags(&code, &mut degraded_tags);
+
+                let elapsed_ms = file_start.elapsed().as_millis();
+                println!(
+                    "  {} \u{2192} {} class(es), {} fn(s), {} enum(s)  [{} ms]",
+                    path.display(),
+                    ast.classes.len(),
+                    ast.functions.len(),
+                    ast.enums.len(),
+                    elapsed_ms,
+                );
+
                 project_generator::write_unit_rs(&lo.rust_dir, &unit_name, &code)?;
                 unit_names.push(unit_name);
             }
             Err(err) => {
                 parse_errors += 1;
+                let elapsed_ms = file_start.elapsed().as_millis();
                 if args.skip_failed {
-                    eprintln!("  Warning: parse failed for {}: {:#}", path.display(), err);
+                    eprintln!(
+                        "  Warning: parse failed for {} [{} ms]: {:#}",
+                        path.display(), elapsed_ms, err
+                    );
+                    // 生成 stub 文件，避免 lib.rs 中模块声明缺失
+                    let stub_code = format!(
+                        "// cpp2rust-todo[PARSE_FAILED]: {}\n// Error: {:#}\n",
+                        path.display(),
+                        err
+                    );
+                    project_generator::write_unit_rs(&lo.rust_dir, &unit_name, &stub_code)?;
+                    unit_names.push(unit_name);
                 } else {
                     return Err(err);
                 }
@@ -201,20 +303,44 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("\nWarning: {} file(s) failed to parse (--skip-failed active).", parse_errors);
     }
 
+    // 降级特性汇总
+    if !degraded_tags.is_empty() {
+        println!("\n\u{26a0} Degraded features (require manual attention):");
+        let mut tags: Vec<_> = degraded_tags.iter().collect();
+        tags.sort_by_key(|(tag, _)| tag.as_str());
+        for (tag, count) in &tags {
+            println!("  [{}] \u{d7} {}", tag, count);
+        }
+        println!("  \u{2192} Search for 'cpp2rust-todo' in generated files to find these locations.");
+    }
+
     // 生成 Cargo.toml 和 lib.rs
     project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_names)?;
 
-    println!("\n✓ cpp2rust-demo init completed.");
+    println!("\n\u{2713} cpp2rust-demo init completed.");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
-    println!("    ├── c/          (captured .cpp2rust files)");
-    println!("    ├── meta/       (build_cmd.txt, selected_files.json)");
-    println!("    └── rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/*.rs)");
+    println!("    \u{251c}\u{2500}\u{2500} c/          (captured .cpp2rust files)");
+    println!("    \u{251c}\u{2500}\u{2500} meta/       (build_cmd.txt, selected_files.json)");
+    println!("    \u{2514}\u{2500}\u{2500} rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/*.rs)");
     println!();
     println!("Generated {} unit file(s) in .cpp2rust/{}/rust/src/", unit_names.len(), feature);
 
     Ok(())
+}
+
+/// 扫描生成代码中的 `cpp2rust-todo[TAG]` 标签，统计各 tag 出现次数。
+fn count_degraded_tags(code: &str, tags: &mut std::collections::HashMap<String, usize>) {
+    for line in code.lines() {
+        if let Some(start) = line.find("cpp2rust-todo[") {
+            let rest = &line[start + "cpp2rust-todo[".len()..];
+            if let Some(end) = rest.find(']') {
+                let tag = rest[..end].to_string();
+                *tags.entry(tag).or_insert(0) += 1;
+            }
+        }
+    }
 }
 
 fn main() {
