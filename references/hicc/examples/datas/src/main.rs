@@ -3,7 +3,7 @@ hicc::cpp! {
 
     struct Foo {
         static size_t g_count;
-        // 保证按照size_t字节对齐.
+
         size_t count = 0;
         Foo() {
             std::cout << "Foo::Foo()" << std::endl;
