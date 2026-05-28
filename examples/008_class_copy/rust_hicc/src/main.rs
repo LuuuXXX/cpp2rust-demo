@@ -108,8 +108,7 @@ fn main() {
         println!();
 
         // Copy constructor
-        let buf1_const = buf1 as *const Buffer;
-        let buf2 = buffer_new_copy(&buf1_const);
+        let buf2 = buffer_new_copy(&buf1.as_ref().as_ptr());
         println!("buf2 created by copy");
         println!("buf2 size: {}", buf2.get_size());
 

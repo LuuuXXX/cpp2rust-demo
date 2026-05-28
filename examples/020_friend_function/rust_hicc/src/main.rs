@@ -77,15 +77,13 @@ fn main() {
 
     // Friend functions: can access private members
     println!("Friend function operations:");
-    let a_c = a as *const MyClass;
-    let b_c = b as *const MyClass;
-    let sum = friend_function_getSum(&a_c, &b_c);
+    let sum = friend_function_getSum(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Sum: {}", sum);
 
-    let product = friend_function_getProduct(&a_c, &b_c);
+    let product = friend_function_getProduct(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Product: {}", product);
 
-    let cmp = friend_function_compare(&a_c, &b_c);
+    let cmp = friend_function_compare(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Compare: {}", cmp);
 
     println!();

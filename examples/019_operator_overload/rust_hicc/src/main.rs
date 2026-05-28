@@ -104,39 +104,39 @@ fn main() {
     let a = number_new(10);
     let b = number_new(3);
 
-    println!("Created numbers: a = {}, b = {}", number_getValue(&a), number_getValue(&b));
+    println!("Created numbers: a = {}, b = {}", number_getValue(&a.as_ref().as_ptr()), number_getValue(&b.as_ref().as_ptr()));
     println!();
 
     // Addition: a + b
-    let sum = number_add(&a, &b);
-    println!("Result of a + b = {}", number_getValue(&sum));
+    let sum = number_add(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    println!("Result of a + b = {}", number_getValue(&sum.as_ref().as_ptr()));
     unsafe { number_delete(&sum) };
 
     // Subtraction: a - b
-    let diff = number_sub(&a, &b);
-    println!("Result of a - b = {}", number_getValue(&diff));
+    let diff = number_sub(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    println!("Result of a - b = {}", number_getValue(&diff.as_ref().as_ptr()));
     unsafe { number_delete(&diff) };
 
     // Multiplication: a * b
-    let prod = number_mul(&a, &b);
-    println!("Result of a * b = {}", number_getValue(&prod));
+    let prod = number_mul(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    println!("Result of a * b = {}", number_getValue(&prod.as_ref().as_ptr()));
     unsafe { number_delete(&prod) };
 
     // Division: a / b
-    let quot = number_div(&a, &b);
-    println!("Result of a / b = {}", number_getValue(&quot));
+    let quot = number_div(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    println!("Result of a / b = {}", number_getValue(&quot.as_ref().as_ptr()));
     unsafe { number_delete(&quot) };
 
     println!();
 
     // Unary operators
     println!("Unary operators:");
-    let neg = number_negate(&a);
-    println!("Negation of a = {}", number_getValue(&neg));
+    let neg = number_negate(&a.as_ref().as_ptr());
+    println!("Negation of a = {}", number_getValue(&neg.as_ref().as_ptr()));
     unsafe { number_delete(&neg) };
 
     // Comparison
-    let cmp = number_compare(&a, &b);
+    let cmp = number_compare(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("a compared to b = {}", cmp);
 
     println!();

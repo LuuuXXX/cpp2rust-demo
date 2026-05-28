@@ -189,7 +189,7 @@ fn main() {
     // ScopedLock 示例（模拟 RAII 自动解锁）
     println!("--- ScopedLock Demo ---");
     let mutex2 = unsafe { mutex_new() };
-    let lock = scoped_lock_new(&mutex2);
+    let lock = unsafe { scoped_lock_new(&mutex2) };
     println!("Inside scoped lock region");
     println!("ScopedLock will auto-unlock on delete");
     unsafe { scoped_lock_delete(&lock) };
@@ -200,7 +200,7 @@ fn main() {
     // FileLock 示例
     println!("--- FileLock Demo ---");
     let filename = std::ffi::CString::new("raii_test.txt").expect("CString::new failed");
-    let mut file_lock = file_lock_new(filename.as_ptr());
+    let mut file_lock = unsafe { file_lock_new(filename.as_ptr()) };
     file_lock.lock();
     println!("File is locked, performing I/O...");
     file_lock.unlock();

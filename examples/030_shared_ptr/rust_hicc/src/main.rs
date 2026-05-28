@@ -115,7 +115,7 @@ fn main() {
 
     // SharedData - 模拟 shared_ptr
     let name = std::ffi::CString::new("TestData").expect("CString::new failed");
-    let mut data1 = shareddata_new(name.as_ptr());
+    let mut data1 = unsafe { shareddata_new(name.as_ptr()) };
 
     println!("Created SharedData: {}", unsafe {
         std::ffi::CStr::from_ptr(data1.get_name()).to_string_lossy().into_owned()

@@ -110,7 +110,7 @@ fn main() {
         println!("dest size before move: {}", dest.get_size());
 
         // Move: transfer resources from src to dest
-        dest.move_from(src_with_data);
+        dest.move_from(&src_with_data);
 
         println!("dest size after move: {}", dest.get_size());
         println!("dest[0]: {}", dest.get(0));
