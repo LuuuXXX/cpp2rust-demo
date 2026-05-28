@@ -713,7 +713,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
     let is_unsafe = params.iter().any(|(_, t)| {
         t.starts_with("*mut ") || t == "*const i8"
-    }) || ret_type.as_deref().map_or(false, |r| r == "*const i8" || r == "*mut i8");
+    }) || ret_type.as_deref().is_some_and(|r| r == "*const i8" || r == "*mut i8");
 
     // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名
     let param_parts: Vec<String> = fi
@@ -957,10 +957,8 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
 
     // 1. header-only includes
     for inc in &h_includes {
-        if !cpp_set.contains(inc) {
-            if seen.insert(inc.clone()) {
-                system.push(inc.clone());
-            }
+        if !cpp_set.contains(inc) && seen.insert(inc.clone()) {
+            system.push(inc.clone());
         }
     }
 

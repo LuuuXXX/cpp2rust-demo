@@ -352,7 +352,7 @@ fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
             EntityKind::BaseSpecifier => {
                 let base_name = child
                     .get_type()
-                    .and_then(|t| Some(t.get_display_name()))
+                    .map(|t| t.get_display_name())
                     .unwrap_or_default();
                 bases.push(BaseInfo {
                     name: base_name,

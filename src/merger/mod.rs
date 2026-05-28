@@ -76,7 +76,7 @@ pub fn merge_units(
     }
 
     // merge_link_name 通过 emit_merged_rs 的参数传递，无需存储在 MergedSpec 中
-    drop(merge_link_name);
+    let _ = merge_link_name;
 
     spec
 }
