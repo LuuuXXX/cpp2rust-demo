@@ -205,7 +205,11 @@ fn parse_cpp_content(inner_lines: &[String]) -> Vec<String> {
         .iter()
         .map(|l| {
             // 去掉 4 个空格前缀（codegen 生成时 indent 是 4 空格）
-            if let Some(stripped) = l.strip_prefix("    ") { stripped.to_string() } else { l.trim_end().to_string() }
+            if let Some(stripped) = l.strip_prefix("    ") {
+                stripped.to_string()
+            } else {
+                l.trim_end().to_string()
+            }
         })
         .collect();
 
