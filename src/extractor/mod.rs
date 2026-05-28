@@ -243,24 +243,28 @@ fn emit_class_inline(ci: &ClassInfo, source_bytes: &[u8], lines: &mut Vec<String
 
     emit_fields_by_access(ci, source_bytes, lines);
 
-    // 对 public 方法去重：同名+同参数数量时优先保留有 body_offset 的版本，
-    // 按原始顺序输出每个 (name, param_count) 键的第一次出现位置。
+    // 对 public 方法去重：同名+同参数类型时优先保留有 body_offset 的版本，
+    // 按原始顺序输出每个 (name, param_types) 键的第一次出现位置。
     let all_pub: Vec<&MethodInfo> = ci
         .methods
         .iter()
         .filter(|m| m.accessibility == "public")
         .collect();
 
-    let mut seen_keys: Vec<(&str, usize)> = Vec::new();
+    let mut seen_keys: Vec<(String, String)> = Vec::new();
     let mut pub_methods: Vec<&MethodInfo> = Vec::new();
     for m in &all_pub {
-        let key = (m.name.as_str(), m.params.len());
+        let param_types: String = m.params.iter().map(|p| p.type_name.as_str()).collect::<Vec<_>>().join(",");
+        let key = (m.name.clone(), param_types.clone());
         if !seen_keys.contains(&key) {
             seen_keys.push(key);
             // 若存在同签名的有-body 版本，则用它替代第一次出现的无-body 版本
             let best = all_pub
                 .iter()
-                .find(|x| x.name == m.name && x.params.len() == m.params.len() && x.body_offset.is_some())
+                .find(|x| x.name == m.name && {
+                    let xt: String = x.params.iter().map(|p| p.type_name.as_str()).collect::<Vec<_>>().join(",");
+                    xt == param_types
+                } && x.body_offset.is_some())
                 .copied()
                 .unwrap_or(m);
             pub_methods.push(best);
@@ -744,7 +748,16 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
     {
         return ShimKind::Dtor;
     }
-    if first_param_is_class_ptr {
+    // 只有当第一个参数是类指针且参数名为约定的 self/this/thiz（表示对象接收者）时，
+    // 才归类为 MethodAccessor（会被跳过，不出现在 import_lib/import_class 中）。
+    // 若第一个参数名是其他名称（如 other/src/input），则该参数只是普通的类指针参数，
+    // 函数应归类为 Standalone，出现在 import_lib 中。
+    let first_param_name_is_self = fi
+        .params
+        .first()
+        .map(|p| matches!(p.name.as_str(), "self" | "this" | "thiz"))
+        .unwrap_or(false);
+    if first_param_is_class_ptr && first_param_name_is_self {
         return ShimKind::MethodAccessor;
     }
 

@@ -208,17 +208,33 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 let start = range.get_start().get_file_location().offset;
                 let end = range.get_end().get_file_location().offset;
                 let method_name = entity.get_name().unwrap_or_default();
-                let param_count = entity.get_arguments().map(|a| a.len()).unwrap_or(0);
+                let def_param_types: Vec<String> = entity
+                    .get_arguments()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|a| a.get_type().map(|t| t.get_display_name()).unwrap_or_default())
+                    .collect();
+                let param_count = def_param_types.len();
                 if let Some(parent) = entity.get_semantic_parent() {
                     if let Some(class_name) = parent.get_name() {
                         if let Some(class) =
                             ast.classes.iter_mut().find(|c| c.name == class_name)
                         {
-                            // 先按名称+参数数量精确匹配，回退到仅名称匹配
+                            // 先按名称+参数类型精确匹配，再按名称+参数数量匹配，最后仅按名称匹配
                             let idx = class
                                 .methods
                                 .iter()
-                                .position(|m| m.name == method_name && m.params.len() == param_count)
+                                .position(|m| {
+                                    m.name == method_name
+                                        && m.params.len() == param_count
+                                        && m.params.iter().zip(def_param_types.iter()).all(|(p, t)| p.type_name == *t)
+                                })
+                                .or_else(|| {
+                                    class
+                                        .methods
+                                        .iter()
+                                        .position(|m| m.name == method_name && m.params.len() == param_count)
+                                })
                                 .or_else(|| {
                                     class.methods.iter().position(|m| m.name == method_name)
                                 });

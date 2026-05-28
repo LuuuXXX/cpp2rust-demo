@@ -4,6 +4,7 @@ hicc::cpp! {
     class Widget {
         int value;
     public:
+        Widget(int v) : value(v) {}
         Widget(double v) : value(static_cast<int>(v)) {}
         ~Widget() {}
         int getValue() const { return value; }

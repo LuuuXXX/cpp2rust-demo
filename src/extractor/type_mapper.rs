@@ -10,6 +10,11 @@
 pub fn cpp_to_rust(cpp: &str) -> String {
     let cpp = cpp.trim();
 
+    // 去掉 `volatile` 前缀（volatile 在 Rust 中无效）
+    if let Some(rest) = cpp.strip_prefix("volatile ") {
+        return cpp_to_rust(rest.trim());
+    }
+
     // 原始类型精确映射
     match cpp {
         "void" => return String::new(), // void → ()，调用方处理
@@ -59,14 +64,16 @@ pub fn cpp_to_rust(cpp: &str) -> String {
             let inner = inner.trim();
             let inner_rust = cpp_to_rust(inner);
             if inner_rust.is_empty() {
-                return format!("*const {}", inner);
+                // `const void *` → `*const u8`
+                return format!("*const u8");
             }
             return format!("*const {}", inner_rust);
         }
         // `T *` → `*mut T_rust`
         let inner_rust = cpp_to_rust(rest);
         if inner_rust.is_empty() {
-            return format!("*mut {}", rest);
+            // `void *` → `*mut u8`
+            return "*mut u8".to_string();
         }
         return format!("*mut {}", inner_rust);
     }
@@ -78,13 +85,13 @@ pub fn cpp_to_rust(cpp: &str) -> String {
             let inner = inner.trim();
             let inner_rust = cpp_to_rust(inner);
             if inner_rust.is_empty() {
-                return format!("*const {}", inner);
+                return format!("*const u8");
             }
             return format!("*const {}", inner_rust);
         }
         let inner_rust = cpp_to_rust(rest);
         if inner_rust.is_empty() {
-            return format!("*mut {}", rest);
+            return "*mut u8".to_string();
         }
         return format!("*mut {}", inner_rust);
     }
