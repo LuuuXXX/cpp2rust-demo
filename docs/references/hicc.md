@@ -111,6 +111,53 @@ hicc::import_class! {
 - 字段访问
 - 静态数据成员
 
+### 2.1 class-in-lib 语法（class body）
+
+`import_lib!` 中的 `class` 声明支持带函数体的形式，可在宏内部直接定义关联函数（无 `self`）和方法（有 `self`）：
+
+- **关联函数（无 `self`）**：自动提取为 `#[member]` 全局函数，生成 `impl ClassName { fn ... }`。
+- **方法（有 `self`）**：保留在类中，生成 `import_class!` 调用。
+
+```rust
+hicc::import_lib! {
+    #![link_name = "example"]
+
+    class Foo;
+    class Generic<T>;
+
+    // 非泛型类：关联函数（无 self）被提取到 impl 块
+    #[cpp(class = "Foo")]
+    class Foo {
+        #[cpp(method = "void bar() const")]
+        fn bar(&self);
+
+        // 无 self → 生成 impl Foo { fn new() -> Foo }
+        #[cpp(func = "Foo* Foo::new_instance()")]
+        fn new() -> Foo;
+    }
+
+    // 泛型类：关联函数不能使用类的泛型参数，必须使用具体类型
+    #[cpp(class = "Generic")]
+    class Generic<T> {
+        #[cpp(method = "void display() const")]
+        fn display(&self);
+
+        #[cpp(func = "Generic<int>* hicc_new_generic_int()")]
+        fn new() -> Generic<hicc::Pod<i32>>;
+    }
+}
+
+fn main() {
+    let foo = Foo::new();          // 通过 impl Foo 调用
+    let gen = Generic::<hicc::Pod<i32>>::new();
+}
+```
+
+**注意事项**：
+1. 关联函数必须使用 `#[cpp(func = "...")]` 标注实际 C++ 函数。
+2. 泛型类的关联函数中不能使用类的泛型参数，必须使用具体类型。
+3. 参见 `references/hicc/examples/import_lib_class` 完整示例。
+
 ### 4. #[interface] 属性
 
 用于将 C++ 抽象类映射为 Rust trait：
@@ -136,6 +183,32 @@ hicc::import_class! {
     }
 }
 ```
+
+### 5. #[member] 属性
+
+`#[member]` 用于将 `import_lib!` 中的独立函数绑定为某个已定义类型的关联函数：
+
+```rust
+struct MyMap;
+
+hicc::import_lib! {
+    #![link_name = "example"]
+
+    #[member(class = "MyMap", method = "new")]
+    #[cpp(func = "std::unique_ptr<std::map<int, int>> hicc::make_unique<std::map<int, int>>()")]
+    fn mapintint_new();
+}
+
+fn main() {
+    let mut map = MyMap::new();  // 通过 impl MyMap 调用
+}
+```
+
+**说明**：
+- `class`：目标类型名（当前 crate 中已定义的 struct）。
+- `method`：生成的关联函数名。
+- 与 class-in-lib 语法不同，`#[member]` 手动控制绑定关系，适用于需要将已有函数绑定到外部类型的场景。
+- class-in-lib 语法（无 `self` 的关联函数）会自动添加 `#[member]` 完成相同效果。
 
 ## 类型系统
 
@@ -559,7 +632,116 @@ hicc/examples/
 4. **接口映射**：C++ 抽象类 ↔ Rust trait
 5. **容器支持**：STL 容器的 Rust 包装
 6. **闭包互操作**：Rust 闭包传递给 C++
+7. **class-in-lib 语法**：在 import_lib! 内直接定义类方法与关联函数
+8. **Rust→C 导出（hicc-rs）**：通过过程宏将 Rust 类型导出为 C++ 可调用接口
 
 **与 c2rust-demo 的关系**：两者解决不同问题，hicc 不能替代 c2rust-demo 的自动构建捕获功能。
 
 **与 rapidjson_sys 的关系**：hicc 可以用更简洁的语法实现相同的 FFI 功能。
+
+## hicc-rs 子项目（Rust→C 导出）
+
+`hicc-rs` 是 hicc 项目中专门用于 **Rust→C 导出**的子 crate，提供过程宏将 Rust 类型的方法包装为 C 兼容的 FFI 接口。
+
+### 三个导出宏
+
+| 宏 | 作用 | 适用场景 |
+|----|------|---------|
+| `#[export_class]` | 将 Rust `impl` 块方法包装为 C 函数 | 导出面向对象的接口 |
+| `#[export_lib]` | 将 Rust 全局函数包装为 C 函数库 | 导出过程式函数库 |
+| `#[export_pod]` | 为 POD 类型生成 `TypeName` trait 实现 | 注册纯数据类型的 C++ 名称 |
+
+### export_class 用法
+
+```rust
+use hicc_rs::export_class;
+
+#[export_class]
+impl MyType {
+    fn get_value(&self) -> i32;
+    fn set_value(&mut self, v: i32);
+}
+```
+
+生成内容：`ValueType` 实现 + 包装结构体（`MyTypeClass`）+ C 适配函数 + `MyTypeMethods` 结构体。
+
+**特性**：
+- 支持泛型参数（`impl<T> MyContainer<T>`）
+- 支持生命周期参数（`impl<'a> Slice<'a, T>`）
+- 支持常量泛型（`impl<T, const N: usize> Array<T, N>`）
+- 支持深度分组（引用/指针嵌套深度最多 4 层）
+- `in_hicc` 属性：`#[export_class(in_hicc)]`，将 `::hicc_rs::` 替换为 `crate::`（用于 hicc 内部）
+
+### export_lib 用法
+
+```rust
+use hicc_rs::export_lib;
+
+#[export_lib(export_name = "get_ffi")]
+mod ffi {
+    fn my_function(val: &Option<i32>) -> bool;
+}
+```
+
+**特性**：
+- 无方法体：适配函数通过 `crate::function_name()` 调用外部实现
+- 有方法体：适配函数直接使用方法体中的代码
+- `in_hicc` 属性：同 `export_class`
+
+### export_pod 用法
+
+```rust
+use hicc_rs::export_pod;
+
+#[export_pod]
+type MyPod;
+
+// 带泛型参数
+#[export_pod]
+type MyPod<'a, T: Bound>;
+```
+
+作用：为该类型生成 `TypeName` trait 实现，注册其 C++ 类型名称，使其可用于 hicc 类型映射。
+
+### 使用示例（来自 hicc 内部）
+
+```rust
+use crate::export_class;
+
+#[export_class(in_hicc)]
+impl<T> Option<T> {
+    fn is_some(&self) -> bool;
+    fn is_none(&self) -> bool;
+    fn as_ptr(&self) -> *const T;
+}
+
+#[export_class(in_hicc)]
+impl<T, const N: usize> Array<T, N> {
+    fn len(&self) -> usize { N }
+    fn get(&self, idx: usize) -> &T;
+    fn set(&mut self, idx: usize, val: T);
+}
+```
+
+### 文件结构（hicc-rs）
+
+```
+hicc-rs/
+├── src/
+│   ├── core/
+│   │   ├── option.rs     # Option<T>
+│   │   ├── array.rs      # Array<T, N>
+│   │   ├── slice.rs      # Slice<'a, T> / SliceMut<'a, T>
+│   │   ├── result.rs     # Result<T, E>
+│   │   └── any.rs        # Any
+│   └── std/
+│       └── boxed.rs      # Box<T>
+└── macros/
+    ├── src/
+    │   ├── lib.rs         # 宏入口（export_class / export_lib / export_pod）
+    │   ├── export_class.rs
+    │   ├── export_lib.rs
+    │   └── export_pod.rs
+    └── docs/
+        └── design.md      # 详细设计文档
+```
