@@ -1,5 +1,100 @@
 hicc::cpp! {
-    #include "union_basic.h"
+    #include <cstddef>
+    #include <cstdint>
+    #include <iostream>
+    #include <cstring>
+
+    class Variant {
+        int type_;
+        union {
+        int int_value_;
+        float float_value_;
+        char string_buffer_[64];
+    } data_;
+    public:
+        Variant() : type_(VALUE_TYPE_INT) {
+    data_.int_value_ = 0;
+}
+        ~Variant() {}
+        int get_type() const {
+    return type_;
+}
+        void set_int(int value) {
+    type_ = VALUE_TYPE_INT;
+    data_.int_value_ = value;
+}
+        void set_float(float value) {
+    type_ = VALUE_TYPE_FLOAT;
+    data_.float_value_ = value;
+}
+        void set_string(const char* value) {
+    type_ = VALUE_TYPE_STRING;
+    if (value) {
+        strncpy(data_.string_buffer_, value, 63);
+        data_.string_buffer_[63] = '\0';
+    } else {
+        data_.string_buffer_[0] = '\0';
+    }
+}
+        int get_int() const {
+    if (type_ == VALUE_TYPE_INT) {
+        return data_.int_value_;
+    }
+    return 0;
+}
+        float get_float() const {
+    if (type_ == VALUE_TYPE_FLOAT) {
+        return data_.float_value_;
+    }
+    return 0.0f;
+}
+        const char* get_string() const {
+    if (type_ == VALUE_TYPE_STRING) {
+        return data_.string_buffer_;
+    }
+    return "";
+}
+    };
+
+    Variant* variant_new_int(int value) {
+        auto* v = new Variant();
+        v->set_int(value);
+        return v;
+    }
+
+    Variant* variant_new_float(float value) {
+        auto* v = new Variant();
+        v->set_float(value);
+        return v;
+    }
+
+    Variant* variant_new_string(const char* value) {
+        auto* v = new Variant();
+        v->set_string(value);
+        return v;
+    }
+
+    void variant_delete(Variant* self) {
+        delete self;
+    }
+
+    int union_get_int(const IntFloatUnion* u) {
+        if (u) return u->data.int_value;
+        return 0;
+    }
+
+    float union_get_float(const IntFloatUnion* u) {
+        if (u) return u->data.float_value;
+        return 0.0f;
+    }
+
+    void union_set_int(IntFloatUnion* u, int value) {
+        if (u) u->data.int_value = value;
+    }
+
+    void union_set_float(IntFloatUnion* u, float value) {
+        if (u) u->data.float_value = value;
+    }
 }
 
 hicc::import_class! {

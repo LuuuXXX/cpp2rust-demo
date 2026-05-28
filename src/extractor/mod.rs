@@ -82,13 +82,15 @@ pub fn extract(
     };
 
     // ── import_class! 块列表 ──────────────────
-    let class_specs: Vec<ClassSpec> = if namespace_class_mode {
+    // 只为 extern-C 函数签名中明确引用的类生成 import_class!
+    // 若 used_classes 为空（无类被引用），则不生成任何 import_class!
+    let class_specs: Vec<ClassSpec> = if namespace_class_mode || used_classes.is_empty() {
         Vec::new()
     } else {
         ast.classes
             .iter()
             .filter(|c| !c.name.is_empty())
-            .filter(|c| used_classes.is_empty() || used_classes.contains(&c.name))
+            .filter(|c| used_classes.contains(&c.name))
             .filter_map(|ci| build_class_spec(ci, &ast.classes))
             .collect()
     };

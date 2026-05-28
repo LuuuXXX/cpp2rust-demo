@@ -35,17 +35,22 @@ hicc::cpp! {
         Mutex* mutex_;
         bool owns_lock_;
     public:
-        ScopedLock(Mutex* m) : mutex_(m), owns_lock_(true) { m->lock(); }
-        ScopedLock(ScopedLock&& other) noexcept : mutex_(other.mutex_), owns_lock_(other.owns_lock_) {
-    other.owns_lock_ = false;
+        ScopedLock(Mutex* m) : mutex_(m), owns_lock_(false) {
+    if (mutex_) {
+        mutex_->lock();
+        owns_lock_ = true;
+    }
 }
         ~ScopedLock() {
     if (owns_lock_ && mutex_) {
         mutex_->unlock();
     }
 }
+        ScopedLock(ScopedLock&& other) noexcept : mutex_(other.mutex_), owns_lock_(other.owns_lock_) {
+    other.owns_lock_ = false;
+}
+        ScopedLock(const ScopedLock &) = default;
         ScopedLock & operator=(const ScopedLock &) {}
-        bool is_locked() const { return owns_lock_; }
     };
 
     class FileLock {
@@ -63,6 +68,7 @@ hicc::cpp! {
         file_.close();
     }
 }
+        FileLock(const FileLock &) = default;
         FileLock & operator=(const FileLock &) {}
         void lock() {
     mtx_.lock();
@@ -120,15 +126,7 @@ hicc::import_class! {
         fn try_lock(&mut self) -> bool;
 
         #[cpp(method = "const char* name() const")]
-        fn name(&self) -> *const u8;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "ScopedLock")]
-    class ScopedLock {
-        #[cpp(method = "bool is_locked() const")]
-        fn is_locked(&self) -> bool;
+        fn name(&self) -> *const i8;
     }
 }
 
@@ -142,7 +140,7 @@ hicc::import_class! {
         fn unlock(&mut self);
 
         #[cpp(method = "const char* filename() const")]
-        fn filename(&self) -> *const u8;
+        fn filename(&self) -> *const i8;
     }
 }
 

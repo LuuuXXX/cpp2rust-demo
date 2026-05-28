@@ -4,7 +4,7 @@ hicc::cpp! {
 
     class IntStack {
     public:
-        std::stack<int> impl;
+        Stack<int> impl;
     public:
         IntStack() = default;
         int size() const { return impl.size(); }
@@ -16,7 +16,7 @@ hicc::cpp! {
 
     class DoubleStack {
     public:
-        std::stack<double> impl;
+        Stack<double> impl;
     public:
         DoubleStack() = default;
         int size() const { return impl.size(); }
