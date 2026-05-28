@@ -439,10 +439,22 @@ fn build_method_decl(m: &MethodInfo) -> String {
 
 /// 构建单行内联方法（内联风格）
 fn build_inline_method_line(m: &MethodInfo, source_bytes: &[u8], class_name: &str) -> String {
+    // = default 方法：直接用规范化声明，不从源码读取（避免 `= default {}` 等错误语法）
+    if m.is_default {
+        return format!("{};", build_method_decl(m));
+    }
+
     if let Some((start, end)) = m.body_offset {
         let raw_text = extract_range_text(source_bytes, start, end);
         let stripped = strip_class_prefix(raw_text.trim(), class_name);
         let stripped = strip_preprocessor_markers(&stripped);
+        let stripped = strip_method_volatile_qualifier(stripped.trim());
+        // 去掉方法返回类型的 volatile 前缀（与 import_class! 中的 cpp_sig 保持一致）
+        let stripped = if stripped.starts_with("volatile ") {
+            stripped[9..].trim_start().to_string()
+        } else {
+            stripped
+        };
         let stripped = stripped.trim().to_string();
 
         // 对静态方法：若提取文本未含 static，补加前缀
@@ -901,6 +913,26 @@ pub fn normalize_ptr_spacing(ty: &str) -> String {
 /// 剥除 C++ 类型的 `volatile` 前缀（volatile 在 C++ 方法签名中不影响 FFI）
 fn strip_volatile(ty: &str) -> &str {
     ty.strip_prefix("volatile ").map(str::trim).unwrap_or(ty)
+}
+
+/// 剥除方法声明中尾部的 volatile 修饰符（位于 `)` 和 `{` 之间）。
+/// 例：`volatile uint32_t readStatus() volatile { … }` → `volatile uint32_t readStatus() { … }`
+fn strip_method_volatile_qualifier(text: &str) -> String {
+    // 找到第一个 `{`，只处理之前的声明部分
+    if let Some(brace) = text.find('{') {
+        let decl = &text[..brace];
+        // 找到最后一个 `)` 之后的修饰部分（const/volatile/noexcept 等）
+        if let Some(last_paren) = decl.rfind(')') {
+            let suffix = &decl[last_paren + 1..];
+            if !suffix.contains("volatile") {
+                return text.to_string(); // 无需修改
+            }
+            // 只去掉 "volatile" 词，保留其他字符（包括空格）
+            let cleaned = suffix.replace(" volatile", "").replace("volatile ", "");
+            return format!("{}{}{}", &decl[..=last_paren], cleaned, &text[brace..]);
+        }
+    }
+    text.to_string()
 }
 
 /// 读取原始 .cpp 和 .h 文件的 include 行

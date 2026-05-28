@@ -82,7 +82,7 @@ hicc::import_class! {
         fn get_size(&self) -> i32;
 
         #[cpp(method = "void moveFrom(UniqueVector & src)")]
-        fn move_from(&mut self, src: *mut UniqueVector);
+        fn move_from(&mut self, src: &mut UniqueVector);
     }
 }
 
