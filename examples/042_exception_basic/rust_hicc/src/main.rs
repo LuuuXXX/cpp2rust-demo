@@ -115,6 +115,17 @@ hicc::import_lib! {
     }
 }
 
+fn check_exception(calc: &mut Calculator, operation: &str) {
+    let code = calc.get_exception();
+    match code {
+        0 => println!("  {}: No exception", operation),
+        1 => println!("  {}: Invalid argument exception", operation),
+        2 => println!("  {}: Out of range exception", operation),
+        3 => println!("  {}: Runtime error exception", operation),
+        _ => println!("  {}: Unknown exception code: {}", operation, code),
+    }
+}
+
 fn main() {
     println!("=== 042_exception_basic - Exception Handling ===\n");
 
@@ -160,6 +171,3 @@ fn main() {
     println!("4. Clear exception state before next operation");
     println!("5. Never throw in FFI boundary - use error codes instead");
 }
-
-
-

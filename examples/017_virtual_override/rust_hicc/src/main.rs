@@ -109,6 +109,15 @@ hicc::import_lib! {
     }
 }
 
+fn decode_cstr(ptr: *const i8) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .to_string()
+}
+
 fn main() {
     println!("=== Virtual Override FFI with hicc ===\n");
     println!("The 'override' keyword explicitly marks method overriding in C++\n");

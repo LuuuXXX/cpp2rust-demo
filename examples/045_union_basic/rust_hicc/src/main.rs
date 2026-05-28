@@ -151,6 +151,15 @@ hicc::import_lib! {
     unsafe fn union_set_float(u: *mut IntFloatUnion, value: f32);
 }
 
+fn variant_type_name(t: i32) -> &'static str {
+    match t {
+        0 => "INT",
+        1 => "FLOAT",
+        2 => "STRING",
+        _ => "UNKNOWN",
+    }
+}
+
 fn main() {
     println!("=== 045_union_basic - Unions ===\n");
 
@@ -194,6 +203,3 @@ fn main() {
     println!("4. Often used to save memory or for type punning");
     println!("5. FFI passes union via variant wrapper");
 }
-
-
-
