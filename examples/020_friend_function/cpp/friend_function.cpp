@@ -18,24 +18,24 @@ void myclass_setValue(struct MyClass* self, int value) {
 }
 
 int friend_function_getSum(const MyClass* a, const MyClass* b) {
-    int sum = a->secret_value + b->secret_value;
-    std::cout << "Friend function getSum: " << a->secret_value
-              << " + " << b->secret_value << " = " << sum << std::endl;
+    int sum = a->getValue() + b->getValue();
+    std::cout << "Friend function getSum: " << a->getValue()
+              << " + " << b->getValue() << " = " << sum << std::endl;
     return sum;
 }
 
 int friend_function_getProduct(const MyClass* a, const MyClass* b) {
-    int product = a->secret_value * b->secret_value;
-    std::cout << "Friend function getProduct: " << a->secret_value
-              << " * " << b->secret_value << " = " << product << std::endl;
+    int product = a->getValue() * b->getValue();
+    std::cout << "Friend function getProduct: " << a->getValue()
+              << " * " << b->getValue() << " = " << product << std::endl;
     return product;
 }
 
 int friend_function_compare(const MyClass* a, const MyClass* b) {
-    if (a->secret_value < b->secret_value) {
+    if (a->getValue() < b->getValue()) {
         std::cout << "Friend function compare: a < b" << std::endl;
         return -1;
-    } else if (a->secret_value > b->secret_value) {
+    } else if (a->getValue() > b->getValue()) {
         std::cout << "Friend function compare: a > b" << std::endl;
         return 1;
     } else {

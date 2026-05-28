@@ -3,6 +3,12 @@ hicc::cpp! {
     #include <typeinfo>
     #include <cmath>
 
+    enum ShapeType {
+    SHAPE_TYPE_CIRCLE = 0,
+    SHAPE_TYPE_RECTANGLE = 1,
+    SHAPE_TYPE_TRIANGLE = 2,
+    };
+
     class Shape {
     public:
         virtual ~Shape() = default;

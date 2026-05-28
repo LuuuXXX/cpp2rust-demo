@@ -5,6 +5,7 @@ hicc::cpp! {
     #include <new>
 
     struct SimpleValue {
+    public:
         int value;
     };
 

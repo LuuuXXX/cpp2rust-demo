@@ -116,6 +116,8 @@ pub struct CppAst {
     pub classes: Vec<ClassInfo>,
     pub functions: Vec<FunctionInfo>,
     pub enums: Vec<EnumInfo>,
+    /// typedef 声明列表：(名称, 起始偏移, 结束偏移)
+    pub typedefs: Vec<(String, u32, u32)>,
 }
 
 // ─────────────────────────────────────────────
@@ -141,6 +143,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         classes: Vec::new(),
         functions: Vec::new(),
         enums: Vec::new(),
+        typedefs: Vec::new(),
     };
 
     let root = tu.get_entity();
@@ -182,6 +185,9 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
             }
             EntityKind::LinkageSpec => {
                 collect_linkage_spec(&entity, &mut ast);
+            }
+            EntityKind::TypedefDecl => {
+                collect_typedef(&entity, &mut ast);
             }
             _ => {}
         }
@@ -322,13 +328,32 @@ fn collect_linkage_spec(spec: &clang::Entity<'_>, ast: &mut CppAst) {
         {
             continue;
         }
-        if entity.get_kind() == EntityKind::FunctionDecl {
-            if let Some(mut fi) = extract_function(&entity, None) {
-                fi.is_extern_c = true;
-                ast.functions.push(fi);
+        match entity.get_kind() {
+            EntityKind::FunctionDecl => {
+                if let Some(mut fi) = extract_function(&entity, None) {
+                    fi.is_extern_c = true;
+                    ast.functions.push(fi);
+                }
             }
+            EntityKind::EnumDecl => {
+                if let Some(ei) = extract_enum(&entity) {
+                    ast.enums.push(ei);
+                }
+            }
+            EntityKind::TypedefDecl => {
+                collect_typedef(&entity, ast);
+            }
+            _ => {}
         }
     }
+}
+
+fn collect_typedef(entity: &clang::Entity<'_>, ast: &mut CppAst) {
+    let Some(name) = entity.get_name() else { return };
+    let Some(range) = entity.get_range() else { return };
+    let start = range.get_start().get_file_location().offset;
+    let end = range.get_end().get_file_location().offset;
+    ast.typedefs.push((name, start, end));
 }
 
 fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {

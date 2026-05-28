@@ -190,6 +190,28 @@ fn build_cpp_block(
         lines.push(String::new());
     }
 
+    // 枚举定义（在类定义之前）
+    for en in &ast.enums {
+        if en.name.is_empty() {
+            continue;
+        }
+        lines.push(format!("enum {} {{", en.name));
+        for v in &en.variants {
+            lines.push(format!("    {} = {},", v.name, v.value));
+        }
+        lines.push("};".to_string());
+        lines.push(String::new());
+    }
+
+    // typedef 定义（在类定义之前）
+    for (_, start, end) in &ast.typedefs {
+        let text = extract_range_text(source_bytes, *start, *end).trim().to_string();
+        if text.is_empty() { continue; }
+        let stmt = if text.ends_with(';') { text } else { format!("{};", text) };
+        lines.push(stmt);
+        lines.push(String::new());
+    }
+
     // 判断是否使用分离风格（含虚函数的类）
     let use_separate_style = ast.classes.iter().any(|c| c.methods.iter().any(|m| m.is_virtual));
 

@@ -4,6 +4,8 @@ hicc::cpp! {
     #include <functional>
     #include <algorithm>
 
+    typedef int (*IntBinaryOp)(int, int);
+
     class LambdaWrapperImpl {
     public:
         std::function<int(int, int)> fn;

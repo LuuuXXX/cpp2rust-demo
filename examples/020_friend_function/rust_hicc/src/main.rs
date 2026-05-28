@@ -19,24 +19,24 @@ hicc::cpp! {
     }
 
     int friend_function_getSum(const MyClass* a, const MyClass* b) {
-        int sum = a->secret_value + b->secret_value;
-        std::cout << "Friend function getSum: " << a->secret_value
-                  << " + " << b->secret_value << " = " << sum << std::endl;
+        int sum = a->getValue() + b->getValue();
+        std::cout << "Friend function getSum: " << a->getValue()
+                  << " + " << b->getValue() << " = " << sum << std::endl;
         return sum;
     }
 
     int friend_function_getProduct(const MyClass* a, const MyClass* b) {
-        int product = a->secret_value * b->secret_value;
-        std::cout << "Friend function getProduct: " << a->secret_value
-                  << " * " << b->secret_value << " = " << product << std::endl;
+        int product = a->getValue() * b->getValue();
+        std::cout << "Friend function getProduct: " << a->getValue()
+                  << " * " << b->getValue() << " = " << product << std::endl;
         return product;
     }
 
     int friend_function_compare(const MyClass* a, const MyClass* b) {
-        if (a->secret_value < b->secret_value) {
+        if (a->getValue() < b->getValue()) {
             std::cout << "Friend function compare: a < b" << std::endl;
             return -1;
-        } else if (a->secret_value > b->secret_value) {
+        } else if (a->getValue() > b->getValue()) {
             std::cout << "Friend function compare: a > b" << std::endl;
             return 1;
         } else {
@@ -92,13 +92,13 @@ fn main() {
 
     // Friend functions: can access private members
     println!("Friend function operations:");
-    let sum = friend_function_get_sum(&a, &b);
+    let sum = friend_function_get_sum(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Sum: {}", sum);
 
-    let product = friend_function_get_product(&a, &b);
+    let product = friend_function_get_product(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Product: {}", product);
 
-    let cmp = friend_function_compare(&a, &b);
+    let cmp = friend_function_compare(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Compare: {}", cmp);
 
     println!();

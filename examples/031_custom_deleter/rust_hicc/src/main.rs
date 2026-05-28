@@ -3,6 +3,8 @@ hicc::cpp! {
     #include <cstdio>
     #include <cstring>
 
+    typedef void (*FileDeleter)(struct FileHandle*);
+
     class FileHandle {
         FILE* file_;
         FileDeleter deleter_;
@@ -23,7 +25,7 @@ hicc::cpp! {
         FileHandle(const FileHandle &) = default;
         FileHandle & operator=(const FileHandle &) {}
         FileHandle(FileHandle &&) = default;
-        FileHandle & operator=(FileHandle &&) = default {}
+        FileHandle & operator=(FileHandle &&) = default;
         bool is_open() const {
     return file_ != nullptr;
 }
