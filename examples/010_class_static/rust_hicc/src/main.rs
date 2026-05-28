@@ -44,11 +44,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "class_static"]
-
-    class Counter;
-
+hicc::import_class! {
     #[cpp(class = "Counter")]
     class Counter {
         #[cpp(method = "int getValue() const")]
@@ -56,19 +52,25 @@ hicc::import_lib! {
 
         #[cpp(method = "void increment()")]
         fn increment(&mut self);
-
-        #[cpp(func = "Counter* counter_new()")]
-        fn new() -> *mut Counter;
-
-        #[cpp(func = "void counter_delete(Counter* self)")]
-        unsafe fn delete(self_: *mut Counter);
-
-        #[cpp(func = "int counter_getInstanceCount()")]
-        fn get_instance_count() -> i32;
-
-        #[cpp(func = "void counter_resetInstanceCount()")]
-        fn reset_instance_count();
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "class_static"]
+
+    class Counter;
+
+    #[cpp(func = "Counter* counter_new()")]
+    fn counter_new() -> *mut Counter;
+
+    #[cpp(func = "void counter_delete(Counter* self)")]
+    unsafe fn counter_delete(self_: *mut Counter);
+
+    #[cpp(func = "int counter_getInstanceCount()")]
+    fn counter_get_instance_count() -> i32;
+
+    #[cpp(func = "void counter_resetInstanceCount()")]
+    fn counter_reset_instance_count();
 }
 
 fn main() {
@@ -104,3 +106,4 @@ fn main() {
 
     println!("\nRust FFI: Static members work!");
 }
+

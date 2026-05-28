@@ -88,11 +88,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "virtual_diamond"]
-
-    class D;
-
+hicc::import_class! {
     #[cpp(class = "D")]
     class D {
         #[cpp(method = "int getBValue() const")]
@@ -106,13 +102,19 @@ hicc::import_lib! {
 
         #[cpp(method = "void compute() const")]
         fn compute(&self);
-
-        #[cpp(func = "D* d_new(int, int, int, int)")]
-        fn new(a: i32, b: i32, c: i32, d: i32) -> *mut D;
-
-        #[cpp(func = "void d_delete(D* self)")]
-        unsafe fn delete(self_: *mut D);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "virtual_diamond"]
+
+    class D;
+
+    #[cpp(func = "D* d_new(int, int, int, int)")]
+    fn d_new(a: i32, b: i32, c: i32, d: i32) -> *mut D;
+
+    #[cpp(func = "void d_delete(D* self)")]
+    unsafe fn d_delete(self_: *mut D);
 
     #[cpp(func = "int d_get_a_value(D*)")]
     fn d_get_a_value(self_: *mut D) -> i32;
@@ -146,3 +148,4 @@ fn main() {
 
     println!("\nRust FFI: Diamond inheritance works correctly with hicc!");
 }
+

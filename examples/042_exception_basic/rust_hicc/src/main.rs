@@ -88,11 +88,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "exception_basic"]
-
-    class Calculator;
-
+hicc::import_class! {
     #[cpp(class = "Calculator")]
     class Calculator {
         #[cpp(method = "void clear_exception()")]
@@ -106,15 +102,20 @@ hicc::import_lib! {
 
         #[cpp(method = "int string_to_int(const char* str)")]
         fn string_to_int(&mut self, str: *const i8) -> i32;
-
-        #[cpp(func = "Calculator* calculator_new()")]
-        fn new() -> *mut Calculator;
-
-        #[cpp(func = "void calculator_delete(Calculator* self)")]
-        unsafe fn delete(self_: *mut Calculator);
     }
 }
 
+hicc::import_lib! {
+    #![link_name = "exception_basic"]
+
+    class Calculator;
+
+    #[cpp(func = "Calculator* calculator_new()")]
+    fn calculator_new() -> *mut Calculator;
+
+    #[cpp(func = "void calculator_delete(Calculator* self)")]
+    unsafe fn calculator_delete(self_: *mut Calculator);
+}
 fn check_exception(calc: &mut Calculator, operation: &str) {
     let code = calc.get_exception();
     match code {
@@ -171,3 +172,4 @@ fn main() {
     println!("4. Clear exception state before next operation");
     println!("5. Never throw in FFI boundary - use error codes instead");
 }
+

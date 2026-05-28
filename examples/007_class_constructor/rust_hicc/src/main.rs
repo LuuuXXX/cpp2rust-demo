@@ -34,11 +34,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "class_constructor"]
-
-    class Point;
-
+hicc::import_class! {
     #[cpp(class = "Point")]
     class Point {
         #[cpp(method = "int getX() const")]
@@ -52,16 +48,22 @@ hicc::import_lib! {
 
         #[cpp(method = "double getAngle() const")]
         fn get_angle(&self) -> f64;
-
-        #[cpp(func = "Point* point_new_xy(int, int)")]
-        fn new_xy(x: i32, y: i32) -> *mut Point;
-
-        #[cpp(func = "Point* point_newPolar(double, double)")]
-        fn new_polar(r: f64, theta: f64) -> *mut Point;
-
-        #[cpp(func = "void point_delete(Point* self)")]
-        unsafe fn delete(self_: *mut Point);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "class_constructor"]
+
+    class Point;
+
+    #[cpp(func = "Point* point_new_xy(int, int)")]
+    fn point_new_xy(x: i32, y: i32) -> *mut Point;
+
+    #[cpp(func = "Point* point_newPolar(double, double)")]
+    fn point_new_polar(r: f64, theta: f64) -> *mut Point;
+
+    #[cpp(func = "void point_delete(Point* self)")]
+    unsafe fn point_delete(self_: *mut Point);
 }
 
 fn main() {
@@ -87,3 +89,4 @@ fn main() {
 
     println!("\nRust FFI: Multiple constructors work!");
 }
+

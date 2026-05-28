@@ -57,12 +57,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "unique_ptr"]
-
-    class UniqueBuffer;
-    class Processor;
-
+hicc::import_class! {
     #[cpp(class = "UniqueBuffer")]
     class UniqueBuffer {
         #[cpp(method = "int getSize() const")]
@@ -73,25 +68,34 @@ hicc::import_lib! {
 
         #[cpp(method = "int useCount() const")]
         fn use_count(&self) -> i32;
-
-        #[cpp(func = "UniqueBuffer* uniquebuffer_new(int)")]
-        fn new(size: i32) -> *mut UniqueBuffer;
-
-        #[cpp(func = "void uniquebuffer_delete(UniqueBuffer* self)")]
-        unsafe fn delete(self_: *mut UniqueBuffer);
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "Processor")]
     class Processor {
         #[cpp(method = "char* process(const char* input)")]
         fn process(&mut self, input: *const i8) -> *mut i8;
-
-        #[cpp(func = "Processor* processor_new()")]
-        fn new() -> *mut Processor;
-
-        #[cpp(func = "void processor_delete(Processor* self)")]
-        unsafe fn delete(self_: *mut Processor);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "unique_ptr"]
+
+    class UniqueBuffer;
+    class Processor;
+
+    #[cpp(func = "UniqueBuffer* uniquebuffer_new(int)")]
+    fn uniquebuffer_new(size: i32) -> *mut UniqueBuffer;
+
+    #[cpp(func = "void uniquebuffer_delete(UniqueBuffer* self)")]
+    unsafe fn uniquebuffer_delete(self_: *mut UniqueBuffer);
+
+    #[cpp(func = "Processor* processor_new()")]
+    fn processor_new() -> *mut Processor;
+
+    #[cpp(func = "void processor_delete(Processor* self)")]
+    unsafe fn processor_delete(self_: *mut Processor);
 }
 
 fn main() {
@@ -129,5 +133,6 @@ fn main() {
 
     println!("\nhicc-std 提供了 std::unique_ptr 的安全 Rust 包装");
 }
+
 
 

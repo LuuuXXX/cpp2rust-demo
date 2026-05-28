@@ -25,11 +25,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "mutable_member"]
-
-    class DataFetcher;
-
+hicc::import_class! {
     #[cpp(class = "DataFetcher")]
     class DataFetcher {
         #[cpp(method = "const char* getName() const")]
@@ -40,13 +36,19 @@ hicc::import_lib! {
 
         #[cpp(method = "void refresh()")]
         fn refresh(&mut self);
-
-        #[cpp(func = "DataFetcher* datafetcher_new(const char*)")]
-        unsafe fn new(name: *const i8) -> *mut DataFetcher;
-
-        #[cpp(func = "void datafetcher_delete(DataFetcher* self)")]
-        unsafe fn delete(self_: *mut DataFetcher);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "mutable_member"]
+
+    class DataFetcher;
+
+    #[cpp(func = "DataFetcher* datafetcher_new(const char*)")]
+    unsafe fn datafetcher_new(name: *const i8) -> *mut DataFetcher;
+
+    #[cpp(func = "void datafetcher_delete(DataFetcher* self)")]
+    unsafe fn datafetcher_delete(self_: *mut DataFetcher);
 }
 
 fn main() {
@@ -70,3 +72,4 @@ fn main() {
     println!("\nRust FFI: mutable 关键字在 FFI 中无影响");
     println!("mutable 只影响 C++ 编译器允许在 const 方法中修改该成员");
 }
+

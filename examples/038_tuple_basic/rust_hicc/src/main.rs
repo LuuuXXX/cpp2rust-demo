@@ -114,13 +114,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "tuple_basic"]
-
-    class Tuple2;
-    class Tuple3;
-    class Tuple4;
-
+hicc::import_class! {
     #[cpp(class = "Tuple2")]
     class Tuple2 {
         #[cpp(method = "int get_first() const")]
@@ -128,14 +122,10 @@ hicc::import_lib! {
 
         #[cpp(method = "const char* get_second() const")]
         fn get_second(&self) -> *const i8;
-
-        #[cpp(func = "Tuple2* tuple2_new(int, const char*)")]
-        unsafe fn new(first: i32, second: *const i8) -> *mut Tuple2;
-
-        #[cpp(func = "void tuple2_delete(Tuple2* self)")]
-        unsafe fn delete(self_: *mut Tuple2);
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "Tuple3")]
     class Tuple3 {
         #[cpp(method = "int get_first() const")]
@@ -146,14 +136,10 @@ hicc::import_lib! {
 
         #[cpp(method = "const char* get_third() const")]
         fn get_third(&self) -> *const i8;
-
-        #[cpp(func = "Tuple3* tuple3_new(int, double, const char*)")]
-        unsafe fn new(first: i32, second: f64, third: *const i8) -> *mut Tuple3;
-
-        #[cpp(func = "void tuple3_delete(Tuple3* self)")]
-        unsafe fn delete(self_: *mut Tuple3);
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "Tuple4")]
     class Tuple4 {
         #[cpp(method = "int get_first() const")]
@@ -167,13 +153,33 @@ hicc::import_lib! {
 
         #[cpp(method = "int get_fourth() const")]
         fn get_fourth(&self) -> i32;
-
-        #[cpp(func = "Tuple4* tuple4_new(int, double, const char*, int)")]
-        unsafe fn new(first: i32, second: f64, third: *const i8, fourth: i32) -> *mut Tuple4;
-
-        #[cpp(func = "void tuple4_delete(Tuple4* self)")]
-        unsafe fn delete(self_: *mut Tuple4);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "tuple_basic"]
+
+    class Tuple2;
+    class Tuple3;
+    class Tuple4;
+
+    #[cpp(func = "Tuple2* tuple2_new(int, const char*)")]
+    unsafe fn tuple2_new(first: i32, second: *const i8) -> *mut Tuple2;
+
+    #[cpp(func = "void tuple2_delete(Tuple2* self)")]
+    unsafe fn tuple2_delete(self_: *mut Tuple2);
+
+    #[cpp(func = "Tuple3* tuple3_new(int, double, const char*)")]
+    unsafe fn tuple3_new(first: i32, second: f64, third: *const i8) -> *mut Tuple3;
+
+    #[cpp(func = "void tuple3_delete(Tuple3* self)")]
+    unsafe fn tuple3_delete(self_: *mut Tuple3);
+
+    #[cpp(func = "Tuple4* tuple4_new(int, double, const char*, int)")]
+    unsafe fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> *mut Tuple4;
+
+    #[cpp(func = "void tuple4_delete(Tuple4* self)")]
+    unsafe fn tuple4_delete(self_: *mut Tuple4);
 
     #[cpp(func = "Tuple2* make_int_string_pair(int, const char*)")]
     unsafe fn make_int_string_pair(i: i32, s: *const i8) -> *mut Tuple2;
@@ -252,6 +258,7 @@ fn main() {
     println!("3. FFI 需要为每个元素类型提供独立的 getter 函数");
     println!("4. 字符串等复杂类型需要额外的内存管理");
 }
+
 
 
 

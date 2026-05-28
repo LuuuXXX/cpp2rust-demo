@@ -106,6 +106,23 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
+    #[cpp(class = "Buffer")]
+    class Buffer {
+        #[cpp(method = "void* data()")]
+        fn data(&mut self) -> *mut u8;
+
+        #[cpp(method = "size_t capacity() const")]
+        fn capacity(&self) -> usize;
+
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "void* construct(size_t offset)")]
+        fn construct(&mut self, offset: usize) -> *mut u8;
+    }
+}
+
+hicc::import_class! {
     #[cpp(class = "VectorBuffer")]
     class VectorBuffer {
         #[cpp(method = "void* data()")]
@@ -125,26 +142,11 @@ hicc::import_lib! {
     class Buffer;
     class VectorBuffer;
 
-    #[cpp(class = "Buffer")]
-    class Buffer {
-        #[cpp(method = "void* data()")]
-        fn data(&mut self) -> *mut u8;
+    #[cpp(func = "Buffer* buffer_new(size_t)")]
+    fn buffer_new(capacity: usize) -> *mut Buffer;
 
-        #[cpp(method = "size_t capacity() const")]
-        fn capacity(&self) -> usize;
-
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-
-        #[cpp(method = "void* construct(size_t offset)")]
-        fn construct(&mut self, offset: usize) -> *mut u8;
-
-        #[cpp(func = "Buffer* buffer_new(size_t)")]
-        fn new(capacity: usize) -> *mut Buffer;
-
-        #[cpp(func = "void buffer_delete(Buffer* self)")]
-        unsafe fn delete(self_: *mut Buffer);
-    }
+    #[cpp(func = "void buffer_delete(Buffer* self)")]
+    unsafe fn buffer_delete(self_: *mut Buffer);
 
     #[cpp(func = "VectorBuffer* vector_buffer_new(size_t)")]
     fn vector_buffer_new(capacity: usize) -> *mut VectorBuffer;
@@ -187,5 +189,6 @@ fn main() {
     println!("3. 适用于内存池、STL 容器实现");
     println!("4. Rust 需要手动管理内存布局");
 }
+
 
 

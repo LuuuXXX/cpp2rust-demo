@@ -66,12 +66,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "shared_ptr"]
-
-    class SharedData;
-    class Cache;
-
+hicc::import_class! {
     #[cpp(class = "SharedData")]
     class SharedData {
         #[cpp(method = "int useCount() const")]
@@ -85,25 +80,34 @@ hicc::import_lib! {
 
         #[cpp(method = "void reset()")]
         fn reset(&mut self);
-
-        #[cpp(func = "SharedData* shareddata_new(const char*)")]
-        unsafe fn new(name: *const i8) -> *mut SharedData;
-
-        #[cpp(func = "void shareddata_delete(SharedData* self)")]
-        unsafe fn delete(self_: *mut SharedData);
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "Cache")]
     class Cache {
         #[cpp(method = "SharedData* get(const char* name)")]
         fn get(&mut self, name: *const i8) -> *mut SharedData;
-
-        #[cpp(func = "Cache* cache_new()")]
-        fn new() -> *mut Cache;
-
-        #[cpp(func = "void cache_delete(Cache* self)")]
-        unsafe fn delete(self_: *mut Cache);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "shared_ptr"]
+
+    class SharedData;
+    class Cache;
+
+    #[cpp(func = "SharedData* shareddata_new(const char*)")]
+    unsafe fn shareddata_new(name: *const i8) -> *mut SharedData;
+
+    #[cpp(func = "void shareddata_delete(SharedData* self)")]
+    unsafe fn shareddata_delete(self_: *mut SharedData);
+
+    #[cpp(func = "Cache* cache_new()")]
+    fn cache_new() -> *mut Cache;
+
+    #[cpp(func = "void cache_delete(Cache* self)")]
+    unsafe fn cache_delete(self_: *mut Cache);
 }
 
 fn main() {
@@ -155,5 +159,6 @@ fn main() {
     println!("\nweak_ptr 用于缓存，避免循环引用");
     println!("相当于 Rust 的 Weak<T>");
 }
+
 
 

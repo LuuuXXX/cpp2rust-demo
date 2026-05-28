@@ -16,11 +16,7 @@ hicc::cpp! {
     void counter_delete(Counter* self) { delete self; }
 }
 
-hicc::import_lib! {
-    #![link_name = "class_basic"]
-
-    class Counter;
-
+hicc::import_class! {
     #[cpp(class = "Counter")]
     class Counter {
         #[cpp(method = "int get() const")]
@@ -31,13 +27,19 @@ hicc::import_lib! {
 
         #[cpp(method = "void decrement()")]
         fn decrement(&mut self);
-
-        #[cpp(func = "Counter* counter_new()")]
-        fn new() -> *mut Counter;
-
-        #[cpp(func = "void counter_delete(Counter* self)")]
-        unsafe fn delete(self_: *mut Counter);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "class_basic"]
+
+    class Counter;
+
+    #[cpp(func = "Counter* counter_new()")]
+    fn counter_new() -> *mut Counter;
+
+    #[cpp(func = "void counter_delete(Counter* self)")]
+    unsafe fn counter_delete(self_: *mut Counter);
 }
 
 fn main() {
@@ -57,3 +59,4 @@ fn main() {
     }
     println!("\nRust FFI: Basic class operations completed!");
 }
+

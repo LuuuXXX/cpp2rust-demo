@@ -56,22 +56,24 @@ hicc::cpp! {
     }
 }
 
+hicc::import_class! {
+    #[cpp(class = "Number")]
+    class Number {
+        #[cpp(method = "int getValue() const")]
+        fn get_value(&self) -> i32;
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "operator_overload"]
 
     class Number;
 
-    #[cpp(class = "Number")]
-    class Number {
-        #[cpp(method = "int getValue() const")]
-        fn get_value(&self) -> i32;
+    #[cpp(func = "Number* number_new(int)")]
+    fn number_new(value: i32) -> *mut Number;
 
-        #[cpp(func = "Number* number_new(int)")]
-        fn new(value: i32) -> *mut Number;
-
-        #[cpp(func = "void number_delete(Number* self)")]
-        unsafe fn delete(self_: *mut Number);
-    }
+    #[cpp(func = "void number_delete(Number* self)")]
+    unsafe fn number_delete(self_: *mut Number);
 
     #[cpp(func = "int number_get_value(const Number*)")]
     fn number_getValue(self_: *const Number) -> i32;
@@ -148,3 +150,4 @@ fn main() {
         number_delete(&b);
     }
 }
+

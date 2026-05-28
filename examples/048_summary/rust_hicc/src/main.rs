@@ -29,11 +29,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "summary"]
-
-    class Counter;
-
+hicc::import_class! {
     #[cpp(class = "Counter")]
     class Counter {
         #[cpp(method = "int get() const")]
@@ -44,13 +40,19 @@ hicc::import_lib! {
 
         #[cpp(method = "void decrement()")]
         fn decrement(&mut self);
-
-        #[cpp(func = "Counter* counter_new()")]
-        fn new() -> *mut Counter;
-
-        #[cpp(func = "void counter_delete(Counter* self)")]
-        unsafe fn delete(self_: *mut Counter);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "summary"]
+
+    class Counter;
+
+    #[cpp(func = "Counter* counter_new()")]
+    fn counter_new() -> *mut Counter;
+
+    #[cpp(func = "void counter_delete(Counter* self)")]
+    unsafe fn counter_delete(self_: *mut Counter);
 
     #[cpp(func = "int safe_add(int, int)")]
     fn safe_add(a: i32, b: i32) -> i32;
@@ -135,5 +137,6 @@ fn main() {
     println!("6. constexpr computed at compile time");
     println!("7. noexcept is part of function signature in FFI");
 }
+
 
 

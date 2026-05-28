@@ -74,13 +74,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "template_specialization"]
-
-    class IntHolder;
-    class DoubleHolder;
-    class StringHolder;
-
+hicc::import_class! {
     #[cpp(class = "IntHolder")]
     class IntHolder {
         #[cpp(method = "int get() const")]
@@ -88,14 +82,10 @@ hicc::import_lib! {
 
         #[cpp(method = "const char* describe() const")]
         fn describe(&self) -> *const i8;
-
-        #[cpp(func = "IntHolder* intholder_new(int)")]
-        fn new(value: i32) -> *mut IntHolder;
-
-        #[cpp(func = "void intholder_delete(IntHolder* self)")]
-        unsafe fn delete(self_: *mut IntHolder);
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "DoubleHolder")]
     class DoubleHolder {
         #[cpp(method = "double get() const")]
@@ -103,14 +93,10 @@ hicc::import_lib! {
 
         #[cpp(method = "const char* describe() const")]
         fn describe(&self) -> *const i8;
-
-        #[cpp(func = "DoubleHolder* doubleholder_new(double)")]
-        fn new(value: f64) -> *mut DoubleHolder;
-
-        #[cpp(func = "void doubleholder_delete(DoubleHolder* self)")]
-        unsafe fn delete(self_: *mut DoubleHolder);
     }
+}
 
+hicc::import_class! {
     #[cpp(class = "StringHolder")]
     class StringHolder {
         #[cpp(method = "const char* get() const")]
@@ -118,13 +104,33 @@ hicc::import_lib! {
 
         #[cpp(method = "const char* describe() const")]
         fn describe(&self) -> *const i8;
-
-        #[cpp(func = "StringHolder* stringholder_new(const char*)")]
-        unsafe fn new(value: *const i8) -> *mut StringHolder;
-
-        #[cpp(func = "void stringholder_delete(StringHolder* self)")]
-        unsafe fn delete(self_: *mut StringHolder);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "template_specialization"]
+
+    class IntHolder;
+    class DoubleHolder;
+    class StringHolder;
+
+    #[cpp(func = "IntHolder* intholder_new(int)")]
+    fn intholder_new(value: i32) -> *mut IntHolder;
+
+    #[cpp(func = "void intholder_delete(IntHolder* self)")]
+    unsafe fn intholder_delete(self_: *mut IntHolder);
+
+    #[cpp(func = "DoubleHolder* doubleholder_new(double)")]
+    fn doubleholder_new(value: f64) -> *mut DoubleHolder;
+
+    #[cpp(func = "void doubleholder_delete(DoubleHolder* self)")]
+    unsafe fn doubleholder_delete(self_: *mut DoubleHolder);
+
+    #[cpp(func = "StringHolder* stringholder_new(const char*)")]
+    unsafe fn stringholder_new(value: *const i8) -> *mut StringHolder;
+
+    #[cpp(func = "void stringholder_delete(StringHolder* self)")]
+    unsafe fn stringholder_delete(self_: *mut StringHolder);
 }
 
 fn main() {
@@ -161,5 +167,6 @@ fn main() {
     println!("通用版本: IntHolder, DoubleHolder");
     println!("偏特化: StringHolder (处理 char*)");
 }
+
 
 

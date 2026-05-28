@@ -37,11 +37,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "class_const"]
-
-    class Calculator;
-
+hicc::import_class! {
     #[cpp(class = "Calculator")]
     class Calculator {
         #[cpp(method = "int getValue() const")]
@@ -58,13 +54,19 @@ hicc::import_lib! {
 
         #[cpp(method = "void clear()")]
         fn clear(&mut self);
-
-        #[cpp(func = "Calculator* calculator_new()")]
-        fn new() -> *mut Calculator;
-
-        #[cpp(func = "void calculator_delete(Calculator* self)")]
-        unsafe fn delete(self_: *mut Calculator);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "class_const"]
+
+    class Calculator;
+
+    #[cpp(func = "Calculator* calculator_new()")]
+    fn calculator_new() -> *mut Calculator;
+
+    #[cpp(func = "void calculator_delete(Calculator* self)")]
+    unsafe fn calculator_delete(self_: *mut Calculator);
 }
 
 fn main() {
@@ -94,3 +96,4 @@ fn main() {
 
     println!("\nRust FFI: const member functions work!");
 }
+

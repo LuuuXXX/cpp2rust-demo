@@ -51,11 +51,7 @@ hicc::cpp! {
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "class_copy"]
-
-    class Buffer;
-
+hicc::import_class! {
     #[cpp(class = "Buffer")]
     class Buffer {
         #[cpp(method = "void set(int index, int value)")]
@@ -66,19 +62,25 @@ hicc::import_lib! {
 
         #[cpp(method = "int getSize() const")]
         fn get_size(&self) -> i32;
-
-        #[cpp(func = "Buffer* buffer_new()")]
-        fn new() -> *mut Buffer;
-
-        #[cpp(func = "Buffer* buffer_newWithSize(int)")]
-        fn new_with_size(size: i32) -> *mut Buffer;
-
-        #[cpp(func = "Buffer* buffer_newCopy(const struct Buffer* other)")]
-        fn new_copy(other: *const Buffer) -> *mut Buffer;
-
-        #[cpp(func = "void buffer_delete(Buffer* self)")]
-        unsafe fn delete(self_: *mut Buffer);
     }
+}
+
+hicc::import_lib! {
+    #![link_name = "class_copy"]
+
+    class Buffer;
+
+    #[cpp(func = "Buffer* buffer_new()")]
+    fn buffer_new() -> *mut Buffer;
+
+    #[cpp(func = "Buffer* buffer_newWithSize(int)")]
+    fn buffer_new_with_size(size: i32) -> *mut Buffer;
+
+    #[cpp(func = "Buffer* buffer_newCopy(const struct Buffer* other)")]
+    fn buffer_new_copy(other: *const Buffer) -> *mut Buffer;
+
+    #[cpp(func = "void buffer_delete(Buffer* self)")]
+    unsafe fn buffer_delete(self_: *mut Buffer);
 }
 
 fn main() {
@@ -123,3 +125,4 @@ fn main() {
 
     println!("\nRust FFI: Copy constructor pattern works!");
 }
+
