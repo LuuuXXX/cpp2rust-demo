@@ -112,7 +112,6 @@ hicc::import_lib! {
     #[cpp(func = "void derived_delete(Derived* self)")]
     unsafe fn derived_delete(self_: *mut Derived);
 }
-
 fn decode_cstr(ptr: *const i8) -> String {
     if ptr.is_null() {
         return String::new();
@@ -153,6 +152,4 @@ fn main() {
 
     println!("Rust FFI: override keyword works correctly through hicc!");
 }
-
-
 

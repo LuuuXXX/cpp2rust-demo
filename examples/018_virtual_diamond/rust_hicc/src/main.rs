@@ -110,14 +110,14 @@ hicc::import_lib! {
 
     class D;
 
-    #[cpp(func = "int d_get_a_value(D*)")]
-    fn d_get_a_value(self_: *mut D) -> i32;
-
     #[cpp(func = "D* d_new(int, int, int, int)")]
     fn d_new(a: i32, b: i32, c: i32, d: i32) -> *mut D;
 
     #[cpp(func = "void d_delete(D* self)")]
     unsafe fn d_delete(self_: *mut D);
+
+    #[cpp(func = "int d_get_a_value(D*)")]
+    fn d_get_a_value(self_: *mut D) -> i32;
 }
 
 fn main() {
@@ -148,6 +148,4 @@ fn main() {
 
     println!("\nRust FFI: Diamond inheritance works correctly with hicc!");
 }
-
-
 

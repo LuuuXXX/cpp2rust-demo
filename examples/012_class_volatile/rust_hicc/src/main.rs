@@ -85,6 +85,3 @@ fn main() {
     println!("\nRust FFI: volatile qualifier requires volatile pointer in C");
     println!("Note: In C, volatile on the pointed-to object matters for hardware registers");
 }
-
-
-

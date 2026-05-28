@@ -152,17 +152,17 @@ hicc::import_lib! {
     #[cpp(func = "void adder_delete(Adder* self)")]
     unsafe fn adder_delete(self_: *mut Adder);
 
-    #[cpp(func = "int add_five(int)")]
-    fn add_five(a: i32) -> i32;
-
-    #[cpp(func = "int add_ten(int)")]
-    fn add_ten(a: i32) -> i32;
-
     #[cpp(func = "Multiplier* multiplier_new(int)")]
     fn multiplier_new(factor: i32) -> *mut Multiplier;
 
     #[cpp(func = "void multiplier_delete(Multiplier* self)")]
     unsafe fn multiplier_delete(self_: *mut Multiplier);
+
+    #[cpp(func = "int add_five(int)")]
+    fn add_five(a: i32) -> i32;
+
+    #[cpp(func = "int add_ten(int)")]
+    fn add_ten(a: i32) -> i32;
 
     #[cpp(func = "StringProcessor* string_processor_new()")]
     fn string_processor_new() -> *mut StringProcessor;
@@ -219,6 +219,7 @@ fn main() {
     println!("3. 通过 opaque pointer 在 FFI 间传递绑定后的函数");
     println!("4. _1, _2 等占位符表示未绑定的参数位置");
 }
+
 
 
 

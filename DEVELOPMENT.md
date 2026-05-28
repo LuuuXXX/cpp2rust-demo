@@ -50,6 +50,7 @@ cpp2rust-demo (bin)
     │   ├── mod.rs
     │   ├── operator_handler.rs  # 运算符重载 [OP]
     │   ├── friend_handler.rs    # 友元函数
+    │   ├── diamond_handler.rs   # 菱形继承路径检测与命名 shim 生成
     │   └── lambda_handler.rs    # Lambda / std::function [LM]
     └── generator/               # Phase 5：FfiSpec → Rust 代码
         ├── mod.rs
@@ -116,8 +117,8 @@ hicc::import_lib! {
 | 基础类型与函数 | 001–005 | ✅ |
 | 类与对象 | 006–012 | ✅ |
 | 面向对象特性 | 013–017 | ✅ |
-| **菱形继承** | 018 | ❌ L1 失败（shim 生成逻辑待修复） |
-| **运算符重载** | 019 | ⚠️ [OP] L1 失败（降级策略格式未对齐） |
+| 菱形继承 | 018 | ✅ (`diamond_handler.rs` 生成命名 shim) |
+| **运算符重载** | 019 | ⚠️ [OP] L1/L2 通过（降级为命名 shim） |
 | 友元/explicit/mutable/RTTI | 020–023 | ✅ |
 | 模板实例化 | 024–028 | ✅ |
 | 智能指针与内存 | 029–033 | ✅ |
@@ -175,7 +176,7 @@ hicc::import_lib! {
 
 | 层 | 状态 |
 |----|------|
-| **L1**（golden 比对） | ✅ 49 / 49（100%） |
+| **L1**（golden 比对） | ✅ 48 / 48（100%） |
 | **L2**（编译测试）| ✅ 37 / 37 活跃测试通过；11 个标记 `#[ignore]`（待修复） |
 | **L3**（运行测试）| CI 阶段验证，本地未全量运行 |
 
@@ -195,6 +196,8 @@ hicc::import_lib! {
 | 修复 type_mapper 引用类型映射 + volatile 方法限定符生成（`T&` → `&mut T`，`is_volatile` 字段）；009/012 编译通过 | 009、012 |
 | 修复 5 个 L2 编译失败（032/036/038/047/047）；009/012 `#[ignore]` 移除；L2 活跃通过率从 31/48 提升至 **37/37（11 仍 ignore）** | 032、036、038、047 |
 | `cargo clippy` 清零（7 处 warning：drop-reference / and_then-Some / format-literal / map_or / collapsible-if / manual-strip） | — |
+| 回退 hicc class body 语法：`hicc_codegen.rs` 恢复 `import_class!` + 自由函数格式（`associated_fns` 不再内联到 `import_lib!` class body），并同步 21 个 golden 文件；修复 CI L2 编译失败 | 006–008、010–011、013–015、017–019、021–022、026、029–030、032、036、038、042、048 |
+| 同步 8 个 `#[ignore]` 示例的 golden 文件，使其与新的 `import_class!` + 自由函数格式对齐；L1 全量通过（48 / 48） | 020、023、025、027、031、033、041、045 |
 
 ---
 

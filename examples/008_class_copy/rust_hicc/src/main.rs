@@ -126,5 +126,3 @@ fn main() {
     println!("\nRust FFI: Copy constructor pattern works!");
 }
 
-
-

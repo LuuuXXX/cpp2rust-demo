@@ -141,6 +141,3 @@ fn main() {
 
     println!("\nRust FFI: Pure virtual functions work through hicc!");
 }
-
-
-

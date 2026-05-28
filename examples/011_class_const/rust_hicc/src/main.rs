@@ -97,5 +97,3 @@ fn main() {
     println!("\nRust FFI: const member functions work!");
 }
 
-
-

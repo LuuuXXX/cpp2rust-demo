@@ -109,7 +109,6 @@ hicc::import_lib! {
     #[cpp(func = "void circle_delete(Circle* self)")]
     unsafe fn circle_delete(self_: *mut Circle);
 }
-
 fn decode_cstr(ptr: *const i8) -> String {
     if ptr.is_null() {
         return String::new();
@@ -135,6 +134,4 @@ fn main() {
 
     println!("\nRust FFI: Virtual functions work through hicc import_class!");
 }
-
-
 

@@ -90,5 +90,3 @@ fn main() {
     println!("\nRust FFI: Multiple constructors work!");
 }
 
-
-

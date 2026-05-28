@@ -1,6 +1,3 @@
-// 048_summary - Summary of all FFI patterns
-// This example demonstrates the key FFI patterns covered in examples 001-047
-
 hicc::cpp! {
     #include <cstdint>
 
@@ -140,5 +137,6 @@ fn main() {
     println!("6. constexpr computed at compile time");
     println!("7. noexcept is part of function signature in FFI");
 }
+
 
 

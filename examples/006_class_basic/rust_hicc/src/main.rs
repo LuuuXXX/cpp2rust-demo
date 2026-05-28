@@ -60,5 +60,3 @@ fn main() {
     println!("\nRust FFI: Basic class operations completed!");
 }
 
-
-

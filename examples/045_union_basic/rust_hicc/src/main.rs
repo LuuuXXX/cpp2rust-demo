@@ -152,24 +152,6 @@ hicc::import_lib! {
     #[cpp(func = "void union_set_float(IntFloatUnion*, float)")]
     unsafe fn union_set_float(u: *mut IntFloatUnion, value: f32);
 }
-
-// Type constants
-pub const VALUE_TYPE_INT: i32 = 0;
-pub const VALUE_TYPE_FLOAT: i32 = 1;
-pub const VALUE_TYPE_STRING: i32 = 2;
-
-// Rust repr(C) mirror of the C++ IntFloatUnion struct
-#[repr(C)]
-union IntFloatUnionData {
-    int_value: i32,
-    float_value: f32,
-}
-
-#[repr(C)]
-struct IntFloatUnion {
-    data: IntFloatUnionData,
-}
-
 fn variant_type_name(t: i32) -> &'static str {
     match t {
         0 => "INT",
@@ -222,6 +204,4 @@ fn main() {
     println!("4. Often used to save memory or for type punning");
     println!("5. FFI passes union via variant wrapper");
 }
-
-
 

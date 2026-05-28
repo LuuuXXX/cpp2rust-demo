@@ -4,9 +4,9 @@ hicc::cpp! {
     #include <cmath>
 
     enum ShapeType {
-    SHAPE_TYPE_CIRCLE = 0,
-    SHAPE_TYPE_RECTANGLE = 1,
-    SHAPE_TYPE_TRIANGLE = 2,
+        SHAPE_TYPE_CIRCLE = 0,
+        SHAPE_TYPE_RECTANGLE = 1,
+        SHAPE_TYPE_TRIANGLE = 2,
     };
 
     class Shape {
@@ -155,6 +155,7 @@ fn main() {
     println!("\nRust FFI: typeid 变成类型枚举或字符串比较");
     println!("RTTI 信息在 FFI 边界丢失，需在 C++ 侧导出类型信息");
 }
+
 
 
 
