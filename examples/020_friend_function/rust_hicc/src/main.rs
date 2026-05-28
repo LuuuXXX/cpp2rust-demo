@@ -46,7 +46,11 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "friend_function"]
+
+    class MyClass;
+
     #[cpp(class = "MyClass")]
     class MyClass {
         #[cpp(method = "int getValue() const")]
@@ -54,19 +58,13 @@ hicc::import_class! {
 
         #[cpp(method = "void setValue(int v)")]
         fn set_value(&mut self, v: i32);
+
+        #[cpp(func = "MyClass* myclass_new(int)")]
+        fn new(secret_value: i32) -> *mut MyClass;
+
+        #[cpp(func = "void myclass_delete(MyClass* self)")]
+        unsafe fn delete(self_: *mut MyClass);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "friend_function"]
-
-    class MyClass;
-
-    #[cpp(func = "MyClass* myclass_new(int)")]
-    fn myclass_new(secret_value: i32) -> *mut MyClass;
-
-    #[cpp(func = "void myclass_delete(MyClass* self)")]
-    unsafe fn myclass_delete(self_: *mut MyClass);
 
     #[cpp(func = "int friend_function_getSum(const MyClass* a, const MyClass* b)")]
     fn friend_function_get_sum(a: *const MyClass, b: *const MyClass) -> i32;
@@ -111,6 +109,3 @@ fn main() {
         myclass_delete(&b);
     }
 }
-
-
-

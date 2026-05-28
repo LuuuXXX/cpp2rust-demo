@@ -119,6 +119,15 @@ pub fn extract(
     crate::postprocessor::diamond_handler::apply(&mut spec, ast, &functions);
     crate::postprocessor::operator_handler::apply(&mut spec, ast, &functions);
 
+    // ── 关联函数归属（ctor/dtor/factory → ClassSpec::associated_fns）──────
+    // 将 import_lib! 中属于某个类的 ctor/dtor/StaticAccessor 函数
+    // 移至对应 ClassSpec::associated_fns，使代码生成器可输出 class body 格式
+    if !spec.class_specs.is_empty() {
+        let class_names_owned: Vec<String> = ast.classes.iter().map(|c| c.name.clone()).collect();
+        let class_names_ref: Vec<&str> = class_names_owned.iter().map(|s| s.as_str()).collect();
+        assign_associated_fns(&mut spec.class_specs, &mut spec.lib_spec, &functions, &class_names_ref);
+    }
+
     spec
 }
 
@@ -619,7 +628,7 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
         return None;
     }
 
-    Some(ClassSpec { name: ci.name.clone(), methods })
+    Some(ClassSpec { name: ci.name.clone(), methods, associated_fns: Vec::new() })
 }
 
 /// 递归收集所有基类的 public 非 ctor/dtor 方法（不含静态方法）
@@ -1025,4 +1034,70 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
 
     let _ = h_set; // suppress unused warning
     (system, project)
+}
+
+// ─────────────────────────────────────────────
+//  关联函数归属
+// ─────────────────────────────────────────────
+
+/// 将 LibSpec::fn_bindings 中属于某个类的 ctor/dtor/StaticAccessor 函数
+/// 移至对应 ClassSpec::associated_fns，使代码生成器可输出 class body 格式。
+///
+/// 匹配规则：函数名前缀与类名匹配（如 `counter_new` → 归属 `Counter`）；
+/// 仅处理 `ShimKind::Ctor`、`ShimKind::Dtor`、`ShimKind::StaticAccessor`。
+/// 不属于任何已知类（或类无对应 ClassSpec）的函数保留在 fn_bindings 中。
+fn assign_associated_fns(
+    class_specs: &mut Vec<crate::ffi_model::ClassSpec>,
+    lib_spec: &mut crate::ffi_model::LibSpec,
+    functions: &[&FunctionInfo],
+    class_names: &[&str],
+) {
+    // 预先分类所有 shim 函数
+    let shims = classify_functions(functions, class_names);
+
+    // 建立 rust_name → ShimKind 映射（去重；同名取第一个）
+    let mut kind_map: std::collections::HashMap<String, &ShimKind> =
+        std::collections::HashMap::new();
+    for (fi, kind) in &shims {
+        kind_map.entry(to_snake_case(&fi.name)).or_insert(kind);
+    }
+
+    let mut remaining = Vec::new();
+    for fb in lib_spec.fn_bindings.drain(..) {
+        let should_move = matches!(
+            kind_map.get(&fb.rust_name),
+            Some(ShimKind::Ctor | ShimKind::Dtor | ShimKind::StaticAccessor)
+        );
+
+        if should_move {
+            // 找到名称前缀与此函数匹配的类（优先最长前缀）
+            let owning = class_names
+                .iter()
+                .filter(|cn| {
+                    let prefix = format!("{}_", cn.to_lowercase());
+                    fb.rust_name.starts_with(&prefix)
+                })
+                .max_by_key(|cn| cn.len())
+                .copied();
+
+            if let Some(cn) = owning {
+                if let Some(cs) = class_specs.iter_mut().find(|c| c.name == cn) {
+                    cs.associated_fns.push(fb);
+                    continue;
+                }
+            }
+        }
+        remaining.push(fb);
+    }
+    lib_spec.fn_bindings = remaining;
+
+    // 确保有 associated_fns 的类在 fwd_decls 中有前向声明
+    for cs in class_specs.iter() {
+        if !cs.associated_fns.is_empty() {
+            let decl = format!("class {};", cs.name);
+            if !lib_spec.fwd_decls.contains(&decl) {
+                lib_spec.fwd_decls.push(decl);
+            }
+        }
+    }
 }

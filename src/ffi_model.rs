@@ -20,8 +20,10 @@ pub struct FfiSpec {
 pub struct ClassSpec {
     /// C++ 类名
     pub name: String,
-    /// 非 ctor/dtor 方法绑定列表
+    /// 非 ctor/dtor 方法绑定列表（有 self 的成员方法）
     pub methods: Vec<MethodBinding>,
+    /// ctor/dtor/factory 关联函数（无 self）；非空时在 import_lib! 中生成 class body 格式
+    pub associated_fns: Vec<FnBinding>,
 }
 
 /// 类方法绑定

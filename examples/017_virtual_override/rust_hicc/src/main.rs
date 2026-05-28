@@ -69,7 +69,12 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "virtual_override"]
+
+    class Base;
+    class Derived;
+
     #[cpp(class = "Base")]
     class Base {
         #[cpp(method = "double area() const")]
@@ -77,10 +82,14 @@ hicc::import_class! {
 
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
-    }
-}
 
-hicc::import_class! {
+        #[cpp(func = "Base* base_create(int)")]
+        fn create(type_: i32) -> *mut Base;
+
+        #[cpp(func = "void base_delete(Base* self)")]
+        unsafe fn delete(self_: *mut Base);
+    }
+
     #[cpp(class = "Derived")]
     class Derived {
         #[cpp(method = "const char* getName() const")]
@@ -91,35 +100,13 @@ hicc::import_class! {
 
         #[cpp(method = "double getValue() const")]
         fn get_value(&self) -> f64;
+
+        #[cpp(func = "Derived* derived_new(double)")]
+        fn new(value: f64) -> *mut Derived;
+
+        #[cpp(func = "void derived_delete(Derived* self)")]
+        unsafe fn delete(self_: *mut Derived);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "virtual_override"]
-
-    class Base;
-    class Derived;
-
-    #[cpp(func = "Base* base_create(int)")]
-    fn base_create(type_: i32) -> *mut Base;
-
-    #[cpp(func = "void base_delete(Base* self)")]
-    unsafe fn base_delete(self_: *mut Base);
-
-    #[cpp(func = "Derived* derived_new(double)")]
-    fn derived_new(value: f64) -> *mut Derived;
-
-    #[cpp(func = "void derived_delete(Derived* self)")]
-    unsafe fn derived_delete(self_: *mut Derived);
-}
-
-fn decode_cstr(ptr: *const i8) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    unsafe { std::ffi::CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .to_string()
 }
 
 fn main() {
@@ -153,6 +140,3 @@ fn main() {
 
     println!("Rust FFI: override keyword works correctly through hicc!");
 }
-
-
-

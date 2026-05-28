@@ -62,7 +62,12 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "inheritance_single"]
+
+    class Animal;
+    class Dog;
+
     #[cpp(class = "Animal")]
     class Animal {
         #[cpp(method = "const char* getName() const")]
@@ -70,10 +75,14 @@ hicc::import_class! {
 
         #[cpp(method = "void speak() const")]
         fn speak(&self);
-    }
-}
 
-hicc::import_class! {
+        #[cpp(func = "Animal* animal_new(const char*)")]
+        unsafe fn new(name: *const i8) -> *mut Animal;
+
+        #[cpp(func = "void animal_delete(Animal* self)")]
+        unsafe fn delete(self_: *mut Animal);
+    }
+
     #[cpp(class = "Dog")]
     class Dog {
         #[cpp(method = "const char* getName() const")]
@@ -84,26 +93,13 @@ hicc::import_class! {
 
         #[cpp(method = "void speak() const")]
         fn speak(&self);
+
+        #[cpp(func = "Dog* dog_new(const char*)")]
+        unsafe fn new(name: *const i8) -> *mut Dog;
+
+        #[cpp(func = "void dog_delete(Dog* self)")]
+        unsafe fn delete(self_: *mut Dog);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "inheritance_single"]
-
-    class Animal;
-    class Dog;
-
-    #[cpp(func = "Animal* animal_new(const char*)")]
-    unsafe fn animal_new(name: *const i8) -> *mut Animal;
-
-    #[cpp(func = "void animal_delete(Animal* self)")]
-    unsafe fn animal_delete(self_: *mut Animal);
-
-    #[cpp(func = "Dog* dog_new(const char*)")]
-    unsafe fn dog_new(name: *const i8) -> *mut Dog;
-
-    #[cpp(func = "void dog_delete(Dog* self)")]
-    unsafe fn dog_delete(self_: *mut Dog);
 }
 
 fn main() {
@@ -141,7 +137,3 @@ fn decode_cstr(ptr: *const i8) -> String {
         .to_string_lossy()
         .to_string()
 }
-
-
-
-

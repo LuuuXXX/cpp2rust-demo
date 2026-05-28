@@ -4,9 +4,9 @@ hicc::cpp! {
     #include <cmath>
 
     enum ShapeType {
-    SHAPE_TYPE_CIRCLE = 0,
-    SHAPE_TYPE_RECTANGLE = 1,
-    SHAPE_TYPE_TRIANGLE = 2,
+        SHAPE_TYPE_CIRCLE = 0,
+        SHAPE_TYPE_RECTANGLE = 1,
+        SHAPE_TYPE_TRIANGLE = 2,
     };
 
     class Shape {
@@ -90,7 +90,11 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "typeid_rtti"]
+
+    class Shape;
+
     #[cpp(class = "Shape")]
     class Shape {
         #[cpp(method = "int getType() const")]
@@ -101,25 +105,19 @@ hicc::import_class! {
 
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
+
+        #[cpp(func = "Shape* shape_new_circle(double)")]
+        fn new_circle(radius: f64) -> *mut Shape;
+
+        #[cpp(func = "Shape* shape_new_rectangle(double, double)")]
+        fn new_rectangle(width: f64, height: f64) -> *mut Shape;
+
+        #[cpp(func = "Shape* shape_new_triangle(double, double)")]
+        fn new_triangle(base: f64, height: f64) -> *mut Shape;
+
+        #[cpp(func = "void shape_delete(Shape* self)")]
+        unsafe fn delete(self_: *mut Shape);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "typeid_rtti"]
-
-    class Shape;
-
-    #[cpp(func = "Shape* shape_new_circle(double)")]
-    fn shape_new_circle(radius: f64) -> *mut Shape;
-
-    #[cpp(func = "Shape* shape_new_rectangle(double, double)")]
-    fn shape_new_rectangle(width: f64, height: f64) -> *mut Shape;
-
-    #[cpp(func = "Shape* shape_new_triangle(double, double)")]
-    fn shape_new_triangle(base: f64, height: f64) -> *mut Shape;
-
-    #[cpp(func = "void shape_delete(Shape* self)")]
-    unsafe fn shape_delete(self_: *mut Shape);
 }
 
 fn main() {

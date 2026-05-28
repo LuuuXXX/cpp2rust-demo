@@ -88,7 +88,11 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "exception_basic"]
+
+    class Calculator;
+
     #[cpp(class = "Calculator")]
     class Calculator {
         #[cpp(method = "void clear_exception()")]
@@ -102,29 +106,12 @@ hicc::import_class! {
 
         #[cpp(method = "int string_to_int(const char* str)")]
         fn string_to_int(&mut self, str: *const i8) -> i32;
-    }
-}
 
-hicc::import_lib! {
-    #![link_name = "exception_basic"]
+        #[cpp(func = "Calculator* calculator_new()")]
+        fn new() -> *mut Calculator;
 
-    class Calculator;
-
-    #[cpp(func = "Calculator* calculator_new()")]
-    fn calculator_new() -> *mut Calculator;
-
-    #[cpp(func = "void calculator_delete(Calculator* self)")]
-    unsafe fn calculator_delete(self_: *mut Calculator);
-}
-
-fn check_exception(calc: &mut Calculator, operation: &str) {
-    let code = calc.get_exception();
-    match code {
-        0 => println!("  {}: No exception", operation),
-        1 => println!("  {}: Invalid argument exception", operation),
-        2 => println!("  {}: Out of range exception", operation),
-        3 => println!("  {}: Runtime error exception", operation),
-        _ => println!("  {}: Unknown exception code: {}", operation, code),
+        #[cpp(func = "void calculator_delete(Calculator* self)")]
+        unsafe fn delete(self_: *mut Calculator);
     }
 }
 

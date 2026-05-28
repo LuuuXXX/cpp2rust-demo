@@ -62,7 +62,11 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "string_basic"]
+
+    class String;
+
     #[cpp(class = "String")]
     class String {
         #[cpp(method = "const char* c_str() const")]
@@ -91,25 +95,19 @@ hicc::import_class! {
 
         #[cpp(method = "void to_lower()")]
         fn to_lower(&mut self);
+
+        #[cpp(func = "String* string_new()")]
+        fn new() -> *mut String;
+
+        #[cpp(func = "String* string_new_from(const char*)")]
+        unsafe fn new_from(str: *const i8) -> *mut String;
+
+        #[cpp(func = "String* string_new_from_len(const char*, size_t)")]
+        unsafe fn new_from_len(str: *const i8, len: usize) -> *mut String;
+
+        #[cpp(func = "void string_delete(String* self)")]
+        unsafe fn delete(self_: *mut String);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "string_basic"]
-
-    class String;
-
-    #[cpp(func = "String* string_new()")]
-    fn string_new() -> *mut String;
-
-    #[cpp(func = "String* string_new_from(const char*)")]
-    unsafe fn string_new_from(str: *const i8) -> *mut String;
-
-    #[cpp(func = "String* string_new_from_len(const char*, size_t)")]
-    unsafe fn string_new_from_len(str: *const i8, len: usize) -> *mut String;
-
-    #[cpp(func = "void string_delete(String* self)")]
-    unsafe fn string_delete(self_: *mut String);
 }
 
 fn main() {

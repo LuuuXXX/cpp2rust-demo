@@ -97,7 +97,11 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "union_basic"]
+
+    class Variant;
+
     #[cpp(class = "Variant")]
     class Variant {
         #[cpp(method = "int get_type() const")]
@@ -120,25 +124,19 @@ hicc::import_class! {
 
         #[cpp(method = "const char* get_string() const")]
         fn get_string(&self) -> *const i8;
+
+        #[cpp(func = "Variant* variant_new_int(int)")]
+        fn new_int(value: i32) -> *mut Variant;
+
+        #[cpp(func = "Variant* variant_new_float(float)")]
+        fn new_float(value: f32) -> *mut Variant;
+
+        #[cpp(func = "Variant* variant_new_string(const char*)")]
+        unsafe fn new_string(value: *const i8) -> *mut Variant;
+
+        #[cpp(func = "void variant_delete(Variant* self)")]
+        unsafe fn delete(self_: *mut Variant);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "union_basic"]
-
-    class Variant;
-
-    #[cpp(func = "Variant* variant_new_int(int)")]
-    fn variant_new_int(value: i32) -> *mut Variant;
-
-    #[cpp(func = "Variant* variant_new_float(float)")]
-    fn variant_new_float(value: f32) -> *mut Variant;
-
-    #[cpp(func = "Variant* variant_new_string(const char*)")]
-    unsafe fn variant_new_string(value: *const i8) -> *mut Variant;
-
-    #[cpp(func = "void variant_delete(Variant* self)")]
-    unsafe fn variant_delete(self_: *mut Variant);
 
     #[cpp(func = "int union_get_int(const struct IntFloatUnion*)")]
     fn union_get_int(u: *const IntFloatUnion) -> i32;
@@ -151,32 +149,6 @@ hicc::import_lib! {
 
     #[cpp(func = "void union_set_float(IntFloatUnion*, float)")]
     unsafe fn union_set_float(u: *mut IntFloatUnion, value: f32);
-}
-
-// Type constants
-pub const VALUE_TYPE_INT: i32 = 0;
-pub const VALUE_TYPE_FLOAT: i32 = 1;
-pub const VALUE_TYPE_STRING: i32 = 2;
-
-// Rust repr(C) mirror of the C++ IntFloatUnion struct
-#[repr(C)]
-union IntFloatUnionData {
-    int_value: i32,
-    float_value: f32,
-}
-
-#[repr(C)]
-struct IntFloatUnion {
-    data: IntFloatUnionData,
-}
-
-fn variant_type_name(t: i32) -> &'static str {
-    match t {
-        0 => "INT",
-        1 => "FLOAT",
-        2 => "STRING",
-        _ => "UNKNOWN",
-    }
 }
 
 fn main() {

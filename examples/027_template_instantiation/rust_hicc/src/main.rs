@@ -44,7 +44,12 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "template_instantiation"]
+
+    class IntMatrix;
+    class DoubleMatrix;
+
     #[cpp(class = "IntMatrix")]
     class IntMatrix {
         #[cpp(method = "int rows() const")]
@@ -61,10 +66,14 @@ hicc::import_class! {
 
         #[cpp(method = "void print() const")]
         fn print(&self);
-    }
-}
 
-hicc::import_class! {
+        #[cpp(func = "IntMatrix* intmatrix_new(int, int)")]
+        fn new(rows: i32, cols: i32) -> *mut IntMatrix;
+
+        #[cpp(func = "void intmatrix_delete(IntMatrix* self)")]
+        unsafe fn delete(self_: *mut IntMatrix);
+    }
+
     #[cpp(class = "DoubleMatrix")]
     class DoubleMatrix {
         #[cpp(method = "int rows() const")]
@@ -81,26 +90,13 @@ hicc::import_class! {
 
         #[cpp(method = "void print() const")]
         fn print(&self);
+
+        #[cpp(func = "DoubleMatrix* doublematrix_new(int, int)")]
+        fn new(rows: i32, cols: i32) -> *mut DoubleMatrix;
+
+        #[cpp(func = "void doublematrix_delete(DoubleMatrix* self)")]
+        unsafe fn delete(self_: *mut DoubleMatrix);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "template_instantiation"]
-
-    class IntMatrix;
-    class DoubleMatrix;
-
-    #[cpp(func = "IntMatrix* intmatrix_new(int, int)")]
-    fn intmatrix_new(rows: i32, cols: i32) -> *mut IntMatrix;
-
-    #[cpp(func = "void intmatrix_delete(IntMatrix* self)")]
-    unsafe fn intmatrix_delete(self_: *mut IntMatrix);
-
-    #[cpp(func = "DoubleMatrix* doublematrix_new(int, int)")]
-    fn doublematrix_new(rows: i32, cols: i32) -> *mut DoubleMatrix;
-
-    #[cpp(func = "void doublematrix_delete(DoubleMatrix* self)")]
-    unsafe fn doublematrix_delete(self_: *mut DoubleMatrix);
 }
 
 fn main() {

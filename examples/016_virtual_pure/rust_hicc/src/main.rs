@@ -101,15 +101,6 @@ hicc::import_lib! {
     unsafe fn abstract_shape_delete(self_: *mut AbstractShape);
 }
 
-fn decode_cstr(ptr: *const i8) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    unsafe { std::ffi::CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .to_string()
-}
-
 fn main() {
     println!("=== Pure Virtual Function FFI with hicc ===\n");
     println!("Pure virtual functions (= 0) make a class abstract");
@@ -141,6 +132,3 @@ fn main() {
 
     println!("\nRust FFI: Pure virtual functions work through hicc!");
 }
-
-
-

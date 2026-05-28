@@ -1,6 +1,3 @@
-// 048_summary - Summary of all FFI patterns
-// This example demonstrates the key FFI patterns covered in examples 001-047
-
 hicc::cpp! {
     #include <cstdint>
 
@@ -32,7 +29,11 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "summary"]
+
+    class Counter;
+
     #[cpp(class = "Counter")]
     class Counter {
         #[cpp(method = "int get() const")]
@@ -43,19 +44,13 @@ hicc::import_class! {
 
         #[cpp(method = "void decrement()")]
         fn decrement(&mut self);
+
+        #[cpp(func = "Counter* counter_new()")]
+        fn new() -> *mut Counter;
+
+        #[cpp(func = "void counter_delete(Counter* self)")]
+        unsafe fn delete(self_: *mut Counter);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "summary"]
-
-    class Counter;
-
-    #[cpp(func = "Counter* counter_new()")]
-    fn counter_new() -> *mut Counter;
-
-    #[cpp(func = "void counter_delete(Counter* self)")]
-    unsafe fn counter_delete(self_: *mut Counter);
 
     #[cpp(func = "int safe_add(int, int)")]
     fn safe_add(a: i32, b: i32) -> i32;

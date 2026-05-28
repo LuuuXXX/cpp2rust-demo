@@ -66,7 +66,11 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
+hicc::import_lib! {
+    #![link_name = "inheritance_multiple"]
+
+    class Derived;
+
     #[cpp(class = "Derived")]
     class Derived {
         #[cpp(method = "int getValue1() const")]
@@ -80,19 +84,13 @@ hicc::import_class! {
 
         #[cpp(method = "void compute() const")]
         fn compute(&self);
+
+        #[cpp(func = "Derived* derived_new(int, int, int)")]
+        fn new(v1: i32, v2: i32, dv: i32) -> *mut Derived;
+
+        #[cpp(func = "void derived_delete(Derived* self)")]
+        unsafe fn delete(self_: *mut Derived);
     }
-}
-
-hicc::import_lib! {
-    #![link_name = "inheritance_multiple"]
-
-    class Derived;
-
-    #[cpp(func = "Derived* derived_new(int, int, int)")]
-    fn derived_new(v1: i32, v2: i32, dv: i32) -> *mut Derived;
-
-    #[cpp(func = "void derived_delete(Derived* self)")]
-    unsafe fn derived_delete(self_: *mut Derived);
 }
 
 fn main() {
@@ -110,6 +108,3 @@ fn main() {
 
     println!("\nRust FFI: Multiple inheritance with hicc pattern");
 }
-
-
-
