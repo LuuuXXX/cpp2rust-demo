@@ -68,6 +68,14 @@ struct Calculator {
     CalculatorImpl* impl;
     Calculator();
     ~Calculator();
+    void clear_exception() { impl->clear_exception(); }
+    int get_exception() { return impl->get_exception(); }
+    int divide(int a, int b) {
+        try { return impl->divide(a, b); } catch (...) { return 0; }
+    }
+    int string_to_int(const char* str) {
+        try { return impl->string_to_int(str); } catch (...) { return 0; }
+    }
 };
 
 #endif

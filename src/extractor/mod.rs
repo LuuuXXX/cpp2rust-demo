@@ -589,18 +589,11 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         Some(cpp_to_rust(&m.return_type))
     };
 
-    // C++ 方法签名：含参数名（仅当参数名非空），指针紧贴类型
+    // C++ 方法签名：只含参数类型（不含参数名），指针紧贴类型
     let param_types: Vec<String> = m
         .params
         .iter()
-        .map(|p| {
-            let ty = normalize_ptr_spacing(clean_type(&p.type_name));
-            if p.name.is_empty() || p.name == "_" {
-                ty
-            } else {
-                format!("{} {}", ty, p.name)
-            }
-        })
+        .map(|p| normalize_ptr_spacing(clean_type(&p.type_name)))
         .collect();
     let ret_clean = normalize_ptr_spacing(clean_type(&m.return_type));
     let const_suffix = if m.is_const { " const" } else { "" };
@@ -661,11 +654,9 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         if rt.is_empty() { None } else { Some(rt) }
     };
 
-    // unsafe: 参数中有 *mut T 类型，或参数/返回值含原始 C 字符串（*const i8 / *mut i8）
+    // unsafe: 参数中有 *mut T 类型（类指针），或返回值为裸 C 字符串
     let is_unsafe = params.iter().any(|(_, t)| {
-        t.starts_with("*mut ")
-            || t == "*const i8"
-            || t == "*mut i8"
+        t.starts_with("*mut ") && t != "*mut i8"
     }) || ret_type.as_deref().map_or(false, |r| r == "*const i8" || r == "*mut i8");
 
     // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名
