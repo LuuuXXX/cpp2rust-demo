@@ -4,6 +4,8 @@ hicc::cpp! {
     #include <functional>
     #include <algorithm>
 
+    typedef int (*IntBinaryOp)(int, int);
+
     class LambdaWrapperImpl {
     public:
         std::function<int(int, int)> fn;
@@ -159,20 +161,31 @@ hicc::import_lib! {
 fn main() {
     println!("=== 039_lambda_basic - Lambda 表达式 ===\n");
 
-    // Simple wrapper demo
-    println!("--- BinaryOp Demo ---");
-    let mut op = binary_op_new();
+    println!("--- Direct function calls ---");
+    println!("add_impl(3, 4) = {}", add_impl(3, 4));
+    println!("multiply_impl(3, 4) = {}", multiply_impl(3, 4));
+    println!("max_impl(3, 4) = {}", max_impl(3, 4));
 
-    // Store some operations
-    op.store(10, 20, 30);
-    println!("Stored: a={}, b={}, result={}", op.get_a(), op.get_b(), op.get_result());
+    println!("\n--- LambdaWrapper Demo ---");
+    let mut add_wrapper = make_add_lambda();
+    println!("add invoke(5, 6) = {}", add_wrapper.invoke(5, 6));
+    unsafe { lambda_wrapper_delete(&add_wrapper); }
 
-    op.store(5, 3, 8);
-    println!("Stored: a={}, b={}, result={}", op.get_a(), op.get_b(), op.get_result());
+    let mut mul_wrapper = make_multiply_lambda();
+    println!("multiply invoke(5, 6) = {}", mul_wrapper.invoke(5, 6));
+    unsafe { lambda_wrapper_delete(&mul_wrapper); }
 
-    unsafe {
-        binary_op_delete(&op);
-    }
+    println!("\n--- StateLambda Demo ---");
+    let mut state = state_lambda_new(10);
+    println!("initial value = {}", state.get_value());
+    println!("add(5) = {}", state.add(5));
+    println!("add(3) = {}", state.add(3));
+    unsafe { state_lambda_delete(&state); }
+
+    println!("\n--- Comparator Demo ---");
+    let mut cmp = comparator_new_add();
+    println!("compare(2, 3) = {}", cmp.compare(2, 3));
+    unsafe { comparator_delete(&cmp); }
 
     println!("\nRust FFI: Lambda 表达式映射");
     println!("1. 函数指针可以通过 FFI 传递");

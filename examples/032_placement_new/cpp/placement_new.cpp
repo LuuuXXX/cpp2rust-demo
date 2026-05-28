@@ -3,11 +3,6 @@
 #include <cstring>
 #include <new>
 
-// SimpleValue type needed for vector_buffer_new
-struct SimpleValue {
-    int value;
-};
-
 // Buffer class implementation
 Buffer::Buffer(size_t capacity) : data_(nullptr), capacity_(capacity), constructed_size_(0) {
     if (capacity_ > 0) {

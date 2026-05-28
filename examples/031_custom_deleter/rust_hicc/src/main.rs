@@ -3,6 +3,8 @@ hicc::cpp! {
     #include <cstdio>
     #include <cstring>
 
+    typedef void (*FileDeleter)(struct FileHandle*);
+
     class FileHandle {
         FILE* file_;
         FileDeleter deleter_;
@@ -23,7 +25,7 @@ hicc::cpp! {
         FileHandle(const FileHandle &) = default;
         FileHandle & operator=(const FileHandle &) {}
         FileHandle(FileHandle &&) = default;
-        FileHandle & operator=(FileHandle &&) = default {}
+        FileHandle & operator=(FileHandle &&) = default;
         bool is_open() const {
     return file_ != nullptr;
 }
@@ -180,10 +182,6 @@ fn main() {
     let mode = std::ffi::CString::new("w").expect("CString::new failed");
 
     let mut handle = unsafe { file_open_default(filename.as_ptr(), mode.as_ptr()) };
-    if handle.is_null() {
-        println!("Failed to open file");
-        return;
-    }
 
     // 写入数据
     let data = std::ffi::CString::new("Hello, custom deleter!").expect("CString::new failed");

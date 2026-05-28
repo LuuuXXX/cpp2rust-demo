@@ -176,7 +176,7 @@ hicc::import_lib! {
 | 层 | 状态 |
 |----|------|
 | **L1**（golden 比对） | ✅ 49 / 49（100%） |
-| **L2**（编译测试）| ⚠️ 31 / 48 通过；17 个已知预存在失败标记 `#[ignore]`，待后续修复 |
+| **L2**（编译测试）| ✅ 37 / 37 活跃测试通过；11 个标记 `#[ignore]`（待修复） |
 | **L3**（运行测试）| CI 阶段验证，本地未全量运行 |
 
 ### 5.3 已完成的主要修复记录
@@ -192,6 +192,8 @@ hicc::import_lib! {
 | 对齐 `lambda_handler.rs` class wrapper 格式（wrapper 类名、`call()` 签名） | 039、040 |
 | CI 系统依赖修正：将 `libstdc++-dev` 改为 `libstdc++-14-dev`（Ubuntu 24.04 适配） | — |
 | 将 17 个预存在 L2 编译失败标记为 `#[ignore]`，使 CI l2-compile 阶段绿色通过 | 009、012、020、023、025、027、031–033、036、038–041、045 |
+| 修复 type_mapper 引用类型映射 + volatile 方法限定符生成（`T&` → `&mut T`，`is_volatile` 字段）；009/012 编译通过 | 009、012 |
+| 修复 5 个 L2 编译失败（032/036/038/047/047）；009/012 `#[ignore]` 移除；L2 活跃通过率从 31/48 提升至 **37/37（11 仍 ignore）** | 032、036、038、047 |
 | `cargo clippy` 清零（7 处 warning：drop-reference / and_then-Some / format-literal / map_or / collapsible-if / manual-strip） | — |
 
 ---
@@ -219,29 +221,36 @@ cpp2rust-demo merge --feature core --feature extra --output mylib
 - Ubuntu 24.04 依赖由 `libstdc++-dev` 改为 `libstdc++-14-dev`
 - 17 个预存在 L2 编译失败标记为 `#[ignore]`，CI l2-compile 阶段恢复绿色
 
-### 6.3 P1 - 修复 17 个 L2 编译失败（下次重点）
+### 6.3 🔄 P1 - L2 编译失败修复进度
 
-以下 `rust_hicc/` 示例目前标记为 `#[ignore]`，下次需逐一排查并修复：
+**已修复（6 个，`#[ignore]` 已移除）：**
 
-| 编号 | 示例名 | 可能原因 |
+| 编号 | 示例名 | 修复方式 |
 |------|--------|---------|
-| 009 | class_move | 移动语义 shim 格式问题 |
-| 012 | class_volatile | volatile 限定符处理缺失 |
-| 020 | friend_function | 友元函数 extern 声明格式 |
-| 023 | typeid_rtti | RTTI 依赖 `-frtti` 编译选项 |
-| 025 | template_class | 模板类实例化类型名拼写 |
-| 027 | template_instantiation | 跨翻译单元模板合并 |
-| 031 | custom_deleter | unique_ptr 自定义删除器类型 |
-| 032 | placement_new | placement new shim |
-| 033 | raii_pattern | RAII 析构顺序 / shim 格式 |
-| 036 | string_basic | std::string opaque 类型映射 |
-| 038 | tuple_basic | std::tuple 模板展开 |
-| 039 | lambda_basic | 有状态 Lambda class wrapper |
-| 040 | std_function | std::function class wrapper |
-| 041 | functional_bind | std::bind 类型擦除 |
-| 045 | union_basic | union 字段偏移计算 |
+| 009 | class_move | 修复 type_mapper：`T&` 参数映射为 `&mut T`（而非 `*mut T`） |
+| 012 | class_volatile | MethodInfo 新增 `is_volatile` 字段，生成 volatile 方法签名 |
+| 032 | placement_new | 移动 `struct SimpleValue` 定义到 `class Buffer` 前 |
+| 036 | string_basic | 为 `string_new_from` 调用添加 `unsafe {}` 块 |
+| 038 | tuple_basic | 为 `tuple*_new` 调用添加 `unsafe {}` 块 |
+| 047 | noexcept_basic | 为 `noexcept_mover_move` 调用添加 `unsafe {}` 块 |
 
-**建议修复顺序**：优先 `[LM]` 类（039/040/041），因为 class wrapper 格式已基本对齐，修复代价最小；其次模板类（025/027）；最后 STL 相关（036/038）。
+**仍在 `#[ignore]`（11 个）：**
+
+> 下表列出每个失败示例的**实际编译错误**和**根本原因**，为后续工具层修复提供参考。
+
+| 编号 | 示例名 | 实际编译错误 | 根本原因 | 修复方向 |
+|------|--------|------------|---------|---------|
+| 020 | friend_function | C++ 编译器报 private 成员访问错误 | 工具生成的 shim 直接访问 `private` 成员，而非通过公有方法 | `friend_handler.rs`：优先调用同名公有访问器，无则生成带 `friend` 声明的 shim |
+| 023 | typeid_rtti | `SHAPE_TYPE_*` 常量未声明 | `hicc::cpp!` 内联方法体引用头文件中的常量，但 `hicc::cpp!` 块未包含该头文件 | 生成器在内联方法体时自动添加 `#include` 或将常量内联 |
+| 025 | template_class | `'Stack' does not name a type` | `hicc::cpp!` 中引用 `Stack<int>` 但 `Stack<T>` 模板定义来自项目头文件，未在块内定义 | 工具生成时内联依赖的模板定义（同 027 方案），同时避免 L1 golden 不一致 |
+| 027 | template_instantiation | `'Matrix' does not name a type` | `hicc::cpp!` 中 `IntMatrix`/`DoubleMatrix` 依赖 `Matrix<T>` 模板，但工具不内联模板定义 | 工具层修复：检测 `hicc::cpp!` 块中未定义的模板类型，从项目头文件中内联其定义 |
+| 031 | custom_deleter | `FILE*` / 函数指针 typedef 无 Rust 映射 | `FileDeleter`（函数指针 typedef）和 `FILE*` 在 type_mapper 中没有对应的 Rust 类型 | `type_mapper.rs`：添加 `FILE*` → `*mut libc::FILE`，函数指针 typedef → `extern "C" fn(...)` |
+| 033 | raii_pattern | `hicc::AbiClassMethods<ScopedLock, void>` 不完整类型 | `ScopedLock` 的 `import_class!` 没有任何方法，导致 hicc 内部类型参数为 `void`，触发 `AbiClassMethods<T, void>` 不完整类型错误（与 040 同根因） | 对无公有方法的类跳过 `import_class!` 生成，改为纯 opaque pointer 模式 |
+| 039 | lambda_basic | `'add_impl' was not declared in this scope` | `hicc::cpp!` 中生成的 wrapper 工厂函数（`make_add_lambda`）调用了 `add_impl` 等函数，但这些函数实际是 C++ lambda，无法以普通函数名引用 | `lambda_handler.rs`：wrapper 内直接捕获并实现 lambda 逻辑，而非引用外部函数名 |
+| 040 | std_function | `hicc::AbiClassMethods<Processor, void>` 不完整类型 | `Processor`/`MultiCallback` 等类在 `import_class!` 中无方法声明，hicc 模板参数退化为 `void` | 同 033：无方法类改为 opaque pointer 模式，跳过 `import_class!` |
+| 041 | functional_bind | `'add_five_impl' was not declared in this scope` | 与 039 同根因：wrapper 函数引用了不可寻址的 lambda/bind 表达式名 | 同 039 |
+| 045 | union_basic | `VALUE_TYPE_*` 常量未声明 | 与 023 同根因：枚举常量来自项目头文件，未包含在 `hicc::cpp!` 块中 | 同 023 |
+| 046 | constexpr_basic | `'ARRAY_SIZE' was not declared in this scope`；`ConstexprPoint` 类型不完整 | `constexpr` 常量和 `constexpr` 构造函数在 `hicc::cpp!` 中不可见；生成器未处理 `constexpr` 类 | 生成器识别 `constexpr` 常量并内联其值；`constexpr` 构造函数生成普通 shim |
 
 ### 6.4 P2 - 增量处理与局限性（待后续跟进）
 

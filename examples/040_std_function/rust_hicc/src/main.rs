@@ -175,35 +175,32 @@ hicc::import_lib! {
 fn main() {
     println!("=== 040_std_function - std::function 回调 ===\n");
 
-    // CallbackWrapper example
     println!("--- CallbackWrapper Demo ---");
-    unsafe {
-        let mut wrapper = callback_wrapper_new(2);
-        let result = wrapper.process(5);
-        println!("process(5) with multiplier=2: {}", result);
-        println!("get_value(): {}", wrapper.get_value());
-        callback_wrapper_delete(&wrapper);
+    let mut wrapper = callback_wrapper_new_double();
+    println!("invoke(5) = {} (doubles input)", wrapper.invoke(5));
+    println!("invoke(7) = {} (doubles input)", wrapper.invoke(7));
+    unsafe { callback_wrapper_delete(&wrapper); }
 
-        let mut wrapper = callback_wrapper_new(3);
-        let result = wrapper.process(7);
-        println!("process(7) with multiplier=3: {}", result);
-        callback_wrapper_delete(&wrapper);
-    }
-
-    // Processor example
     println!("\n--- Processor Demo ---");
-    unsafe {
-        let mut processor = processor_new();
+    let mut processor = processor_new();
+    processor_set_double(&processor);
+    println!("process(10) = {}", processor.process(10));
+    unsafe { processor_delete(&processor); }
 
-        processor.set_input(21);
-        println!("Set input: {}", processor.get_input());
+    println!("\n--- MultiCallback Demo ---");
+    let mut mc = multi_callback_new();
+    multi_callback_add_double(&mc);
+    multi_callback_add_triple(&mc);
+    println!("Invoking all callbacks with 4:");
+    mc.invoke_all(4);
+    unsafe { multi_callback_delete(&mc); }
 
-        // Simulate processing
-        let result = processor.get_input() * 2;
-        println!("Simulated result (input * 2): {}", result);
-
-        processor_delete(&processor);
-    }
+    println!("\n--- AsyncProcessor Demo ---");
+    let mut ap = async_processor_new();
+    println!("is_cancelled = {}", ap.is_cancelled());
+    ap.cancel();
+    println!("after cancel: is_cancelled = {}", ap.is_cancelled());
+    unsafe { async_processor_delete(&ap); }
 
     println!("\nRust FFI: std::function 回调映射");
     println!("1. std::function 存储可调用对象");

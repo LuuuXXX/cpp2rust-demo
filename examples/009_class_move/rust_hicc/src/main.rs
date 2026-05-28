@@ -82,7 +82,7 @@ hicc::import_class! {
         fn get_size(&self) -> i32;
 
         #[cpp(method = "void moveFrom(UniqueVector & src)")]
-        fn move_from(&mut self, src: *mut UniqueVector);
+        fn move_from(&mut self, src: &mut UniqueVector);
     }
 }
 
@@ -118,7 +118,7 @@ fn main() {
         println!("dest size before move: {}", dest.get_size());
 
         // Move: transfer resources from src to dest
-        dest.move_from(&src_with_data);
+        unique_vector_move(&dest, &src_with_data);
 
         println!("dest size after move: {}", dest.get_size());
         println!("dest[0]: {}", dest.get(0));
@@ -127,8 +127,8 @@ fn main() {
         println!("src_with_data size after move: {}", src_with_data.get_size());
 
         // Cleanup
-        unique_vector_delete(&mut dest);
-        unique_vector_delete(&mut src_with_data);
+        unique_vector_delete(&dest);
+        unique_vector_delete(&src_with_data);
     }
 
     println!("\nRust FFI: Move semantics work!");

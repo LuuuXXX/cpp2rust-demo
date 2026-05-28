@@ -197,7 +197,7 @@ fn main() {
     // Tuple2 demo
     println!("--- Tuple2 (int, string) Demo ---");
     let second = CString::new("hello").unwrap();
-    let tuple = tuple2_new(42, second.as_ptr());
+    let tuple = unsafe { tuple2_new(42, second.as_ptr()) };
 
     let first = tuple.get_first();
     let second_ptr = tuple.get_second();
@@ -212,7 +212,7 @@ fn main() {
     // Tuple3 demo
     println!("--- Tuple3 (int, double, string) Demo ---");
     let third = CString::new("world").unwrap();
-    let tuple = tuple3_new(100, 3.14159, third.as_ptr());
+    let tuple = unsafe { tuple3_new(100, 3.14159, third.as_ptr()) };
 
     let first = tuple.get_first();
     let second = tuple.get_second();
@@ -228,7 +228,7 @@ fn main() {
     // Tuple4 demo
     println!("--- Tuple4 (int, double, string, int) Demo ---");
     let third = CString::new("tuple").unwrap();
-    let tuple = tuple4_new(1, 2.71828, third.as_ptr(), 4);
+    let tuple = unsafe { tuple4_new(1, 2.71828, third.as_ptr(), 4) };
 
     println!("Tuple4 elements:");
     println!("  [0] = {}", tuple.get_first());
@@ -245,7 +245,7 @@ fn main() {
     // Using helper functions
     println!("--- Helper Functions Demo ---");
     let second = CString::new("pair").unwrap();
-    let pair = make_int_string_pair(10, second.as_ptr());
+    let pair = unsafe { make_int_string_pair(10, second.as_ptr()) };
     let first = pair.get_first();
     let second_ptr = pair.get_second();
     let second_str = unsafe { CStr::from_ptr(second_ptr).to_string_lossy() };

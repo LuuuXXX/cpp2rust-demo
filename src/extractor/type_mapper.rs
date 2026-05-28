@@ -78,22 +78,22 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         return format!("*mut {}", inner_rust);
     }
 
-    // 引用类型暂不支持 — 降级为指针
+    // 引用类型：T& → &mut T，const T& → &T
     if let Some(rest) = cpp.strip_suffix(" &").or_else(|| cpp.strip_suffix("&")) {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
             let inner_rust = cpp_to_rust(inner);
             if inner_rust.is_empty() {
-                return "*const u8".to_string();
+                return "&u8".to_string();
             }
-            return format!("*const {}", inner_rust);
+            return format!("&{}", inner_rust);
         }
         let inner_rust = cpp_to_rust(rest);
         if inner_rust.is_empty() {
-            return "*mut u8".to_string();
+            return "&mut u8".to_string();
         }
-        return format!("*mut {}", inner_rust);
+        return format!("&mut {}", inner_rust);
     }
 
     // 剥除 struct/class 前缀

@@ -49,6 +49,11 @@ size_t vector_buffer_element_size(VectorBuffer* self);
 #ifdef __cplusplus
 }
 
+// SimpleValue type used for placement new examples
+struct SimpleValue {
+    int value;
+};
+
 // Full class definition - for hicc code generation
 class Buffer {
     char* data_;
