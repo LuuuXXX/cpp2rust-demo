@@ -1,7 +1,8 @@
 hicc::cpp! {
-    #include <string>
     #include <iostream>
     #include <cmath>
+    #include <cstring>
+    #include <string>
 
     class Shape {
     protected:
@@ -39,7 +40,9 @@ hicc::cpp! {
     Circle::~Circle() {}
 
     double Circle::area() const {
-        return M_PI * radius * radius;
+        return 
+              3.14159265358979323846 
+                   * radius * radius;
     }
 
     double Circle::getRadius() const {
@@ -70,18 +73,18 @@ hicc::import_class! {
         fn area(&self) -> f64;
 
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const u8;
+        fn get_name(&self) -> *const i8;
     }
 }
 
 hicc::import_class! {
     #[cpp(class = "Circle")]
     class Circle {
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const i8;
+
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
-
-        #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const u8;
 
         #[cpp(method = "double getRadius() const")]
         fn get_radius(&self) -> f64;
@@ -100,24 +103,20 @@ hicc::import_lib! {
     #[cpp(func = "void shape_delete(Shape* self)")]
     unsafe fn shape_delete(self_: *mut Shape);
 
-    #[cpp(func = "Circle* circle_new(double radius)")]
+    #[cpp(func = "Circle* circle_new(double)")]
     fn circle_new(radius: f64) -> *mut Circle;
 
     #[cpp(func = "void circle_delete(Circle* self)")]
     unsafe fn circle_delete(self_: *mut Circle);
 }
 
-fn decode_cstr(ptr: *const u8) -> String {
+fn decode_cstr(ptr: *const i8) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string()
-    }
+    unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .to_string()
 }
 
 fn main() {
@@ -136,3 +135,6 @@ fn main() {
 
     println!("\nRust FFI: Virtual functions work through hicc import_class!");
 }
+
+
+

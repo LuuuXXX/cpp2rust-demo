@@ -10,15 +10,19 @@ hicc::cpp! {
         ~Point() {}
         int getX() const { return x; }
         int getY() const { return y; }
-        double getMagnitude() const { return std::sqrt(x * x + y * y); }
-        double getAngle() const { return std::atan2(y, x); }
+        double getMagnitude() const {
+    return std::sqrt(x * x + y * y);
+}
+        double getAngle() const {
+    return std::atan2(y, x);
+}
     };
 
     Point* point_new_xy(int x, int y) {
         return new Point(x, y);
     }
 
-    Point* point_new_polar(double r, double theta) {
+    Point* point_newPolar(double r, double theta) {
         int x = static_cast<int>(r * std::cos(theta));
         int y = static_cast<int>(r * std::sin(theta));
         std::cout << "Point created: polar(" << r << ", " << theta << ") -> xy(" << x << ", " << y << ")" << std::endl;
@@ -52,10 +56,10 @@ hicc::import_lib! {
 
     class Point;
 
-    #[cpp(func = "Point* point_new_xy(int x, int y)")]
+    #[cpp(func = "Point* point_new_xy(int, int)")]
     fn point_new_xy(x: i32, y: i32) -> *mut Point;
 
-    #[cpp(func = "Point* point_new_polar(double r, double theta)")]
+    #[cpp(func = "Point* point_newPolar(double, double)")]
     fn point_new_polar(r: f64, theta: f64) -> *mut Point;
 
     #[cpp(func = "void point_delete(Point* self)")]
@@ -85,3 +89,6 @@ fn main() {
 
     println!("\nRust FFI: Multiple constructors work!");
 }
+
+
+

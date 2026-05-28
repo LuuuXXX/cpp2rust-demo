@@ -5,7 +5,6 @@ hicc::cpp! {
 hicc::import_lib! {
     #![link_name = "default_args"]
 
-    // C++ 默认参数在 FFI 时必须明确指定所有参数
     #[cpp(func = "int greet(const char*, int)")]
     unsafe fn greet(name: *const i8, times: i32) -> i32;
 }
@@ -29,3 +28,6 @@ fn main() {
 
     println!("\nRust FFI: Default args simulated in Rust!");
 }
+
+
+

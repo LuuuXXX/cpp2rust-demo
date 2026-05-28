@@ -1,71 +1,141 @@
 hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <functional>
     #include <string>
 
-    // Adder with bound base value
-    class Adder {
+    class AdderImpl {
     public:
         int base_value;
-        Adder(int base) : base_value(base) {}
-        int add(int value) const { return base_value + value; }
+    public:
+        AdderImpl(int base) : base_value(base) {}
+        ~AdderImpl() {}
+        int add(int value) {
+    return base_value + value;
+}
     };
 
-    // Multiplier with bound factor
-    class Multiplier {
+    class MultiplierImpl {
     public:
         int factor;
-        Multiplier(int f) : factor(f) {}
-        int multiply(int value) const { return factor * value; }
+    public:
+        MultiplierImpl(int f) : factor(f) {}
+        ~MultiplierImpl() {}
+        int multiply(int value) {
+    return factor * value;
+}
     };
 
-    // String processor with bound target
-    class StringProcessor {
+    class StringProcessorImpl {
     public:
         std::string target;
-        StringProcessor() : target() {}
-        void set_target(const char* t) { target = t ? t : ""; }
-        int count_char(char ch) const {
-            int count = 0;
-            for (char c : target) {
-                if (c == ch) count++;
-            }
-            return count;
-        }
+    public:
+        StringProcessorImpl() {}
+        ~StringProcessorImpl() {}
+        void set_target(const char* t) {
+    target = t;
+}
+        int count_char(char ch) {
+    int count = 0;
+    for (char c : target) {
+        if (c == ch) count++;
+    }
+    return count;
+}
     };
 
-    Adder* adder_new(int base_value) { return new Adder(base_value); }
-    void adder_delete(Adder* self) { delete self; }
+    struct Adder {
+    public:
+        AdderImpl* impl;
+        Adder(int base_value) : impl(new AdderImpl(base_value)) {}
+        ~Adder() { delete impl; }
+        int add(int value) { return impl->add(value); }
+    };
 
-    Multiplier* multiplier_new(int factor) { return new Multiplier(factor); }
-    void multiplier_delete(Multiplier* self) { delete self; }
+    struct Multiplier {
+    public:
+        MultiplierImpl* impl;
+        Multiplier(int factor) : impl(new MultiplierImpl(factor)) {}
+        ~Multiplier() { delete impl; }
+        int multiply(int value) { return impl->multiply(value); }
+    };
 
-    StringProcessor* string_processor_new() { return new StringProcessor(); }
-    void string_processor_delete(StringProcessor* self) { delete self; }
+    struct StringProcessor {
+    public:
+        StringProcessorImpl* impl;
+        StringProcessor() : impl(new StringProcessorImpl()) {}
+        ~StringProcessor() { delete impl; }
+        void set_target(const char* t) { impl->set_target(t); }
+        int count_char(char ch) { return impl->count_char(ch); }
+    };
+
+    Adder* adder_new(int base_value) {
+        return new Adder(base_value);
+    }
+
+    void adder_delete(Adder* self) {
+        delete self;
+    }
+
+    int add_five(int a) {
+        return add_five_impl(a, 5);
+    }
+
+    int add_ten(int a) {
+        return add_ten_impl(a, 10);
+    }
+
+    Multiplier* multiplier_new(int factor) {
+        return new Multiplier(factor);
+    }
+
+    void multiplier_delete(Multiplier* self) {
+        delete self;
+    }
+
+    StringProcessor* string_processor_new() {
+        return new StringProcessor();
+    }
+
+    void string_processor_delete(StringProcessor* self) {
+        delete self;
+    }
+
+    int add_five_impl(int a, int b) {
+        std::cout << "add_five called: " << a << " + 5 = " << (a + 5) << std::endl;
+        return a + 5;
+    }
+
+    int add_ten_impl(int a, int b) {
+        std::cout << "add_ten called: " << a << " + 10 = " << (a + 10) << std::endl;
+        return a + 10;
+    }
 }
 
 hicc::import_class! {
     #[cpp(class = "Adder")]
     class Adder {
-        #[cpp(method = "int add(int) const")]
-        fn add(&self, value: i32) -> i32;
+        #[cpp(method = "int add(int value)")]
+        fn add(&mut self, value: i32) -> i32;
     }
 }
 
 hicc::import_class! {
     #[cpp(class = "Multiplier")]
     class Multiplier {
-        #[cpp(method = "int multiply(int) const")]
-        fn multiply(&self, value: i32) -> i32;
+        #[cpp(method = "int multiply(int value)")]
+        fn multiply(&mut self, value: i32) -> i32;
     }
 }
 
 hicc::import_class! {
     #[cpp(class = "StringProcessor")]
     class StringProcessor {
-        #[cpp(method = "void set_target(const char*)")]
-        fn set_target(&mut self, target: *const i8);
+        #[cpp(method = "void set_target(const char* t)")]
+        fn set_target(&mut self, t: *const i8);
 
-        #[cpp(method = "int count_char(char) const")]
-        fn count_char(&self, ch: i8) -> i32;
+        #[cpp(method = "int count_char(char ch)")]
+        fn count_char(&mut self, ch: i8) -> i32;
     }
 }
 
@@ -82,6 +152,12 @@ hicc::import_lib! {
     #[cpp(func = "void adder_delete(Adder* self)")]
     unsafe fn adder_delete(self_: *mut Adder);
 
+    #[cpp(func = "int add_five(int)")]
+    fn add_five(a: i32) -> i32;
+
+    #[cpp(func = "int add_ten(int)")]
+    fn add_ten(a: i32) -> i32;
+
     #[cpp(func = "Multiplier* multiplier_new(int)")]
     fn multiplier_new(factor: i32) -> *mut Multiplier;
 
@@ -93,6 +169,12 @@ hicc::import_lib! {
 
     #[cpp(func = "void string_processor_delete(StringProcessor* self)")]
     unsafe fn string_processor_delete(self_: *mut StringProcessor);
+
+    #[cpp(func = "int add_five_impl(int, int)")]
+    fn add_five_impl(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int add_ten_impl(int, int)")]
+    fn add_ten_impl(a: i32, b: i32) -> i32;
 }
 
 fn main() {
@@ -103,7 +185,7 @@ fn main() {
     // Adder example - bound base value
     println!("--- Adder Demo (绑定基础值) ---");
     unsafe {
-        let adder = adder_new(100);
+        let mut adder = adder_new(100);
         println!("Result of adder.add(50): {}", adder.add(50));
         println!("Result of adder.add(30): {}", adder.add(30));
         adder_delete(&adder);
@@ -112,7 +194,7 @@ fn main() {
     // Multiplier example - bound multiplier
     println!("\n--- Multiplier Demo (绑定乘数) ---");
     unsafe {
-        let multiplier = multiplier_new(7);
+        let mut multiplier = multiplier_new(7);
         println!("multiply(6) = {}", multiplier.multiply(6));
         println!("multiply(11) = {}", multiplier.multiply(11));
         multiplier_delete(&multiplier);
@@ -137,3 +219,6 @@ fn main() {
     println!("3. 通过 opaque pointer 在 FFI 间传递绑定后的函数");
     println!("4. _1, _2 等占位符表示未绑定的参数位置");
 }
+
+
+

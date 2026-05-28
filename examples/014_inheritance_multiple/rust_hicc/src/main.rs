@@ -20,11 +20,10 @@ hicc::cpp! {
     };
 
     class Derived : public Base1, public Base2 {
-    private:
         int derived_value;
     public:
         Derived(int v1, int v2, int dv);
-        ~Derived();
+        ~Derived() override;
         int getDerivedValue() const;
         void compute() const;
     };
@@ -89,7 +88,7 @@ hicc::import_lib! {
 
     class Derived;
 
-    #[cpp(func = "Derived* derived_new(int v1, int v2, int dv)")]
+    #[cpp(func = "Derived* derived_new(int, int, int)")]
     fn derived_new(v1: i32, v2: i32, dv: i32) -> *mut Derived;
 
     #[cpp(func = "void derived_delete(Derived* self)")]
@@ -111,3 +110,6 @@ fn main() {
 
     println!("\nRust FFI: Multiple inheritance with hicc pattern");
 }
+
+
+

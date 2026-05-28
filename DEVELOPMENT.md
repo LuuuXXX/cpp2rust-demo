@@ -1,0 +1,265 @@
+# cpp2rust-demo 开发文档
+
+> 本文档记录项目的设计目标、架构、当前进度和后续计划，供所有开发者参考。
+
+---
+
+## 1. 项目目标
+
+**cpp2rust-demo** 是一个 C++ → Rust Safe FFI 自动化脚手架生成工具（方案 v5）。
+
+**核心目标**：给定一个任意 C++ 项目，开发者只需执行 `cpp2rust-demo init -- <构建命令>` 一条命令，工具自动完成以下流程：
+
+1. 编译拦截（LD_PRELOAD hook）：捕获实际被编译的 C++ 文件及其预处理内容
+2. AST 解析：用 libclang 解析宏展开后的 C++ 代码，提取类/函数/枚举/模板实例化
+3. 代码生成：输出 `hicc` 宏格式的 Rust FFI 脚手架（`hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三段式）
+
+工具**不**负责：
+- 生成 `fn main()`（业务逻辑由开发者手写）
+- 实现完整的语义等价翻译（只生成 FFI 绑定层）
+
+**参考实现**：`references/c2rust-demo/`（同架构的 C 语言版本，LD_PRELOAD + clang + hicc）
+
+---
+
+## 2. 架构概览
+
+```
+cpp2rust-demo (bin)
+│
+├── hook/                        # LD_PRELOAD 拦截器
+│   ├── hook.cpp                 # 拦截 g++/clang++ 调用，产出 .cpp2rust 预处理文件
+│   └── Makefile
+│
+└── src/
+    ├── main.rs                  # CLI 入口：init / merge / parse
+    ├── capture.rs               # hook 编译 + LD_PRELOAD 注入执行
+    ├── layout.rs                # 目录布局（.cpp2rust/<feature>/c|meta|rust）
+    ├── selector.rs              # 交互式文件选择
+    ├── ffi_model.rs             # FFI 中间表示（FfiSpec / ClassSpec / FnBinding 等）
+    ├── error.rs                 # 统一错误类型
+    ├── ast_parser.rs            # C++ AST 解析（clang crate → CppAst）
+    ├── instantiation_tracker.rs # 模板实例化追踪
+    ├── extractor/               # Phase 2：CppAst → FfiSpec IR 提取
+    │   ├── mod.rs               # 公共入口 extract()、命名空间模式检测
+    │   ├── class_extractor.rs   # 类/结构体提取
+    │   ├── function_extractor.rs# 函数提取
+    │   ├── enum_extractor.rs    # 枚举提取
+    │   └── type_mapper.rs       # C++ 类型 → Rust 类型映射
+    ├── postprocessor/           # Phase 4：特殊情况后处理
+    │   ├── mod.rs
+    │   ├── operator_handler.rs  # 运算符重载 [OP]
+    │   ├── friend_handler.rs    # 友元函数
+    │   └── lambda_handler.rs    # Lambda / std::function [LM]
+    └── generator/               # Phase 5：FfiSpec → Rust 代码
+        ├── mod.rs
+        ├── hicc_codegen.rs      # hicc 三段式代码生成
+        └── project_generator.rs # Cargo.toml / lib.rs 生成
+```
+
+### 2.1 三阶段处理流程
+
+```
+编译拦截 (hook.cpp)                    AST 提取 (ast_parser + extractor)        代码生成 (generator)
+LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust              FfiSpec → hicc 三段式 Rust
+→ .cpp2rust 预处理文件         →      → CppAst（类/函数/枚举/模板）     →      → lib.rs + <unit>.rs
+```
+
+### 2.2 输出目录结构
+
+```
+.cpp2rust/<feature>/
+├── c/                   # 预处理文件（.cpp2rust 后缀）
+├── meta/                # build_cmd.txt、selected_files.json
+└── rust/                # 生成的 Rust 项目
+    └── src/
+        ├── lib.rs
+        └── <unit>.rs    # 每个编译单元对应一个文件
+```
+
+### 2.3 生成代码格式（三段式）
+
+```rust
+// 段 1：C++ 实现内联（含必要 shim）
+hicc::cpp! {
+    #include "foo.h"
+    Foo* foo_new(int value) { return new Foo(value); }
+    void foo_delete(Foo* self) { delete self; }
+}
+
+// 段 2：类方法绑定（import_class!）
+hicc::import_class! {
+    #[cpp(class = "Foo")]
+    class Foo {
+        #[cpp(method = "int getValue() const")]
+        fn getValue(&self) -> i32;
+    }
+}
+
+// 段 3：全局函数绑定（import_lib!）
+hicc::import_lib! {
+    #![link_name = "foo"]
+    class Foo;
+    #[cpp(func = "Foo* foo_new(int value)")]
+    fn foo_new(value: i32) -> *mut Foo;
+}
+```
+
+---
+
+## 3. 48 个示例的支持矩阵
+
+> 图例：✅ 完全自动生成可编译代码　⚠️ 降级生成 + 内联 TODO　❌ 尚未实现
+
+| 类别 | 编号范围 | 状态 |
+|------|---------|------|
+| 基础类型与函数 | 001–005 | ✅ |
+| 类与对象 | 006–012 | ✅ |
+| 面向对象特性 | 013–017 | ✅ |
+| **菱形继承** | 018 | ❌ L1 失败（shim 生成逻辑待修复） |
+| **运算符重载** | 019 | ⚠️ [OP] L1 失败（降级策略格式未对齐） |
+| 友元/explicit/mutable/RTTI | 020–023 | ✅ |
+| 模板实例化 | 024–028 | ✅ |
+| 智能指针与内存 | 029–033 | ✅ |
+| STL 容器 | 034–038 | ✅ |
+| **有状态 Lambda** | 039 | ⚠️ [LM] L1 失败（class wrapper 格式未对齐） |
+| **std::function** | 040 | ⚠️ [LM] L1 失败（class wrapper 格式未对齐） |
+| functional_bind / 异常 | 041–042 | ✅ |
+| 高级特性 | 043–048 | ✅ |
+
+### 3.1 降级特性说明（4 项）
+
+| TAG | 编号 | C++ 特性 | 不能完全自动的原因 | 自动降级策略 |
+|-----|------|---------|-----------------|------------|
+| `[OP]` | 019 | 运算符重载 | C ABI 无运算符符号 | 生成命名 shim（`{class}_add` 等）+ 内联 TODO |
+| `[VA]` | 028 | 可变参数模板 | `...Args` 编译期展开，FFI 无法表达 | 生成 wrapper 类 + 按数量展开版本 |
+| `[LM]` | 039 | 有状态 Lambda | 匿名闭包类型，FFI 无法表达捕获列表 | 无状态→函数指针；有状态→class wrapper |
+| `[LM]` | 040 | std::function | 类型擦除容器，签名可推断但捕获不透明 | class wrapper + opaque pointer |
+
+---
+
+## 4. 测试体系
+
+测试分三层，位于 `tests/` 目录：
+
+| 层 | 文件 | 验证内容 | 运行命令 |
+|----|------|---------|---------|
+| L1 | `l1_golden_tests.rs` | 工具生成的 FFI 脚手架与 `rust_hicc/src/main.rs` 中对应段落一致 | `cargo test --test l1_golden_tests -- --include-ignored --test-threads=1` |
+| L2 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | `cargo test --test l2_compile_tests` |
+| L3 | `l3_run_tests.rs` | `cargo run` 输出与 README 中"运行结果"一致 | `cargo test --test l3_run_tests` |
+
+**L1 核心逻辑**：从 `rust_hicc/src/main.rs` 提取 `hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三种块作为黄金片段，与工具生成的 `lib.rs` 对应块比对，忽略 `fn main()` 和注释差异。
+
+**重要**：L1 测试须单线程运行（`--test-threads=1`），多线程下 clang 全局状态存在竞争。
+
+---
+
+## 5. 当前进度（截至 2026-05-28）
+
+### 5.1 Phase 完成状态
+
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| **Phase T** | 测试基础设施（L1/L2/L3 框架） | ✅ 完成 |
+| **Phase 0** | Hook 机制（`hook.cpp` + `capture.rs`） | ✅ 完成 |
+| **Phase 1** | AST 解析（`ast_parser.rs`，clang crate） | ✅ 完成 |
+| **Phase 2** | 基础提取器（class/function/enum extractor） | ✅ 完成 |
+| **Phase 3** | 模板实例化追踪（`instantiation_tracker.rs`） | ✅ 完成 |
+| **Phase 4** | 后处理器（operator/friend/lambda handler） | ✅ 完成（部分降级特性格式待对齐） |
+| **Phase 5** | hicc 代码生成器（`hicc_codegen.rs`） | ✅ 完成 |
+| **Phase 6** | `merge` 命令 + 增量/多 feature 支持 | ❌ 待实现 |
+
+### 5.2 L1 测试通过率
+
+```
+当前：45 / 49 通过（92%）
+
+通过：001–017（018 除外）、020–038、041–048
+失败：018（菱形继承）、019（运算符重载）、039（lambda）、040（std::function）
+```
+
+### 5.3 已完成的主要修复记录
+
+| 修复内容 | 影响示例 |
+|---------|---------|
+| 命名空间/opaque 类模式检测：extern C 含 `::` 类型或 `void*` 时压制 hicc 块 | 043、044 |
+| 未引用类不生成 `import_class!`（`used_classes` 过滤） | 046 等 |
+| 空 `import_lib!` 块跳过（fn_bindings 和 fwd_decls 均空时不输出） | 通用 |
+| 同步 7 个 golden 文件（012/025/027/031/033/045/046） | 多个 |
+
+---
+
+## 6. 后续计划
+
+### 6.1 P0 - 修复剩余 4 个 L1 测试（目标：49/49）
+
+#### 018 `virtual_diamond`（菱形继承）
+
+- **问题**：菱形继承（`D` 继承 `B1: A` 和 `B2: A`）的独立命名 shim（如 `d_getAValue(D*)`）生成逻辑不完整
+- **要做**：在 `extractor/class_extractor.rs` 中检测菱形继承路径，为每条路径生成命名 shim，而不是生成 `as_base()` 类型转换
+
+#### 019 `operator_overload`（运算符重载，[OP]）
+
+- **问题**：降级策略（生成命名 shim + `cpp2rust-todo[OP]`）的具体输出格式与 golden 文件不对齐
+- **要做**：对齐 `postprocessor/operator_handler.rs` 的输出格式（shim 名称规则、TODO 注释格式）
+
+#### 039 `lambda_basic` / 040 `std_function`（有状态 Lambda，[LM]）
+
+- **问题**：class wrapper 生成格式与 golden 文件不一致
+- **要做**：对齐 `postprocessor/lambda_handler.rs` 的输出格式（wrapper 类名规则、call() 方法签名）
+
+### 6.2 P1 - 实现 `merge` 命令
+
+当前 `merge` 命令输出占位提示（`Merge not yet implemented`），实际功能待实现：
+
+- 将 `.cpp2rust/<feature>/rust/src/` 下按编译单元生成的多个 `.rs` 文件合并为按模块组织的结构
+- 去重（多个 TU 可能提取到同一个类/函数）
+- 支持 `--feature` 多 feature 合并
+
+### 6.3 P1 - L2 / L3 测试基线
+
+- **L2**：验证所有 48 个示例的 `rust_hicc/` 目录能通过 `cargo build`（现有黄金文件可编译）
+- **L3**：验证 `cargo run` 输出与各示例 README 中"运行结果"一致
+
+### 6.4 P2 - 增量处理与局限性
+
+- 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏）
+- `--skip-failed` 的完整 stub 生成（当前只跳过，不生成占位代码）
+- Windows 支持评估（当前仅 Linux LD_PRELOAD）
+
+---
+
+## 7. 开发环境搭建
+
+```bash
+# 系统依赖
+apt-get install clang libclang-dev g++ libstdc++-dev
+
+# 构建工具
+cargo build
+
+# 运行 L1 测试（必须单线程）
+cargo test --test l1_golden_tests -- --include-ignored --test-threads=1
+
+# 运行单个示例测试
+cargo test --test l1_golden_tests test_006_class_basic -- --include-ignored
+
+# 更新 golden 文件（工具输出有意变更时使用）
+cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
+
+# 解析单个 .cpp2rust 文件（调试用）
+cargo run -- parse <path>.cpp2rust
+```
+
+---
+
+## 8. 关键设计决策
+
+| 决策 | 原因 |
+|------|------|
+| 只处理模板实例化结果，不处理模板声明 | 模板的价值在于实例化结果；未实例化的模板对 FFI 无意义 |
+| 使用 `g++ -E -C` 产出 `.cpp2rust` 而非直接解析原始源文件 | 宏展开后 clang 可获得完整类型信息；保留 `-C` 注释和行号 marker 便于溯源 |
+| 系统头过滤（`is_in_system_header()`） | `g++ -E -C` 会展开 `#include <vector>` 等，产生数万行无关代码，不过滤会提取大量 `std::allocator` 等无用模板特化 |
+| 最小 shim 策略：方法用 `import_class!`，只为必要场景建 shim | 减少生成代码量；ctor/dtor/operator/static成员/placement new 才需要 shim |
+| 降级特性用内联 `cpp2rust-todo[TAG]` 注释 | 让开发者在工具生成的代码中直接看到待手动完善的位置 |
+| L1 测试须 `--test-threads=1` | clang crate 使用全局 libclang 状态，多线程并发解析会竞争 |

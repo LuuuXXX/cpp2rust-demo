@@ -10,30 +10,29 @@ hicc::cpp! {
         int getAValue() const;
     };
 
-    class B : virtual public A {
+    class B : public virtual A {
     protected:
         int b_value;
     public:
         B(int a, int b);
-        virtual ~B();
+        ~B() override;
         int getBValue() const;
     };
 
-    class C : virtual public A {
+    class C : public virtual A {
     protected:
         int c_value;
     public:
         C(int a, int c);
-        virtual ~C();
+        ~C() override;
         int getCValue() const;
     };
 
     class D : public B, public C {
-    private:
         int d_value;
     public:
         D(int a, int b, int c, int d);
-        ~D();
+        ~D() override;
         int getDValue() const;
         void compute() const;
     };
@@ -76,33 +75,16 @@ hicc::cpp! {
         std::cout << "Sum: " << (a_value + b_value + c_value + d_value) << std::endl;
     }
 
+    int d_get_a_value(D* self) {
+        return self->getAValue();
+    }
+
     D* d_new(int a, int b, int c, int d) {
         return new D(a, b, c, d);
     }
 
     void d_delete(D* self) {
         delete self;
-    }
-
-    int d_getAValue(D* self) {
-        std::cout << "Getting A value (virtual base - single instance)" << std::endl;
-        return self->getAValue();
-    }
-
-    int d_getBValue(D* self) {
-        return self->getBValue();
-    }
-
-    int d_getCValue(D* self) {
-        return self->getCValue();
-    }
-
-    int d_getDValue(D* self) {
-        return self->getDValue();
-    }
-
-    void d_compute(D* self) {
-        self->compute();
     }
 }
 
@@ -128,26 +110,14 @@ hicc::import_lib! {
 
     class D;
 
-    #[cpp(func = "D* d_new(int a, int b, int c, int d)")]
+    #[cpp(func = "int d_get_a_value(D*)")]
+    fn d_get_a_value(self_: *mut D) -> i32;
+
+    #[cpp(func = "D* d_new(int, int, int, int)")]
     fn d_new(a: i32, b: i32, c: i32, d: i32) -> *mut D;
 
     #[cpp(func = "void d_delete(D* self)")]
     unsafe fn d_delete(self_: *mut D);
-
-    #[cpp(func = "int d_getAValue(D* self)")]
-    fn d_get_a_value(self_: *mut D) -> i32;
-
-    #[cpp(func = "int d_getBValue(D* self)")]
-    fn d_get_b_value_ffi(self_: *mut D) -> i32;
-
-    #[cpp(func = "int d_getCValue(D* self)")]
-    fn d_get_c_value_ffi(self_: *mut D) -> i32;
-
-    #[cpp(func = "int d_getDValue(D* self)")]
-    fn d_get_d_value_ffi(self_: *mut D) -> i32;
-
-    #[cpp(func = "void d_compute(D* self)")]
-    fn d_compute(self_: *mut D);
 }
 
 fn main() {
@@ -178,3 +148,6 @@ fn main() {
 
     println!("\nRust FFI: Diamond inheritance works correctly with hicc!");
 }
+
+
+

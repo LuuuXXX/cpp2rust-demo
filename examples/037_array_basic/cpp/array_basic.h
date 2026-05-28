@@ -91,6 +91,12 @@ struct IntArray5 {
     explicit IntArray5();
     explicit IntArray5(const int* values);
     ~IntArray5();
+    size_t size() const { return impl->data.size(); }
+    bool empty() const { return impl->data.empty(); }
+    void set(size_t i, int val) { impl->data[i] = val; }
+    int get(size_t i) const { return impl->data[i]; }
+    int at(size_t i) const { return impl->data.at(i); }
+    int* data() { return impl->data.data(); }
 };
 
 struct DoubleArray3 {
@@ -98,12 +104,14 @@ struct DoubleArray3 {
     explicit DoubleArray3();
     explicit DoubleArray3(const double* values);
     ~DoubleArray3();
+    size_t size() const { return impl->data.size(); }
 };
 
 struct StringArray4 {
     StringArray4Impl* impl;
     explicit StringArray4();
     ~StringArray4();
+    size_t size() const { return impl->data.size(); }
 };
 
 #endif

@@ -1,6 +1,7 @@
 hicc::cpp! {
-    #include <string>
     #include <iostream>
+    #include <cstring>
+    #include <string>
 
     class Animal {
     protected:
@@ -65,7 +66,7 @@ hicc::import_class! {
     #[cpp(class = "Animal")]
     class Animal {
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const u8;
+        fn get_name(&self) -> *const i8;
 
         #[cpp(method = "void speak() const")]
         fn speak(&self);
@@ -76,13 +77,13 @@ hicc::import_class! {
     #[cpp(class = "Dog")]
     class Dog {
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const u8;
-
-        #[cpp(method = "void speak() const")]
-        fn speak(&self);
+        fn get_name(&self) -> *const i8;
 
         #[cpp(method = "void bark() const")]
         fn bark(&self);
+
+        #[cpp(method = "void speak() const")]
+        fn speak(&self);
     }
 }
 
@@ -92,14 +93,14 @@ hicc::import_lib! {
     class Animal;
     class Dog;
 
-    #[cpp(func = "Animal* animal_new(const char* name)")]
-    fn animal_new(name: *const u8) -> *mut Animal;
+    #[cpp(func = "Animal* animal_new(const char*)")]
+    unsafe fn animal_new(name: *const i8) -> *mut Animal;
 
     #[cpp(func = "void animal_delete(Animal* self)")]
     unsafe fn animal_delete(self_: *mut Animal);
 
-    #[cpp(func = "Dog* dog_new(const char* name)")]
-    fn dog_new(name: *const u8) -> *mut Dog;
+    #[cpp(func = "Dog* dog_new(const char*)")]
+    unsafe fn dog_new(name: *const i8) -> *mut Dog;
 
     #[cpp(func = "void dog_delete(Dog* self)")]
     unsafe fn dog_delete(self_: *mut Dog);
@@ -108,7 +109,7 @@ hicc::import_lib! {
 fn main() {
     // Create Animal
     let animal_name = "Generic Animal\0";
-    let animal = unsafe { animal_new(animal_name.as_ptr()) };
+    let animal = unsafe { animal_new(animal_name.as_ptr() as *const i8) };
 
     println!("Animal name: {}", decode_cstr(animal.get_name()));
     animal.speak();
@@ -120,7 +121,7 @@ fn main() {
 
     // Create Dog
     let dog_name = "Buddy\0";
-    let dog = unsafe { dog_new(dog_name.as_ptr()) };
+    let dog = unsafe { dog_new(dog_name.as_ptr() as *const i8) };
 
     println!("Dog name: {}", decode_cstr(dog.get_name()));
     dog.speak();  // Call inherited speak method
@@ -132,15 +133,15 @@ fn main() {
     println!("\nRust FFI: Single inheritance with hicc pattern");
 }
 
-fn decode_cstr(ptr: *const u8) -> String {
+fn decode_cstr(ptr: *const i8) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string()
-    }
+    unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .to_string()
 }
+
+
+
+

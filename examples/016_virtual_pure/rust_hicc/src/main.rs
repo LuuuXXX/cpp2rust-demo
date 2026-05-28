@@ -36,7 +36,9 @@ hicc::cpp! {
     }
 
     double Circle::area() const {
-        return M_PI * radius * radius;
+        return 
+              3.14159265358979323846 
+                   * radius * radius;
     }
 
     const char* Circle::getName() const {
@@ -80,7 +82,7 @@ hicc::import_class! {
         fn area(&self) -> f64;
 
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const u8;
+        fn get_name(&self) -> *const i8;
     }
 }
 
@@ -89,27 +91,23 @@ hicc::import_lib! {
 
     class AbstractShape;
 
-    #[cpp(func = "AbstractShape* abstract_shape_create_circle(double radius)")]
+    #[cpp(func = "AbstractShape* abstract_shape_create_circle(double)")]
     fn abstract_shape_create_circle(radius: f64) -> *mut AbstractShape;
 
-    #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double width, double height)")]
+    #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double, double)")]
     fn abstract_shape_create_rectangle(width: f64, height: f64) -> *mut AbstractShape;
 
     #[cpp(func = "void abstract_shape_delete(AbstractShape* self)")]
     unsafe fn abstract_shape_delete(self_: *mut AbstractShape);
 }
 
-fn decode_cstr(ptr: *const u8) -> String {
+fn decode_cstr(ptr: *const i8) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string()
-    }
+    unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .to_string()
 }
 
 fn main() {
@@ -143,3 +141,6 @@ fn main() {
 
     println!("\nRust FFI: Pure virtual functions work through hicc!");
 }
+
+
+

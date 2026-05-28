@@ -9,23 +9,23 @@ hicc::cpp! {
         Calculator() : value(0) {}
         ~Calculator() {}
         int getValue() const {
-            return value;
-        }
+    return value;
+}
         int getHistoryCount() const {
-            return static_cast<int>(history.size());
-        }
+    return static_cast<int>(history.size());
+}
         void add(int v) {
-            history.push_back(v);
-            value += v;
-        }
+    history.push_back(v);
+    value += v;
+}
         void subtract(int v) {
-            history.push_back(-v);
-            value -= v;
-        }
+    history.push_back(-v);
+    value -= v;
+}
         void clear() {
-            history.clear();
-            value = 0;
-        }
+    history.clear();
+    value = 0;
+}
     };
 
     Calculator* calculator_new() {
@@ -96,3 +96,6 @@ fn main() {
 
     println!("\nRust FFI: const member functions work!");
 }
+
+
+

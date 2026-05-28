@@ -2,7 +2,8 @@
 // 使用 raw extern "C" 模式
 
 hicc::cpp! {
-    #include "enum_class.h"
+    // C++ implementation is in ../cpp/enum_class.cpp
+    // Raw extern "C" declarations are used directly below
 }
 
 // 使用 opaque pointer 别名
@@ -109,3 +110,6 @@ fn main() {
     println!("4. Rust 端定义相应常量来模拟枚举");
     println!("5. 强类型枚举更安全，避免枚举值混淆");
 }
+
+
+

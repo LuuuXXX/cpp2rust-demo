@@ -3,14 +3,11 @@ hicc::cpp! {
 
     class MyClass {
         int secret_value;
-        friend int friend_function_getSum(const MyClass* a, const MyClass* b);
-        friend int friend_function_getProduct(const MyClass* a, const MyClass* b);
-        friend int friend_function_compare(const MyClass* a, const MyClass* b);
     public:
-        MyClass(int v);
-        ~MyClass();
-        int getValue() const;
-        void setValue(int v);
+        MyClass(int v) : secret_value(v) {}
+        ~MyClass() {}
+        int getValue() const { return secret_value; }
+        void setValue(int v) { secret_value = v; }
     };
 
     MyClass* myclass_new(int secret_value) {
@@ -19,14 +16,6 @@ hicc::cpp! {
 
     void myclass_delete(MyClass* self) {
         delete self;
-    }
-
-    int myclass_getValue(MyClass* self) {
-        return self->getValue();
-    }
-
-    void myclass_setValue(MyClass* self, int value) {
-        self->setValue(value);
     }
 
     int friend_function_getSum(const MyClass* a, const MyClass* b) {
@@ -55,21 +44,16 @@ hicc::cpp! {
             return 0;
         }
     }
-
-    MyClass::MyClass(int v) : secret_value(v) {}
-    MyClass::~MyClass() {}
-    int MyClass::getValue() const { return secret_value; }
-    void MyClass::setValue(int v) { secret_value = v; }
 }
 
 hicc::import_class! {
     #[cpp(class = "MyClass")]
     class MyClass {
         #[cpp(method = "int getValue() const")]
-        fn getValue(&self) -> i32;
+        fn get_value(&self) -> i32;
 
         #[cpp(method = "void setValue(int v)")]
-        fn setValue(&mut self, v: i32);
+        fn set_value(&mut self, v: i32);
     }
 }
 
@@ -78,26 +62,20 @@ hicc::import_lib! {
 
     class MyClass;
 
-    #[cpp(func = "MyClass* myclass_new(int secret_value)")]
+    #[cpp(func = "MyClass* myclass_new(int)")]
     fn myclass_new(secret_value: i32) -> *mut MyClass;
 
     #[cpp(func = "void myclass_delete(MyClass* self)")]
     unsafe fn myclass_delete(self_: *mut MyClass);
 
-    #[cpp(func = "int myclass_getValue(MyClass* self)")]
-    fn myclass_getValue(self_: *mut MyClass) -> i32;
-
-    #[cpp(func = "void myclass_setValue(MyClass* self, int value)")]
-    fn myclass_setValue(self_: *mut MyClass, value: i32);
-
     #[cpp(func = "int friend_function_getSum(const MyClass* a, const MyClass* b)")]
-    fn friend_function_getSum(a: *mut MyClass, b: *mut MyClass) -> i32;
+    fn friend_function_get_sum(a: *const MyClass, b: *const MyClass) -> i32;
 
     #[cpp(func = "int friend_function_getProduct(const MyClass* a, const MyClass* b)")]
-    fn friend_function_getProduct(a: *mut MyClass, b: *mut MyClass) -> i32;
+    fn friend_function_get_product(a: *const MyClass, b: *const MyClass) -> i32;
 
     #[cpp(func = "int friend_function_compare(const MyClass* a, const MyClass* b)")]
-    fn friend_function_compare(a: *mut MyClass, b: *mut MyClass) -> i32;
+    fn friend_function_compare(a: *const MyClass, b: *const MyClass) -> i32;
 }
 
 fn main() {
@@ -108,19 +86,19 @@ fn main() {
     let b = myclass_new(20);
 
     println!("Created MyClass objects:");
-    println!("  a.value = {}", myclass_getValue(&a));
-    println!("  b.value = {}", myclass_getValue(&b));
+    println!("  a.value = {}", a.get_value());
+    println!("  b.value = {}", b.get_value());
     println!();
 
     // Friend functions: can access private members
     println!("Friend function operations:");
-    let sum = friend_function_getSum(&a, &b);
+    let sum = friend_function_getSum(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Sum: {}", sum);
 
-    let product = friend_function_getProduct(&a, &b);
+    let product = friend_function_getProduct(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Product: {}", product);
 
-    let cmp = friend_function_compare(&a, &b);
+    let cmp = friend_function_compare(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
     println!("  Compare: {}", cmp);
 
     println!();
@@ -133,3 +111,6 @@ fn main() {
         myclass_delete(&b);
     }
 }
+
+
+

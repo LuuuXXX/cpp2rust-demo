@@ -70,18 +70,22 @@ struct Adder {
     AdderImpl* impl;
     explicit Adder(int base_value);
     ~Adder();
+    int add(int value) { return impl->add(value); }
 };
 
 struct Multiplier {
     MultiplierImpl* impl;
     explicit Multiplier(int factor);
     ~Multiplier();
+    int multiply(int value) { return impl->multiply(value); }
 };
 
 struct StringProcessor {
     StringProcessorImpl* impl;
     StringProcessor();
     ~StringProcessor();
+    void set_target(const char* t) { impl->set_target(t); }
+    int count_char(char ch) { return impl->count_char(ch); }
 };
 
 #endif

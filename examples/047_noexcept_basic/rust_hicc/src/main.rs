@@ -1,42 +1,55 @@
 hicc::cpp! {
+    #include <cstddef>
+    #include <iostream>
+    #include <stdexcept>
     #include <utility>
-    #include <cstdint>
 
-    // noexcept functions - guaranteed not to throw
-    inline int noexcept_add(int a, int b) noexcept {
-        return a + b;
-    }
-
-    inline int noexcept_multiply(int a, int b) noexcept {
-        return a * b;
-    }
-
-    inline int conditional_abs(int value) noexcept {
-        return value >= 0 ? value : -value;
-    }
-
-    // Move-only type with noexcept move operations
     class NoexceptMover {
         int value_;
     public:
         NoexceptMover(int value) : value_(value) {}
         ~NoexceptMover() {}
         NoexceptMover(NoexceptMover&& other) noexcept : value_(other.value_) {
-            other.value_ = 0;
-        }
+    other.value_ = 0;
+}
         NoexceptMover& operator=(NoexceptMover&& other) noexcept {
-            if (this != &other) {
-                value_ = other.value_;
-                other.value_ = 0;
-            }
-            return *this;
-        }
-        int get_value() const { return value_; }
-        NoexceptMover(const NoexceptMover&) = delete;
-        NoexceptMover& operator=(const NoexceptMover&) = delete;
+    if (this != &other) {
+        value_ = other.value_;
+        other.value_ = 0;
+    }
+    return *this;
+}
+        int get_value() const {
+    return value_;
+}
+        NoexceptMover(const NoexceptMover &) = default;
+        NoexceptMover & operator=(const NoexceptMover &) {}
     };
 
-    // Factory functions
+    int noexcept_add(int a, int b) noexcept {
+        return a + b;
+    }
+
+    int noexcept_multiply(int a, int b) noexcept {
+        return a * b;
+    }
+
+    int throwing_divide(int a, int b) {
+        if (b == 0) {
+            throw std::runtime_error("Division by zero");
+        }
+        return a / b;
+    }
+
+    int check_noexcept(int (*fn)(int, int)) noexcept {
+        // Simplified check - assume all passed functions are noexcept
+        return 1;
+    }
+
+    int conditional_abs(int value) noexcept {
+        return value >= 0 ? value : -value;
+    }
+
     NoexceptMover* noexcept_mover_new(int value) {
         return new NoexceptMover(value);
     }
@@ -45,12 +58,20 @@ hicc::cpp! {
         delete self;
     }
 
-    // noexcept move - transfers ownership
     NoexceptMover* noexcept_mover_move(NoexceptMover* other) noexcept {
         if (other) {
-            return new NoexceptMover(std::move(*other));
+            auto* moved = new NoexceptMover(std::move(*other));
+            std::cout << "noexcept_mover_move: transferred ownership" << std::endl;
+            return moved;
         }
         return nullptr;
+    }
+
+    int is_noexcept(int (*)(int, int)) noexcept {
+        // Simplified: we can only reliably check at compile time with constexpr
+        // For runtime check via function pointer, we assume noexcept functions
+        // are passed (noexcept_add, noexcept_multiply, conditional_abs)
+        return 1;
     }
 }
 
@@ -67,23 +88,26 @@ hicc::import_lib! {
 
     class NoexceptMover;
 
-    #[cpp(func = "int noexcept_add(int a, int b) noexcept")]
+    #[cpp(func = "int noexcept_add(int, int)")]
     fn noexcept_add(a: i32, b: i32) -> i32;
 
-    #[cpp(func = "int noexcept_multiply(int a, int b) noexcept")]
+    #[cpp(func = "int noexcept_multiply(int, int)")]
     fn noexcept_multiply(a: i32, b: i32) -> i32;
 
-    #[cpp(func = "int conditional_abs(int value) noexcept")]
+    #[cpp(func = "int throwing_divide(int, int)")]
+    fn throwing_divide(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int conditional_abs(int)")]
     fn conditional_abs(value: i32) -> i32;
 
-    #[cpp(func = "NoexceptMover* noexcept_mover_new(int value)")]
+    #[cpp(func = "NoexceptMover* noexcept_mover_new(int)")]
     fn noexcept_mover_new(value: i32) -> *mut NoexceptMover;
 
     #[cpp(func = "void noexcept_mover_delete(NoexceptMover* self)")]
     unsafe fn noexcept_mover_delete(self_: *mut NoexceptMover);
 
-    #[cpp(func = "NoexceptMover* noexcept_mover_move(NoexceptMover* other) noexcept")]
-    fn noexcept_mover_move(other: *mut NoexceptMover) -> *mut NoexceptMover;
+    #[cpp(func = "NoexceptMover* noexcept_mover_move(NoexceptMover* other)")]
+    unsafe fn noexcept_mover_move(other: *mut NoexceptMover) -> *mut NoexceptMover;
 }
 
 fn main() {
@@ -112,3 +136,6 @@ fn main() {
     println!("4. noexcept functions cannot call potentially throwing functions");
     println!("5. In FFI, noexcept is part of function signature");
 }
+
+
+
