@@ -270,7 +270,7 @@ fn emit_class_inline(ci: &ClassInfo, source_bytes: &[u8], lines: &mut Vec<String
     if !pub_methods.is_empty() {
         let has_non_pub = !ci.fields.is_empty()
             && ci.fields.iter().any(|f| f.accessibility != "public");
-        if has_non_pub || (!ci.fields.is_empty() && !ci.is_struct) {
+        if has_non_pub || !ci.is_struct {
             lines.push("public:".to_string());
         }
         for method in &pub_methods {
@@ -492,11 +492,12 @@ fn clean_shim_text(text: &str) -> String {
 // ─────────────────────────────────────────────
 
 fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSpec> {
-    // 收集本类的 public 非 ctor/dtor 方法
+    // 收集本类的 public 非 ctor/dtor 方法（跳过 operator 重载和 Rust 关键字方法名）
     let own_methods: Vec<&MethodInfo> = ci
         .methods
         .iter()
         .filter(|m| !m.is_constructor && !m.is_destructor && m.accessibility == "public" && !m.is_static)
+        .filter(|m| !m.name.starts_with("operator") && m.name != "move")
         .collect();
 
     // 收集所有基类的 public 方法（递归，保持顺序）
@@ -509,9 +510,12 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
 
     let mut methods: Vec<MethodBinding> = Vec::new();
 
-    // 先放继承来的（本类未覆盖的）
+    // 先放继承来的（本类未覆盖的，同样跳过 operator 和 Rust 关键字方法名）
     for im in &inherited {
-        if !own_names.contains(im.name.as_str()) {
+        if !own_names.contains(im.name.as_str())
+            && !im.name.starts_with("operator")
+            && im.name != "move"
+        {
             if let Some(mb) = build_method_binding(im) {
                 methods.push(mb);
             }
@@ -614,6 +618,8 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
     let fn_bindings: Vec<FnBinding> = shims
         .iter()
         .filter(|(_, k)| !matches!(k, ShimKind::MethodAccessor))
+        .filter(|(fi, _)| !fi.is_variadic)
+        .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("(*)")))
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
 

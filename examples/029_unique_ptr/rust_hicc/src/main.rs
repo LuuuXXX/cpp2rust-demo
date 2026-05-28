@@ -75,7 +75,7 @@ hicc::import_class! {
     #[cpp(class = "Processor")]
     class Processor {
         #[cpp(method = "char* process(const char* input)")]
-        fn process(&mut self, input: *const i8) -> *mut i8;
+        fn process(&mut self, input: *const u8) -> *mut u8;
     }
 }
 

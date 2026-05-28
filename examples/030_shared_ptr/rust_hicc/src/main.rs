@@ -73,7 +73,7 @@ hicc::import_class! {
         fn use_count(&self) -> i32;
 
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const i8;
+        fn get_name(&self) -> *const u8;
 
         #[cpp(method = "SharedData* clone() const")]
         fn clone(&self) -> *mut SharedData;
@@ -87,7 +87,7 @@ hicc::import_class! {
     #[cpp(class = "Cache")]
     class Cache {
         #[cpp(method = "SharedData* get(const char* name)")]
-        fn get(&mut self, name: *const i8) -> *mut SharedData;
+        fn get(&mut self, name: *const u8) -> *mut SharedData;
     }
 }
 
