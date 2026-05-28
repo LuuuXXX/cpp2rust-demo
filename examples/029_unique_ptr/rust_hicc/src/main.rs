@@ -75,7 +75,7 @@ hicc::import_class! {
     #[cpp(class = "Processor")]
     class Processor {
         #[cpp(method = "char* process(const char* input)")]
-        fn process(&mut self, input: *const u8) -> *mut u8;
+        fn process(&mut self, input: *const i8) -> *mut i8;
     }
 }
 
@@ -122,7 +122,7 @@ fn main() {
     let mut processor = processor_new();
     let input = std::ffi::CString::new("Hello, unique_ptr!").expect("CString::new failed");
     let result_ptr = processor.process(input.as_ptr());
-    let result = unsafe { std::ffi::CStr::from_ptr(result_ptr).to_string_lossy().into_owned() };
+    let result = unsafe { std::ffi::CStr::from_ptr(result_ptr as *const i8).to_string_lossy().into_owned() };
     println!("Processed result: {}", result);
     unsafe { processor_delete(&processor) };
 
