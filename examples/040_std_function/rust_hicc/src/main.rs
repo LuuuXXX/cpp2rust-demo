@@ -1,41 +1,116 @@
 hicc::cpp! {
     #include <stddef.h>
     #include <iostream>
+    #include <functional>
+    #include <vector>
+    #include <thread>
+    #include <chrono>
+
+    class CallbackWrapperImpl {
+    public:
+        std::function<int(int)> callback;
+    public:
+        CallbackWrapperImpl(int (*fn)(int)) : callback(fn) {}
+        ~CallbackWrapperImpl() {}
+        int invoke(int value) {
+    if (callback) return callback(value);
+    return value;
+}
+        void set(int (*fn)(int)) {
+    callback = fn;
+}
+    };
+
+    class ProcessorImpl {
+    public:
+        std::function<int(int)> callback;
+    public:
+        ProcessorImpl() : callback(nullptr) {}
+        ~ProcessorImpl() {}
+        void set_callback(int (*cb)(int)) {
+    callback = cb;
+}
+        int process(int value) {
+    if (callback) return callback(value);
+    return value;
+}
+    };
+
+    class MultiCallbackImpl {
+    public:
+        std::vector<std::function<int(int)>> callbacks;
+    public:
+        MultiCallbackImpl() {}
+        ~MultiCallbackImpl() {}
+        void add(int (*cb)(int)) {
+    callbacks.push_back(cb);
+}
+        void invoke_all(int value) {
+    for (auto& cb : callbacks) {
+        cb(value);
+    }
+}
+    };
+
+    class AsyncProcessorImpl {
+    public:
+        std::function<void(int, int)> completion_callback;
+        std::function<void(int)> progress_callback;
+        bool cancelled;
+    public:
+        AsyncProcessorImpl() : cancelled(false) {}
+        ~AsyncProcessorImpl() {}
+        void set_completion_callback(void (*cb)(int, int)) {
+    completion_callback = cb;
+}
+        void set_progress_callback(void (*cb)(int)) {
+    progress_callback = cb;
+}
+        void start(int value) {
+    cancelled = false;
+    // Simulate async processing
+    for (int i = 0; i <= 100; i += 20) {
+        if (cancelled) break;
+        if (progress_callback) progress_callback(i);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (completion_callback) completion_callback(value, value * 2);
+}
+        void cancel() {
+    cancelled = true;
+}
+    };
 
     struct CallbackWrapper {
     public:
-        int multiplier;
-        CallbackWrapper(int m) : multiplier(m) {}
-        ~CallbackWrapper() {}
-        int process(int value) const { return value * multiplier; }
-        int get_value() const { return multiplier; }
+        CallbackWrapperImpl* impl;
+        CallbackWrapper(int (*fn)(int)) : impl(new CallbackWrapperImpl(fn)) {}
+        ~CallbackWrapper() { delete impl; }
     };
 
     struct Processor {
     public:
-        int input;
-        Processor() : input(0) {}
-        ~Processor() {}
-        void set_input(int v) { input = v; }
-        int get_input() const { return input; }
+        ProcessorImpl* impl;
+        Processor() : impl(new ProcessorImpl()) {}
+        ~Processor() { delete impl; }
     };
 
     struct MultiCallback {
     public:
-        MultiCallback() {}
-        ~MultiCallback() {}
-        int size() const { return 0; }
+        MultiCallbackImpl* impl;
+        MultiCallback() : impl(new MultiCallbackImpl()) {}
+        ~MultiCallback() { delete impl; }
     };
 
     struct AsyncProcessor {
     public:
-        AsyncProcessor() {}
-        ~AsyncProcessor() {}
-        int size() const { return 0; }
+        AsyncProcessorImpl* impl;
+        AsyncProcessor() : impl(new AsyncProcessorImpl()) {}
+        ~AsyncProcessor() { delete impl; }
     };
 
-    CallbackWrapper* callback_wrapper_new(int multiplier) {
-        return new CallbackWrapper(multiplier);
+    CallbackWrapper* callback_wrapper_new(int (*fn)(int)) {
+        return new CallbackWrapper(fn);
     }
 
     void callback_wrapper_delete(CallbackWrapper* self) {
@@ -67,45 +142,6 @@ hicc::cpp! {
     }
 }
 
-hicc::import_class! {
-    #[cpp(class = "CallbackWrapper")]
-    class CallbackWrapper {
-        #[cpp(method = "int process(int value) const")]
-        fn process(&self, value: i32) -> i32;
-
-        #[cpp(method = "int get_value() const")]
-        fn get_value(&self) -> i32;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "Processor")]
-    class Processor {
-        #[cpp(method = "void set_input(int v)")]
-        fn set_input(&mut self, v: i32);
-
-        #[cpp(method = "int get_input() const")]
-        fn get_input(&self) -> i32;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "MultiCallback")]
-    class MultiCallback {
-        #[cpp(method = "int size() const")]
-        fn size(&self) -> i32;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "AsyncProcessor")]
-    class AsyncProcessor {
-        #[cpp(method = "int size() const")]
-        fn size(&self) -> i32;
-    }
-}
-
-
 hicc::import_lib! {
     #![link_name = "std_function"]
 
@@ -113,9 +149,6 @@ hicc::import_lib! {
     class Processor;
     class MultiCallback;
     class AsyncProcessor;
-
-    #[cpp(func = "CallbackWrapper* callback_wrapper_new(int)")]
-    fn callback_wrapper_new(multiplier: i32) -> *mut CallbackWrapper;
 
     #[cpp(func = "void callback_wrapper_delete(CallbackWrapper* self)")]
     unsafe fn callback_wrapper_delete(self_: *mut CallbackWrapper);

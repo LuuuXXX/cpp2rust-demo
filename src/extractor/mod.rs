@@ -108,12 +108,18 @@ pub fn extract(
         build_lib_spec(&functions, unit_name, &class_names)
     };
 
-    FfiSpec {
+    let mut spec = FfiSpec {
         unit_name: unit_name.to_string(),
         cpp_block_lines,
         class_specs,
         lib_spec,
-    }
+    };
+
+    // ── 后处理器 ──────────────────────────────
+    crate::postprocessor::diamond_handler::apply(&mut spec, ast, &functions);
+    crate::postprocessor::operator_handler::apply(&mut spec, ast, &functions);
+
+    spec
 }
 
 /// 去重：对于同名函数优先保留 body_offset 且 is_extern_c=false 的版本

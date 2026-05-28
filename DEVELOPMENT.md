@@ -165,17 +165,16 @@ hicc::import_lib! {
 | **Phase 1** | AST 解析（`ast_parser.rs`，clang crate） | ✅ 完成 |
 | **Phase 2** | 基础提取器（class/function/enum extractor） | ✅ 完成 |
 | **Phase 3** | 模板实例化追踪（`instantiation_tracker.rs`） | ✅ 完成 |
-| **Phase 4** | 后处理器（operator/friend/lambda handler） | ✅ 完成（部分降级特性格式待对齐） |
+| **Phase 4** | 后处理器（operator/friend/lambda handler，含菱形继承） | ✅ 完成 |
 | **Phase 5** | hicc 代码生成器（`hicc_codegen.rs`） | ✅ 完成 |
 | **Phase 6** | `merge` 命令 + 增量/多 feature 支持 | ❌ 待实现 |
 
 ### 5.2 L1 测试通过率
 
 ```
-当前：45 / 49 通过（92%）
+当前：49 / 49 通过（100%）✅
 
-通过：001–017（018 除外）、020–038、041–048
-失败：018（菱形继承）、019（运算符重载）、039（lambda）、040（std::function）
+通过：001–048（全部）
 ```
 
 ### 5.3 已完成的主要修复记录
@@ -186,29 +185,15 @@ hicc::import_lib! {
 | 未引用类不生成 `import_class!`（`used_classes` 过滤） | 046 等 |
 | 空 `import_lib!` 块跳过（fn_bindings 和 fwd_decls 均空时不输出） | 通用 |
 | 同步 7 个 golden 文件（012/025/027/031/033/045/046） | 多个 |
+| 新增 `diamond_handler.rs`：检测菱形继承路径，生成命名 shim | 018 |
+| 对齐 `operator_handler.rs` 降级输出格式（shim 名称规则、TODO 注释） | 019 |
+| 对齐 `lambda_handler.rs` class wrapper 格式（wrapper 类名、`call()` 签名） | 039、040 |
 
 ---
 
 ## 6. 后续计划
 
-### 6.1 P0 - 修复剩余 4 个 L1 测试（目标：49/49）
-
-#### 018 `virtual_diamond`（菱形继承）
-
-- **问题**：菱形继承（`D` 继承 `B1: A` 和 `B2: A`）的独立命名 shim（如 `d_getAValue(D*)`）生成逻辑不完整
-- **要做**：在 `extractor/class_extractor.rs` 中检测菱形继承路径，为每条路径生成命名 shim，而不是生成 `as_base()` 类型转换
-
-#### 019 `operator_overload`（运算符重载，[OP]）
-
-- **问题**：降级策略（生成命名 shim + `cpp2rust-todo[OP]`）的具体输出格式与 golden 文件不对齐
-- **要做**：对齐 `postprocessor/operator_handler.rs` 的输出格式（shim 名称规则、TODO 注释格式）
-
-#### 039 `lambda_basic` / 040 `std_function`（有状态 Lambda，[LM]）
-
-- **问题**：class wrapper 生成格式与 golden 文件不一致
-- **要做**：对齐 `postprocessor/lambda_handler.rs` 的输出格式（wrapper 类名规则、call() 方法签名）
-
-### 6.2 P1 - 实现 `merge` 命令
+### 6.1 P1 - 实现 `merge` 命令
 
 当前 `merge` 命令输出占位提示（`Merge not yet implemented`），实际功能待实现：
 
@@ -216,12 +201,12 @@ hicc::import_lib! {
 - 去重（多个 TU 可能提取到同一个类/函数）
 - 支持 `--feature` 多 feature 合并
 
-### 6.3 P1 - L2 / L3 测试基线
+### 6.2 P1 - L2 / L3 测试基线
 
 - **L2**：验证所有 48 个示例的 `rust_hicc/` 目录能通过 `cargo build`（现有黄金文件可编译）
 - **L3**：验证 `cargo run` 输出与各示例 README 中"运行结果"一致
 
-### 6.4 P2 - 增量处理与局限性
+### 6.3 P2 - 增量处理与局限性
 
 - 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏）
 - `--skip-failed` 的完整 stub 生成（当前只跳过，不生成占位代码）
