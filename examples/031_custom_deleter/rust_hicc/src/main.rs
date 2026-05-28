@@ -64,6 +64,8 @@ hicc::cpp! {
         return handle;
     }
 
+    void default_file_deleter(FileHandle* handle);
+
     FileHandle* file_open_default(const char* filename, const char* mode) {
         return file_open(filename, mode, default_file_deleter);
     }

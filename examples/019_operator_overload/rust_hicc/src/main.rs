@@ -61,9 +61,6 @@ hicc::import_class! {
     class Number {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
-
-        #[cpp(method = "int compare(const Number & other) const")]
-        fn compare(&self, other: *const Number) -> i32;
     }
 }
 

@@ -73,7 +73,7 @@ hicc::import_class! {
         fn use_count(&self) -> i32;
 
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const u8;
+        fn get_name(&self) -> *const i8;
 
         #[cpp(method = "SharedData* clone() const")]
         fn clone(&self) -> *mut SharedData;
@@ -150,7 +150,6 @@ fn main() {
     println!("\nCache demo:");
     println!("cached1a and cached1b point to same cache entry");
 
-    unsafe { shareddata_delete(&cached1a) };
     unsafe { cache_delete(&cache) };
 
     println!("\nRust FFI: shared_ptr 的处理方式");

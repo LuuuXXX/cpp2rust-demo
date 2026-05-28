@@ -35,6 +35,7 @@ hicc::cpp! {
         Mutex* mutex_;
         bool owns_lock_;
     public:
+        ScopedLock(Mutex* m) : mutex_(m), owns_lock_(true) { m->lock(); }
         ScopedLock(ScopedLock&& other) noexcept : mutex_(other.mutex_), owns_lock_(other.owns_lock_) {
     other.owns_lock_ = false;
 }

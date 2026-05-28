@@ -55,7 +55,7 @@ fn main() {
     println!("=== 022_mutable_member - mutable 成员 ===\n");
 
     let name = std::ffi::CString::new("TestFetcher").expect("CString::new failed");
-    let mut fetcher = datafetcher_new(name.as_ptr());
+    let mut fetcher = unsafe { datafetcher_new(name.as_ptr()) };
 
     println!("Calling getName() 3 times (const method with mutable cache):");
     for i in 0..3 {

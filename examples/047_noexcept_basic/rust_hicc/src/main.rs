@@ -100,7 +100,7 @@ hicc::import_lib! {
     unsafe fn noexcept_mover_delete(self_: *mut NoexceptMover);
 
     #[cpp(func = "NoexceptMover* noexcept_mover_move(NoexceptMover*)")]
-    fn noexcept_mover_move(src: *mut *mut NoexceptMover) -> *mut NoexceptMover;
+    fn noexcept_mover_move(src: *mut NoexceptMover) -> *mut NoexceptMover;
 }
 
 fn main() {

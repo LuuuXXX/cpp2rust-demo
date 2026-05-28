@@ -42,12 +42,12 @@ hicc::cpp! {
         int getSize() const {
     return size;
 }
-        void moveFrom(UniqueVector& src) {
+        void moveFrom(UniqueVector* src) {
     delete[] data;
-    data = src.data;
-    size = src.size;
-    src.data = nullptr;
-    src.size = 0;
+    data = src->data;
+    size = src->size;
+    src->data = nullptr;
+    src->size = 0;
 }
     };
 
@@ -76,7 +76,7 @@ hicc::import_class! {
         #[cpp(method = "int getSize() const")]
         fn get_size(&self) -> i32;
 
-        #[cpp(method = "void moveFrom(UniqueVector & src)")]
+        #[cpp(method = "void moveFrom(UniqueVector* src)")]
         fn move_from(&mut self, src: *mut UniqueVector);
     }
 }
@@ -110,7 +110,7 @@ fn main() {
         println!("dest size before move: {}", dest.get_size());
 
         // Move: transfer resources from src to dest
-        dest.move_from(&mut src_with_data);
+        dest.move_from(src_with_data);
 
         println!("dest size after move: {}", dest.get_size());
         println!("dest[0]: {}", dest.get(0));

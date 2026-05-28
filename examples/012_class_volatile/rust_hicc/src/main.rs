@@ -9,12 +9,8 @@ hicc::cpp! {
     public:
         HardwareDevice() : status_reg(0xA5A5A5A5), data_reg(0), config_reg(0) {}
         ~HardwareDevice() {}
-        volatile uint32_t readStatus() volatile {
-    return status_reg;
-}
-        volatile uint32_t readData() volatile {
-    return data_reg;
-}
+        uint32_t readStatus() { return (uint32_t)status_reg; }
+        uint32_t readData() { return (uint32_t)data_reg; }
         void init() {
     config_reg = 0x00000001;
     status_reg = 0x12345678;
@@ -39,10 +35,10 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "HardwareDevice")]
     class HardwareDevice {
-        #[cpp(method = "volatile uint32_t readStatus()")]
+        #[cpp(method = "uint32_t readStatus()")]
         fn read_status(&mut self) -> u32;
 
-        #[cpp(method = "volatile uint32_t readData()")]
+        #[cpp(method = "uint32_t readData()")]
         fn read_data(&mut self) -> u32;
 
         #[cpp(method = "void init()")]
