@@ -81,6 +81,7 @@ public:
     ScopedLock(ScopedLock&& other) noexcept;
     ScopedLock(const ScopedLock&) = delete;
     ScopedLock& operator=(const ScopedLock&) = delete;
+    bool owns_lock() const { return owns_lock_; }
 };
 
 class FileLock {
