@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-dev
+            clang libclang-dev g++ libstdc++-14-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -52,7 +52,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-dev
+            clang libclang-dev g++ libstdc++-14-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -82,7 +82,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-dev
+            clang libclang-dev g++ libstdc++-14-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -116,7 +116,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-dev
+            clang libclang-dev g++ libstdc++-14-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -148,7 +148,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-dev
+            clang libclang-dev g++ libstdc++-14-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
