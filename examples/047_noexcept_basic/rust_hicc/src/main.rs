@@ -124,7 +124,7 @@ fn main() {
     let mover1 = noexcept_mover_new(100);
     println!("Original mover created, value = {}", mover1.get_value());
 
-    let mover2 = noexcept_mover_move(&mover1);
+    let mover2 = unsafe { noexcept_mover_move(&mover1) };
     println!("Mover moved (noexcept), new value = {}", mover2.get_value());
 
     unsafe { noexcept_mover_delete(&mover2); }

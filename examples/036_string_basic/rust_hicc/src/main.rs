@@ -120,7 +120,7 @@ fn main() {
 
     // Create string
     println!("--- Creation Demo ---");
-    let mut s = string_new_from(CString::new("Hello").unwrap().as_ptr());
+    let mut s = unsafe { string_new_from(CString::new("Hello").unwrap().as_ptr()) };
     let c_str = unsafe { CStr::from_ptr(s.c_str()) };
     println!("Created: {:?}", c_str);
     println!("Size: {}, Length: {}", s.size(), s.length());
@@ -142,7 +142,7 @@ fn main() {
 
     // Case conversion
     println!("\n--- Case Conversion Demo ---");
-    let mut s = string_new_from(CString::new("Hello World").unwrap().as_ptr());
+    let mut s = unsafe { string_new_from(CString::new("Hello World").unwrap().as_ptr()) };
     s.to_upper();
     let c_str = unsafe { CStr::from_ptr(s.c_str()) };
     println!("To upper: {:?}", c_str);

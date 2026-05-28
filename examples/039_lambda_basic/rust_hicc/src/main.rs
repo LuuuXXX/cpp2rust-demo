@@ -4,6 +4,12 @@ hicc::cpp! {
     #include <functional>
     #include <algorithm>
 
+    typedef int (*IntBinaryOp)(int, int);
+
+    int add_impl(int a, int b);
+    int multiply_impl(int a, int b);
+    int max_impl(int a, int b);
+
     class LambdaWrapperImpl {
     public:
         std::function<int(int, int)> fn;
@@ -34,6 +40,7 @@ hicc::cpp! {
         LambdaWrapperImpl* impl;
         LambdaWrapper(int (*fn)(int, int)) : impl(new LambdaWrapperImpl(fn)) {}
         ~LambdaWrapper() { delete impl; }
+        int invoke(int a, int b) { return impl->fn(a, b); }
     };
 
     struct StateLambda {
@@ -41,6 +48,8 @@ hicc::cpp! {
         StateLambdaImpl* impl;
         StateLambda(int initial_value) : impl(new StateLambdaImpl(initial_value)) {}
         ~StateLambda() { delete impl; }
+        int add(int delta) { return impl->adder(delta); }
+        int get_value() { return impl->value; }
     };
 
     struct Comparator {
@@ -48,6 +57,7 @@ hicc::cpp! {
         ComparatorImpl* impl;
         Comparator(int (*cmp)(int, int)) : impl(new ComparatorImpl(cmp)) {}
         ~Comparator() { delete impl; }
+        int compare(int a, int b) { return impl->cmp(a, b); }
     };
 
     int apply_operation(int a, int b, IntBinaryOp op) {
@@ -88,8 +98,8 @@ hicc::cpp! {
         delete self;
     }
 
-    Comparator* comparator_new(int (*cmp)(int, int)) {
-        return new Comparator(cmp);
+    Comparator* comparator_new_add() {
+        return new Comparator(add_impl);
     }
 
     void comparator_delete(Comparator* self) {
@@ -112,18 +122,39 @@ hicc::cpp! {
     }
 }
 
+hicc::import_class! {
+    #[cpp(class = "LambdaWrapper")]
+    class LambdaWrapper {
+        #[cpp(method = "int invoke(int, int)")]
+        fn invoke(&mut self, a: i32, b: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StateLambda")]
+    class StateLambda {
+        #[cpp(method = "int add(int)")]
+        fn add(&mut self, delta: i32) -> i32;
+
+        #[cpp(method = "int get_value()")]
+        fn get_value(&mut self) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Comparator")]
+    class Comparator {
+        #[cpp(method = "int compare(int, int)")]
+        fn compare(&mut self, a: i32, b: i32) -> i32;
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "lambda_basic"]
 
     class LambdaWrapper;
     class StateLambda;
     class Comparator;
-
-    #[cpp(func = "int apply_operation(int, int, IntBinaryOp)")]
-    fn apply_operation(a: i32, b: i32, op: IntBinaryOp) -> i32;
-
-    #[cpp(func = "int apply_twice(int, IntBinaryOp)")]
-    fn apply_twice(x: i32, op: IntBinaryOp) -> i32;
 
     #[cpp(func = "void lambda_wrapper_delete(LambdaWrapper* self)")]
     unsafe fn lambda_wrapper_delete(self_: *mut LambdaWrapper);
@@ -143,6 +174,9 @@ hicc::import_lib! {
     #[cpp(func = "void state_lambda_delete(StateLambda* self)")]
     unsafe fn state_lambda_delete(self_: *mut StateLambda);
 
+    #[cpp(func = "Comparator* comparator_new_add()")]
+    fn comparator_new_add() -> *mut Comparator;
+
     #[cpp(func = "void comparator_delete(Comparator* self)")]
     unsafe fn comparator_delete(self_: *mut Comparator);
 
@@ -159,20 +193,31 @@ hicc::import_lib! {
 fn main() {
     println!("=== 039_lambda_basic - Lambda 表达式 ===\n");
 
-    // Simple wrapper demo
-    println!("--- BinaryOp Demo ---");
-    let mut op = binary_op_new();
+    println!("--- Direct function calls ---");
+    println!("add_impl(3, 4) = {}", add_impl(3, 4));
+    println!("multiply_impl(3, 4) = {}", multiply_impl(3, 4));
+    println!("max_impl(3, 4) = {}", max_impl(3, 4));
 
-    // Store some operations
-    op.store(10, 20, 30);
-    println!("Stored: a={}, b={}, result={}", op.get_a(), op.get_b(), op.get_result());
+    println!("\n--- LambdaWrapper Demo ---");
+    let mut add_wrapper = make_add_lambda();
+    println!("add invoke(5, 6) = {}", add_wrapper.invoke(5, 6));
+    unsafe { lambda_wrapper_delete(&add_wrapper); }
 
-    op.store(5, 3, 8);
-    println!("Stored: a={}, b={}, result={}", op.get_a(), op.get_b(), op.get_result());
+    let mut mul_wrapper = make_multiply_lambda();
+    println!("multiply invoke(5, 6) = {}", mul_wrapper.invoke(5, 6));
+    unsafe { lambda_wrapper_delete(&mul_wrapper); }
 
-    unsafe {
-        binary_op_delete(&op);
-    }
+    println!("\n--- StateLambda Demo ---");
+    let mut state = state_lambda_new(10);
+    println!("initial value = {}", state.get_value());
+    println!("add(5) = {}", state.add(5));
+    println!("add(3) = {}", state.add(3));
+    unsafe { state_lambda_delete(&state); }
+
+    println!("\n--- Comparator Demo ---");
+    let mut cmp = comparator_new_add();
+    println!("compare(2, 3) = {}", cmp.compare(2, 3));
+    unsafe { comparator_delete(&cmp); }
 
     println!("\nRust FFI: Lambda 表达式映射");
     println!("1. 函数指针可以通过 FFI 传递");
