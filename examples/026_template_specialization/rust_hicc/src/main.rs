@@ -81,7 +81,7 @@ hicc::import_class! {
         fn get(&self) -> i32;
 
         #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const u8;
+        fn describe(&self) -> *const i8;
     }
 }
 
@@ -92,7 +92,7 @@ hicc::import_class! {
         fn get(&self) -> f64;
 
         #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const u8;
+        fn describe(&self) -> *const i8;
     }
 }
 
@@ -100,10 +100,10 @@ hicc::import_class! {
     #[cpp(class = "StringHolder")]
     class StringHolder {
         #[cpp(method = "const char* get() const")]
-        fn get(&self) -> *const u8;
+        fn get(&self) -> *const i8;
 
         #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const u8;
+        fn describe(&self) -> *const i8;
     }
 }
 
@@ -138,7 +138,7 @@ fn main() {
 
     // IntHolder (通用版本)
     let ih = intholder_new(42);
-    let ih_desc = unsafe { std::ffi::CStr::from_ptr(ih.describe() as *const i8) };
+    let ih_desc = unsafe { std::ffi::CStr::from_ptr(ih.describe()) };
     println!("{}", ih_desc.to_string_lossy());
     println!("  get(): {}", ih.get());
     unsafe { intholder_delete(&ih) };
@@ -147,7 +147,7 @@ fn main() {
 
     // DoubleHolder (通用版本)
     let dh = doubleholder_new(3.14159);
-    let dh_desc = unsafe { std::ffi::CStr::from_ptr(dh.describe() as *const i8) };
+    let dh_desc = unsafe { std::ffi::CStr::from_ptr(dh.describe()) };
     println!("{}", dh_desc.to_string_lossy());
     println!("  get(): {:.5}", dh.get());
     unsafe { doubleholder_delete(&dh) };
@@ -157,9 +157,9 @@ fn main() {
     // StringHolder (char* 特化版本)
     let s = std::ffi::CString::new("Hello, World!").expect("CString::new failed");
     let sh = unsafe { stringholder_new(s.as_ptr()) };
-    let sh_desc = unsafe { std::ffi::CStr::from_ptr(sh.describe() as *const i8) };
+    let sh_desc = unsafe { std::ffi::CStr::from_ptr(sh.describe()) };
     println!("{}", sh_desc.to_string_lossy());
-    let sh_val = unsafe { std::ffi::CStr::from_ptr(sh.get() as *const i8) };
+    let sh_val = unsafe { std::ffi::CStr::from_ptr(sh.get()) };
     println!("  get(): {}", sh_val.to_string_lossy());
     unsafe { stringholder_delete(&sh) };
 

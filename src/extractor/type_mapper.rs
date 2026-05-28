@@ -48,13 +48,13 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         _ => {}
     }
 
-    // `const char *` 系列 → *const u8
+    // `const char *` 系列 → *const i8（C char 为 signed，对应 Rust i8）
     if cpp == "const char *" || cpp == "const char*" || cpp == "char const *" {
-        return "*const u8".to_string();
+        return "*const i8".to_string();
     }
-    // `char *` → *mut u8
+    // `char *` → *mut i8
     if cpp == "char *" || cpp == "char*" {
-        return "*mut u8".to_string();
+        return "*mut i8".to_string();
     }
 
     // `const T *` → `*const T_rust`
@@ -105,16 +105,9 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     cpp.to_string()
 }
 
-/// `cpp_to_rust` 的 FFI 函数版本：`char*` 映射为有符号 `i8`（C 标准 char 为 signed）。
-/// 用于 import_lib! 函数绑定；import_class! 方法绑定继续使用 `cpp_to_rust`（返回 `u8`）。
+/// `cpp_to_rust` 的 FFI 函数版本（现与 `cpp_to_rust` 行为一致，均使用 i8 表示 char*）。
+/// 保留此函数供已有调用方使用。
 pub fn cpp_to_rust_ffi(cpp: &str) -> String {
-    let cpp = cpp.trim();
-    if cpp == "const char *" || cpp == "const char*" || cpp == "char const *" {
-        return "*const i8".to_string();
-    }
-    if cpp == "char *" || cpp == "char*" {
-        return "*mut i8".to_string();
-    }
     cpp_to_rust(cpp)
 }
 
@@ -176,7 +169,8 @@ mod tests {
     fn test_primitives() {
         assert_eq!(cpp_to_rust("int"), "i32");
         assert_eq!(cpp_to_rust("double"), "f64");
-        assert_eq!(cpp_to_rust("const char *"), "*const u8");
+        assert_eq!(cpp_to_rust("const char *"), "*const i8");
+        assert_eq!(cpp_to_rust("char *"), "*mut i8");
     }
 
     #[test]

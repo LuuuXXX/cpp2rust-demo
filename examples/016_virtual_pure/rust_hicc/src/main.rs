@@ -82,7 +82,7 @@ hicc::import_class! {
         fn area(&self) -> f64;
 
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const u8;
+        fn get_name(&self) -> *const i8;
     }
 }
 
@@ -101,17 +101,13 @@ hicc::import_lib! {
     unsafe fn abstract_shape_delete(self_: *mut AbstractShape);
 }
 
-fn decode_cstr(ptr: *const u8) -> String {
+fn decode_cstr(ptr: *const i8) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string()
-    }
+    unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .to_string()
 }
 
 fn main() {

@@ -29,7 +29,7 @@ hicc::import_class! {
     #[cpp(class = "DataFetcher")]
     class DataFetcher {
         #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const u8;
+        fn get_name(&self) -> *const i8;
 
         #[cpp(method = "int getCacheCount() const")]
         fn get_cache_count(&self) -> i32;

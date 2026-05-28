@@ -3,6 +3,9 @@ use clap::{Args, Parser, Subcommand};
 use cpp2rust_demo::ast_parser;
 use cpp2rust_demo::capture;
 use cpp2rust_demo::error::Result;
+use cpp2rust_demo::extractor;
+use cpp2rust_demo::generator::hicc_codegen;
+use cpp2rust_demo::generator::project_generator;
 use cpp2rust_demo::layout::{self, FeatureLayout};
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
 
@@ -132,13 +135,35 @@ fn run_init(args: InitArgs) -> Result<()> {
     lo.save_selected_files(&selected)?;
 
     if selected.is_empty() {
-        println!("No files selected – skipping AST parsing.");
+        println!("No files selected – skipping code generation.");
         return Ok(());
     }
 
-    println!("\nRunning AST parser on selected files...");
+    println!("\nRunning AST parser and code generation on selected files...");
+    let mut unit_names: Vec<String> = Vec::new();
     let mut parse_errors = 0usize;
+
     for path in &selected {
+        // 从 `.cpp2rust` 路径推导原始 `.cpp` 路径
+        // hook 命名规则：<c_dir>/<relative_from_project_root>.cpp2rust
+        // 例：<c_dir>/src/foo.cpp.cpp2rust → project_root/src/foo.cpp
+        let original_cpp = {
+            let rel = path.strip_prefix(&lo.c_dir).unwrap_or(path.as_path());
+            let rel_str = rel.to_string_lossy();
+            let cpp_rel = rel_str
+                .strip_suffix(".cpp2rust")
+                .unwrap_or(&rel_str)
+                .to_string();
+            project_root.join(cpp_rel)
+        };
+
+        // unit_name = 原始 cpp 文件的文件名（不含扩展名）
+        let unit_name = original_cpp
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unit")
+            .to_string();
+
         match ast_parser::parse_preprocessed(path) {
             Ok(ast) => {
                 println!(
@@ -148,6 +173,18 @@ fn run_init(args: InitArgs) -> Result<()> {
                     ast.functions.len(),
                     ast.enums.len()
                 );
+
+                let (system_includes, project_header) =
+                    extractor::read_source_includes(&original_cpp);
+                let spec = extractor::extract(
+                    &ast,
+                    &unit_name,
+                    &system_includes,
+                    project_header.as_deref(),
+                );
+                let code = hicc_codegen::generate(&spec);
+                project_generator::write_unit_rs(&lo.rust_dir, &unit_name, &code)?;
+                unit_names.push(unit_name);
             }
             Err(err) => {
                 parse_errors += 1;
@@ -164,12 +201,18 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("\nWarning: {} file(s) failed to parse (--skip-failed active).", parse_errors);
     }
 
-    println!("\n✓ cpp2rust-demo init completed for Phase 1.");
+    // 生成 Cargo.toml 和 lib.rs
+    project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
+    project_generator::write_lib_rs(&lo.rust_dir, &unit_names)?;
+
+    println!("\n✓ cpp2rust-demo init completed.");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── c/          (captured .cpp2rust files)");
     println!("    ├── meta/       (build_cmd.txt, selected_files.json)");
-    println!("    └── rust/       (reserved for later phases)");
+    println!("    └── rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/*.rs)");
+    println!();
+    println!("Generated {} unit file(s) in .cpp2rust/{}/rust/src/", unit_names.len(), feature);
 
     Ok(())
 }

@@ -64,7 +64,7 @@ hicc::import_class! {
         fn get_size(&self) -> i32;
 
         #[cpp(method = "char* getData()")]
-        fn get_data(&mut self) -> *mut u8;
+        fn get_data(&mut self) -> *mut i8;
 
         #[cpp(method = "int useCount() const")]
         fn use_count(&self) -> i32;
