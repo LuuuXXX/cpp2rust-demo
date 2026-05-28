@@ -589,13 +589,21 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         Some(cpp_to_rust(&m.return_type))
     };
 
-    // C++ 方法签名：只含参数类型（不含参数名），指针紧贴类型
+    // C++ 方法签名：含参数名（若 AST 有）、剥除 volatile、指针紧贴类型
     let param_types: Vec<String> = m
         .params
         .iter()
-        .map(|p| normalize_ptr_spacing(clean_type(&p.type_name)))
+        .map(|p| {
+            let ty = normalize_ptr_spacing(strip_volatile(clean_type(&p.type_name)));
+            let name = sanitize_param_name(&p.name);
+            if !name.is_empty() && name != "_" {
+                format!("{} {}", ty, name)
+            } else {
+                ty.to_string()
+            }
+        })
         .collect();
-    let ret_clean = normalize_ptr_spacing(clean_type(&m.return_type));
+    let ret_clean = normalize_ptr_spacing(strip_volatile(clean_type(&m.return_type)));
     let const_suffix = if m.is_const { " const" } else { "" };
     let cpp_sig = if m.return_type.is_empty() || m.return_type == "void" {
         format!("void {}({}){}", m.name, param_types.join(", "), const_suffix)
@@ -654,9 +662,9 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         if rt.is_empty() { None } else { Some(rt) }
     };
 
-    // unsafe: 参数中有 *mut T 类型（类指针），或返回值为裸 C 字符串
+    // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
     let is_unsafe = params.iter().any(|(_, t)| {
-        t.starts_with("*mut ") && t != "*mut i8"
+        t.starts_with("*mut ") || t == "*const i8"
     }) || ret_type.as_deref().map_or(false, |r| r == "*const i8" || r == "*mut i8");
 
     // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名
@@ -840,6 +848,11 @@ pub fn normalize_ptr_spacing(ty: &str) -> String {
         i += 1;
     }
     result
+}
+
+/// 剥除 C++ 类型的 `volatile` 前缀（volatile 在 C++ 方法签名中不影响 FFI）
+fn strip_volatile(ty: &str) -> &str {
+    ty.strip_prefix("volatile ").map(str::trim).unwrap_or(ty)
 }
 
 /// 读取原始 .cpp 和 .h 文件的 include 行

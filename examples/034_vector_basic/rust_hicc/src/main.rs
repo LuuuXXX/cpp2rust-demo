@@ -78,13 +78,13 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "IntVector")]
     class IntVector {
-        #[cpp(method = "void push_back(int)")]
+        #[cpp(method = "void push_back(int val)")]
         fn push_back(&mut self, val: i32);
 
-        #[cpp(method = "int get(size_t) const")]
+        #[cpp(method = "int get(size_t i) const")]
         fn get(&self, i: usize) -> i32;
 
-        #[cpp(method = "void set(size_t, int)")]
+        #[cpp(method = "void set(size_t i, int val)")]
         fn set(&mut self, i: usize, val: i32);
 
         #[cpp(method = "size_t size() const")]

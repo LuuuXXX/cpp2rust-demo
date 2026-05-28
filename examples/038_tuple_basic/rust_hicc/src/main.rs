@@ -164,28 +164,28 @@ hicc::import_lib! {
     class Tuple4;
 
     #[cpp(func = "Tuple2* tuple2_new(int, const char*)")]
-    fn tuple2_new(first: i32, second: *const i8) -> *mut Tuple2;
+    unsafe fn tuple2_new(first: i32, second: *const i8) -> *mut Tuple2;
 
     #[cpp(func = "void tuple2_delete(Tuple2* self)")]
     unsafe fn tuple2_delete(self_: *mut Tuple2);
 
     #[cpp(func = "Tuple3* tuple3_new(int, double, const char*)")]
-    fn tuple3_new(first: i32, second: f64, third: *const i8) -> *mut Tuple3;
+    unsafe fn tuple3_new(first: i32, second: f64, third: *const i8) -> *mut Tuple3;
 
     #[cpp(func = "void tuple3_delete(Tuple3* self)")]
     unsafe fn tuple3_delete(self_: *mut Tuple3);
 
     #[cpp(func = "Tuple4* tuple4_new(int, double, const char*, int)")]
-    fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> *mut Tuple4;
+    unsafe fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> *mut Tuple4;
 
     #[cpp(func = "void tuple4_delete(Tuple4* self)")]
     unsafe fn tuple4_delete(self_: *mut Tuple4);
 
     #[cpp(func = "Tuple2* make_int_string_pair(int, const char*)")]
-    fn make_int_string_pair(i: i32, s: *const i8) -> *mut Tuple2;
+    unsafe fn make_int_string_pair(i: i32, s: *const i8) -> *mut Tuple2;
 
     #[cpp(func = "Tuple3* make_int_double_string(int, double, const char*)")]
-    fn make_int_double_string(i: i32, d: f64, s: *const i8) -> *mut Tuple3;
+    unsafe fn make_int_double_string(i: i32, d: f64, s: *const i8) -> *mut Tuple3;
 }
 
 fn main() {

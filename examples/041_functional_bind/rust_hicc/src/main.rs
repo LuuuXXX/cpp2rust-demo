@@ -69,9 +69,6 @@ hicc::cpp! {
         int count_char(char ch) { return impl->count_char(ch); }
     };
 
-    int add_five_impl(int a, int b);
-    int add_ten_impl(int a, int b);
-
     Adder* adder_new(int base_value) {
         return new Adder(base_value);
     }
@@ -118,7 +115,7 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "Adder")]
     class Adder {
-        #[cpp(method = "int add(int)")]
+        #[cpp(method = "int add(int value)")]
         fn add(&mut self, value: i32) -> i32;
     }
 }
@@ -126,7 +123,7 @@ hicc::import_class! {
 hicc::import_class! {
     #[cpp(class = "Multiplier")]
     class Multiplier {
-        #[cpp(method = "int multiply(int)")]
+        #[cpp(method = "int multiply(int value)")]
         fn multiply(&mut self, value: i32) -> i32;
     }
 }
@@ -134,10 +131,10 @@ hicc::import_class! {
 hicc::import_class! {
     #[cpp(class = "StringProcessor")]
     class StringProcessor {
-        #[cpp(method = "void set_target(const char*)")]
+        #[cpp(method = "void set_target(const char* t)")]
         fn set_target(&mut self, t: *const i8);
 
-        #[cpp(method = "int count_char(char)")]
+        #[cpp(method = "int count_char(char ch)")]
         fn count_char(&mut self, ch: i8) -> i32;
     }
 }

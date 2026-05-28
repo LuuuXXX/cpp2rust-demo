@@ -72,11 +72,11 @@ hicc::cpp! {
         void clear_exception() { impl->clear_exception(); }
         int get_exception() { return impl->get_exception(); }
         int divide(int a, int b) {
-    try { return impl->divide(a, b); } catch (...) { return 0; }
-}
+        try { return impl->divide(a, b); } catch (...) { return 0; }
+    }
         int string_to_int(const char* str) {
-    try { return impl->string_to_int(str); } catch (...) { return 0; }
-}
+        try { return impl->string_to_int(str); } catch (...) { return 0; }
+    }
     };
 
     Calculator* calculator_new() {
@@ -97,10 +97,10 @@ hicc::import_class! {
         #[cpp(method = "int get_exception()")]
         fn get_exception(&mut self) -> i32;
 
-        #[cpp(method = "int divide(int, int)")]
+        #[cpp(method = "int divide(int a, int b)")]
         fn divide(&mut self, a: i32, b: i32) -> i32;
 
-        #[cpp(method = "int string_to_int(const char*)")]
+        #[cpp(method = "int string_to_int(const char* str)")]
         fn string_to_int(&mut self, str: *const i8) -> i32;
     }
 }

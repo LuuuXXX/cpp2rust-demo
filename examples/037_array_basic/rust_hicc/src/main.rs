@@ -137,13 +137,13 @@ hicc::import_class! {
         #[cpp(method = "bool empty() const")]
         fn empty(&self) -> bool;
 
-        #[cpp(method = "void set(size_t, int)")]
+        #[cpp(method = "void set(size_t i, int val)")]
         fn set(&mut self, i: usize, val: i32);
 
-        #[cpp(method = "int get(size_t) const")]
+        #[cpp(method = "int get(size_t i) const")]
         fn get(&self, i: usize) -> i32;
 
-        #[cpp(method = "int at(size_t) const")]
+        #[cpp(method = "int at(size_t i) const")]
         fn at(&self, i: usize) -> i32;
 
         #[cpp(method = "int* data()")]

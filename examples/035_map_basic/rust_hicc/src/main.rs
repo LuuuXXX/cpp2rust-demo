@@ -77,16 +77,16 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "StringIntMap")]
     class StringIntMap {
-        #[cpp(method = "bool insert(const char*, int)")]
+        #[cpp(method = "bool insert(const char* key, int val)")]
         fn insert(&mut self, key: *const i8, val: i32) -> bool;
 
-        #[cpp(method = "int get(const char*) const")]
+        #[cpp(method = "int get(const char* key) const")]
         fn get(&self, key: *const i8) -> i32;
 
-        #[cpp(method = "void set(const char*, int)")]
+        #[cpp(method = "void set(const char* key, int val)")]
         fn set(&mut self, key: *const i8, val: i32);
 
-        #[cpp(method = "bool erase(const char*)")]
+        #[cpp(method = "bool erase(const char* key)")]
         fn erase(&mut self, key: *const i8) -> bool;
 
         #[cpp(method = "size_t size() const")]

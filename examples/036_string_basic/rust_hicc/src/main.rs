@@ -77,13 +77,13 @@ hicc::import_class! {
         #[cpp(method = "bool empty() const")]
         fn empty(&self) -> bool;
 
-        #[cpp(method = "int compare(const char*) const")]
+        #[cpp(method = "int compare(const char* str) const")]
         fn compare(&self, str: *const i8) -> i32;
 
-        #[cpp(method = "bool equals(const char*) const")]
+        #[cpp(method = "bool equals(const char* str) const")]
         fn equals(&self, str: *const i8) -> bool;
 
-        #[cpp(method = "void append(const char*)")]
+        #[cpp(method = "void append(const char* str)")]
         fn append(&mut self, str: *const i8);
 
         #[cpp(method = "void to_upper()")]
@@ -103,10 +103,10 @@ hicc::import_lib! {
     fn string_new() -> *mut String;
 
     #[cpp(func = "String* string_new_from(const char*)")]
-    fn string_new_from(str: *const i8) -> *mut String;
+    unsafe fn string_new_from(str: *const i8) -> *mut String;
 
     #[cpp(func = "String* string_new_from_len(const char*, size_t)")]
-    fn string_new_from_len(str: *const i8, len: usize) -> *mut String;
+    unsafe fn string_new_from_len(str: *const i8, len: usize) -> *mut String;
 
     #[cpp(func = "void string_delete(String* self)")]
     unsafe fn string_delete(self_: *mut String);
