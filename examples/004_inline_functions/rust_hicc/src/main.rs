@@ -22,8 +22,8 @@ fn main() {
     // 内联函数在 Rust 端直接调用
     let a = 10;
     let b = 20;
-    println!("min({}, {}) = {}", a, b, min_val(a, b));
-    println!("max({}, {}) = {}", a, b, max_val(a, b));
+    println!("min({}, {}) = {}", a, b, min(a, b));
+    println!("max({}, {}) = {}", a, b, max(a, b));
 
     // 普通函数版本
     println!("min_v2({}, {}) = {}", a, b, min_v2(a, b));
