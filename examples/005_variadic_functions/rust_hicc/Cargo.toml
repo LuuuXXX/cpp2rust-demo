@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+hicc = { version = "0.2" }
 
 [build-dependencies]
+hicc-build = { version = "0.2" }
 cc = "1.0"

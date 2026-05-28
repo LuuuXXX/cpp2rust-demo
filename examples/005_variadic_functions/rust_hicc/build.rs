@@ -1,15 +1,20 @@
 fn main() {
     let cpp_dir = std::path::PathBuf::from("../cpp");
 
-    cc::Build::new()
-        .include(&cpp_dir)
-        .include(".")
-        .cpp(true)
-        .file(cpp_dir.join("variadic_functions.cpp"))
-        .compile("variadic_functions");
+    let mut build = hicc_build::Build::new();
+    use std::ops::DerefMut;
+    let cc_build: &mut cc::Build = build.deref_mut();
+    cc_build.include(&cpp_dir);
+    cc_build.include(".");
+    cc_build.cpp(true);
+    cc_build.file(cpp_dir.join("variadic_functions.cpp"));
 
+    build.rust_file("src/main.rs").compile("variadic_functions");
+
+    println!("cargo::rustc-link-lib=variadic_functions");
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     println!("cargo::rustc-link-lib=stdc++");
+    println!("cargo::rerun-if-changed=src/main.rs");
     println!("cargo::rerun-if-changed=../cpp/variadic_functions.cpp");
     println!("cargo::rerun-if-changed=../cpp/variadic_functions.h");
 }

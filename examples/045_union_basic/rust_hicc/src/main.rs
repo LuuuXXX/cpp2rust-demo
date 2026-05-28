@@ -1,100 +1,5 @@
 hicc::cpp! {
-    #include <cstddef>
-    #include <cstdint>
-    #include <iostream>
-    #include <cstring>
-
-    class Variant {
-        int type_;
-        union {
-        int int_value_;
-        float float_value_;
-        char string_buffer_[64];
-    } data_;
-    public:
-        Variant() : type_(VALUE_TYPE_INT) {
-    data_.int_value_ = 0;
-}
-        ~Variant() {}
-        int get_type() const {
-    return type_;
-}
-        void set_int(int value) {
-    type_ = VALUE_TYPE_INT;
-    data_.int_value_ = value;
-}
-        void set_float(float value) {
-    type_ = VALUE_TYPE_FLOAT;
-    data_.float_value_ = value;
-}
-        void set_string(const char* value) {
-    type_ = VALUE_TYPE_STRING;
-    if (value) {
-        strncpy(data_.string_buffer_, value, 63);
-        data_.string_buffer_[63] = '\0';
-    } else {
-        data_.string_buffer_[0] = '\0';
-    }
-}
-        int get_int() const {
-    if (type_ == VALUE_TYPE_INT) {
-        return data_.int_value_;
-    }
-    return 0;
-}
-        float get_float() const {
-    if (type_ == VALUE_TYPE_FLOAT) {
-        return data_.float_value_;
-    }
-    return 0.0f;
-}
-        const char* get_string() const {
-    if (type_ == VALUE_TYPE_STRING) {
-        return data_.string_buffer_;
-    }
-    return "";
-}
-    };
-
-    Variant* variant_new_int(int value) {
-        auto* v = new Variant();
-        v->set_int(value);
-        return v;
-    }
-
-    Variant* variant_new_float(float value) {
-        auto* v = new Variant();
-        v->set_float(value);
-        return v;
-    }
-
-    Variant* variant_new_string(const char* value) {
-        auto* v = new Variant();
-        v->set_string(value);
-        return v;
-    }
-
-    void variant_delete(Variant* self) {
-        delete self;
-    }
-
-    int union_get_int(const IntFloatUnion* u) {
-        if (u) return u->data.int_value;
-        return 0;
-    }
-
-    float union_get_float(const IntFloatUnion* u) {
-        if (u) return u->data.float_value;
-        return 0.0f;
-    }
-
-    void union_set_int(IntFloatUnion* u, int value) {
-        if (u) u->data.int_value = value;
-    }
-
-    void union_set_float(IntFloatUnion* u, float value) {
-        if (u) u->data.float_value = value;
-    }
+    #include "union_basic.h"
 }
 
 hicc::import_class! {
@@ -110,7 +15,7 @@ hicc::import_class! {
         fn set_float(&mut self, value: f32);
 
         #[cpp(method = "void set_string(const char* value)")]
-        fn set_string(&mut self, value: *const u8);
+        fn set_string(&mut self, value: *const i8);
 
         #[cpp(method = "int get_int() const")]
         fn get_int(&self) -> i32;
@@ -119,7 +24,7 @@ hicc::import_class! {
         fn get_float(&self) -> f32;
 
         #[cpp(method = "const char* get_string() const")]
-        fn get_string(&self) -> *const u8;
+        fn get_string(&self) -> *const i8;
     }
 }
 
@@ -158,6 +63,18 @@ pub const VALUE_TYPE_INT: i32 = 0;
 pub const VALUE_TYPE_FLOAT: i32 = 1;
 pub const VALUE_TYPE_STRING: i32 = 2;
 
+// Rust repr(C) mirror of the C++ IntFloatUnion struct
+#[repr(C)]
+union IntFloatUnionData {
+    int_value: i32,
+    float_value: f32,
+}
+
+#[repr(C)]
+struct IntFloatUnion {
+    data: IntFloatUnionData,
+}
+
 fn variant_type_name(t: i32) -> &'static str {
     match t {
         0 => "INT",
@@ -174,16 +91,16 @@ fn main() {
     println!("--- Variant Demo ---");
 
     let v_int = variant_new_int(42);
-    println!("Type: {}, Value: {}", variant_type_name(variant_get_type(&v_int)), variant_get_int(&v_int));
+    println!("Type: {}, Value: {}", variant_type_name(v_int.get_type()), v_int.get_int());
     unsafe { variant_delete(&v_int); }
 
     let v_float = variant_new_float(3.14);
-    println!("Type: {}, Value: {}", variant_type_name(variant_get_type(&v_float)), variant_get_float(&v_float));
+    println!("Type: {}, Value: {}", variant_type_name(v_float.get_type()), v_float.get_float());
     unsafe { variant_delete(&v_float); }
 
-    let v_string = variant_new_string("Hello, Union!\0".as_ptr() as *const i8);
-    let s = unsafe { std::ffi::CStr::from_ptr(variant_get_string(&v_string)) };
-    println!("Type: {}, Value: {}", variant_type_name(variant_get_type(&v_string)), s.to_str().unwrap());
+    let v_string = unsafe { variant_new_string("Hello, Union!\0".as_ptr() as *const i8) };
+    let s = unsafe { std::ffi::CStr::from_ptr(v_string.get_string()) };
+    println!("Type: {}, Value: {}", variant_type_name(v_string.get_type()), s.to_str().unwrap());
     unsafe { variant_delete(&v_string); }
 
     // Memory overlay demo

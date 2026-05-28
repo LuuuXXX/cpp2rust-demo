@@ -119,7 +119,7 @@ hicc::import_class! {
     #[cpp(class = "Adder")]
     class Adder {
         #[cpp(method = "int add(int)")]
-        fn add(&self, value: i32) -> i32;
+        fn add(&mut self, value: i32) -> i32;
     }
 }
 
@@ -127,7 +127,7 @@ hicc::import_class! {
     #[cpp(class = "Multiplier")]
     class Multiplier {
         #[cpp(method = "int multiply(int)")]
-        fn multiply(&self, value: i32) -> i32;
+        fn multiply(&mut self, value: i32) -> i32;
     }
 }
 
@@ -188,7 +188,7 @@ fn main() {
     // Adder example - bound base value
     println!("--- Adder Demo (绑定基础值) ---");
     unsafe {
-        let adder = adder_new(100);
+        let mut adder = adder_new(100);
         println!("Result of adder.add(50): {}", adder.add(50));
         println!("Result of adder.add(30): {}", adder.add(30));
         adder_delete(&adder);
@@ -197,7 +197,7 @@ fn main() {
     // Multiplier example - bound multiplier
     println!("\n--- Multiplier Demo (绑定乘数) ---");
     unsafe {
-        let multiplier = multiplier_new(7);
+        let mut multiplier = multiplier_new(7);
         println!("multiply(6) = {}", multiplier.multiply(6));
         println!("multiply(11) = {}", multiplier.multiply(11));
         multiplier_delete(&multiplier);

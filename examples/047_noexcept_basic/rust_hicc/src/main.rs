@@ -7,6 +7,7 @@ hicc::cpp! {
     class NoexceptMover {
         int value_;
     public:
+        NoexceptMover(int v) : value_(v) {}
         NoexceptMover(NoexceptMover&& other) noexcept : value_(other.value_) {
     other.value_ = 0;
 }
@@ -55,6 +56,10 @@ hicc::cpp! {
         delete self;
     }
 
+    NoexceptMover* noexcept_mover_move(NoexceptMover* src) {
+        return new NoexceptMover(std::move(*src));
+    }
+
     int is_noexcept(int (*)(int, int)) noexcept {
         // Simplified: we can only reliably check at compile time with constexpr
         // For runtime check via function pointer, we assume noexcept functions
@@ -66,14 +71,8 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "NoexceptMover")]
     class NoexceptMover {
-        #[cpp(method = "NoexceptMover & operator=(NoexceptMover && other)")]
-        fn operator=(&mut self, other: *mut *mut NoexceptMover) -> *mut NoexceptMover;
-
         #[cpp(method = "int get_value() const")]
         fn get_value(&self) -> i32;
-
-        #[cpp(method = "NoexceptMover & operator=(const NoexceptMover &)")]
-        fn operator=(&mut self, arg: *const NoexceptMover) -> *mut NoexceptMover;
     }
 }
 
@@ -91,9 +90,6 @@ hicc::import_lib! {
     #[cpp(func = "int throwing_divide(int, int)")]
     fn throwing_divide(a: i32, b: i32) -> i32;
 
-    #[cpp(func = "int check_noexcept(int (*)(int, int))")]
-    fn check_noexcept(fn_: int (*)(int, int)) -> i32;
-
     #[cpp(func = "int conditional_abs(int)")]
     fn conditional_abs(value: i32) -> i32;
 
@@ -103,8 +99,8 @@ hicc::import_lib! {
     #[cpp(func = "void noexcept_mover_delete(NoexceptMover* self)")]
     unsafe fn noexcept_mover_delete(self_: *mut NoexceptMover);
 
-    #[cpp(func = "int is_noexcept(int (*)(int, int))")]
-    fn is_noexcept(arg: int (*)(int, int)) -> i32;
+    #[cpp(func = "NoexceptMover* noexcept_mover_move(NoexceptMover*)")]
+    fn noexcept_mover_move(src: *mut *mut NoexceptMover) -> *mut NoexceptMover;
 }
 
 fn main() {
