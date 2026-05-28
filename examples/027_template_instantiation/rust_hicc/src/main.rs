@@ -3,31 +3,6 @@ hicc::cpp! {
     #include <vector>
     #include <iomanip>
 
-    template<typename T>
-    class Matrix {
-        int rows_;
-        int cols_;
-        std::vector<T> data_;
-    public:
-        Matrix(int rows, int cols) : rows_(rows), cols_(cols), data_(rows * cols) {}
-        int rows() const { return rows_; }
-        int cols() const { return cols_; }
-        T get(int row, int col) const { return data_[row * cols_ + col]; }
-        void set(int row, int col, T value) { data_[row * cols_ + col] = value; }
-        void print() const {
-            for (int i = 0; i < rows_; i++) {
-                for (int j = 0; j < cols_; j++) {
-                    std::cout << std::setw(4) << get(i, j);
-                }
-                std::cout << std::endl;
-            }
-        }
-    };
-
-    // Explicit instantiation for int and double
-    template class Matrix<int>;
-    template class Matrix<double>;
-
     class IntMatrix {
         Matrix<int>* impl_;
     public:
