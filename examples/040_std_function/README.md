@@ -143,13 +143,18 @@ extern "C" fn rust_callback(value: i32) -> i32 {
 === 040_std_function - std::function 回调 ===
 
 --- CallbackWrapper Demo ---
-process(5) with multiplier=2: 10
-get_value(): 10
-process(7) with multiplier=3: 21
+invoke(5) = 10 (doubles input)
+invoke(7) = 14 (doubles input)
 
 --- Processor Demo ---
-Set input: 21
-Simulated result (input * 2): 42
+process(10) = 20
+
+--- MultiCallback Demo ---
+Invoking all callbacks with 4:
+
+--- AsyncProcessor Demo ---
+is_cancelled = false
+after cancel: is_cancelled = true
 
 Rust FFI: std::function 回调映射
 1. std::function 存储可调用对象

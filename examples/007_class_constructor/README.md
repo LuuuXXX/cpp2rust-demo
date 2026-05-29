@@ -138,12 +138,11 @@ cargo run
 ## 运行结果
 
 ```
-Point created: xy(3, 4)
 Point 1: (3, 4)
   Magnitude: 5
-  Angle: 0.927295
+  Angle: 0.9272952180016122
 
-Point created: polar(5, 0)
+Point created: polar(5, 0) -> xy(5, 0)
 Point 2: (5, 0)
   Magnitude: 5
   Angle: 0

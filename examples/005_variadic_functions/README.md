@@ -152,11 +152,19 @@ cargo run
 ## 运行结果
 
 ```
-sum(3, 1, 2, 3) = 6
-sum(5, 10, 20, 30, 40, 50) = 150
-Hello, World! Number: 42
+=== 005_variadic_functions - 可变参数函数 ===
 
-Rust FFI: Variadic functions handled!
+--- sum (via wrapper) ---
+sum_3(1, 2, 3) = 6
+sum_5(1, 2, 3, 4, 5) = 15
+
+--- print_formatted ---
+Hello from variadic_functions!
+
+--- 总结 ---
+1. C 可变参数函数无法直接通过 FFI 调用
+2. 需要为每种参数组合提供固定参数包装函数
+3. Rust 调用这些固定参数包装函数
 ```
 
 ## 总结

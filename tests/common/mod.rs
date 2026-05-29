@@ -202,8 +202,8 @@ pub fn compare_run_output(actual: &str, expected: &str) -> bool {
         return false;
     }
     for (a, e) in actual_lines.iter().zip(expected_lines.iter()) {
-        let a = a.trim_end();
-        let e = e.trim_end();
+        let a = a.trim_end_matches(|c: char| c.is_whitespace() || c == '\0');
+        let e = e.trim_end_matches(|c: char| c.is_whitespace() || c == '\0');
         if e.contains("0x...") {
             let normalized = normalize_hex_addresses(a);
             if normalized != e {

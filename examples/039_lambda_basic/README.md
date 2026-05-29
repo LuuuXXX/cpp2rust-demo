@@ -118,9 +118,28 @@ extern "C" fn rust_add(a: i32, b: i32) -> i32 {
 ```
 === 039_lambda_basic - Lambda 表达式 ===
 
---- BinaryOp Demo ---
-Stored: a=10, b=20, result=30
-Stored: a=5, b=3, result=8
+--- Direct function calls ---
+add lambda called: 3 + 4
+add_impl(3, 4) = 7
+multiply lambda called: 3 * 4
+multiply_impl(3, 4) = 12
+max lambda called: 3 vs 4
+max_impl(3, 4) = 4
+
+--- LambdaWrapper Demo ---
+add lambda called: 5 + 6
+add invoke(5, 6) = 11
+multiply lambda called: 5 * 6
+multiply invoke(5, 6) = 30
+
+--- StateLambda Demo ---
+initial value = 10
+add(5) = 15
+add(3) = 18
+
+--- Comparator Demo ---
+add lambda called: 2 + 3
+compare(2, 3) = 5
 
 Rust FFI: Lambda 表达式映射
 1. 函数指针可以通过 FFI 传递
