@@ -22,6 +22,11 @@ struct LambdaWrapper;
 struct LambdaWrapper* lambda_wrapper_new(int (*fn)(int, int));
 void lambda_wrapper_delete(struct LambdaWrapper* self);
 
+// Implementation functions (declared before factory functions to ensure correct ordering)
+int add_impl(int a, int b);
+int multiply_impl(int a, int b);
+int max_impl(int a, int b);
+
 // Predefined lambda factories
 struct LambdaWrapper* make_add_lambda(void);
 struct LambdaWrapper* make_multiply_lambda(void);

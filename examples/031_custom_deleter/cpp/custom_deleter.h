@@ -25,11 +25,11 @@ int file_read(FileHandle* handle, char* buffer, int size);
 // 写入文件
 int file_write(FileHandle* handle, const char* data, int size);
 
+// 通用删除器函数（必须在 file_open_default 之前声明，避免前向引用错误）
+void default_file_deleter(struct FileHandle* handle);
+
 // 创建使用默认删除器的文件句柄
 FileHandle* file_open_default(const char* filename, const char* mode);
-
-// 通用删除器函数
-void default_file_deleter(struct FileHandle* handle);
 
 // 带日志的删除器
 void logging_file_deleter(struct FileHandle* handle);

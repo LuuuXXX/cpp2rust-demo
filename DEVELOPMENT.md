@@ -123,8 +123,8 @@ hicc::import_lib! {
 | 模板实例化 | 024–028 | ✅ |
 | 智能指针与内存 | 029–033 | ✅ |
 | STL 容器 | 034–038 | ✅ |
-| **有状态 Lambda** | 039 | ⚠️ [LM] L1 失败（class wrapper 格式未对齐） |
-| **std::function** | 040 | ⚠️ [LM] L1 失败（class wrapper 格式未对齐） |
+| **有状态 Lambda** | 039 | ✅ [LM] L1/L2 通过（函数指针 + class wrapper 方案） |
+| **std::function** | 040 | ✅ [LM] L1/L2 通过（class wrapper 方案） |
 | functional_bind / 异常 | 041–042 | ✅ |
 | 高级特性 | 043–048 | ✅ |
 
@@ -176,8 +176,8 @@ hicc::import_lib! {
 
 | 层 | 状态 |
 |----|------|
-| **L1**（golden 比对） | ✅ **49 / 49**（全部通过，含之前 9 个回归均已修复） |
-| **L2**（编译测试）| ⚠️ **46 / 48**（031_custom_deleter、039_lambda_basic 仍编译失败，待修复）|
+| **L1**（golden 比对） | ✅ **49 / 49**（全部通过） |
+| **L2**（编译测试）| ✅ **48 / 48**（全部通过，031/039 前向引用问题已修复）|
 | **L3**（运行测试）| CI 阶段验证，本地未全量运行 |
 
 ### 5.3 已完成的主要修复记录
@@ -200,6 +200,8 @@ hicc::import_lib! {
 | 同步 8 个 `#[ignore]` 示例的 golden 文件，使其与新的 `import_class!` + 自由函数格式对齐；L1 全量通过（48 / 48） | 020、023、025、027、031、033、041、045 |
 | 修复 025/027/031/045 L1 测试：同步 C++ 源文件与 golden 文件，使工具能自动生成正确 hicc 块 | 025、027、031、045 |
 | 修复 039/040 L1 golden 测试：移除 lambda_basic/std_function 中重复定义，添加 delegate 方法和工厂函数，工具生成与 golden 完全一致；**L1 达到 49/49（全部通过）** | 039、040 |
+| 修复 031 L2 前向引用：修改 `custom_deleter.h` 将 `default_file_deleter` 声明移至 `file_open_default` 之前，使工具生成正确函数顺序，更新 golden 文件；**031 L2 编译通过** | 031 |
+| 修复 039 L2 前向引用：在 `lambda_basic.h` 工厂函数之前添加 `add_impl/multiply_impl/max_impl` 声明，使工具生成正确函数顺序，更新 golden 文件；**039 L2 编译通过，L2 达到 48/48（全部通过）** | 039 |
 
 ---
 
@@ -252,16 +254,16 @@ cpp2rust-demo merge --feature core --feature extra --output mylib
 
 > ✅ **L1 回归已全部修复**：通过同步 C++ 源文件（025/027/031/045）和调整示例结构（039/040），工具输出与 golden 文件完全一致，L1 达到 **49/49 全部通过**。
 
-### 6.4 P1 - L2 剩余 2 个编译失败（待修复）
+### 6.4 ✅ P1 - L2 剩余 2 个编译失败（已全部修复）
 
-当前 L2 有 2 个示例仍编译失败：
+通过修改 C++ 头文件声明顺序，使工具自动生成正确的函数顺序，消除了前向引用编译错误：
 
-| 编号 | 示例名 | 失败原因 | 建议修复方向 |
-|------|--------|---------|------------|
-| 031 | custom_deleter | rust_hicc 中 deleter 函数签名或前向引用仍有问题 | 进一步检查生成的绑定，对齐函数指针类型映射 |
-| 039 | lambda_basic | rust_hicc 中 lambda wrapper 类方法签名或调用方式不匹配 | 检查 `call()` 方法签名和 delegate 工厂函数，对齐 L2 编译要求 |
+| 编号 | 示例名 | 失败原因 | 修复方式 |
+|------|--------|---------|---------|
+| 031 | custom_deleter | `file_open_default` 调用了后面才定义的 `default_file_deleter`（前向引用） | 在 `custom_deleter.h` 中将 `default_file_deleter` 声明移到 `file_open_default` 之前，工具自动生成正确顺序 |
+| 039 | lambda_basic | 工厂函数 `make_add_lambda` 等引用了后面才定义的 `add_impl` 等（前向引用） | 在 `lambda_basic.h` 中于工厂函数之前添加 `add_impl/multiply_impl/max_impl` 声明，工具自动生成正确顺序 |
 
-修复后 L2 目标：**48/48 全部通过**。
+✅ **L2 全部通过：48/48**
 
 ### 6.5 P2 - 增量处理与局限性（待后续跟进）
 

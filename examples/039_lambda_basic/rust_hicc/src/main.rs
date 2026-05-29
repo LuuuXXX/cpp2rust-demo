@@ -74,6 +74,21 @@ hicc::cpp! {
         delete self;
     }
 
+    int add_impl(int a, int b) {
+        std::cout << "add lambda called: " << a << " + " << b << std::endl;
+        return a + b;
+    }
+
+    int multiply_impl(int a, int b) {
+        std::cout << "multiply lambda called: " << a << " * " << b << std::endl;
+        return a * b;
+    }
+
+    int max_impl(int a, int b) {
+        std::cout << "max lambda called: " << a << " vs " << b << std::endl;
+        return std::max(a, b);
+    }
+
     LambdaWrapper* make_add_lambda() {
         return new LambdaWrapper(add_impl);
     }
@@ -104,21 +119,6 @@ hicc::cpp! {
 
     void comparator_delete(Comparator* self) {
         delete self;
-    }
-
-    int add_impl(int a, int b) {
-        std::cout << "add lambda called: " << a << " + " << b << std::endl;
-        return a + b;
-    }
-
-    int multiply_impl(int a, int b) {
-        std::cout << "multiply lambda called: " << a << " * " << b << std::endl;
-        return a * b;
-    }
-
-    int max_impl(int a, int b) {
-        std::cout << "max lambda called: " << a << " vs " << b << std::endl;
-        return std::max(a, b);
     }
 }
 
@@ -165,6 +165,15 @@ hicc::import_lib! {
     #[cpp(func = "void lambda_wrapper_delete(LambdaWrapper* self)")]
     unsafe fn lambda_wrapper_delete(self_: *mut LambdaWrapper);
 
+    #[cpp(func = "int add_impl(int, int)")]
+    fn add_impl(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int multiply_impl(int, int)")]
+    fn multiply_impl(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int max_impl(int, int)")]
+    fn max_impl(a: i32, b: i32) -> i32;
+
     #[cpp(func = "LambdaWrapper* make_add_lambda()")]
     fn make_add_lambda() -> *mut LambdaWrapper;
 
@@ -179,15 +188,6 @@ hicc::import_lib! {
 
     #[cpp(func = "void state_lambda_delete(StateLambda* self)")]
     unsafe fn state_lambda_delete(self_: *mut StateLambda);
-
-    #[cpp(func = "int add_impl(int, int)")]
-    fn add_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int multiply_impl(int, int)")]
-    fn multiply_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int max_impl(int, int)")]
-    fn max_impl(a: i32, b: i32) -> i32;
 }
 
 fn main() {
@@ -224,6 +224,8 @@ fn main() {
     println!("2. 捕获状态的 lambda 需要包装在类中");
     println!("3. 此示例展示基本的类封装模式");
 }
+
+
 
 
 
