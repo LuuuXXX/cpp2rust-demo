@@ -7,9 +7,10 @@
 //!
 //! 生成的 Rust 源文件目录结构与 C++ 项目保持一致，避免因文件名相同（位于不同目录）
 //! 导致冲突。例如，C++ 项目中的 `src/utils/foo.cpp` 对应 Rust 侧的
-//! `rust/src/src/utils/foo.rs`，`lib.rs` 及各层 `mod.rs` 会自动生成。
+//! `rust/src/utils/foo.rs`，`lib.rs` 及各层 `mod.rs` 会自动生成。
 //!
-//! `unit_path` 使用 `/` 分隔符，每个组成部分均经过 [`sanitize_mod_ident`] 处理，
+//! `unit_path` 由 [`derive_unit_path`] 生成，去掉了 C++ 源码根目录（如 `src/`），
+//! 使用 `/` 分隔符，每个组成部分均经过 [`sanitize_mod_ident`] 处理，
 //! 确保是合法的 Rust 标识符。
 
 use crate::error::Result;
@@ -117,6 +118,53 @@ fn write_mod_files(src_dir: &Path, tree: &BTreeMap<String, ModuleNode>) -> Resul
 // ─────────────────────────────────────────────
 //  公开 API
 // ─────────────────────────────────────────────
+
+/// C++ 编译单元文件路径转换为 Rust 模块路径（`/` 分隔，不含扩展名）。
+///
+/// 转换规则：
+/// 1. 去掉 `c_dir` 前缀，得到相对路径；
+/// 2. 去掉 `.cpp2rust` 后缀；
+/// 3. 取文件 stem（去掉 `.cpp` 等扩展名）；
+/// 4. **去掉第一级路径分量**（即 C++ 源码根目录，如 `src/`），避免与 Rust crate
+///    自身的 `src/` 目录叠加产生 `rust/src/src/…` 的双重路径；
+/// 5. 对每个路径分量执行 [`sanitize_mod_ident`]。
+///
+/// # 示例
+///
+/// | c_dir 内的文件                    | 结果          |
+/// |----------------------------------|---------------|
+/// | `src/utils/foo.cpp.cpp2rust`     | `utils/foo`   |
+/// | `src/main.cpp.cpp2rust`          | `main`        |
+/// | `main.cpp.cpp2rust`（项目根）    | `main`        |
+/// | `src/my-mod/foo-bar.cpp.cpp2rust`| `my_mod/foo_bar` |
+pub fn derive_unit_path(c_dir: &Path, cpp2rust_file: &Path) -> String {
+    let rel = cpp2rust_file.strip_prefix(c_dir).unwrap_or(cpp2rust_file);
+    let rel_str = rel.to_string_lossy();
+    let after_cpp2rust = rel_str.strip_suffix(".cpp2rust").unwrap_or(&rel_str);
+    let p = Path::new(after_cpp2rust);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("unit");
+    let sanitized_stem = sanitize_mod_ident(stem);
+
+    match p.parent().filter(|pp| !pp.as_os_str().is_empty()) {
+        None => sanitized_stem,
+        Some(parent) => {
+            let mut parts: Vec<String> = parent
+                .components()
+                .filter_map(|c| c.as_os_str().to_str())
+                .map(sanitize_mod_ident)
+                .collect();
+            // 去掉第一级分量（C++ 源码根目录，如 "src"），消除双重 src 问题
+            if !parts.is_empty() {
+                parts.remove(0);
+            }
+            if parts.is_empty() {
+                sanitized_stem
+            } else {
+                format!("{}/{}", parts.join("/"), sanitized_stem)
+            }
+        }
+    }
+}
 
 /// 在 `rust_dir` 下写出 Cargo.toml，`package.name = feature_name`。
 pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
@@ -266,25 +314,21 @@ mod tests {
     #[test]
     fn write_lib_rs_nested_creates_mod_rs() {
         let tmp = TempDir::new().unwrap();
+        // derive_unit_path 已去掉首级目录（"src"），故 unit_path 形如 "utils/foo"
         write_lib_rs(
             tmp.path(),
-            &["src/utils/foo".to_string(), "src/utils/bar".to_string(), "src/main".to_string()],
+            &["utils/foo".to_string(), "utils/bar".to_string(), "main".to_string()],
         )
         .unwrap();
 
-        // lib.rs 只声明顶层 src
+        // lib.rs 直接声明顶层 utils 和 main（不再出现中间的 src 层）
         let lib = std::fs::read_to_string(tmp.path().join("src/lib.rs")).unwrap();
-        assert!(lib.contains("pub mod src;"));
-        assert!(!lib.contains("pub mod utils;"));
+        assert!(lib.contains("pub mod utils;"));
+        assert!(lib.contains("pub mod main;"));
+        assert!(!lib.contains("pub mod src;"));
 
-        // src/mod.rs 声明 utils 和 main
-        let src_mod = std::fs::read_to_string(tmp.path().join("src/src/mod.rs")).unwrap();
-        assert!(src_mod.contains("pub mod utils;"));
-        assert!(src_mod.contains("pub mod main;"));
-
-        // src/utils/mod.rs 声明 foo 和 bar
-        let utils_mod =
-            std::fs::read_to_string(tmp.path().join("src/src/utils/mod.rs")).unwrap();
+        // utils/mod.rs 声明 foo 和 bar
+        let utils_mod = std::fs::read_to_string(tmp.path().join("src/utils/mod.rs")).unwrap();
         assert!(utils_mod.contains("pub mod foo;"));
         assert!(utils_mod.contains("pub mod bar;"));
     }
@@ -322,5 +366,52 @@ mod tests {
             std::fs::read_to_string(tmp.path().join("src/b/foo.rs")).unwrap(),
             "// b\n"
         );
+    }
+
+    // ── derive_unit_path ──────────────────────────
+
+    #[test]
+    fn derive_unit_path_nested_in_src() {
+        let tmp = TempDir::new().unwrap();
+        let c_dir = tmp.path().join("c");
+        // <c_dir>/src/utils/foo.cpp.cpp2rust → "utils/foo"（去掉首级 "src"）
+        let f = c_dir.join("src/utils/foo.cpp.cpp2rust");
+        assert_eq!(derive_unit_path(&c_dir, &f), "utils/foo");
+    }
+
+    #[test]
+    fn derive_unit_path_flat_in_src() {
+        let tmp = TempDir::new().unwrap();
+        let c_dir = tmp.path().join("c");
+        // <c_dir>/src/main.cpp.cpp2rust → "main"（去掉首级 "src" 后无父级）
+        let f = c_dir.join("src/main.cpp.cpp2rust");
+        assert_eq!(derive_unit_path(&c_dir, &f), "main");
+    }
+
+    #[test]
+    fn derive_unit_path_at_project_root() {
+        let tmp = TempDir::new().unwrap();
+        let c_dir = tmp.path().join("c");
+        // <c_dir>/foo.cpp.cpp2rust → "foo"（无父级，不需要去掉）
+        let f = c_dir.join("foo.cpp.cpp2rust");
+        assert_eq!(derive_unit_path(&c_dir, &f), "foo");
+    }
+
+    #[test]
+    fn derive_unit_path_sanitizes_idents() {
+        let tmp = TempDir::new().unwrap();
+        let c_dir = tmp.path().join("c");
+        // 连字符、特殊字符均被替换为下划线
+        let f = c_dir.join("src/my-module/foo-bar.cpp.cpp2rust");
+        assert_eq!(derive_unit_path(&c_dir, &f), "my_module/foo_bar");
+    }
+
+    #[test]
+    fn derive_unit_path_deep_nesting() {
+        let tmp = TempDir::new().unwrap();
+        let c_dir = tmp.path().join("c");
+        // <c_dir>/src/a/b/c.cpp.cpp2rust → "a/b/c"（仅去掉首级 "src"）
+        let f = c_dir.join("src/a/b/c.cpp.cpp2rust");
+        assert_eq!(derive_unit_path(&c_dir, &f), "a/b/c");
     }
 }

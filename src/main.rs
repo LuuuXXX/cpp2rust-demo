@@ -243,34 +243,9 @@ fn run_init(args: InitArgs) -> Result<()> {
             project_root.join(cpp_rel)
         };
 
-        // unit_path = 保留目录层级的相对路径（组件经 sanitize_mod_ident 处理）
-        // 例：<c_dir>/src/utils/foo.cpp.cpp2rust → "src/utils/foo"
-        let unit_path = {
-            let rel = path.strip_prefix(&lo.c_dir).unwrap_or(path.as_path());
-            let rel_str = rel.to_string_lossy();
-            let after_cpp2rust = rel_str.strip_suffix(".cpp2rust").unwrap_or(&rel_str);
-            let p = std::path::Path::new(after_cpp2rust);
-            let stem = p
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unit");
-            let sanitized_stem = project_generator::sanitize_mod_ident(stem);
-            match p.parent().filter(|pp| !pp.as_os_str().is_empty()) {
-                Some(parent) => {
-                    let parts: Vec<String> = parent
-                        .components()
-                        .filter_map(|c| c.as_os_str().to_str())
-                        .map(project_generator::sanitize_mod_ident)
-                        .collect();
-                    if parts.is_empty() {
-                        sanitized_stem
-                    } else {
-                        format!("{}/{}", parts.join("/"), sanitized_stem)
-                    }
-                }
-                None => sanitized_stem,
-            }
-        };
+        // unit_path = C++ 编译单元对应的 Rust 模块路径（去掉首级目录，避免双重 src）
+        // 例：<c_dir>/src/utils/foo.cpp.cpp2rust → "utils/foo"
+        let unit_path = project_generator::derive_unit_path(&lo.c_dir, path);
 
         // 冲突检测：两个不同源文件映射到同一 unit_path，显示两个文件路径便于排查
         if let Some(first) = seen_unit_paths.get(&unit_path) {
