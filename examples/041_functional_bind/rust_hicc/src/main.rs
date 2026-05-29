@@ -158,6 +158,12 @@ hicc::import_lib! {
     #[cpp(func = "void multiplier_delete(Multiplier* self)")]
     unsafe fn multiplier_delete(self_: *mut Multiplier);
 
+    #[cpp(func = "int add_five_impl(int, int)")]
+    fn add_five_impl(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int add_ten_impl(int, int)")]
+    fn add_ten_impl(a: i32, b: i32) -> i32;
+
     #[cpp(func = "int add_five(int)")]
     fn add_five(a: i32) -> i32;
 
@@ -169,12 +175,6 @@ hicc::import_lib! {
 
     #[cpp(func = "void string_processor_delete(StringProcessor* self)")]
     unsafe fn string_processor_delete(self_: *mut StringProcessor);
-
-    #[cpp(func = "int add_five_impl(int, int)")]
-    fn add_five_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int add_ten_impl(int, int)")]
-    fn add_ten_impl(a: i32, b: i32) -> i32;
 }
 
 fn main() {
