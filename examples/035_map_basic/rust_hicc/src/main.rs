@@ -5,21 +5,7 @@ hicc::cpp! {
     #include <string>
     #include <cstring>
 
-    StringIntMap* string_int_map_new(void) {
-        return new StringIntMap();
-    }
-
-    void string_int_map_delete(StringIntMap* self) {
-        delete self;
-    }
-
-    IntStringMap* int_string_map_new(void) {
-        return new IntStringMap();
-    }
-
-    void int_string_map_delete(IntStringMap* self) {
-        delete self;
-    }
+    #include "map_basic.h"
 }
 
 hicc::import_class! {

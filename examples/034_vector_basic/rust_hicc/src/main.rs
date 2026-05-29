@@ -5,21 +5,7 @@ hicc::cpp! {
     #include <string>
     #include <cstring>
 
-    IntVector* int_vector_new(void) {
-        return new IntVector();
-    }
-
-    void int_vector_delete(IntVector* self) {
-        delete self;
-    }
-
-    StringVector* string_vector_new(void) {
-        return new StringVector();
-    }
-
-    void string_vector_delete(StringVector* self) {
-        delete self;
-    }
+    #include "vector_basic.h"
 }
 
 hicc::import_class! {

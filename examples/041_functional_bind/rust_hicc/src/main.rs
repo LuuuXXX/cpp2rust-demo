@@ -4,47 +4,7 @@ hicc::cpp! {
     #include <functional>
     #include <string>
 
-    int add_five_impl(int a, int b) {
-        std::cout << "add_five called: " << a << " + 5 = " << (a + 5) << std::endl;
-        return a + 5;
-    }
-
-    int add_ten_impl(int a, int b) {
-        std::cout << "add_ten called: " << a << " + 10 = " << (a + 10) << std::endl;
-        return a + 10;
-    }
-
-    Adder* adder_new(int base_value) {
-        return new Adder(base_value);
-    }
-
-    void adder_delete(Adder* self) {
-        delete self;
-    }
-
-    int add_five(int a) {
-        return add_five_impl(a, 5);
-    }
-
-    int add_ten(int a) {
-        return add_ten_impl(a, 10);
-    }
-
-    Multiplier* multiplier_new(int factor) {
-        return new Multiplier(factor);
-    }
-
-    void multiplier_delete(Multiplier* self) {
-        delete self;
-    }
-
-    StringProcessor* string_processor_new(void) {
-        return new StringProcessor();
-    }
-
-    void string_processor_delete(StringProcessor* self) {
-        delete self;
-    }
+    #include "functional_bind.h"
 }
 
 hicc::import_class! {

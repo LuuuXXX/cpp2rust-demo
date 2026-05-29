@@ -4,27 +4,7 @@ hicc::cpp! {
     #include <cstring>
     #include <new>
 
-    Buffer* buffer_new(size_t capacity) {
-        return new Buffer(capacity);
-    }
-
-    void buffer_delete(Buffer* self) {
-        if (self) {
-            std::cout << "Buffer delete called" << std::endl;
-            delete self;
-        }
-    }
-
-    VectorBuffer* vector_buffer_new(size_t capacity) {
-        return new VectorBuffer(capacity, sizeof(SimpleValue));
-    }
-
-    void vector_buffer_delete(VectorBuffer* self) {
-        if (self) {
-            self->destroy_all();
-            delete self;
-        }
-    }
+    #include "placement_new.h"
 }
 
 hicc::import_class! {

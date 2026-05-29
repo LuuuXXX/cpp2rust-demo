@@ -1,17 +1,11 @@
 hicc::cpp! {
     #include <iostream>
 
+    #include "virtual_diamond.h"
     int d_get_a_value(D* self) {
         return self->getAValue();
     }
 
-    D* d_new(int a, int b, int c, int d) {
-        return new D(a, b, c, d);
-    }
-
-    void d_delete(D* self) {
-        delete self;
-    }
 }
 
 hicc::import_class! {

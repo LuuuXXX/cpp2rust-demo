@@ -5,37 +5,7 @@ hicc::cpp! {
     #include <string>
     #include <cstring>
 
-    Tuple2* tuple2_new(int first, const char* second) {
-        return new Tuple2(first, second);
-    }
-
-    void tuple2_delete(Tuple2* self) {
-        delete self;
-    }
-
-    Tuple3* tuple3_new(int first, double second, const char* third) {
-        return new Tuple3(first, second, third);
-    }
-
-    void tuple3_delete(Tuple3* self) {
-        delete self;
-    }
-
-    Tuple4* tuple4_new(int first, double second, const char* third, int fourth) {
-        return new Tuple4(first, second, third, fourth);
-    }
-
-    void tuple4_delete(Tuple4* self) {
-        delete self;
-    }
-
-    Tuple2* make_int_string_pair(int i, const char* s) {
-        return new Tuple2(i, s);
-    }
-
-    Tuple3* make_int_double_string(int i, double d, const char* s) {
-        return new Tuple3(i, d, s);
-    }
+    #include "tuple_basic.h"
 }
 
 hicc::import_class! {

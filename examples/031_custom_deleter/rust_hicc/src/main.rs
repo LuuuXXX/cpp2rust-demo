@@ -5,66 +5,7 @@ hicc::cpp! {
 
     typedef void (*FileDeleter)(struct FileHandle*);
 
-    FileHandle* file_open(const char* filename, const char* mode, void (*deleter)(FileHandle*)) {
-        FileHandle* handle = new FileHandle(filename, mode, deleter);
-        if (!handle->is_open()) {
-            delete handle;
-            return nullptr;
-        }
-        return handle;
-    }
-
-    void file_close(FileHandle* handle) {
-        if (handle) {
-            FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-            fh->invoke_deleter();
-        }
-    }
-
-    int file_read(FileHandle* handle, char* buffer, int size) {
-        if (!handle) return -1;
-        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-        return fh->read(buffer, size);
-    }
-
-    int file_write(FileHandle* handle, const char* data, int size) {
-        if (!handle) return -1;
-        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-        return fh->write(data, size);
-    }
-
-    void default_file_deleter(FileHandle* handle) {
-        if (handle) {
-            FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-            std::cout << "[DEFAULT] Closing file: " << (fh->filename() ? fh->filename() : "unknown") << std::endl;
-            fh->close_file();
-            delete fh;
-        }
-    }
-
-    FileHandle* file_open_default(const char* filename, const char* mode) {
-        return file_open(filename, mode, default_file_deleter);
-    }
-
-    void logging_file_deleter(FileHandle* handle) {
-        if (handle) {
-            FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-            std::cout << "[LOG] Custom deleter: Closing file with logging: "
-                      << (fh->filename() ? fh->filename() : "unknown") << std::endl;
-            fh->close_file();
-            delete fh;
-        }
-    }
-
-    void refcounted_file_deleter(FileHandle* handle) {
-        if (handle) {
-            FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-            std::cout << "[REF] Reference counted close: "
-                      << (fh->filename() ? fh->filename() : "unknown") << std::endl;
-            fh->close_file();
-            delete fh;
-        }
-    }
+    #include "custom_deleter.h"
 }
 
 hicc::import_class! {

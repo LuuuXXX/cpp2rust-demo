@@ -4,21 +4,7 @@ hicc::cpp! {
     #include <cstring>
     #include <string>
 
-    Shape* shape_new(void) {
-        return new Shape("Shape");
-    }
-
-    void shape_delete(Shape* self) {
-        delete self;
-    }
-
-    Circle* circle_new(double radius) {
-        return new Circle(radius);
-    }
-
-    void circle_delete(Circle* self) {
-        delete self;
-    }
+    #include "virtual_basic.h"
 }
 
 hicc::import_class! {

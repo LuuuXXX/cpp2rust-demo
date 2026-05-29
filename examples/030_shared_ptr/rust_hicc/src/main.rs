@@ -5,25 +5,7 @@ hicc::cpp! {
     #include <cstring>
     #include <unordered_map>
 
-    SharedData* shareddata_new(const char* name) {
-        return new SharedData(name);
-    }
-
-    void shareddata_delete(SharedData* self) {
-        delete self;
-    }
-
-    Cache* cache_new(void) {
-        return new Cache();
-    }
-
-    void cache_delete(Cache* self) {
-        delete self;
-    }
-
-    SharedData* cache_get(Cache* c, const char* name) {
-        return c ? c->get(name) : nullptr;
-    }
+    #include "shared_ptr.h"
 }
 
 hicc::import_class! {

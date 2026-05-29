@@ -3,20 +3,7 @@ hicc::cpp! {
     #include <cmath>
     #include <cstring>
 
-    AbstractShape* abstract_shape_create_circle(double radius) {
-        return new Circle(radius);
-    }
-
-    AbstractShape* abstract_shape_create_rectangle(double width, double height) {
-        return new Rectangle(width, height);
-    }
-
-    void abstract_shape_delete(AbstractShape* self) {
-        if (self) {
-            std::cout << "Deleting " << self->getName() << std::endl;
-            delete self;
-        }
-    }
+    #include "virtual_pure.h"
 }
 
 hicc::import_class! {

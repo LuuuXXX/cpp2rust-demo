@@ -2,22 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <cstring>
 
-    UniqueVector* unique_vector_new(void) {
-        return new UniqueVector();
-    }
-
-    UniqueVector* unique_vector_newWithData(int* data, int size) {
-        return new UniqueVector(data, size);
-    }
-
-    void unique_vector_delete(UniqueVector* self) {
-        delete self;
-    }
-
-    void unique_vector_move(UniqueVector* dest, UniqueVector* src) {
-        std::cout << "Moving UniqueVector: " << src->getSize() << " -> " << dest->getSize() << std::endl;
-        dest->moveFrom(*src);
-    }
+    #include "class_move.h"
 }
 
 hicc::import_class! {

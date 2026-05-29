@@ -1,21 +1,7 @@
 hicc::cpp! {
     #include <iostream>
 
-    Widget* widget_new(int value) {
-        return new Widget(value);
-    }
-
-    Widget* widget_fromInt(int value) {
-        return new Widget(value);
-    }
-
-    Widget* widget_fromDouble(double value) {
-        return new Widget(value);
-    }
-
-    void widget_delete(Widget* self) {
-        delete self;
-    }
+    #include "explicit_ctor.h"
 }
 
 hicc::import_class! {

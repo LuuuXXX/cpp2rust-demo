@@ -4,13 +4,7 @@ hicc::cpp! {
     #include <stdexcept>
     #include <cstring>
 
-    Calculator* calculator_new(void) {
-        return new Calculator();
-    }
-
-    void calculator_delete(Calculator* self) {
-        delete self;
-    }
+    #include "exception_basic.h"
 }
 
 hicc::import_class! {

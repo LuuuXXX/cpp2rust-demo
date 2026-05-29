@@ -1,40 +1,7 @@
 hicc::cpp! {
     #include <iostream>
 
-    MyClass* myclass_new(int secret_value) {
-        return new MyClass(secret_value);
-    }
-
-    void myclass_delete(MyClass* self) {
-        delete self;
-    }
-
-    int friend_function_getSum(const MyClass* a, const MyClass* b) {
-        int sum = a->getValue() + b->getValue();
-        std::cout << "Friend function getSum: " << a->getValue()
-                  << " + " << b->getValue() << " = " << sum << std::endl;
-        return sum;
-    }
-
-    int friend_function_getProduct(const MyClass* a, const MyClass* b) {
-        int product = a->getValue() * b->getValue();
-        std::cout << "Friend function getProduct: " << a->getValue()
-                  << " * " << b->getValue() << " = " << product << std::endl;
-        return product;
-    }
-
-    int friend_function_compare(const MyClass* a, const MyClass* b) {
-        if (a->getValue() < b->getValue()) {
-            std::cout << "Friend function compare: a < b" << std::endl;
-            return -1;
-        } else if (a->getValue() > b->getValue()) {
-            std::cout << "Friend function compare: a > b" << std::endl;
-            return 1;
-        } else {
-            std::cout << "Friend function compare: a == b" << std::endl;
-            return 0;
-        }
-    }
+    #include "friend_function.h"
 }
 
 hicc::import_class! {

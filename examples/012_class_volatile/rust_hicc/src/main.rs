@@ -2,13 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <cstdint>
 
-    HardwareDevice* hardware_device_new(void) {
-        return new HardwareDevice();
-    }
-
-    void hardware_device_delete(HardwareDevice* self) {
-        delete self;
-    }
+    #include "class_volatile.h"
 }
 
 hicc::import_class! {

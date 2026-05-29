@@ -3,21 +3,7 @@ hicc::cpp! {
     #include <cstring>
     #include <string>
 
-    Animal* animal_new(const char* name) {
-        return new Animal(name);
-    }
-
-    void animal_delete(Animal* self) {
-        delete self;
-    }
-
-    Dog* dog_new(const char* name) {
-        return new Dog(name);
-    }
-
-    void dog_delete(Dog* self) {
-        delete self;
-    }
+    #include "inheritance_single.h"
 }
 
 hicc::import_class! {

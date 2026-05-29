@@ -2,21 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <stack>
 
-    IntStack* intstack_new(void) {
-        return new IntStack();
-    }
-
-    void intstack_delete(IntStack* self) {
-        delete self;
-    }
-
-    DoubleStack* doublestack_new(void) {
-        return new DoubleStack();
-    }
-
-    void doublestack_delete(DoubleStack* self) {
-        delete self;
-    }
+    #include "template_class.h"
 }
 
 hicc::import_class! {

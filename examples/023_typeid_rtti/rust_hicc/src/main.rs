@@ -9,24 +9,7 @@ hicc::cpp! {
         SHAPE_TYPE_TRIANGLE = 2,
     };
 
-    Shape* shape_new_circle(double radius) {
-        return new Circle(radius);
-    }
-
-    Shape* shape_new_rectangle(double width, double height) {
-        return new Rectangle(width, height);
-    }
-
-    Shape* shape_new_triangle(double base, double height) {
-        return new Triangle(base, height);
-    }
-
-    void shape_delete(Shape* self) {
-        if (self) {
-            std::cout << "Deleting " << self->getTypeName() << std::endl;
-            delete self;
-        }
-    }
+    #include "typeid_rtti.h"
 }
 
 hicc::import_class! {

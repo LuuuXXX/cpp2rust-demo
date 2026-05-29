@@ -3,27 +3,7 @@ hicc::cpp! {
     #include <cstring>
     #include <string>
 
-    Base* base_create(int type) {
-        if (type == 0) {
-            std::cout << "Creating Base" << std::endl;
-            return new Base("Base");
-        } else {
-            std::cout << "Creating Derived (as Base*)" << std::endl;
-            return new Derived(42.0);
-        }
-    }
-
-    void base_delete(Base* self) {
-        delete self;
-    }
-
-    Derived* derived_new(double value) {
-        return new Derived(value);
-    }
-
-    void derived_delete(Derived* self) {
-        delete self;
-    }
+    #include "virtual_override.h"
 }
 
 hicc::import_class! {

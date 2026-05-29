@@ -6,70 +6,7 @@ hicc::cpp! {
 
     typedef int (*IntBinaryOp)(int, int);
 
-    int apply_operation(int a, int b, int (*op)(int, int)) {
-        if (op) return op(a, b);
-        return 0;
-    }
-
-    int apply_twice(int x, int (*op)(int, int)) {
-        if (op) return op(op(x, x), x);
-        return x;
-    }
-
-    LambdaWrapper* lambda_wrapper_new(int (*fn)(int, int)) {
-        return new LambdaWrapper(fn);
-    }
-
-    void lambda_wrapper_delete(LambdaWrapper* self) {
-        delete self;
-    }
-
-    int add_impl(int a, int b) {
-        std::cout << "add lambda called: " << a << " + " << b << std::endl;
-        return a + b;
-    }
-
-    int multiply_impl(int a, int b) {
-        std::cout << "multiply lambda called: " << a << " * " << b << std::endl;
-        return a * b;
-    }
-
-    int max_impl(int a, int b) {
-        std::cout << "max lambda called: " << a << " vs " << b << std::endl;
-        return std::max(a, b);
-    }
-
-    LambdaWrapper* make_add_lambda(void) {
-        return new LambdaWrapper(add_impl);
-    }
-
-    LambdaWrapper* make_multiply_lambda(void) {
-        return new LambdaWrapper(multiply_impl);
-    }
-
-    LambdaWrapper* make_max_lambda(void) {
-        return new LambdaWrapper(max_impl);
-    }
-
-    StateLambda* state_lambda_new(int initial_value) {
-        return new StateLambda(initial_value);
-    }
-
-    void state_lambda_delete(StateLambda* self) {
-        delete self;
-    }
-
-    Comparator* comparator_new(int (*cmp)(int, int)) {
-        return new Comparator(cmp);
-    }
-
-    Comparator* comparator_new_add(void) {
-        return new Comparator(add_impl);
-    }
-
-    void comparator_delete(Comparator* self) {
-        delete self;
-    }
+    #include "lambda_basic.h"
 }
 
 hicc::import_class! {

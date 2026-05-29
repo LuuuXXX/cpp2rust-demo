@@ -4,29 +4,7 @@ hicc::cpp! {
     #include <cstdlib>
     #include <cstdio>
 
-    IntHolder* intholder_new(int value) {
-        return new IntHolder(value);
-    }
-
-    void intholder_delete(IntHolder* self) {
-        if (self) delete self;
-    }
-
-    DoubleHolder* doubleholder_new(double value) {
-        return new DoubleHolder(value);
-    }
-
-    void doubleholder_delete(DoubleHolder* self) {
-        if (self) delete self;
-    }
-
-    StringHolder* stringholder_new(const char* value) {
-        return new StringHolder(value);
-    }
-
-    void stringholder_delete(StringHolder* self) {
-        if (self) delete self;
-    }
+    #include "template_specialization.h"
 }
 
 hicc::import_class! {

@@ -6,21 +6,7 @@ hicc::cpp! {
     #include <algorithm>
     #include <cctype>
 
-    String* string_new(void) {
-        return new String();
-    }
-
-    String* string_new_from(const char* str) {
-        return new String(str);
-    }
-
-    String* string_new_from_len(const char* str, size_t len) {
-        return new String(str, len);
-    }
-
-    void string_delete(String* self) {
-        delete self;
-    }
+    #include "string_basic.h"
 }
 
 hicc::import_class! {

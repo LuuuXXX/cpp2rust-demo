@@ -3,21 +3,7 @@ hicc::cpp! {
     #include <vector>
     #include <iomanip>
 
-    IntMatrix* intmatrix_new(int rows, int cols) {
-        return new IntMatrix(rows, cols);
-    }
-
-    void intmatrix_delete(IntMatrix* self) {
-        if (self) delete self;
-    }
-
-    DoubleMatrix* doublematrix_new(int rows, int cols) {
-        return new DoubleMatrix(rows, cols);
-    }
-
-    void doublematrix_delete(DoubleMatrix* self) {
-        if (self) delete self;
-    }
+    #include "template_instantiation.h"
 }
 
 hicc::import_class! {

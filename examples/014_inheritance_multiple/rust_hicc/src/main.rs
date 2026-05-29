@@ -1,13 +1,7 @@
 hicc::cpp! {
     #include <iostream>
 
-    Derived* derived_new(int v1, int v2, int dv) {
-        return new Derived(v1, v2, dv);
-    }
-
-    void derived_delete(Derived* self) {
-        delete self;
-    }
+    #include "inheritance_multiple.h"
 }
 
 hicc::import_class! {

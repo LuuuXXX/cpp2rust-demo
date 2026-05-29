@@ -261,6 +261,16 @@ fn build_cpp_block(
         .filter(|c| c.is_from_current_file)
         .collect();
 
+    // 当所有类均来自头文件（local_classes 为空）时：
+    // - include 项目头文件以引入类型定义和函数声明
+    // - 不再重复 emit shim 函数体（项目 .cpp 中已有定义，重复会导致 duplicate symbol 链接错误）
+    let use_project_header = local_classes.is_empty() && project_header.is_some();
+    if use_project_header {
+        if let Some(hdr) = project_header {
+            lines.push(format!("#include \"{}\"", hdr));
+        }
+    }
+
     let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
 
     if use_separate_style {
@@ -314,19 +324,23 @@ fn build_cpp_block(
     }
 
     // Ctor/dtor/standalone shim 函数（含静态访问器）
-    let shim_fns = classify_functions(functions, &class_names);
-    for (fn_info, shim_kind) in &shim_fns {
-        if !matches!(shim_kind, ShimKind::MethodAccessor) {
-            if let Some((start, end)) = fn_info.body_offset {
-                let raw = extract_range_text(source_bytes, start, end);
-                let cleaned = clean_shim_text(&raw);
-                let cleaned = strip_preprocessor_markers(&cleaned);
-                let trimmed = cleaned.trim();
-                if !trimmed.is_empty() {
-                    for line in trimmed.lines() {
-                        lines.push(line.to_string());
+    // 当使用 project_header 模式时，函数已通过头文件中的 extern "C" 声明引入，
+    // 实现体在项目 .cpp 文件中，不需要（也不应）在 cpp! 块中重复定义。
+    if !use_project_header {
+        let shim_fns = classify_functions(functions, &class_names);
+        for (fn_info, shim_kind) in &shim_fns {
+            if !matches!(shim_kind, ShimKind::MethodAccessor) {
+                if let Some((start, end)) = fn_info.body_offset {
+                    let raw = extract_range_text(source_bytes, start, end);
+                    let cleaned = clean_shim_text(&raw);
+                    let cleaned = strip_preprocessor_markers(&cleaned);
+                    let trimmed = cleaned.trim();
+                    if !trimmed.is_empty() {
+                        for line in trimmed.lines() {
+                            lines.push(line.to_string());
+                        }
+                        lines.push(String::new());
                     }
-                    lines.push(String::new());
                 }
             }
         }

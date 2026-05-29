@@ -2,13 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <cstring>
 
-    DataFetcher* datafetcher_new(const char* name) {
-        return new DataFetcher(name);
-    }
-
-    void datafetcher_delete(DataFetcher* self) {
-        delete self;
-    }
+    #include "mutable_member.h"
 }
 
 hicc::import_class! {

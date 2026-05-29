@@ -5,37 +5,7 @@ hicc::cpp! {
     #include <string>
     #include <cstring>
 
-    IntArray5* int_array5_new(void) {
-        return new IntArray5();
-    }
-
-    IntArray5* int_array5_new_from(const int* values) {
-        return new IntArray5(values);
-    }
-
-    void int_array5_delete(IntArray5* self) {
-        delete self;
-    }
-
-    DoubleArray3* double_array3_new(void) {
-        return new DoubleArray3();
-    }
-
-    DoubleArray3* double_array3_new_from(const double* values) {
-        return new DoubleArray3(values);
-    }
-
-    void double_array3_delete(DoubleArray3* self) {
-        delete self;
-    }
-
-    StringArray4* string_array4_new(void) {
-        return new StringArray4();
-    }
-
-    void string_array4_delete(StringArray4* self) {
-        delete self;
-    }
+    #include "array_basic.h"
 }
 
 hicc::import_class! {

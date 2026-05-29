@@ -2,13 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <vector>
 
-    Calculator* calculator_new(void) {
-        return new Calculator();
-    }
-
-    void calculator_delete(Calculator* self) {
-        delete self;
-    }
+    #include "class_const.h"
 }
 
 hicc::import_class! {

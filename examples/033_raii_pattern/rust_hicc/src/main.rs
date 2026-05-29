@@ -7,36 +7,7 @@ hicc::cpp! {
     #include <fstream>
     #include <cstring>
 
-    Mutex* mutex_new(void) {
-        return new Mutex();
-    }
-
-    void mutex_delete(Mutex* self) {
-        if (self) {
-            std::cout << "Mutex '" << self->name() << "' deleted" << std::endl;
-            delete self;
-        }
-    }
-
-    ScopedLock* scoped_lock_new(Mutex* mutex) {
-        return new ScopedLock(mutex);
-    }
-
-    void scoped_lock_delete(ScopedLock* self) {
-        if (self) {
-            delete self;
-        }
-    }
-
-    FileLock* file_lock_new(const char* filename) {
-        return new FileLock(filename);
-    }
-
-    void file_lock_delete(FileLock* self) {
-        if (self) {
-            delete self;
-        }
-    }
+    #include "raii_pattern.h"
 }
 
 hicc::import_class! {

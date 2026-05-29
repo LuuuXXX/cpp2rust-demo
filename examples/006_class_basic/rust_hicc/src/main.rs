@@ -1,9 +1,7 @@
 hicc::cpp! {
     #include <iostream>
 
-    Counter* counter_new(void) { return new Counter(); }
-
-    void counter_delete(Counter* self) { delete self; }
+    #include "class_basic.h"
 }
 
 hicc::import_class! {

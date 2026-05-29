@@ -10,53 +10,7 @@ hicc::cpp! {
         VALUE_TYPE_STRING = 2,
     };
 
-    Variant* variant_new_int(int value) {
-        auto* v = new Variant();
-        v->set_int(value);
-        return v;
-    }
-
-    Variant* variant_new_float(float value) {
-        auto* v = new Variant();
-        v->set_float(value);
-        return v;
-    }
-
-    Variant* variant_new_string(const char* value) {
-        auto* v = new Variant();
-        v->set_string(value);
-        return v;
-    }
-
-    void variant_delete(Variant* self) {
-        delete self;
-    }
-
-    IntFloatUnion* union_new() {
-        return new IntFloatUnion();
-    }
-
-    void union_delete(IntFloatUnion* u) {
-        delete u;
-    }
-
-    int union_get_int(IntFloatUnion* u) {
-        if (u) return u->data.int_value;
-        return 0;
-    }
-
-    float union_get_float(IntFloatUnion* u) {
-        if (u) return u->data.float_value;
-        return 0.0f;
-    }
-
-    void union_set_int(IntFloatUnion* u, int value) {
-        if (u) u->data.int_value = value;
-    }
-
-    void union_set_float(IntFloatUnion* u, float value) {
-        if (u) u->data.float_value = value;
-    }
+    #include "union_basic.h"
 }
 
 hicc::import_class! {

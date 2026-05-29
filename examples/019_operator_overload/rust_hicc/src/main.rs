@@ -1,13 +1,7 @@
 hicc::cpp! {
     #include <iostream>
 
-    Number* number_new(int value) {
-        return new Number(value);
-    }
-
-    void number_delete(Number* self) {
-        delete self;
-    }
+    #include "operator_overload.h"
 
     int number_get_value(const Number* self) {
         return self->getValue();

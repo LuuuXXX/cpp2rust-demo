@@ -2,21 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <cstring>
 
-    Buffer* buffer_new(void) {
-        return new Buffer();
-    }
-
-    Buffer* buffer_newWithSize(int size) {
-        return new Buffer(size);
-    }
-
-    Buffer* buffer_newCopy(const Buffer* other) {
-        return new Buffer(*other);
-    }
-
-    void buffer_delete(Buffer* self) {
-        delete self;
-    }
+    #include "class_copy.h"
 }
 
 hicc::import_class! {

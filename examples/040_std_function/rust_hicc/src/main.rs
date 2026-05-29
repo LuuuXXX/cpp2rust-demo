@@ -6,53 +6,7 @@ hicc::cpp! {
     #include <thread>
     #include <chrono>
 
-    CallbackWrapper* callback_wrapper_new(int (*fn)(int)) {
-        return new CallbackWrapper(fn);
-    }
-
-    CallbackWrapper* callback_wrapper_new_double(void) {
-        return new CallbackWrapper([](int x) -> int { return x * 2; });
-    }
-
-    void callback_wrapper_delete(CallbackWrapper* self) {
-        delete self;
-    }
-
-    Processor* processor_new(void) {
-        return new Processor();
-    }
-
-    void processor_set_double(Processor* p) {
-        p->impl->set_callback([](int x) -> int { return x * 2; });
-    }
-
-    void processor_delete(Processor* self) {
-        delete self;
-    }
-
-    MultiCallback* multi_callback_new(void) {
-        return new MultiCallback();
-    }
-
-    void multi_callback_add_double(MultiCallback* mc) {
-        mc->impl->add([](int x) -> int { return x * 2; });
-    }
-
-    void multi_callback_add_triple(MultiCallback* mc) {
-        mc->impl->add([](int x) -> int { return x * 3; });
-    }
-
-    void multi_callback_delete(MultiCallback* self) {
-        delete self;
-    }
-
-    AsyncProcessor* async_processor_new(void) {
-        return new AsyncProcessor();
-    }
-
-    void async_processor_delete(AsyncProcessor* self) {
-        delete self;
-    }
+    #include "std_function.h"
 }
 
 hicc::import_class! {

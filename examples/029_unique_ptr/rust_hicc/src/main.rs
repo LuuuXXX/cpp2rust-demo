@@ -4,21 +4,7 @@ hicc::cpp! {
     #include <memory>
     #include <cstring>
 
-    UniqueBuffer* uniquebuffer_new(int size) {
-        return new UniqueBuffer(size);
-    }
-
-    void uniquebuffer_delete(UniqueBuffer* self) {
-        delete self;
-    }
-
-    Processor* processor_new(void) {
-        return new Processor();
-    }
-
-    void processor_delete(Processor* self) {
-        delete self;
-    }
+    #include "unique_ptr.h"
 }
 
 hicc::import_class! {
