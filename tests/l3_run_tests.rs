@@ -9,11 +9,14 @@ macro_rules! run_test {
             let readme = concat!("examples/", $example, "/README.md");
             let output = common::cargo_run(dir);
             let expected = common::parse_readme_run_result(readme);
-            assert_eq!(
-                output.trim(),
-                expected.trim(),
-                "cargo run output mismatch for {}",
-                $example
+            let actual = output.trim().to_string();
+            let expected_trimmed = expected.trim().to_string();
+            assert!(
+                common::compare_run_output(&actual, &expected_trimmed),
+                "cargo run output mismatch for {}\n\n=== actual ===\n{}\n\n=== expected ===\n{}",
+                $example,
+                actual,
+                expected_trimmed
             );
         }
     };

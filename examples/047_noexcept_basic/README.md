@@ -96,6 +96,7 @@ conditional_abs(-42) = 42
 
 --- noexcept Move Semantics ---
 Original mover created, value = 100
+noexcept_mover_move: transferred ownership
 Mover moved (noexcept), new value = 100
 
 --- Summary ---

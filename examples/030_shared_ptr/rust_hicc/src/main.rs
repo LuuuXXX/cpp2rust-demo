@@ -133,19 +133,36 @@ fn main() {
     data1.reset();
     println!("\nAfter reset, data1 is cleared");
 
-    unsafe { shareddata_delete(&data2) };
-
     println!();
+    eprintln!("DEBUG: before cache_new");
 
     // Cache - 演示 weak_ptr 的作用（缓存）
     let mut cache = cache_new();
+    eprintln!("DEBUG: after cache_new");
 
     let key1 = std::ffi::CString::new("key1").expect("CString::new failed");
     let key2 = std::ffi::CString::new("key2").expect("CString::new failed");
-
+    eprintln!("DEBUG: before cache.get key1");
+    // inspect raw Cache layout
+    unsafe {
+        let raw = &cache as *const _ as *const usize;
+        eprintln!("cache[0] methods ptr = {:016x}", *raw);
+        eprintln!("cache[1] obj ptr     = {:016x}", *raw.add(1));
+        eprintln!("cache[2] level       = {}", *raw.add(2));
+        let methods = *raw as *const usize;
+        eprintln!("methods[0] destroy  = {:016x}", *methods);
+        eprintln!("methods[1] unique   = {:016x}", *methods.add(1));
+        eprintln!("methods[2] make_ref = {:016x}", *methods.add(2));
+        eprintln!("methods[3] size_of  = {:016x}", *methods.add(3));
+        eprintln!("methods[4] write    = {:016x}", *methods.add(4));
+        eprintln!("methods[5] get      = {:016x}", *methods.add(5));
+    }
     let cached1a = cache.get(key1.as_ptr());
+    eprintln!("DEBUG: after cache.get key1 (cached1a)");
     let cached1b = cache.get(key1.as_ptr());  // 缓存命中
+    eprintln!("DEBUG: after cache.get key1 (cached1b)");
     let _cached2 = cache.get(key2.as_ptr());
+    eprintln!("DEBUG: after cache.get key2");
 
     println!("\nCache demo:");
     println!("cached1a and cached1b point to same cache entry");
