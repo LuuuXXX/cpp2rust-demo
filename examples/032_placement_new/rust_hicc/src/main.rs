@@ -7,8 +7,10 @@ hicc::cpp! {
     #include "placement_new.h"
 }
 
+use hicc::AbiClass;
+
 hicc::import_class! {
-    #[cpp(class = "Buffer", destroy = "vector_buffer_delete")]
+    #[cpp(class = "Buffer", destroy = "buffer_delete")]
     class Buffer {
         #[cpp(method = "void* data()")]
         fn data(&mut self) -> *mut u8;
@@ -25,7 +27,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "VectorBuffer")]
+    #[cpp(class = "VectorBuffer", destroy = "vector_buffer_delete")]
     class VectorBuffer {
         #[cpp(method = "void* data()")]
         fn data(&mut self) -> *mut u8;
@@ -48,7 +50,7 @@ hicc::import_lib! {
     fn buffer_new(capacity: usize) -> Buffer;
 
     #[cpp(func = "VectorBuffer* vector_buffer_new(size_t)")]
-    fn vector_buffer_new(capacity: usize) -> *mut VectorBuffer;
+    fn vector_buffer_new(capacity: usize) -> VectorBuffer;
 }
 
 fn main() {
@@ -68,16 +70,12 @@ fn main() {
     let buf_size = buffer.size();
     println!("Buffer constructed size: {}", buf_size);
 
-    unsafe { buffer_delete(&buffer) };
-
     println!("\n--- VectorBuffer Demo ---");
 
     // VectorBuffer 示例
     let mut vec_buffer = vector_buffer_new(10);
     let elem_size = vec_buffer.element_size();
     println!("VectorBuffer element size: {}", elem_size);
-
-    unsafe { vector_buffer_delete(&vec_buffer) };
 
     println!("\nRust FFI: Placement New 模式");
     println!("1. 在预分配内存中构造对象");

@@ -7,6 +7,8 @@ hicc::cpp! {
     #include "union_basic.h"
 }
 
+use hicc::AbiClass;
+
 hicc::import_class! {
     #[cpp(class = "IntFloatUnion", destroy = "union_delete")]
     class IntFloatUnion {}
@@ -101,15 +103,13 @@ fn main() {
     let mut union_ptr = union_new();
 
     // Set int value
-    unsafe { union_set_int(&mut union_ptr, 0x41414141); }  // 'AAAA' in ASCII
-    let int_val = union_get_int(&union_ptr);
+    unsafe { union_set_int(&union_ptr.as_mut_ptr(), 0x41414141); }  // 'AAAA' in ASCII
+    let int_val = union_get_int(&union_ptr.as_mut_ptr());
     println!("Set as int: {} (0x{:08x})", int_val, int_val as u32);
 
     // Read same memory as float
-    let float_bits = union_get_float(&union_ptr);
+    let float_bits = union_get_float(&union_ptr.as_mut_ptr());
     println!("Read as float: {} (bits: 0x{:08x})", float_bits, float_bits.to_bits());
-
-    unsafe { union_delete(&union_ptr); };
 
     println!("\n--- Summary ---");
     println!("1. union all members share the same memory");

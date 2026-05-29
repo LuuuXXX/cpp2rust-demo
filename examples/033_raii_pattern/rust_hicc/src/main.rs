@@ -10,6 +10,8 @@ hicc::cpp! {
     #include "raii_pattern.h"
 }
 
+use hicc::AbiClass;
+
 hicc::import_class! {
     #[cpp(class = "Mutex", destroy = "mutex_delete")]
     class Mutex {
@@ -76,18 +78,15 @@ fn main() {
     println!("Critical section started");
     println!("Critical section ended");
     mutex.unlock();
-    unsafe { mutex_delete(&mutex) };
 
     println!();
 
     // ScopedLock 示例（模拟 RAII 自动解锁）
     println!("--- ScopedLock Demo ---");
-    let mutex2 = unsafe { mutex_new() };
-    let lock = unsafe { scoped_lock_new(&mutex2) };
+    let mut mutex2 = unsafe { mutex_new() };
+    let lock = unsafe { scoped_lock_new(&mutex2.as_mut_ptr()) };
     println!("Inside scoped lock region");
     println!("ScopedLock will auto-unlock on delete");
-    unsafe { scoped_lock_delete(&lock) };
-    unsafe { mutex_delete(&mutex2) };
 
     println!();
 
@@ -98,7 +97,10 @@ fn main() {
     file_lock.lock();
     println!("File is locked, performing I/O...");
     file_lock.unlock();
-    unsafe { file_lock_delete(&file_lock) };
+
+    // drop in correct order: lock before mutex2
+    drop(lock);
+    drop(mutex2);
 
     println!("\nRust FFI: RAII 模式映射");
     println!("1. C++ RAII: 构造函数加锁，析构函数解锁");

@@ -74,7 +74,6 @@ fn main() {
     im.set(2, 1, 8);
     im.set(2, 2, 9);
     im.print();
-    unsafe { intmatrix_delete(&im) };
 
     println!();
 
@@ -85,7 +84,6 @@ fn main() {
     dm.set(1, 0, 3.3);
     dm.set(1, 1, 4.4);
     dm.print();
-    unsafe { doublematrix_delete(&dm) };
 
     println!("\nRust FFI: 显式实例化将模板绑定到具体类型");
     println!("extern template 声明可在库中预实例化");

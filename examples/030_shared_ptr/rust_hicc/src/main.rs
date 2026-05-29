@@ -8,6 +8,8 @@ hicc::cpp! {
     #include "shared_ptr.h"
 }
 
+use hicc::AbiClass;
+
 hicc::import_class! {
     #[cpp(class = "SharedData", destroy = "shareddata_delete")]
     class SharedData {
@@ -79,14 +81,12 @@ fn main() {
 
     let key1 = std::ffi::CString::new("key1").expect("CString::new failed");
     let key2 = std::ffi::CString::new("key2").expect("CString::new failed");
-    let _cached1a = unsafe { cache_get(&cache, key1.as_ptr()) };
-    let _cached1b = unsafe { cache_get(&cache, key1.as_ptr()) };  // 缓存命中
-    let _cached2 = unsafe { cache_get(&cache, key2.as_ptr()) };
+    let _cached1a = unsafe { cache_get(&cache.as_mut_ptr(), key1.as_ptr()) };
+    let _cached1b = unsafe { cache_get(&cache.as_mut_ptr(), key1.as_ptr()) };  // 缓存命中
+    let _cached2 = unsafe { cache_get(&cache.as_mut_ptr(), key2.as_ptr()) };
 
     println!("\nCache demo:");
     println!("cached1a and cached1b point to same cache entry");
-
-    unsafe { cache_delete(&cache) };
 
     println!("\nRust FFI: shared_ptr 的处理方式");
     println!("1. C++ 侧管理引用计数");

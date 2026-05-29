@@ -65,7 +65,6 @@ fn main() {
     let ih_desc = unsafe { std::ffi::CStr::from_ptr(ih.describe()) };
     println!("{}", ih_desc.to_string_lossy());
     println!("  get(): {}", ih.get());
-    unsafe { intholder_delete(&ih) };
 
     println!();
 
@@ -74,7 +73,6 @@ fn main() {
     let dh_desc = unsafe { std::ffi::CStr::from_ptr(dh.describe()) };
     println!("{}", dh_desc.to_string_lossy());
     println!("  get(): {:.5}", dh.get());
-    unsafe { doubleholder_delete(&dh) };
 
     println!();
 
@@ -85,7 +83,6 @@ fn main() {
     println!("{}", sh_desc.to_string_lossy());
     let sh_val = unsafe { std::ffi::CStr::from_ptr(sh.get()) };
     println!("  get(): {}", sh_val.to_string_lossy());
-    unsafe { stringholder_delete(&sh) };
 
     println!("\nRust FFI: 每个模板特化是独立的结构");
     println!("通用版本: IntHolder, DoubleHolder");

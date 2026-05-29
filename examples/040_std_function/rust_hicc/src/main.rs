@@ -9,6 +9,8 @@ hicc::cpp! {
     #include "std_function.h"
 }
 
+use hicc::AbiClass;
+
 hicc::import_class! {
     #[cpp(class = "CallbackWrapper", destroy = "callback_wrapper_delete")]
     class CallbackWrapper {
@@ -18,7 +20,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Processor", destroy = "async_processor_delete")]
+    #[cpp(class = "Processor", destroy = "processor_delete")]
     class Processor {
         #[cpp(method = "int process(int value)")]
         fn process(&mut self, value: i32) -> i32;
@@ -34,7 +36,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "AsyncProcessor")]
+    #[cpp(class = "AsyncProcessor", destroy = "async_processor_delete")]
     class AsyncProcessor {
         #[cpp(method = "bool is_cancelled() const")]
         fn is_cancelled(&self) -> bool;
@@ -59,7 +61,7 @@ hicc::import_lib! {
     fn processor_new() -> Processor;
 
     #[cpp(func = "AsyncProcessor* async_processor_new()")]
-    fn async_processor_new() -> *mut AsyncProcessor;
+    fn async_processor_new() -> AsyncProcessor;
 
     #[cpp(func = "MultiCallback* multi_callback_new()")]
     fn multi_callback_new() -> MultiCallback;
@@ -84,14 +86,14 @@ fn main() {
 
     println!("\n--- Processor Demo ---");
     let mut processor = processor_new();
-    unsafe { processor_set_double(&processor); }
+    unsafe { processor_set_double(&processor.as_mut_ptr()); }
     println!("process(10) = {}", processor.process(10));
 
     println!("\n--- MultiCallback Demo ---");
     let mut mc = multi_callback_new();
     unsafe {
-        multi_callback_add_double(&mc);
-        multi_callback_add_triple(&mc);
+        multi_callback_add_double(&mc.as_mut_ptr());
+        multi_callback_add_triple(&mc.as_mut_ptr());
     }
     println!("Invoking all callbacks with 4:");
     mc.invoke_all(4);

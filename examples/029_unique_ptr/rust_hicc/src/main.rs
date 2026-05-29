@@ -58,8 +58,6 @@ fn main() {
     let count = buffer.use_count();
     println!("Use count: {} (unique_ptr always = 1)", count);
 
-    unsafe { uniquebuffer_delete(&buffer) };
-
     println!();
 
     // Processor - 内部使用 unique_ptr 管理资源
@@ -68,7 +66,6 @@ fn main() {
     let result_ptr = processor.process(input.as_ptr());
     let result = unsafe { std::ffi::CStr::from_ptr(result_ptr as *const i8).to_string_lossy().into_owned() };
     println!("Processed result: {}", result);
-    unsafe { processor_delete(&processor) };
 
     println!("\nRust FFI: unique_ptr 的处理方式");
     println!("1. C++ 侧管理对象生命周期");
