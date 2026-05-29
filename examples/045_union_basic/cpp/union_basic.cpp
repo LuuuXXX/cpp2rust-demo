@@ -101,13 +101,22 @@ void variant_set_string(struct Variant* self, const char* value) {
     if (self) self->set_string(value);
 }
 
+// IntFloatUnion factory functions
+struct IntFloatUnion* union_new() {
+    return new IntFloatUnion();
+}
+
+void union_delete(struct IntFloatUnion* u) {
+    delete u;
+}
+
 // IntFloatUnion implementations - demonstrating memory overlay
-int union_get_int(const struct IntFloatUnion* u) {
+int union_get_int(struct IntFloatUnion* u) {
     if (u) return u->data.int_value;
     return 0;
 }
 
-float union_get_float(const struct IntFloatUnion* u) {
+float union_get_float(struct IntFloatUnion* u) {
     if (u) return u->data.float_value;
     return 0.0f;
 }
