@@ -8,9 +8,7 @@ extern "C" {
 #endif
 
 // Value type constants
-static const int VALUE_TYPE_INT = 0;
-static const int VALUE_TYPE_FLOAT = 1;
-static const int VALUE_TYPE_STRING = 2;
+enum VariantType { VALUE_TYPE_INT = 0, VALUE_TYPE_FLOAT = 1, VALUE_TYPE_STRING = 2 };
 
 // Forward declaration
 struct Variant;
