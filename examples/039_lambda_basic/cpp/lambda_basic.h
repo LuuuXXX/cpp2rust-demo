@@ -13,16 +13,14 @@ extern "C" {
 typedef int (*IntBinaryOp)(int, int);
 
 // Functions using lambda
-int apply_operation(int a, int b, IntBinaryOp op);
-int apply_twice(int x, IntBinaryOp op);
+int apply_operation(int a, int b, int (*op)(int, int));
+int apply_twice(int x, int (*op)(int, int));
 
 // Lambda wrapper
 struct LambdaWrapper;
 
 struct LambdaWrapper* lambda_wrapper_new(int (*fn)(int, int));
 void lambda_wrapper_delete(struct LambdaWrapper* self);
-
-int lambda_wrapper_call(const struct LambdaWrapper* self, int a, int b);
 
 // Predefined lambda factories
 struct LambdaWrapper* make_add_lambda(void);
@@ -42,6 +40,7 @@ int state_lambda_get_value(const struct StateLambda* self);
 struct Comparator;
 
 struct Comparator* comparator_new(int (*cmp)(int, int));
+struct Comparator* comparator_new_add(void);
 void comparator_delete(struct Comparator* self);
 
 int comparator_compare(const struct Comparator* self, int a, int b);
@@ -55,41 +54,45 @@ int comparator_compare(const struct Comparator* self, int a, int b);
 class LambdaWrapperImpl {
 public:
     std::function<int(int, int)> fn;
-    explicit LambdaWrapperImpl(int (*fn_ptr)(int, int));
-    ~LambdaWrapperImpl();
+    explicit LambdaWrapperImpl(int (*fn_ptr)(int, int)) : fn(fn_ptr) {}
+    ~LambdaWrapperImpl() {}
 };
 
 class StateLambdaImpl {
 public:
     int value;
     std::function<int(int)> adder;
-    explicit StateLambdaImpl(int initial);
-    ~StateLambdaImpl();
+    explicit StateLambdaImpl(int initial) : value(initial), adder([this](int delta) { return value += delta; }) {}
+    ~StateLambdaImpl() {}
 };
 
 class ComparatorImpl {
 public:
     std::function<int(int, int)> cmp;
-    explicit ComparatorImpl(int (*cmp_fn)(int, int));
-    ~ComparatorImpl();
+    explicit ComparatorImpl(int (*cmp_fn)(int, int)) : cmp(cmp_fn) {}
+    ~ComparatorImpl() {}
 };
 
 struct LambdaWrapper {
     LambdaWrapperImpl* impl;
-    explicit LambdaWrapper(int (*fn)(int, int));
-    ~LambdaWrapper();
+    explicit LambdaWrapper(int (*fn)(int, int)) : impl(new LambdaWrapperImpl(fn)) {}
+    ~LambdaWrapper() { delete impl; }
+    int invoke(int a, int b) { return impl->fn(a, b); }
 };
 
 struct StateLambda {
     StateLambdaImpl* impl;
-    explicit StateLambda(int initial_value);
-    ~StateLambda();
+    explicit StateLambda(int initial_value) : impl(new StateLambdaImpl(initial_value)) {}
+    ~StateLambda() { delete impl; }
+    int get_value() const { return impl->value; }
+    int add(int delta) { return impl->adder(delta); }
 };
 
 struct Comparator {
     ComparatorImpl* impl;
-    explicit Comparator(int (*cmp)(int, int));
-    ~Comparator();
+    explicit Comparator(int (*cmp)(int, int)) : impl(new ComparatorImpl(cmp)) {}
+    ~Comparator() { delete impl; }
+    int compare(int a, int b) const { return impl->cmp(a, b); }
 };
 
 #endif

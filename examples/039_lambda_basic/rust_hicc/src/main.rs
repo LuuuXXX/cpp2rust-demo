@@ -10,7 +10,7 @@ hicc::cpp! {
     public:
         std::function<int(int, int)> fn;
     public:
-        LambdaWrapperImpl(int (*fn_ptr)(int, int)) : fn(fn_ptr) {}
+        explicit LambdaWrapperImpl(int (*fn_ptr)(int, int)) : fn(fn_ptr) {}
         ~LambdaWrapperImpl() {}
     };
 
@@ -19,7 +19,7 @@ hicc::cpp! {
         int value;
         std::function<int(int)> adder;
     public:
-        StateLambdaImpl(int initial) : value(initial), adder([this](int delta) { return value += delta; }) {}
+        explicit StateLambdaImpl(int initial) : value(initial), adder([this](int delta) { return value += delta; }) {}
         ~StateLambdaImpl() {}
     };
 
@@ -27,14 +27,14 @@ hicc::cpp! {
     public:
         std::function<int(int, int)> cmp;
     public:
-        ComparatorImpl(int (*cmp_fn)(int, int)) : cmp(cmp_fn) {}
+        explicit ComparatorImpl(int (*cmp_fn)(int, int)) : cmp(cmp_fn) {}
         ~ComparatorImpl() {}
     };
 
     struct LambdaWrapper {
     public:
         LambdaWrapperImpl* impl;
-        LambdaWrapper(int (*fn)(int, int)) : impl(new LambdaWrapperImpl(fn)) {}
+        explicit LambdaWrapper(int (*fn)(int, int)) : impl(new LambdaWrapperImpl(fn)) {}
         ~LambdaWrapper() { delete impl; }
         int invoke(int a, int b) { return impl->fn(a, b); }
     };
@@ -42,7 +42,7 @@ hicc::cpp! {
     struct StateLambda {
     public:
         StateLambdaImpl* impl;
-        StateLambda(int initial_value) : impl(new StateLambdaImpl(initial_value)) {}
+        explicit StateLambda(int initial_value) : impl(new StateLambdaImpl(initial_value)) {}
         ~StateLambda() { delete impl; }
         int get_value() const { return impl->value; }
         int add(int delta) { return impl->adder(delta); }
@@ -51,32 +51,17 @@ hicc::cpp! {
     struct Comparator {
     public:
         ComparatorImpl* impl;
-        Comparator(int (*cmp)(int, int)) : impl(new ComparatorImpl(cmp)) {}
+        explicit Comparator(int (*cmp)(int, int)) : impl(new ComparatorImpl(cmp)) {}
         ~Comparator() { delete impl; }
         int compare(int a, int b) const { return impl->cmp(a, b); }
     };
 
-    int add_impl(int a, int b) {
-        std::cout << "add lambda called: " << a << " + " << b << std::endl;
-        return a + b;
-    }
-
-    int multiply_impl(int a, int b) {
-        std::cout << "multiply lambda called: " << a << " * " << b << std::endl;
-        return a * b;
-    }
-
-    int max_impl(int a, int b) {
-        std::cout << "max lambda called: " << a << " vs " << b << std::endl;
-        return std::max(a, b);
-    }
-
-    int apply_operation(int a, int b, IntBinaryOp op) {
+    int apply_operation(int a, int b, int (*op)(int, int)) {
         if (op) return op(a, b);
         return 0;
     }
 
-    int apply_twice(int x, IntBinaryOp op) {
+    int apply_twice(int x, int (*op)(int, int)) {
         if (op) return op(op(x, x), x);
         return x;
     }
@@ -120,12 +105,27 @@ hicc::cpp! {
     void comparator_delete(Comparator* self) {
         delete self;
     }
+
+    int add_impl(int a, int b) {
+        std::cout << "add lambda called: " << a << " + " << b << std::endl;
+        return a + b;
+    }
+
+    int multiply_impl(int a, int b) {
+        std::cout << "multiply lambda called: " << a << " * " << b << std::endl;
+        return a * b;
+    }
+
+    int max_impl(int a, int b) {
+        std::cout << "max lambda called: " << a << " vs " << b << std::endl;
+        return std::max(a, b);
+    }
 }
 
 hicc::import_class! {
     #[cpp(class = "LambdaWrapper")]
     class LambdaWrapper {
-        #[cpp(method = "int invoke(int, int)")]
+        #[cpp(method = "int invoke(int a, int b)")]
         fn invoke(&mut self, a: i32, b: i32) -> i32;
     }
 }
@@ -136,7 +136,7 @@ hicc::import_class! {
         #[cpp(method = "int get_value() const")]
         fn get_value(&self) -> i32;
 
-        #[cpp(method = "int add(int)")]
+        #[cpp(method = "int add(int delta)")]
         fn add(&mut self, delta: i32) -> i32;
     }
 }
@@ -144,7 +144,7 @@ hicc::import_class! {
 hicc::import_class! {
     #[cpp(class = "Comparator")]
     class Comparator {
-        #[cpp(method = "int compare(int, int) const")]
+        #[cpp(method = "int compare(int a, int b) const")]
         fn compare(&self, a: i32, b: i32) -> i32;
     }
 }
@@ -155,6 +155,12 @@ hicc::import_lib! {
     class LambdaWrapper;
     class StateLambda;
     class Comparator;
+
+    #[cpp(func = "Comparator* comparator_new_add()")]
+    fn comparator_new_add() -> *mut Comparator;
+
+    #[cpp(func = "void comparator_delete(Comparator* self)")]
+    unsafe fn comparator_delete(self_: *mut Comparator);
 
     #[cpp(func = "void lambda_wrapper_delete(LambdaWrapper* self)")]
     unsafe fn lambda_wrapper_delete(self_: *mut LambdaWrapper);
@@ -173,12 +179,6 @@ hicc::import_lib! {
 
     #[cpp(func = "void state_lambda_delete(StateLambda* self)")]
     unsafe fn state_lambda_delete(self_: *mut StateLambda);
-
-    #[cpp(func = "Comparator* comparator_new_add()")]
-    fn comparator_new_add() -> *mut Comparator;
-
-    #[cpp(func = "void comparator_delete(Comparator* self)")]
-    unsafe fn comparator_delete(self_: *mut Comparator);
 
     #[cpp(func = "int add_impl(int, int)")]
     fn add_impl(a: i32, b: i32) -> i32;
