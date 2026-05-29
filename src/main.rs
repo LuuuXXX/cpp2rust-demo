@@ -220,10 +220,12 @@ fn run_init(args: InitArgs) -> Result<()> {
     }
 
     println!("\nRunning AST parser and code generation on selected files...");
-    let mut unit_names: Vec<String> = Vec::new();
+    let mut unit_paths: Vec<String> = Vec::new();
     let mut parse_errors = 0usize;
     // 降级特性统计：tag → 出现次数
     let mut degraded_tags: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    // unit_path → 首次注册该路径的源文件（用于冲突诊断）
+    let mut seen_unit_paths: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
 
     for path in &selected {
         let file_start = Instant::now();
@@ -241,12 +243,21 @@ fn run_init(args: InitArgs) -> Result<()> {
             project_root.join(cpp_rel)
         };
 
-        // unit_name = 原始 cpp 文件的文件名（不含扩展名）
-        let unit_name = original_cpp
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unit")
-            .to_string();
+        // unit_path = C++ 编译单元对应的 Rust 模块路径（去掉首级目录，避免双重 src）
+        // 例：<c_dir>/src/utils/foo.cpp.cpp2rust → "utils/foo"
+        let unit_path = project_generator::derive_unit_path(&lo.c_dir, path);
+
+        // 冲突检测：两个不同源文件映射到同一 unit_path，显示两个文件路径便于排查
+        if let Some(first) = seen_unit_paths.get(&unit_path) {
+            eprintln!(
+                "  Warning: unit path conflict '{}': first claimed by {}, now skipping {}",
+                unit_path,
+                first.display(),
+                path.display()
+            );
+            continue;
+        }
+        seen_unit_paths.insert(unit_path.clone(), path.clone());
 
         match ast_parser::parse_preprocessed(path) {
             Ok(ast) => {
@@ -254,7 +265,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                     extractor::read_source_includes(&original_cpp);
                 let spec = extractor::extract(
                     &ast,
-                    &unit_name,
+                    &unit_path,
                     &system_includes,
                     project_header.as_deref(),
                 );
@@ -273,8 +284,8 @@ fn run_init(args: InitArgs) -> Result<()> {
                     elapsed_ms,
                 );
 
-                project_generator::write_unit_rs(&lo.rust_dir, &unit_name, &code)?;
-                unit_names.push(unit_name);
+                project_generator::write_unit_rs(&lo.rust_dir, &unit_path, &code)?;
+                unit_paths.push(unit_path);
             }
             Err(err) => {
                 parse_errors += 1;
@@ -290,8 +301,8 @@ fn run_init(args: InitArgs) -> Result<()> {
                         path.display(),
                         err
                     );
-                    project_generator::write_unit_rs(&lo.rust_dir, &unit_name, &stub_code)?;
-                    unit_names.push(unit_name);
+                    project_generator::write_unit_rs(&lo.rust_dir, &unit_path, &stub_code)?;
+                    unit_paths.push(unit_path);
                 } else {
                     return Err(err);
                 }
@@ -314,18 +325,21 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("  \u{2192} Search for 'cpp2rust-todo' in generated files to find these locations.");
     }
 
-    // 生成 Cargo.toml 和 lib.rs
+    // 生成 Cargo.toml 和 lib.rs（含中间 mod.rs）
     project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
-    project_generator::write_lib_rs(&lo.rust_dir, &unit_names)?;
+    project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
     println!("\n\u{2713} cpp2rust-demo init completed.");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
-    println!("    \u{251c}\u{2500}\u{2500} c/          (captured .cpp2rust files)");
+    println!("    \u{251c}\u{2500}\u{2500} c/          (captured .cpp2rust files, mirrors C project layout)");
     println!("    \u{251c}\u{2500}\u{2500} meta/       (build_cmd.txt, selected_files.json)");
-    println!("    \u{2514}\u{2500}\u{2500} rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/*.rs)");
+    println!("    \u{2514}\u{2500}\u{2500} rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/**/*.rs)");
     println!();
-    println!("Generated {} unit file(s) in .cpp2rust/{}/rust/src/", unit_names.len(), feature);
+    println!("Generated {} unit file(s) in .cpp2rust/{}/rust/src/", unit_paths.len(), feature);
+    if unit_paths.iter().any(|p| p.contains('/')) {
+        println!("  (directory structure mirrors the C++ project layout)");
+    }
 
     Ok(())
 }

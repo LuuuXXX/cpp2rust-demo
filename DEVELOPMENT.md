@@ -75,7 +75,8 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 └── rust/                # 生成的 Rust 项目
     └── src/
         ├── lib.rs
-        └── <unit>.rs    # 每个编译单元对应一个文件
+        ├── <unit>.rs         # 扁平文件（C++ 项目根目录下的编译单元）
+        └── <subdir>/<unit>.rs# 带子目录（C++ 源文件位于 src/ 等子目录时）
 ```
 
 ### 2.3 生成代码格式（三段式）
@@ -172,6 +173,7 @@ hicc::import_lib! {
 | **Phase 7** | CI 环境修复（Ubuntu 24.04 依赖对齐） | ✅ 完成 |
 | **Phase 8** | 代码质量清理（`cargo clippy` 零警告） | ✅ 完成 |
 | **Phase 9** | L3 运行测试修复（`compare_run_output`、030 SIGSEGV、14 个 README 对齐） | ✅ 完成 |
+| **Phase 10** | 路径生成修复（`derive_unit_path` 消除双重 `src/` 前缀） | ✅ 完成 |
 
 ### 5.2 测试通过率
 
@@ -206,6 +208,7 @@ hicc::import_lib! {
 | 新增 `compare_run_output`（`tests/common/mod.rs`）：逐行比对运行输出，支持十六进制地址模糊匹配（`0x...`）；修复 null byte 尾部比较（`trim_end` → `trim_end_matches`） | L3 通用 |
 | 修复 030 shared_ptr SIGSEGV：将 `import_class!` 中的 `Cache::get()` 方法调用移出，改为自由函数 `cache_get()`（shim 模式），消除 vtable 错位导致的段错误；更新 golden 文件 | 030 |
 | 更新 14 个示例 README 运行结果节，与实际 `cargo run` 输出精确对齐，保证 L3 测试通过；涉及 005/006/007/008/009/010/011/018/023/030/031/032/039/040 | 005、006、007、008、009、010、011、018、023、030、031、032、039、040 |
+| 新增 `derive_unit_path()`（`generator/project_generator.rs`）：在从 C++ 文件路径推导 Rust 模块路径时**去掉首级路径分量**（如 `src/`），消除 `rust/src/src/…` 双重 `src` 问题；同步更新 `main.rs` 调用处及 5 个单元测试 | 路径生成通用 |
 
 ---
 
