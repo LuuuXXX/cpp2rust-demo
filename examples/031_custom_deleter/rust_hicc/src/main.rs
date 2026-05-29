@@ -40,9 +40,6 @@ hicc::cpp! {
         const char* filename() const {
     return filename_ ? filename_ : "";
 }
-        FILE* file() {
-    return file_;
-}
         void close_file() {
     if (file_) {
         std::fclose(file_);
@@ -56,13 +53,36 @@ hicc::cpp! {
 }
     };
 
-    FileHandle* file_open(const char* filename, const char* mode, FileDeleter deleter) {
+    FileHandle* file_open(const char* filename, const char* mode, void (*deleter)(FileHandle*)) {
         FileHandle* handle = new FileHandle(filename, mode, deleter);
         if (!handle->is_open()) {
             delete handle;
             return nullptr;
         }
         return handle;
+    }
+
+    void file_close(FileHandle* handle) {
+        if (handle) {
+            FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
+            fh->invoke_deleter();
+        }
+    }
+
+    int file_read(FileHandle* handle, char* buffer, int size) {
+        if (!handle) return -1;
+        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
+        return fh->read(buffer, size);
+    }
+
+    int file_write(FileHandle* handle, const char* data, int size) {
+        if (!handle) return -1;
+        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
+        return fh->write(data, size);
+    }
+
+    FileHandle* file_open_default(const char* filename, const char* mode) {
+        return file_open(filename, mode, default_file_deleter);
     }
 
     void default_file_deleter(FileHandle* handle) {
@@ -92,29 +112,6 @@ hicc::cpp! {
             fh->close_file();
             delete fh;
         }
-    }
-
-    void file_close(FileHandle* handle) {
-        if (handle) {
-            FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-            fh->invoke_deleter();
-        }
-    }
-
-    int file_read(FileHandle* handle, char* buffer, int size) {
-        if (!handle) return -1;
-        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-        return fh->read(buffer, size);
-    }
-
-    int file_write(FileHandle* handle, const char* data, int size) {
-        if (!handle) return -1;
-        FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
-        return fh->write(data, size);
-    }
-
-    FileHandle* file_open_default(const char* filename, const char* mode) {
-        return file_open(filename, mode, default_file_deleter);
     }
 }
 

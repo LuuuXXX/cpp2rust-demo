@@ -36,10 +36,6 @@ const char* FileHandle::filename() const {
     return filename_ ? filename_ : "";
 }
 
-FILE* FileHandle::file() {
-    return file_;
-}
-
 void FileHandle::close_file() {
     if (file_) {
         std::fclose(file_);
@@ -86,7 +82,7 @@ void refcounted_file_deleter(struct FileHandle* handle) {
 }
 
 // FFI wrapper functions
-FileHandle* file_open(const char* filename, const char* mode, FileDeleter deleter) {
+FileHandle* file_open(const char* filename, const char* mode, void (*deleter)(struct FileHandle*)) {
     FileHandle* handle = new FileHandle(filename, mode, deleter);
     if (!handle->is_open()) {
         delete handle;

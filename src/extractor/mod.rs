@@ -235,7 +235,14 @@ fn build_cpp_block(
         let text = strip_preprocessor_markers(text.trim());
         let trimmed = text.trim();
         if !trimmed.is_empty() {
-            for line in trimmed.lines() {
+            // libclang 的 range end 指向末尾 `;` 位置，extract_range_text 用 [start..end]（不含 end），
+            // 因此提取结果不含 `;`。若末尾是 `}` 则补全 `;`。
+            let text_with_semi = if trimmed.ends_with('}') {
+                format!("{};", trimmed)
+            } else {
+                trimmed.to_string()
+            };
+            for line in text_with_semi.lines() {
                 lines.push(line.to_string());
             }
             lines.push(String::new());
