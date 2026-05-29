@@ -92,6 +92,8 @@ pub struct ClassInfo {
     pub fields: Vec<FieldInfo>,
     /// 是否来自命名空间（collect_namespace 收集的类）
     pub is_in_namespace: bool,
+    /// 是否定义在当前被解析的 `.cpp2rust` 文件中（false 表示来自被 include 的头文件）
+    pub is_from_current_file: bool,
 }
 
 /// 全局函数
@@ -164,20 +166,33 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         }
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
-                if let Some(ci) = extract_class(&entity) {
+                if let Some(ci) = extract_class(&entity, file) {
                     ast.classes.push(ci);
                 }
             }
             EntityKind::ClassTemplate => {
-                if let Some(range) = entity.get_range() {
-                    let start = range.get_start().get_file_location().offset;
-                    let end = range.get_end().get_file_location().offset;
-                    let name = entity.get_name().unwrap_or_default();
-                    ast.template_class_ranges.push((name, start, end));
+                // 仅收集来自当前编译单元的模板类（用 stem 对比排除 include 进来的头文件）
+                let current_stem = file.file_stem();
+                let from_current = entity
+                    .get_location()
+                    .and_then(|l| l.get_file_location().file)
+                    .map(|f| {
+                        let entity_path = f.get_path();
+                        let entity_stem = Path::new(entity_path.as_os_str()).file_stem();
+                        current_stem.is_some() && current_stem == entity_stem
+                    })
+                    .unwrap_or(false);
+                if from_current {
+                    if let Some(range) = entity.get_range() {
+                        let start = range.get_start().get_file_location().offset;
+                        let end = range.get_end().get_file_location().offset;
+                        let name = entity.get_name().unwrap_or_default();
+                        ast.template_class_ranges.push((name, start, end));
+                    }
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
-                if let Some(ci) = extract_class(&entity) {
+                if let Some(ci) = extract_class(&entity, file) {
                     ast.classes.push(ci);
                 }
             }
@@ -193,10 +208,10 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, &mut ast);
+                collect_namespace(&entity, &mut ast, file);
             }
             EntityKind::LinkageSpec => {
-                collect_linkage_spec(&entity, &mut ast);
+                collect_linkage_spec(&entity, &mut ast, file);
             }
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, &mut ast);
@@ -285,7 +300,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
 //  内部辅助
 // ─────────────────────────────────────────────
 
-fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
+fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst, current_file: &Path) {
     let ns_name = ns.get_name().unwrap_or_default();
     for entity in ns.get_children() {
         if entity
@@ -297,7 +312,7 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
         }
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
-                if let Some(mut ci) = extract_class(&entity) {
+                if let Some(mut ci) = extract_class(&entity, current_file) {
                     // 命名空间前缀扁平化到类名
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
@@ -307,7 +322,7 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
-                if let Some(mut ci) = extract_class(&entity) {
+                if let Some(mut ci) = extract_class(&entity, current_file) {
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
@@ -326,14 +341,14 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
                 }
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, ast);
+                collect_namespace(&entity, ast, current_file);
             }
             _ => {}
         }
     }
 }
 
-fn collect_linkage_spec(spec: &clang::Entity<'_>, ast: &mut CppAst) {
+fn collect_linkage_spec(spec: &clang::Entity<'_>, ast: &mut CppAst, current_file: &Path) {
     for entity in spec.get_children() {
         if entity
             .get_location()
@@ -360,7 +375,7 @@ fn collect_linkage_spec(spec: &clang::Entity<'_>, ast: &mut CppAst) {
             EntityKind::StructDecl => {
                 // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
                 if entity.is_definition() {
-                    if let Some(mut ci) = extract_class(&entity) {
+                    if let Some(mut ci) = extract_class(&entity, current_file) {
                         ci.is_in_namespace = false;
                         ast.classes.push(ci);
                     }
@@ -379,10 +394,29 @@ fn collect_typedef(entity: &clang::Entity<'_>, ast: &mut CppAst) {
     ast.typedefs.push((name, start, end));
 }
 
-fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
+fn extract_class(entity: &clang::Entity<'_>, current_file: &Path) -> Option<ClassInfo> {
     let name = entity.get_name()?;
     let is_struct = entity.get_kind() == EntityKind::StructDecl;
     let is_abstract = entity.is_abstract_record();
+
+    // 判断该类是否定义在当前编译单元（shim cpp 文件）中，而非被 include 的头文件。
+    //
+    // 注意：`.cpp2rust` 文件是由 `g++ -E` 预处理生成的，内部包含行号标记
+    // （如 `# 0 "foo.cpp"` 或 `# 1 "bar.h" 1`），libclang 通过这些标记
+    // 报告每个实体的**逻辑**来源文件（即原始 .cpp/.h 路径），而非物理的
+    // `.cpp2rust` 文件路径。因此需要比较文件名 stem（去掉扩展名），
+    // 例如 `bigintegertest_ffi.cpp2rust` 的 stem 是 `bigintegertest_ffi`，
+    // 与逻辑路径 `.../bigintegertest_ffi.cpp` 的 stem 相同，即为当前文件。
+    let current_stem = current_file.file_stem();
+    let is_from_current_file = entity
+        .get_location()
+        .and_then(|l| l.get_file_location().file)
+        .map(|f| {
+            let entity_path = f.get_path();
+            let entity_stem = Path::new(entity_path.as_os_str()).file_stem();
+            current_stem.is_some() && current_stem == entity_stem
+        })
+        .unwrap_or(false);
 
     let mut template_args = Vec::new();
     if let Some(args) = entity.get_template_arguments() {
@@ -481,6 +515,7 @@ fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
         methods,
         fields,
         is_in_namespace: false,
+        is_from_current_file,
     })
 }
 

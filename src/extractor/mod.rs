@@ -99,6 +99,8 @@ pub fn extract(
                     name: ci.name.clone(),
                     methods: Vec::new(),
                     associated_fns: Vec::new(),
+                    destroy_fn: None,
+                    is_interface: false,
                 }))
             .collect()
     };
@@ -252,16 +254,23 @@ fn build_cpp_block(
     // 判断是否使用分离风格（含虚函数的类）
     let use_separate_style = ast.classes.iter().any(|c| c.methods.iter().any(|m| m.is_virtual));
 
+    // 只内联来自当前文件的类，来自 include 头文件的类通过 #include 引入
+    let local_classes: Vec<&ClassInfo> = ast
+        .classes
+        .iter()
+        .filter(|c| c.is_from_current_file)
+        .collect();
+
     let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
 
     if use_separate_style {
         // 分离风格：先放所有类的声明，再放方法实现
-        for ci in &ast.classes {
+        for ci in &local_classes {
             emit_class_decl(ci, source_bytes, &mut lines);
             lines.push(String::new());
         }
         // 方法定义（从源文件读取，跳过 = default / = delete 方法）
-        for ci in &ast.classes {
+        for ci in &local_classes {
             for method in &ci.methods {
                 if method.is_default { continue; }
                 if let Some((start, end)) = method.body_offset {
@@ -281,7 +290,7 @@ fn build_cpp_block(
         }
     } else {
         // 内联风格：类定义含内联方法体
-        for ci in &ast.classes {
+        for ci in &local_classes {
             emit_class_inline(ci, source_bytes, &mut lines);
             lines.push(String::new());
             // 静态成员变量初始化
@@ -579,7 +588,7 @@ fn strip_preprocessor_markers(text: &str) -> String {
         .join("\n")
 }
 
-/// 清理 shim 函数文本：去除 `struct ClassName*` → `ClassName*`，`(void)` → `()`
+/// 清理 shim 函数文本：去除 `struct ClassName*` → `ClassName*`
 fn clean_shim_text(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let bytes = text.as_bytes();
@@ -597,12 +606,6 @@ fn clean_shim_text(text: &str) -> String {
                 i += 7;
                 continue;
             }
-        }
-        // 将 `(void)` → `()`（C 风格无参数声明）
-        if i + 6 <= bytes.len() && &bytes[i..i + 6] == b"(void)" {
-            result.push_str("()");
-            i += 6;
-            continue;
         }
         result.push(bytes[i] as char);
         i += 1;
@@ -656,7 +659,12 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
         return None;
     }
 
-    Some(ClassSpec { name: ci.name.clone(), methods, associated_fns: Vec::new() })
+    // 检测纯虚接口类：所有 public 非 ctor/dtor 方法均为纯虚
+    let is_interface = !own_methods.is_empty()
+        && own_methods.iter().all(|m| m.is_pure_virtual)
+        && inherited.is_empty(); // 纯虚类通常不继承具体方法
+
+    Some(ClassSpec { name: ci.name.clone(), methods, associated_fns: Vec::new(), destroy_fn: None, is_interface })
 }
 
 /// 递归收集所有基类的 public 非 ctor/dtor 方法（不含静态方法）
@@ -1102,8 +1110,9 @@ fn assign_associated_fns(
 
     let mut remaining = Vec::new();
     for fb in lib_spec.fn_bindings.drain(..) {
+        let kind = kind_map.get(&fb.rust_name).copied();
         let should_move = matches!(
-            kind_map.get(&fb.rust_name),
+            kind,
             Some(ShimKind::Ctor | ShimKind::Dtor | ShimKind::StaticAccessor)
         );
 
@@ -1120,7 +1129,12 @@ fn assign_associated_fns(
 
             if let Some(cn) = owning {
                 if let Some(cs) = class_specs.iter_mut().find(|c| c.name == cn) {
-                    cs.associated_fns.push(fb);
+                    // Dtor：记录 destroy_fn 名称（不放入 associated_fns，dtor 不在 Rust 端显式调用）
+                    if matches!(kind, Some(ShimKind::Dtor)) {
+                        cs.destroy_fn = Some(fb.rust_name.clone());
+                    } else {
+                        cs.associated_fns.push(fb);
+                    }
                     continue;
                 }
             }
