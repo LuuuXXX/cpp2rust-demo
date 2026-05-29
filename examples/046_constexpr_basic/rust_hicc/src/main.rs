@@ -1,51 +1,5 @@
 hicc::cpp! {
-    #include <cstddef>
-    #include <iostream>
-
-    struct example_ConstexprPoint {
-    public:
-        int x;
-        int y;
-        constexpr ConstexprPoint(int x, int y) : x(x), y(y) {}
-        constexpr int manhattan_distance() const {
-        return (x > 0 ? x : -x) + (y > 0 ? y : -y);
-    }
-    };
-
-    int get_fibonacci_10() {
-        std::cout << "get_fibonacci_10() called, returning compile-time computed value: "
-                  << example::FIB_10 << std::endl;
-        return example::FIB_10;
-    }
-
-    int manhattan_distance(int x, int y) {
-        const int dx = x > 0 ? x : -x;
-        const int dy = y > 0 ? y : -y;
-        return dx + dy;
-    }
-
-    int constexpr_sum_array(const int* arr, int size) {
-        int sum = 0;
-        for (int i = 0; i < size; ++i) {
-            sum += arr[i];
-        }
-        return sum;
-    }
-
-    int constexpr_find_max(const int* arr, int size) {
-        if (size <= 0) return 0;
-        int max_val = arr[0];
-        for (int i = 1; i < size; ++i) {
-            if (arr[i] > max_val) {
-                max_val = arr[i];
-            }
-        }
-        return max_val;
-    }
-
-    int get_array_size() {
-        return ARRAY_SIZE;
-    }
+    #include "constexpr_basic.h"
 }
 
 hicc::import_lib! {

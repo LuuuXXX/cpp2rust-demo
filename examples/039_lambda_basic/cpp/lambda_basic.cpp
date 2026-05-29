@@ -3,30 +3,6 @@
 #include <functional>
 #include <algorithm>
 
-// LambdaWrapperImpl implementation
-LambdaWrapperImpl::LambdaWrapperImpl(int (*fn_ptr)(int, int)) : fn(fn_ptr) {}
-LambdaWrapperImpl::~LambdaWrapperImpl() {}
-
-// StateLambdaImpl implementation
-StateLambdaImpl::StateLambdaImpl(int initial) : value(initial), adder([this](int delta) { return value += delta; }) {}
-StateLambdaImpl::~StateLambdaImpl() {}
-
-// ComparatorImpl implementation
-ComparatorImpl::ComparatorImpl(int (*cmp_fn)(int, int)) : cmp(cmp_fn) {}
-ComparatorImpl::~ComparatorImpl() {}
-
-// LambdaWrapper implementation
-LambdaWrapper::LambdaWrapper(int (*fn)(int, int)) : impl(new LambdaWrapperImpl(fn)) {}
-LambdaWrapper::~LambdaWrapper() { delete impl; }
-
-// StateLambda implementation
-StateLambda::StateLambda(int initial_value) : impl(new StateLambdaImpl(initial_value)) {}
-StateLambda::~StateLambda() { delete impl; }
-
-// Comparator implementation
-Comparator::Comparator(int (*cmp)(int, int)) : impl(new ComparatorImpl(cmp)) {}
-Comparator::~Comparator() { delete impl; }
-
 int add_impl(int a, int b) {
     std::cout << "add lambda called: " << a << " + " << b << std::endl;
     return a + b;
@@ -42,12 +18,12 @@ int max_impl(int a, int b) {
     return std::max(a, b);
 }
 
-int apply_operation(int a, int b, IntBinaryOp op) {
+int apply_operation(int a, int b, int (*op)(int, int)) {
     if (op) return op(a, b);
     return 0;
 }
 
-int apply_twice(int x, IntBinaryOp op) {
+int apply_twice(int x, int (*op)(int, int)) {
     if (op) return op(op(x, x), x);
     return x;
 }
@@ -97,6 +73,10 @@ int state_lambda_get_value(const struct StateLambda* self) {
 
 struct Comparator* comparator_new(int (*cmp)(int, int)) {
     return new Comparator(cmp);
+}
+
+struct Comparator* comparator_new_add(void) {
+    return new Comparator(add_impl);
 }
 
 void comparator_delete(struct Comparator* self) {

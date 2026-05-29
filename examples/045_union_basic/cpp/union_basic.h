@@ -8,9 +8,7 @@ extern "C" {
 #endif
 
 // Value type constants
-static const int VALUE_TYPE_INT = 0;
-static const int VALUE_TYPE_FLOAT = 1;
-static const int VALUE_TYPE_STRING = 2;
+enum VariantType { VALUE_TYPE_INT = 0, VALUE_TYPE_FLOAT = 1, VALUE_TYPE_STRING = 2 };
 
 // Forward declaration
 struct Variant;
@@ -40,8 +38,10 @@ struct IntFloatUnion {
     } data;
 };
 
-int union_get_int(const struct IntFloatUnion* u);
-float union_get_float(const struct IntFloatUnion* u);
+struct IntFloatUnion* union_new(void);
+void union_delete(struct IntFloatUnion* u);
+int union_get_int(struct IntFloatUnion* u);
+float union_get_float(struct IntFloatUnion* u);
 void union_set_int(struct IntFloatUnion* u, int value);
 void union_set_float(struct IntFloatUnion* u, float value);
 

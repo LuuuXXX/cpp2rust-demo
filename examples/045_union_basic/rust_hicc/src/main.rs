@@ -4,6 +4,20 @@ hicc::cpp! {
     #include <iostream>
     #include <cstring>
 
+    enum VariantType {
+        VALUE_TYPE_INT = 0,
+        VALUE_TYPE_FLOAT = 1,
+        VALUE_TYPE_STRING = 2,
+    };
+
+    struct IntFloatUnion {
+    public:
+        union {
+        int int_value;
+        float float_value;
+    } data;
+    };
+
     class Variant {
         int type_;
         union {
@@ -78,12 +92,20 @@ hicc::cpp! {
         delete self;
     }
 
-    int union_get_int(const IntFloatUnion* u) {
+    IntFloatUnion* union_new() {
+        return new IntFloatUnion();
+    }
+
+    void union_delete(IntFloatUnion* u) {
+        delete u;
+    }
+
+    int union_get_int(IntFloatUnion* u) {
         if (u) return u->data.int_value;
         return 0;
     }
 
-    float union_get_float(const IntFloatUnion* u) {
+    float union_get_float(IntFloatUnion* u) {
         if (u) return u->data.float_value;
         return 0.0f;
     }
@@ -95,6 +117,11 @@ hicc::cpp! {
     void union_set_float(IntFloatUnion* u, float value) {
         if (u) u->data.float_value = value;
     }
+}
+
+hicc::import_class! {
+    #[cpp(class = "IntFloatUnion")]
+    class IntFloatUnion {}
 }
 
 hicc::import_class! {
@@ -126,6 +153,7 @@ hicc::import_class! {
 hicc::import_lib! {
     #![link_name = "union_basic"]
 
+    class IntFloatUnion;
     class Variant;
 
     #[cpp(func = "Variant* variant_new_int(int)")]
@@ -140,18 +168,25 @@ hicc::import_lib! {
     #[cpp(func = "void variant_delete(Variant* self)")]
     unsafe fn variant_delete(self_: *mut Variant);
 
-    #[cpp(func = "int union_get_int(const struct IntFloatUnion*)")]
-    fn union_get_int(u: *const IntFloatUnion) -> i32;
+    #[cpp(func = "IntFloatUnion* union_new()")]
+    fn union_new() -> *mut IntFloatUnion;
 
-    #[cpp(func = "float union_get_float(const struct IntFloatUnion*)")]
-    fn union_get_float(u: *const IntFloatUnion) -> f32;
+    #[cpp(func = "void union_delete(IntFloatUnion* u)")]
+    unsafe fn union_delete(u: *mut IntFloatUnion);
 
-    #[cpp(func = "void union_set_int(IntFloatUnion*, int)")]
+    #[cpp(func = "int union_get_int(IntFloatUnion* u)")]
+    fn union_get_int(u: *mut IntFloatUnion) -> i32;
+
+    #[cpp(func = "float union_get_float(IntFloatUnion* u)")]
+    fn union_get_float(u: *mut IntFloatUnion) -> f32;
+
+    #[cpp(func = "void union_set_int(IntFloatUnion* u, int)")]
     unsafe fn union_set_int(u: *mut IntFloatUnion, value: i32);
 
-    #[cpp(func = "void union_set_float(IntFloatUnion*, float)")]
+    #[cpp(func = "void union_set_float(IntFloatUnion* u, float)")]
     unsafe fn union_set_float(u: *mut IntFloatUnion, value: f32);
 }
+
 fn variant_type_name(t: i32) -> &'static str {
     match t {
         0 => "INT",
@@ -184,18 +219,18 @@ fn main() {
     println!("\n--- Memory Overlay Demo ---");
     println!("sizeof(int) = {}, sizeof(float) = {}", std::mem::size_of::<i32>(), std::mem::size_of::<f32>());
 
-    let layout = std::alloc::Layout::from_size_align(8, 4).unwrap();
-    let union_int = unsafe { std::alloc::alloc(layout) as *mut IntFloatUnion };
+    let mut union_ptr = union_new();
 
     // Set int value
-    unsafe { union_set_int(union_int, 0x41414141) };  // 'AAAA' in ASCII
-    println!("Set as int: {} (0x{:08x})", unsafe { union_get_int(union_int) }, unsafe { union_get_int(union_int) as u32 });
+    unsafe { union_set_int(&mut union_ptr, 0x41414141); }  // 'AAAA' in ASCII
+    let int_val = union_get_int(&union_ptr);
+    println!("Set as int: {} (0x{:08x})", int_val, int_val as u32);
 
     // Read same memory as float
-    let float_bits = unsafe { union_get_float(union_int) };
+    let float_bits = union_get_float(&union_ptr);
     println!("Read as float: {} (bits: 0x{:08x})", float_bits, float_bits.to_bits());
 
-    unsafe { std::alloc::dealloc(union_int as *mut u8, layout) };
+    unsafe { union_delete(&union_ptr); };
 
     println!("\n--- Summary ---");
     println!("1. union all members share the same memory");

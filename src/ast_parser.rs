@@ -90,6 +90,8 @@ pub struct ClassInfo {
     pub bases: Vec<BaseInfo>,
     pub methods: Vec<MethodInfo>,
     pub fields: Vec<FieldInfo>,
+    /// 是否来自命名空间（collect_namespace 收集的类）
+    pub is_in_namespace: bool,
 }
 
 /// 全局函数
@@ -118,6 +120,8 @@ pub struct CppAst {
     pub enums: Vec<EnumInfo>,
     /// typedef 声明列表：(名称, 起始偏移, 结束偏移)
     pub typedefs: Vec<(String, u32, u32)>,
+    /// 模板类源码范围列表：(名称, 起始偏移, 结束偏移)
+    pub template_class_ranges: Vec<(String, u32, u32)>,
 }
 
 // ─────────────────────────────────────────────
@@ -144,6 +148,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         functions: Vec::new(),
         enums: Vec::new(),
         typedefs: Vec::new(),
+        template_class_ranges: Vec::new(),
     };
 
     let root = tu.get_entity();
@@ -163,7 +168,14 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                     ast.classes.push(ci);
                 }
             }
-            EntityKind::ClassTemplate => {}
+            EntityKind::ClassTemplate => {
+                if let Some(range) = entity.get_range() {
+                    let start = range.get_start().get_file_location().offset;
+                    let end = range.get_end().get_file_location().offset;
+                    let name = entity.get_name().unwrap_or_default();
+                    ast.template_class_ranges.push((name, start, end));
+                }
+            }
             EntityKind::ClassTemplatePartialSpecialization => {
                 if let Some(ci) = extract_class(&entity) {
                     ast.classes.push(ci);
@@ -290,6 +302,7 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
+                    ci.is_in_namespace = true;
                     ast.classes.push(ci);
                 }
             }
@@ -298,6 +311,7 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
+                    ci.is_in_namespace = true;
                     ast.classes.push(ci);
                 }
             }
@@ -342,6 +356,15 @@ fn collect_linkage_spec(spec: &clang::Entity<'_>, ast: &mut CppAst) {
             }
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, ast);
+            }
+            EntityKind::StructDecl => {
+                // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
+                if entity.is_definition() {
+                    if let Some(mut ci) = extract_class(&entity) {
+                        ci.is_in_namespace = false;
+                        ast.classes.push(ci);
+                    }
+                }
             }
             _ => {}
         }
@@ -457,6 +480,7 @@ fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
         bases,
         methods,
         fields,
+        is_in_namespace: false,
     })
 }
 

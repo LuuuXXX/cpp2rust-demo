@@ -10,7 +10,7 @@ hicc::cpp! {
     public:
         std::function<int(int, int)> fn;
     public:
-        LambdaWrapperImpl(int (*fn_ptr)(int, int)) : fn(fn_ptr) {}
+        explicit LambdaWrapperImpl(int (*fn_ptr)(int, int)) : fn(fn_ptr) {}
         ~LambdaWrapperImpl() {}
     };
 
@@ -19,7 +19,7 @@ hicc::cpp! {
         int value;
         std::function<int(int)> adder;
     public:
-        StateLambdaImpl(int initial) : value(initial), adder([this](int delta) { return value += delta; }) {}
+        explicit StateLambdaImpl(int initial) : value(initial), adder([this](int delta) { return value += delta; }) {}
         ~StateLambdaImpl() {}
     };
 
@@ -27,37 +27,41 @@ hicc::cpp! {
     public:
         std::function<int(int, int)> cmp;
     public:
-        ComparatorImpl(int (*cmp_fn)(int, int)) : cmp(cmp_fn) {}
+        explicit ComparatorImpl(int (*cmp_fn)(int, int)) : cmp(cmp_fn) {}
         ~ComparatorImpl() {}
     };
 
     struct LambdaWrapper {
     public:
         LambdaWrapperImpl* impl;
-        LambdaWrapper(int (*fn)(int, int)) : impl(new LambdaWrapperImpl(fn)) {}
+        explicit LambdaWrapper(int (*fn)(int, int)) : impl(new LambdaWrapperImpl(fn)) {}
         ~LambdaWrapper() { delete impl; }
+        int invoke(int a, int b) { return impl->fn(a, b); }
     };
 
     struct StateLambda {
     public:
         StateLambdaImpl* impl;
-        StateLambda(int initial_value) : impl(new StateLambdaImpl(initial_value)) {}
+        explicit StateLambda(int initial_value) : impl(new StateLambdaImpl(initial_value)) {}
         ~StateLambda() { delete impl; }
+        int get_value() const { return impl->value; }
+        int add(int delta) { return impl->adder(delta); }
     };
 
     struct Comparator {
     public:
         ComparatorImpl* impl;
-        Comparator(int (*cmp)(int, int)) : impl(new ComparatorImpl(cmp)) {}
+        explicit Comparator(int (*cmp)(int, int)) : impl(new ComparatorImpl(cmp)) {}
         ~Comparator() { delete impl; }
+        int compare(int a, int b) const { return impl->cmp(a, b); }
     };
 
-    int apply_operation(int a, int b, IntBinaryOp op) {
+    int apply_operation(int a, int b, int (*op)(int, int)) {
         if (op) return op(a, b);
         return 0;
     }
 
-    int apply_twice(int x, IntBinaryOp op) {
+    int apply_twice(int x, int (*op)(int, int)) {
         if (op) return op(op(x, x), x);
         return x;
     }
@@ -68,6 +72,21 @@ hicc::cpp! {
 
     void lambda_wrapper_delete(LambdaWrapper* self) {
         delete self;
+    }
+
+    int add_impl(int a, int b) {
+        std::cout << "add lambda called: " << a << " + " << b << std::endl;
+        return a + b;
+    }
+
+    int multiply_impl(int a, int b) {
+        std::cout << "multiply lambda called: " << a << " * " << b << std::endl;
+        return a * b;
+    }
+
+    int max_impl(int a, int b) {
+        std::cout << "max lambda called: " << a << " vs " << b << std::endl;
+        return std::max(a, b);
     }
 
     LambdaWrapper* make_add_lambda() {
@@ -94,23 +113,39 @@ hicc::cpp! {
         return new Comparator(cmp);
     }
 
+    Comparator* comparator_new_add() {
+        return new Comparator(add_impl);
+    }
+
     void comparator_delete(Comparator* self) {
         delete self;
     }
+}
 
-    int add_impl(int a, int b) {
-        std::cout << "add lambda called: " << a << " + " << b << std::endl;
-        return a + b;
+hicc::import_class! {
+    #[cpp(class = "LambdaWrapper")]
+    class LambdaWrapper {
+        #[cpp(method = "int invoke(int a, int b)")]
+        fn invoke(&mut self, a: i32, b: i32) -> i32;
     }
+}
 
-    int multiply_impl(int a, int b) {
-        std::cout << "multiply lambda called: " << a << " * " << b << std::endl;
-        return a * b;
+hicc::import_class! {
+    #[cpp(class = "StateLambda")]
+    class StateLambda {
+        #[cpp(method = "int get_value() const")]
+        fn get_value(&self) -> i32;
+
+        #[cpp(method = "int add(int delta)")]
+        fn add(&mut self, delta: i32) -> i32;
     }
+}
 
-    int max_impl(int a, int b) {
-        std::cout << "max lambda called: " << a << " vs " << b << std::endl;
-        return std::max(a, b);
+hicc::import_class! {
+    #[cpp(class = "Comparator")]
+    class Comparator {
+        #[cpp(method = "int compare(int a, int b) const")]
+        fn compare(&self, a: i32, b: i32) -> i32;
     }
 }
 
@@ -121,14 +156,23 @@ hicc::import_lib! {
     class StateLambda;
     class Comparator;
 
-    #[cpp(func = "int apply_operation(int, int, IntBinaryOp)")]
-    fn apply_operation(a: i32, b: i32, op: IntBinaryOp) -> i32;
+    #[cpp(func = "Comparator* comparator_new_add()")]
+    fn comparator_new_add() -> *mut Comparator;
 
-    #[cpp(func = "int apply_twice(int, IntBinaryOp)")]
-    fn apply_twice(x: i32, op: IntBinaryOp) -> i32;
+    #[cpp(func = "void comparator_delete(Comparator* self)")]
+    unsafe fn comparator_delete(self_: *mut Comparator);
 
     #[cpp(func = "void lambda_wrapper_delete(LambdaWrapper* self)")]
     unsafe fn lambda_wrapper_delete(self_: *mut LambdaWrapper);
+
+    #[cpp(func = "int add_impl(int, int)")]
+    fn add_impl(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int multiply_impl(int, int)")]
+    fn multiply_impl(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int max_impl(int, int)")]
+    fn max_impl(a: i32, b: i32) -> i32;
 
     #[cpp(func = "LambdaWrapper* make_add_lambda()")]
     fn make_add_lambda() -> *mut LambdaWrapper;
@@ -144,18 +188,6 @@ hicc::import_lib! {
 
     #[cpp(func = "void state_lambda_delete(StateLambda* self)")]
     unsafe fn state_lambda_delete(self_: *mut StateLambda);
-
-    #[cpp(func = "void comparator_delete(Comparator* self)")]
-    unsafe fn comparator_delete(self_: *mut Comparator);
-
-    #[cpp(func = "int add_impl(int, int)")]
-    fn add_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int multiply_impl(int, int)")]
-    fn multiply_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int max_impl(int, int)")]
-    fn max_impl(a: i32, b: i32) -> i32;
 }
 
 fn main() {
@@ -192,6 +224,8 @@ fn main() {
     println!("2. 捕获状态的 lambda 需要包装在类中");
     println!("3. 此示例展示基本的类封装模式");
 }
+
+
 
 
 

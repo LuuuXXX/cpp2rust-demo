@@ -40,9 +40,6 @@ hicc::cpp! {
         const char* filename() const {
     return filename_ ? filename_ : "";
 }
-        FILE* file() {
-    return file_;
-}
         void close_file() {
     if (file_) {
         std::fclose(file_);
@@ -56,7 +53,7 @@ hicc::cpp! {
 }
     };
 
-    FileHandle* file_open(const char* filename, const char* mode, FileDeleter deleter) {
+    FileHandle* file_open(const char* filename, const char* mode, void (*deleter)(FileHandle*)) {
         FileHandle* handle = new FileHandle(filename, mode, deleter);
         if (!handle->is_open()) {
             delete handle;
@@ -84,10 +81,6 @@ hicc::cpp! {
         return fh->write(data, size);
     }
 
-    FileHandle* file_open_default(const char* filename, const char* mode) {
-        return file_open(filename, mode, default_file_deleter);
-    }
-
     void default_file_deleter(FileHandle* handle) {
         if (handle) {
             FileHandle* fh = reinterpret_cast<FileHandle*>(handle);
@@ -95,6 +88,10 @@ hicc::cpp! {
             fh->close_file();
             delete fh;
         }
+    }
+
+    FileHandle* file_open_default(const char* filename, const char* mode) {
+        return file_open(filename, mode, default_file_deleter);
     }
 
     void logging_file_deleter(FileHandle* handle) {
@@ -133,9 +130,6 @@ hicc::import_class! {
         #[cpp(method = "const char* filename() const")]
         fn filename(&self) -> *const i8;
 
-        #[cpp(method = "FILE* file()")]
-        fn file(&mut self) -> *mut FILE;
-
         #[cpp(method = "void close_file()")]
         fn close_file(&mut self);
 
@@ -149,9 +143,6 @@ hicc::import_lib! {
 
     class FileHandle;
 
-    #[cpp(func = "FileHandle* file_open(const char*, const char*, FileDeleter)")]
-    unsafe fn file_open(filename: *const i8, mode: *const i8, deleter: FileDeleter) -> *mut FileHandle;
-
     #[cpp(func = "void file_close(FileHandle* handle)")]
     unsafe fn file_close(handle: *mut FileHandle);
 
@@ -161,11 +152,11 @@ hicc::import_lib! {
     #[cpp(func = "int file_write(FileHandle* handle, const char*, int)")]
     unsafe fn file_write(handle: *mut FileHandle, data: *const i8, size: i32) -> i32;
 
-    #[cpp(func = "FileHandle* file_open_default(const char*, const char*)")]
-    unsafe fn file_open_default(filename: *const i8, mode: *const i8) -> *mut FileHandle;
-
     #[cpp(func = "void default_file_deleter(FileHandle* handle)")]
     unsafe fn default_file_deleter(handle: *mut FileHandle);
+
+    #[cpp(func = "FileHandle* file_open_default(const char*, const char*)")]
+    unsafe fn file_open_default(filename: *const i8, mode: *const i8) -> *mut FileHandle;
 
     #[cpp(func = "void logging_file_deleter(FileHandle* handle)")]
     unsafe fn logging_file_deleter(handle: *mut FileHandle);
@@ -197,6 +188,8 @@ fn main() {
     println!("3. Rust 可以传入自己的清理函数");
     println!("4. 适用于文件、内存、网络连接等资源");
 }
+
+
 
 
 

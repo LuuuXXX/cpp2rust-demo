@@ -13,11 +13,11 @@ hicc::cpp! {
         CallbackWrapperImpl(int (*fn)(int)) : callback(fn) {}
         ~CallbackWrapperImpl() {}
         int invoke(int value) {
-    if (callback) return callback(value);
-    return value;
+if (callback) return callback(value);
+return value;
 }
         void set(int (*fn)(int)) {
-    callback = fn;
+callback = fn;
 }
     };
 
@@ -28,11 +28,11 @@ hicc::cpp! {
         ProcessorImpl() : callback(nullptr) {}
         ~ProcessorImpl() {}
         void set_callback(int (*cb)(int)) {
-    callback = cb;
+callback = cb;
 }
         int process(int value) {
-    if (callback) return callback(value);
-    return value;
+if (callback) return callback(value);
+return value;
 }
     };
 
@@ -43,12 +43,12 @@ hicc::cpp! {
         MultiCallbackImpl() {}
         ~MultiCallbackImpl() {}
         void add(int (*cb)(int)) {
-    callbacks.push_back(cb);
+callbacks.push_back(cb);
 }
         void invoke_all(int value) {
-    for (auto& cb : callbacks) {
-        cb(value);
-    }
+for (auto& cb : callbacks) {
+cb(value);
+}
 }
     };
 
@@ -61,23 +61,22 @@ hicc::cpp! {
         AsyncProcessorImpl() : cancelled(false) {}
         ~AsyncProcessorImpl() {}
         void set_completion_callback(void (*cb)(int, int)) {
-    completion_callback = cb;
+completion_callback = cb;
 }
         void set_progress_callback(void (*cb)(int)) {
-    progress_callback = cb;
+progress_callback = cb;
 }
         void start(int value) {
-    cancelled = false;
-    // Simulate async processing
-    for (int i = 0; i <= 100; i += 20) {
-        if (cancelled) break;
-        if (progress_callback) progress_callback(i);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    if (completion_callback) completion_callback(value, value * 2);
+cancelled = false;
+for (int i = 0; i <= 100; i += 20) {
+if (cancelled) break;
+if (progress_callback) progress_callback(i);
+std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+if (completion_callback) completion_callback(value, value * 2);
 }
         void cancel() {
-    cancelled = true;
+cancelled = true;
 }
     };
 
@@ -86,6 +85,7 @@ hicc::cpp! {
         CallbackWrapperImpl* impl;
         CallbackWrapper(int (*fn)(int)) : impl(new CallbackWrapperImpl(fn)) {}
         ~CallbackWrapper() { delete impl; }
+        int invoke(int value) { return impl->invoke(value); }
     };
 
     struct Processor {
@@ -93,6 +93,7 @@ hicc::cpp! {
         ProcessorImpl* impl;
         Processor() : impl(new ProcessorImpl()) {}
         ~Processor() { delete impl; }
+        int process(int value) { return impl->process(value); }
     };
 
     struct MultiCallback {
@@ -100,6 +101,7 @@ hicc::cpp! {
         MultiCallbackImpl* impl;
         MultiCallback() : impl(new MultiCallbackImpl()) {}
         ~MultiCallback() { delete impl; }
+        void invoke_all(int value) { impl->invoke_all(value); }
     };
 
     struct AsyncProcessor {
@@ -107,10 +109,16 @@ hicc::cpp! {
         AsyncProcessorImpl* impl;
         AsyncProcessor() : impl(new AsyncProcessorImpl()) {}
         ~AsyncProcessor() { delete impl; }
+        bool is_cancelled() const { return impl->cancelled; }
+        void cancel() { impl->cancel(); }
     };
 
     CallbackWrapper* callback_wrapper_new(int (*fn)(int)) {
         return new CallbackWrapper(fn);
+    }
+
+    CallbackWrapper* callback_wrapper_new_double() {
+        return new CallbackWrapper([](int x) -> int { return x * 2; });
     }
 
     void callback_wrapper_delete(CallbackWrapper* self) {
@@ -121,12 +129,24 @@ hicc::cpp! {
         return new Processor();
     }
 
+    void processor_set_double(Processor* p) {
+        p->impl->set_callback([](int x) -> int { return x * 2; });
+    }
+
     void processor_delete(Processor* self) {
         delete self;
     }
 
     MultiCallback* multi_callback_new() {
         return new MultiCallback();
+    }
+
+    void multi_callback_add_double(MultiCallback* mc) {
+        mc->impl->add([](int x) -> int { return x * 2; });
+    }
+
+    void multi_callback_add_triple(MultiCallback* mc) {
+        mc->impl->add([](int x) -> int { return x * 3; });
     }
 
     void multi_callback_delete(MultiCallback* self) {
@@ -142,6 +162,41 @@ hicc::cpp! {
     }
 }
 
+hicc::import_class! {
+    #[cpp(class = "CallbackWrapper")]
+    class CallbackWrapper {
+        #[cpp(method = "int invoke(int value)")]
+        fn invoke(&mut self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Processor")]
+    class Processor {
+        #[cpp(method = "int process(int value)")]
+        fn process(&mut self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "MultiCallback")]
+    class MultiCallback {
+        #[cpp(method = "void invoke_all(int value)")]
+        fn invoke_all(&mut self, value: i32);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "AsyncProcessor")]
+    class AsyncProcessor {
+        #[cpp(method = "bool is_cancelled() const")]
+        fn is_cancelled(&self) -> bool;
+
+        #[cpp(method = "void cancel()")]
+        fn cancel(&mut self);
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "std_function"]
 
@@ -150,17 +205,29 @@ hicc::import_lib! {
     class MultiCallback;
     class AsyncProcessor;
 
-    #[cpp(func = "void callback_wrapper_delete(CallbackWrapper* self)")]
-    unsafe fn callback_wrapper_delete(self_: *mut CallbackWrapper);
-
     #[cpp(func = "Processor* processor_new()")]
     fn processor_new() -> *mut Processor;
 
     #[cpp(func = "void processor_delete(Processor* self)")]
     unsafe fn processor_delete(self_: *mut Processor);
 
+    #[cpp(func = "CallbackWrapper* callback_wrapper_new_double()")]
+    fn callback_wrapper_new_double() -> *mut CallbackWrapper;
+
+    #[cpp(func = "void callback_wrapper_delete(CallbackWrapper* self)")]
+    unsafe fn callback_wrapper_delete(self_: *mut CallbackWrapper);
+
+    #[cpp(func = "void processor_set_double(Processor* p)")]
+    unsafe fn processor_set_double(p: *mut Processor);
+
     #[cpp(func = "MultiCallback* multi_callback_new()")]
     fn multi_callback_new() -> *mut MultiCallback;
+
+    #[cpp(func = "void multi_callback_add_double(MultiCallback* mc)")]
+    unsafe fn multi_callback_add_double(mc: *mut MultiCallback);
+
+    #[cpp(func = "void multi_callback_add_triple(MultiCallback* mc)")]
+    unsafe fn multi_callback_add_triple(mc: *mut MultiCallback);
 
     #[cpp(func = "void multi_callback_delete(MultiCallback* self)")]
     unsafe fn multi_callback_delete(self_: *mut MultiCallback);
@@ -183,14 +250,16 @@ fn main() {
 
     println!("\n--- Processor Demo ---");
     let mut processor = processor_new();
-    processor_set_double(&processor);
+    unsafe { processor_set_double(&processor); }
     println!("process(10) = {}", processor.process(10));
     unsafe { processor_delete(&processor); }
 
     println!("\n--- MultiCallback Demo ---");
     let mut mc = multi_callback_new();
-    multi_callback_add_double(&mc);
-    multi_callback_add_triple(&mc);
+    unsafe {
+        multi_callback_add_double(&mc);
+        multi_callback_add_triple(&mc);
+    }
     println!("Invoking all callbacks with 4:");
     mc.invoke_all(4);
     unsafe { multi_callback_delete(&mc); }
@@ -207,6 +276,5 @@ fn main() {
     println!("2. 回调可用于事件处理");
     println!("3. 此示例展示基本的回调封装模式");
 }
-
 
 

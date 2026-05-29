@@ -83,21 +83,12 @@ struct CallbackWrapper* callback_wrapper_new(int (*fn)(int)) {
     return new CallbackWrapper(fn);
 }
 
+struct CallbackWrapper* callback_wrapper_new_double(void) {
+    return new CallbackWrapper([](int x) -> int { return x * 2; });
+}
+
 void callback_wrapper_delete(struct CallbackWrapper* self) {
     delete self;
-}
-
-int callback_wrapper_invoke(const struct CallbackWrapper* self, int value) {
-    if (self) {
-        return self->impl->invoke(value);
-    }
-    return value;
-}
-
-void callback_wrapper_set(struct CallbackWrapper* self, int (*fn)(int)) {
-    if (self) {
-        self->impl->set(fn);
-    }
 }
 
 // Processor C API implementation
@@ -105,21 +96,12 @@ struct Processor* processor_new(void) {
     return new Processor();
 }
 
+void processor_set_double(struct Processor* p) {
+    p->impl->set_callback([](int x) -> int { return x * 2; });
+}
+
 void processor_delete(struct Processor* self) {
     delete self;
-}
-
-void processor_set_callback(struct Processor* self, int (*cb)(int)) {
-    if (self) {
-        self->impl->set_callback(cb);
-    }
-}
-
-int processor_process(const struct Processor* self, int value) {
-    if (self) {
-        return self->impl->process(value);
-    }
-    return value;
 }
 
 // MultiCallback C API implementation
@@ -127,20 +109,16 @@ struct MultiCallback* multi_callback_new(void) {
     return new MultiCallback();
 }
 
+void multi_callback_add_double(struct MultiCallback* mc) {
+    mc->impl->add([](int x) -> int { return x * 2; });
+}
+
+void multi_callback_add_triple(struct MultiCallback* mc) {
+    mc->impl->add([](int x) -> int { return x * 3; });
+}
+
 void multi_callback_delete(struct MultiCallback* self) {
     delete self;
-}
-
-void multi_callback_add(struct MultiCallback* self, int (*cb)(int)) {
-    if (self) {
-        self->impl->add(cb);
-    }
-}
-
-void multi_callback_invoke_all(struct MultiCallback* self, int value) {
-    if (self) {
-        self->impl->invoke_all(value);
-    }
 }
 
 // AsyncProcessor C API implementation
@@ -150,28 +128,4 @@ struct AsyncProcessor* async_processor_new(void) {
 
 void async_processor_delete(struct AsyncProcessor* self) {
     delete self;
-}
-
-void async_processor_set_callback(struct AsyncProcessor* self, void (*cb)(int, int)) {
-    if (self) {
-        self->impl->set_completion_callback(cb);
-    }
-}
-
-void async_processor_set_progress_callback(struct AsyncProcessor* self, void (*cb)(int)) {
-    if (self) {
-        self->impl->set_progress_callback(cb);
-    }
-}
-
-void async_processor_start(struct AsyncProcessor* self, int value) {
-    if (self) {
-        self->impl->start(value);
-    }
-}
-
-void async_processor_cancel(struct AsyncProcessor* self) {
-    if (self) {
-        self->impl->cancel();
-    }
 }

@@ -9,6 +9,10 @@ extern "C" {
 
 #include <stddef.h>
 
+// Implementation functions (declared before Adder to control ordering)
+int add_five_impl(int a, int b);
+int add_ten_impl(int a, int b);
+
 // Adder structure
 struct Adder;
 

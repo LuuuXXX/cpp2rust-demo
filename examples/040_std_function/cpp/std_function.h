@@ -13,40 +13,29 @@ extern "C" {
 struct CallbackWrapper;
 
 struct CallbackWrapper* callback_wrapper_new(int (*fn)(int));
+struct CallbackWrapper* callback_wrapper_new_double(void);
 void callback_wrapper_delete(struct CallbackWrapper* self);
-
-int callback_wrapper_invoke(const struct CallbackWrapper* self, int value);
-void callback_wrapper_set(struct CallbackWrapper* self, int (*fn)(int));
 
 // Processor structure
 struct Processor;
 
 struct Processor* processor_new(void);
+void processor_set_double(struct Processor* p);
 void processor_delete(struct Processor* self);
-
-void processor_set_callback(struct Processor* self, int (*cb)(int));
-int processor_process(const struct Processor* self, int value);
 
 // MultiCallback structure
 struct MultiCallback;
 
 struct MultiCallback* multi_callback_new(void);
+void multi_callback_add_double(struct MultiCallback* mc);
+void multi_callback_add_triple(struct MultiCallback* mc);
 void multi_callback_delete(struct MultiCallback* self);
-
-void multi_callback_add(struct MultiCallback* self, int (*cb)(int));
-void multi_callback_invoke_all(struct MultiCallback* self, int value);
 
 // AsyncProcessor
 struct AsyncProcessor;
 
 struct AsyncProcessor* async_processor_new(void);
 void async_processor_delete(struct AsyncProcessor* self);
-
-void async_processor_set_callback(struct AsyncProcessor* self, void (*cb)(int, int));
-void async_processor_set_progress_callback(struct AsyncProcessor* self, void (*cb)(int));
-
-void async_processor_start(struct AsyncProcessor* self, int value);
-void async_processor_cancel(struct AsyncProcessor* self);
 
 #ifdef __cplusplus
 }
@@ -99,24 +88,29 @@ struct CallbackWrapper {
     CallbackWrapperImpl* impl;
     explicit CallbackWrapper(int (*fn)(int));
     ~CallbackWrapper();
+    int invoke(int value) { return impl->invoke(value); }
 };
 
 struct Processor {
     ProcessorImpl* impl;
     Processor();
     ~Processor();
+    int process(int value) { return impl->process(value); }
 };
 
 struct MultiCallback {
     MultiCallbackImpl* impl;
     MultiCallback();
     ~MultiCallback();
+    void invoke_all(int value) { impl->invoke_all(value); }
 };
 
 struct AsyncProcessor {
     AsyncProcessorImpl* impl;
     AsyncProcessor();
     ~AsyncProcessor();
+    bool is_cancelled() const { return impl->cancelled; }
+    void cancel() { impl->cancel(); }
 };
 
 #endif

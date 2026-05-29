@@ -24,7 +24,10 @@ pub fn extract(
     project_header: Option<&str>,
 ) -> FfiSpec {
     let source_bytes = fs::read(&ast.file).unwrap_or_default();
-    let has_classes = !ast.classes.is_empty();
+    // has_any_classes：是否存在任何类（含命名空间类），用于 namespace_class_mode 检测
+    let has_any_classes = !ast.classes.is_empty();
+    // has_classes：是否存在非命名空间的物理类，用于决定 cpp! 块模式（project header vs inline class）
+    let has_classes = ast.classes.iter().any(|c| !c.is_in_namespace);
 
     // 去重：对于同名函数，只保留一个（有 body_offset 的优先；否则 is_extern_c=false 优先）
     let functions = dedup_functions(&ast.functions);
@@ -56,7 +59,7 @@ pub fn extract(
     //   043: void* opaque 指针（命名空间类）→ 压制所有块，只生成空 cpp!
     //   044: example::OperationResult* 命名空间类型指针 → 同样压制
     //   028: int/double 原始类型（辅助类）→ 正常生成
-    let namespace_class_mode = has_classes && used_classes.is_empty() && {
+    let namespace_class_mode = has_any_classes && used_classes.is_empty() && {
         ast.functions.iter().any(|f| f.is_extern_c && {
             let rt = &f.return_type;
             rt.contains("::") || rt.contains("void *") || rt.contains("void*") ||
@@ -91,7 +94,12 @@ pub fn extract(
             .iter()
             .filter(|c| !c.name.is_empty())
             .filter(|c| used_classes.contains(&c.name))
-            .filter_map(|ci| build_class_spec(ci, &ast.classes))
+            .map(|ci| build_class_spec(ci, &ast.classes)
+                .unwrap_or_else(|| ClassSpec {
+                    name: ci.name.clone(),
+                    methods: Vec::new(),
+                    associated_fns: Vec::new(),
+                }))
             .collect()
     };
 
@@ -219,6 +227,26 @@ fn build_cpp_block(
         let stmt = if text.ends_with(';') { text } else { format!("{};", text) };
         lines.push(stmt);
         lines.push(String::new());
+    }
+
+    // 模板类定义（在 typedef 之后、具体类之前）
+    for (_, start, end) in &ast.template_class_ranges {
+        let text = extract_range_text(source_bytes, *start, *end);
+        let text = strip_preprocessor_markers(text.trim());
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            // libclang 的 range end 指向末尾 `;` 位置，extract_range_text 用 [start..end]（不含 end），
+            // 因此提取结果不含 `;`。若末尾是 `}` 则补全 `;`。
+            let text_with_semi = if trimmed.ends_with('}') {
+                format!("{};", trimmed)
+            } else {
+                trimmed.to_string()
+            };
+            for line in text_with_semi.lines() {
+                lines.push(line.to_string());
+            }
+            lines.push(String::new());
+        }
     }
 
     // 判断是否使用分离风格（含虚函数的类）
@@ -754,8 +782,18 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     };
 
     // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
+    // 例外：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）→ NOT unsafe
+    let primitive_ret = ret_type.as_deref().map(|r| {
+        matches!(r, "i8"|"u8"|"i16"|"u16"|"i32"|"u32"|"i64"|"u64"|"f32"|"f64"|"bool"|"isize"|"usize")
+    }).unwrap_or(false);
     let is_unsafe = params.iter().any(|(_, t)| {
-        t.starts_with("*mut ") || t == "*const i8"
+        if t == "*const i8" { return true; }
+        if let Some(inner) = t.strip_prefix("*mut ") {
+            let is_class = class_names.iter().any(|cn| *cn == inner);
+            if is_class && primitive_ret { return false; }
+            return true;
+        }
+        false
     }) || ret_type.as_deref().is_some_and(|r| r == "*const i8" || r == "*mut i8");
 
     // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名

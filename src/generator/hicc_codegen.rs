@@ -31,42 +31,46 @@ pub fn generate(spec: &FfiSpec) -> String {
         out.push('\n');
         out.push_str("hicc::import_class! {\n");
         out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cs.name));
-        out.push_str(&format!("    class {} {{\n", cs.name));
-        for mb in &cs.methods {
-            out.push_str(&format!(
-                "        #[cpp(method = \"{}\")]\n",
-                mb.cpp_sig
-            ));
-            let self_ref = match mb.self_kind {
-                SelfKind::Ref => "&self",
-                SelfKind::RefMut => "&mut self",
-            };
-            let params_str = if mb.params.is_empty() {
-                String::new()
-            } else {
-                let ps: Vec<String> = mb
-                    .params
-                    .iter()
-                    .map(|(n, t)| format!("{}: {}", n, t))
-                    .collect();
-                format!(", {}", ps.join(", "))
-            };
-            let ret_str = match &mb.ret_type {
-                Some(t) => format!(" -> {}", t),
-                None => String::new(),
-            };
-            out.push_str(&format!(
-                "        fn {}({}{}){};",
-                mb.rust_name, self_ref, params_str, ret_str
-            ));
-            out.push('\n');
-            out.push('\n');
+        if cs.methods.is_empty() {
+            out.push_str(&format!("    class {} {{}}\n", cs.name));
+        } else {
+            out.push_str(&format!("    class {} {{\n", cs.name));
+            for mb in &cs.methods {
+                out.push_str(&format!(
+                    "        #[cpp(method = \"{}\")]\n",
+                    mb.cpp_sig
+                ));
+                let self_ref = match mb.self_kind {
+                    SelfKind::Ref => "&self",
+                    SelfKind::RefMut => "&mut self",
+                };
+                let params_str = if mb.params.is_empty() {
+                    String::new()
+                } else {
+                    let ps: Vec<String> = mb
+                        .params
+                        .iter()
+                        .map(|(n, t)| format!("{}: {}", n, t))
+                        .collect();
+                    format!(", {}", ps.join(", "))
+                };
+                let ret_str = match &mb.ret_type {
+                    Some(t) => format!(" -> {}", t),
+                    None => String::new(),
+                };
+                out.push_str(&format!(
+                    "        fn {}({}{}){};",
+                    mb.rust_name, self_ref, params_str, ret_str
+                ));
+                out.push('\n');
+                out.push('\n');
+            }
+            // 去掉最后一个方法后多余的空行
+            if out.ends_with("\n\n") {
+                out.pop();
+            }
+            out.push_str("    }\n");
         }
-        // 去掉最后一个方法后多余的空行
-        if out.ends_with("\n\n") {
-            out.pop();
-        }
-        out.push_str("    }\n");
         out.push_str("}\n");
     }
 
