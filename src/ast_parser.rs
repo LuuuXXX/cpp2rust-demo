@@ -90,6 +90,8 @@ pub struct ClassInfo {
     pub bases: Vec<BaseInfo>,
     pub methods: Vec<MethodInfo>,
     pub fields: Vec<FieldInfo>,
+    /// 是否来自命名空间（collect_namespace 收集的类）
+    pub is_in_namespace: bool,
 }
 
 /// 全局函数
@@ -290,6 +292,7 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
+                    ci.is_in_namespace = true;
                     ast.classes.push(ci);
                 }
             }
@@ -298,6 +301,7 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
+                    ci.is_in_namespace = true;
                     ast.classes.push(ci);
                 }
             }
@@ -457,6 +461,7 @@ fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
         bases,
         methods,
         fields,
+        is_in_namespace: false,
     })
 }
 

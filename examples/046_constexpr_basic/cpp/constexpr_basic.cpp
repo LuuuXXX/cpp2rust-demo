@@ -12,9 +12,10 @@ static constexpr int FIB_10 = fibonacci<10>();
 // FFI implementations
 
 int get_fibonacci_10() {
+    constexpr int fib_10 = example::fibonacci<10>();
     std::cout << "get_fibonacci_10() called, returning compile-time computed value: "
-              << example::FIB_10 << std::endl;
-    return example::FIB_10;
+              << fib_10 << std::endl;
+    return fib_10;
 }
 
 int manhattan_distance(int x, int y) {

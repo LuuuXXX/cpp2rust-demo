@@ -24,7 +24,10 @@ pub fn extract(
     project_header: Option<&str>,
 ) -> FfiSpec {
     let source_bytes = fs::read(&ast.file).unwrap_or_default();
-    let has_classes = !ast.classes.is_empty();
+    // has_any_classes：是否存在任何类（含命名空间类），用于 namespace_class_mode 检测
+    let has_any_classes = !ast.classes.is_empty();
+    // has_classes：是否存在非命名空间的物理类，用于决定 cpp! 块模式（project header vs inline class）
+    let has_classes = ast.classes.iter().any(|c| !c.is_in_namespace);
 
     // 去重：对于同名函数，只保留一个（有 body_offset 的优先；否则 is_extern_c=false 优先）
     let functions = dedup_functions(&ast.functions);
@@ -56,7 +59,7 @@ pub fn extract(
     //   043: void* opaque 指针（命名空间类）→ 压制所有块，只生成空 cpp!
     //   044: example::OperationResult* 命名空间类型指针 → 同样压制
     //   028: int/double 原始类型（辅助类）→ 正常生成
-    let namespace_class_mode = has_classes && used_classes.is_empty() && {
+    let namespace_class_mode = has_any_classes && used_classes.is_empty() && {
         ast.functions.iter().any(|f| f.is_extern_c && {
             let rt = &f.return_type;
             rt.contains("::") || rt.contains("void *") || rt.contains("void*") ||
