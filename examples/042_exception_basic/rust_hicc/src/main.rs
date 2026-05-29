@@ -33,6 +33,16 @@ hicc::import_lib! {
     fn calculator_new() -> Calculator;
 }
 
+fn check_exception(calc: &mut Calculator, op: &str) {
+    let ex = calc.get_exception();
+    if ex != 0 {
+        println!("  Exception in '{}': code={}", op, ex);
+        calc.clear_exception();
+    } else {
+        println!("  No exception in '{}'", op);
+    }
+}
+
 fn main() {
     println!("=== 042_exception_basic - Exception Handling ===\n");
 

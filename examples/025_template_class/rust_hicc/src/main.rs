@@ -74,8 +74,6 @@ fn main() {
     int_stack.pop();
     println!("After pop, top: {}", int_stack.top());
 
-    unsafe { intstack_delete(&int_stack) };
-
     println!();
 
     // DoubleStack
@@ -90,8 +88,6 @@ fn main() {
     println!("DoubleStack top: {}", double_stack.top());
     double_stack.pop();
     println!("After pop, top: {}", double_stack.top());
-
-    unsafe { doublestack_delete(&double_stack) };
 
     println!("\nRust FFI: 类模板 = 为每种类型实例化独立结构");
     println!("Stack<int> -> IntStack");

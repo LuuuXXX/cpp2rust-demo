@@ -5,7 +5,9 @@ fn main() {
     use std::ops::DerefMut;
     let cc_build: &mut cc::Build = build.deref_mut();
     cc_build.include(&cpp_dir);
+    cc_build.include(".");
     cc_build.cpp(true);
+    cc_build.file(cpp_dir.join("string_basic.cpp"));
     build.rust_file("src/main.rs").compile("string_basic");
 
     println!("cargo::rustc-link-lib=string_basic");

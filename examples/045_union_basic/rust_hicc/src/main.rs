@@ -4,12 +4,6 @@ hicc::cpp! {
     #include <iostream>
     #include <cstring>
 
-    enum VariantType {
-        VALUE_TYPE_INT = 0,
-        VALUE_TYPE_FLOAT = 1,
-        VALUE_TYPE_STRING = 2,
-    };
-
     #include "union_basic.h"
 }
 

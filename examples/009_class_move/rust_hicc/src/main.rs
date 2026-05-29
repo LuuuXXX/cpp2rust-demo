@@ -38,6 +38,8 @@ hicc::import_lib! {
 }
 
 fn main() {
+    use hicc::AbiClass;
+
     unsafe {
         // Create source vector with data
         let mut data = vec![10, 20, 30, 40, 50];
@@ -51,17 +53,13 @@ fn main() {
         println!("dest size before move: {}", dest.get_size());
 
         // Move: transfer resources from src to dest
-        unique_vector_move(&dest, &src_with_data);
+        unique_vector_move(&dest.as_mut_ptr(), &src_with_data.as_mut_ptr());
 
         println!("dest size after move: {}", dest.get_size());
         println!("dest[0]: {}", dest.get(0));
 
         // src should now be empty
         println!("src_with_data size after move: {}", src_with_data.get_size());
-
-        // Cleanup
-        unique_vector_delete(&dest);
-        unique_vector_delete(&src_with_data);
     }
 
     println!("\nRust FFI: Move semantics work!");

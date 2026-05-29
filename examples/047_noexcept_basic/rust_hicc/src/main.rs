@@ -50,10 +50,10 @@ fn main() {
 
     // noexcept move semantics
     println!("\n--- noexcept Move Semantics ---");
-    let mover1 = noexcept_mover_new(100);
+    let mut mover1 = noexcept_mover_new(100);
     println!("Original mover created, value = {}", mover1.get_value());
-
-    let mover2 = unsafe { noexcept_mover_move(&mover1) };
+    use hicc::AbiClass;
+    let mover2 = unsafe { noexcept_mover_move(&mover1.as_mut_ptr()) };
     println!("Mover moved (noexcept), new value = {}", mover2.get_value());
 
     println!("\n--- Summary ---");

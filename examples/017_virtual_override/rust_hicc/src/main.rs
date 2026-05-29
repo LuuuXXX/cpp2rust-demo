@@ -44,6 +44,10 @@ hicc::import_lib! {
     fn derived_new(value: f64) -> Derived;
 }
 
+fn decode_cstr(ptr: *const i8) -> String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
+}
+
 fn main() {
     println!("=== Virtual Override FFI with hicc ===\n");
     println!("The 'override' keyword explicitly marks method overriding in C++\n");
@@ -66,12 +70,6 @@ fn main() {
     println!();
     println!("override ensures Derived::area() is called not Base::area()");
     println!("This is polymorphism: same interface, different implementations\n");
-
-    unsafe {
-        base_delete(&base);
-        // Note: derived is actually Derived*, but we use Base* for deletion
-        // In real FFI, we need correct type information
-    }
 
     println!("Rust FFI: override keyword works correctly through hicc!");
 }

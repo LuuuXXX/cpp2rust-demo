@@ -70,34 +70,24 @@ fn main() {
 
     // Adder example - bound base value
     println!("--- Adder Demo (绑定基础值) ---");
-    unsafe {
-        let mut adder = adder_new(100);
-        println!("Result of adder.add(50): {}", adder.add(50));
-        println!("Result of adder.add(30): {}", adder.add(30));
-        adder_delete(&adder);
-    }
+    let mut adder = adder_new(100);
+    println!("Result of adder.add(50): {}", adder.add(50));
+    println!("Result of adder.add(30): {}", adder.add(30));
 
     // Multiplier example - bound multiplier
     println!("\n--- Multiplier Demo (绑定乘数) ---");
-    unsafe {
-        let mut multiplier = multiplier_new(7);
-        println!("multiply(6) = {}", multiplier.multiply(6));
-        println!("multiply(11) = {}", multiplier.multiply(11));
-        multiplier_delete(&multiplier);
-    }
+    let mut multiplier = multiplier_new(7);
+    println!("multiply(6) = {}", multiplier.multiply(6));
+    println!("multiply(11) = {}", multiplier.multiply(11));
 
     // StringProcessor example - bound member function and argument
     println!("\n--- StringProcessor Demo (成员函数绑定) ---");
-    unsafe {
-        let mut processor = string_processor_new();
-        processor.set_target(CString::new("hello world!").unwrap().as_ptr());
+    let mut processor = string_processor_new();
+    processor.set_target(CString::new("hello world!").unwrap().as_ptr());
 
-        println!("Count of 'l': {}", processor.count_char('l' as i8));
-        println!("Count of 'o': {}", processor.count_char('o' as i8));
-        println!("Count of 'h': {}", processor.count_char('h' as i8));
-
-        string_processor_delete(&processor);
-    }
+    println!("Count of 'l': {}", processor.count_char('l' as i8));
+    println!("Count of 'o': {}", processor.count_char('o' as i8));
+    println!("Count of 'h': {}", processor.count_char('h' as i8));
 
     println!("\n--- 总结 ---");
     println!("1. std::bind 创建部分应用的函数对象");

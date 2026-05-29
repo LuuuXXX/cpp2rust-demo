@@ -21,6 +21,8 @@ hicc::import_lib! {
     fn get_array_size() -> i32;
 }
 
+const FIB_RUST: i32 = 55;
+
 fn main() {
     println!("=== 046_constexpr_basic - constexpr ===\n");
 

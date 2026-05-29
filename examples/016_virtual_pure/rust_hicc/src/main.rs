@@ -7,7 +7,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[interface]
+    #[cpp(class = "AbstractShape", destroy = "abstract_shape_delete")]
     class AbstractShape {
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
@@ -27,6 +27,10 @@ hicc::import_lib! {
 
     #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double, double)")]
     fn abstract_shape_create_rectangle(width: f64, height: f64) -> *mut AbstractShape;
+}
+
+fn decode_cstr(ptr: *const i8) -> String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
 fn main() {

@@ -44,8 +44,6 @@ fn main() {
     fetcher.refresh();
     println!("Cache count after refresh: {}", fetcher.get_cache_count());
 
-    unsafe { datafetcher_delete(&fetcher) };
-
     println!("\nRust FFI: mutable 关键字在 FFI 中无影响");
     println!("mutable 只影响 C++ 编译器允许在 const 方法中修改该成员");
 }

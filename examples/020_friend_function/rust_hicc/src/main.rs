@@ -39,6 +39,7 @@ fn main() {
 
     let a = myclass_new(10);
     let b = myclass_new(20);
+    use hicc::AbiClass;
 
     println!("Created MyClass objects:");
     println!("  a.value = {}", a.get_value());
@@ -47,13 +48,13 @@ fn main() {
 
     // Friend functions: can access private members
     println!("Friend function operations:");
-    let sum = friend_function_get_sum(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    let sum = friend_function_get_sum(&a.as_ptr(), &b.as_ptr());
     println!("  Sum: {}", sum);
 
-    let product = friend_function_get_product(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    let product = friend_function_get_product(&a.as_ptr(), &b.as_ptr());
     println!("  Product: {}", product);
 
-    let cmp = friend_function_compare(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    let cmp = friend_function_compare(&a.as_ptr(), &b.as_ptr());
     println!("  Compare: {}", cmp);
 
     println!();

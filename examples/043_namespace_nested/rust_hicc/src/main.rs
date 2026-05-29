@@ -1,4 +1,16 @@
 hicc::cpp! {
+    #include "namespace_nested.h"
+}
+
+extern "C" {
+    fn config_manager_new() -> *mut std::ffi::c_void;
+    fn config_manager_set_value(self_: *mut std::ffi::c_void, key: *const i8, value: i32);
+    fn config_manager_get_value(self_: *mut std::ffi::c_void, key: *const i8) -> i32;
+    fn string_length(str: *const i8) -> i32;
+    fn data_processor_new() -> *mut std::ffi::c_void;
+    fn data_processor_process(self_: *mut std::ffi::c_void, input: i32) -> i32;
+    fn get_version() -> *const i8;
+    fn get_build_number() -> i32;
 }
 
 fn main() {

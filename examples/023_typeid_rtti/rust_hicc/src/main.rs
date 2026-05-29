@@ -3,17 +3,11 @@ hicc::cpp! {
     #include <typeinfo>
     #include <cmath>
 
-    enum ShapeType {
-        SHAPE_TYPE_CIRCLE = 0,
-        SHAPE_TYPE_RECTANGLE = 1,
-        SHAPE_TYPE_TRIANGLE = 2,
-    };
-
     #include "typeid_rtti.h"
 }
 
 hicc::import_class! {
-    #[interface]
+    #[cpp(class = "Shape", destroy = "shape_delete")]
     class Shape {
         #[cpp(method = "int getType() const")]
         fn get_type(&self) -> i32;

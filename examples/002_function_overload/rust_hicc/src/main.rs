@@ -19,6 +19,7 @@ hicc::import_lib! {
 }
 
 fn main() {
+    use std::ffi::CStr;
     let sum = add_int(1, 2);
     println!("add_int result: {}", sum);
 

@@ -45,6 +45,10 @@ hicc::import_lib! {
     fn circle_new(radius: f64) -> Circle;
 }
 
+fn decode_cstr(ptr: *const i8) -> String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
+}
+
 fn main() {
     println!("=== Virtual Function FFI with hicc ===\n");
 
