@@ -69,6 +69,15 @@ hicc::import_lib! {
     unsafe fn union_set_float(u: *mut IntFloatUnion, value: f32);
 }
 
+fn variant_type_name(type_code: i32) -> &'static str {
+    match type_code {
+        0 => "Int",
+        1 => "Float",
+        2 => "String",
+        _ => "Unknown",
+    }
+}
+
 fn main() {
     println!("=== 045_union_basic - Unions ===\n");
 
