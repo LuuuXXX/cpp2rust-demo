@@ -203,7 +203,8 @@ g++ -E -C \
 ├── rust/                            # 生成的 Rust 项目
 │   └── src/
 │       ├── lib.rs
-│       └── mod_<name>/
+│       ├── <unit>.rs                # 扁平文件（C++ 根目录下的编译单元）
+│       └── <subdir>/<unit>.rs       # 带子目录（源文件位于 src/ 等子目录时，首级目录已去掉）
 └── targets.list                     # 链接目标列表
 ```
 
