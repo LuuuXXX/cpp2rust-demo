@@ -659,10 +659,10 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
         return None;
     }
 
-    // 检测纯虚接口类：所有 public 非 ctor/dtor 方法均为纯虚
+    // 检测纯虚接口类：所有 public 非 ctor/dtor 方法（含继承）均为纯虚
     let is_interface = !own_methods.is_empty()
         && own_methods.iter().all(|m| m.is_pure_virtual)
-        && inherited.is_empty(); // 纯虚类通常不继承具体方法
+        && inherited.iter().all(|m| m.is_pure_virtual);
 
     Some(ClassSpec { name: ci.name.clone(), methods, associated_fns: Vec::new(), destroy_fn: None, is_interface })
 }
@@ -1115,6 +1115,12 @@ fn assign_associated_fns(
         kind_map.entry(to_snake_case(&fi.name)).or_insert(kind);
     }
 
+    // 预先构建 rust_name → FunctionInfo 映射，避免在循环中重复计算 to_snake_case
+    let fn_by_rust_name: std::collections::HashMap<String, &FunctionInfo> = functions
+        .iter()
+        .map(|fi| (to_snake_case(&fi.name), *fi))
+        .collect();
+
     let mut remaining = Vec::new();
     for fb in lib_spec.fn_bindings.drain(..) {
         let kind = kind_map.get(&fb.rust_name).copied();
@@ -1127,7 +1133,7 @@ fn assign_associated_fns(
             // 通过函数签名中的类型（返回类型 / 第一个参数类型）确定归属类。
             // 这比名称前缀匹配更可靠，可正确处理 RapidJsonBigIntegerHandle 这类
             // 类名与函数名前缀不一致的情况。
-            let fi_opt = functions.iter().find(|fi| to_snake_case(&fi.name) == fb.rust_name);
+            let fi_opt = fn_by_rust_name.get(&fb.rust_name).copied();
             let owning: Option<&str> = fi_opt.and_then(|fi| {
                 if matches!(kind, Some(ShimKind::Ctor)) {
                     // Ctor：返回类型中含类名

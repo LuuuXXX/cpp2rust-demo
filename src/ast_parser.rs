@@ -147,7 +147,8 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     // 扫描预处理文件中的行号标记，确定哪些字节范围属于 shim cpp 文件自身
     // （而非 include 进来的头文件）。libclang 对预处理文件始终返回物理文件路径，
     // 所以必须通过字节偏移量来区分来源。
-    let file_content = std::fs::read_to_string(file).unwrap_or_default();
+    let file_content = std::fs::read_to_string(file)
+        .map_err(|e| anyhow!("failed to read {} for line marker scan: {}", file.display(), e))?;
     let cpp_ranges = cpp_byte_ranges(&file_content);
 
     let mut ast = CppAst {
