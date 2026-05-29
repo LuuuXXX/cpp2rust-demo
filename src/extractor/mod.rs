@@ -880,7 +880,14 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         return ShimKind::Ctor;
     }
     if first_param_is_class_ptr
-        && (name_lower.contains("_delete") || name_lower.ends_with("delete"))
+        && (name_lower.contains("_delete")
+            || name_lower.ends_with("delete")
+            || name_lower.contains("_free")
+            || name_lower.ends_with("free")
+            || name_lower.contains("_destroy")
+            || name_lower.ends_with("destroy")
+            || name_lower.contains("_release")
+            || name_lower.ends_with("release"))
     {
         return ShimKind::Dtor;
     }
@@ -1117,15 +1124,31 @@ fn assign_associated_fns(
         );
 
         if should_move {
-            // 找到名称前缀与此函数匹配的类（优先最长前缀）
-            let owning = class_names
-                .iter()
-                .filter(|cn| {
-                    let prefix = format!("{}_", cn.to_lowercase());
-                    fb.rust_name.starts_with(&prefix)
-                })
-                .max_by_key(|cn| cn.len())
-                .copied();
+            // 通过函数签名中的类型（返回类型 / 第一个参数类型）确定归属类。
+            // 这比名称前缀匹配更可靠，可正确处理 RapidJsonBigIntegerHandle 这类
+            // 类名与函数名前缀不一致的情况。
+            let fi_opt = functions.iter().find(|fi| to_snake_case(&fi.name) == fb.rust_name);
+            let owning: Option<&str> = fi_opt.and_then(|fi| {
+                if matches!(kind, Some(ShimKind::Ctor)) {
+                    // Ctor：返回类型中含类名
+                    class_names.iter().find(|cn| fi.return_type.contains(*cn)).copied()
+                } else if matches!(kind, Some(ShimKind::Dtor)) {
+                    // Dtor：第一个参数类型含类名
+                    fi.params.first().and_then(|p| {
+                        class_names.iter().find(|cn| p.type_name.contains(*cn)).copied()
+                    })
+                } else {
+                    // StaticAccessor：退回名称前缀匹配
+                    class_names
+                        .iter()
+                        .filter(|cn| {
+                            let prefix = format!("{}_", cn.to_lowercase());
+                            fb.rust_name.starts_with(&prefix)
+                        })
+                        .max_by_key(|cn| cn.len())
+                        .copied()
+                }
+            });
 
             if let Some(cn) = owning {
                 if let Some(cs) = class_specs.iter_mut().find(|c| c.name == cn) {
