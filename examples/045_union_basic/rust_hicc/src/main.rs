@@ -219,17 +219,18 @@ fn main() {
     println!("\n--- Memory Overlay Demo ---");
     println!("sizeof(int) = {}, sizeof(float) = {}", std::mem::size_of::<i32>(), std::mem::size_of::<f32>());
 
-    let mut union_int = union_new();
+    let mut union_ptr = union_new();
 
     // Set int value
-    unsafe { union_set_int(&mut union_int, 0x41414141); }  // 'AAAA' in ASCII
-    println!("Set as int: {} (0x{:08x})", union_get_int(&union_int), union_get_int(&union_int) as u32);
+    unsafe { union_set_int(&mut union_ptr, 0x41414141); }  // 'AAAA' in ASCII
+    let int_val = union_get_int(&union_ptr);
+    println!("Set as int: {} (0x{:08x})", int_val, int_val as u32);
 
     // Read same memory as float
-    let float_bits = union_get_float(&union_int);
+    let float_bits = union_get_float(&union_ptr);
     println!("Read as float: {} (bits: 0x{:08x})", float_bits, float_bits.to_bits());
 
-    unsafe { union_delete(&union_int); };
+    unsafe { union_delete(&union_ptr); };
 
     println!("\n--- Summary ---");
     println!("1. union all members share the same memory");
