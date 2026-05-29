@@ -125,18 +125,20 @@ fn write_mod_files(src_dir: &Path, tree: &BTreeMap<String, ModuleNode>) -> Resul
 /// 1. 去掉 `c_dir` 前缀，得到相对路径；
 /// 2. 去掉 `.cpp2rust` 后缀；
 /// 3. 取文件 stem（去掉 `.cpp` 等扩展名）；
-/// 4. **去掉第一级路径分量**（即 C++ 源码根目录，如 `src/`），避免与 Rust crate
-///    自身的 `src/` 目录叠加产生 `rust/src/src/…` 的双重路径；
+/// 4. **去掉第一级路径分量**（即 C++ 源码根目录，可以是任意名称，如 `src/`、`lib/`、
+///    `source/` 等），避免与 Rust crate 自身的 `src/` 目录叠加产生 `rust/src/src/…`
+///    的双重路径。若文件直接位于 `c_dir` 下（无父级目录），则不做去除；
 /// 5. 对每个路径分量执行 [`sanitize_mod_ident`]。
 ///
 /// # 示例
 ///
-/// | c_dir 内的文件                    | 结果          |
-/// |----------------------------------|---------------|
-/// | `src/utils/foo.cpp.cpp2rust`     | `utils/foo`   |
-/// | `src/main.cpp.cpp2rust`          | `main`        |
-/// | `main.cpp.cpp2rust`（项目根）    | `main`        |
-/// | `src/my-mod/foo-bar.cpp.cpp2rust`| `my_mod/foo_bar` |
+/// | c_dir 内的文件                       | 结果             |
+/// |-------------------------------------|------------------|
+/// | `src/utils/foo.cpp.cpp2rust`        | `utils/foo`      |
+/// | `lib/utils/bar.cpp.cpp2rust`        | `utils/bar`      |
+/// | `src/main.cpp.cpp2rust`             | `main`           |
+/// | `main.cpp.cpp2rust`（项目根）       | `main`           |
+/// | `src/my-mod/foo-bar.cpp.cpp2rust`   | `my_mod/foo_bar` |
 pub fn derive_unit_path(c_dir: &Path, cpp2rust_file: &Path) -> String {
     let rel = cpp2rust_file.strip_prefix(c_dir).unwrap_or(cpp2rust_file);
     let rel_str = rel.to_string_lossy();
@@ -276,9 +278,10 @@ mod tests {
 
     #[test]
     fn write_unit_rs_nested() {
+        // write_unit_rs 接受 derive_unit_path 输出的路径（不含首级目录）
         let tmp = TempDir::new().unwrap();
-        write_unit_rs(tmp.path(), "src/utils/foo", "// nested\n").unwrap();
-        let p = tmp.path().join("src/src/utils/foo.rs");
+        write_unit_rs(tmp.path(), "utils/foo", "// nested\n").unwrap();
+        let p = tmp.path().join("src/utils/foo.rs");
         assert!(p.exists());
         assert_eq!(std::fs::read_to_string(p).unwrap(), "// nested\n");
     }
