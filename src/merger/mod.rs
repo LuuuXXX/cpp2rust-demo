@@ -232,25 +232,31 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
     out
 }
 
-/// 扫描 `src_dir` 下所有 `*.rs` 文件，返回路径列表（排序）。
-/// 排除 `lib.rs`（汇总模块，不含 FFI 块）。
+/// 递归扫描 `src_dir` 下所有 `*.rs` 文件，返回路径列表（排序）。
+/// 排除 `lib.rs`（汇总模块）和 `mod.rs`（目录声明文件），只返回实际 unit 文件。
 pub fn collect_unit_rs_files(src_dir: &Path) -> Vec<std::path::PathBuf> {
     let mut result = Vec::new();
-    let rd = match std::fs::read_dir(src_dir) {
+    collect_unit_rs_recursive(src_dir, &mut result);
+    result.sort();
+    result
+}
+
+fn collect_unit_rs_recursive(dir: &Path, result: &mut Vec<std::path::PathBuf>) {
+    let rd = match std::fs::read_dir(dir) {
         Ok(r) => r,
-        Err(_) => return result,
+        Err(_) => return,
     };
     for entry in rd.flatten() {
         let p = entry.path();
-        if p.extension().and_then(|e| e.to_str()) == Some("rs") {
+        if p.is_dir() {
+            collect_unit_rs_recursive(&p, result);
+        } else if p.extension().and_then(|e| e.to_str()) == Some("rs") {
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name != "lib.rs" {
+            if name != "lib.rs" && name != "mod.rs" {
                 result.push(p);
             }
         }
     }
-    result.sort();
-    result
 }
 
 #[cfg(test)]
@@ -334,5 +340,64 @@ hicc::import_lib! {
         let spec = merge_units(&[p1, p2], "merged");
         assert_eq!(spec.fn_bindings.len(), 1, "duplicate fn binding should be deduped");
         assert_eq!(spec.fwd_decls.len(), 1, "duplicate fwd_decl should be deduped");
+    }
+
+    // ── collect_unit_rs_files ──────────────────
+
+    #[test]
+    fn collect_unit_rs_files_flat() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("unit1.rs"), "").unwrap();
+        std::fs::write(dir.path().join("unit2.rs"), "").unwrap();
+        std::fs::write(dir.path().join("lib.rs"), "").unwrap();
+
+        let files = collect_unit_rs_files(dir.path());
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().any(|p| p.ends_with("unit1.rs")));
+        assert!(files.iter().any(|p| p.ends_with("unit2.rs")));
+    }
+
+    #[test]
+    fn collect_unit_rs_files_excludes_mod_rs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("mod.rs"), "").unwrap();
+        std::fs::write(sub.join("foo.rs"), "").unwrap();
+
+        let files = collect_unit_rs_files(dir.path());
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("foo.rs"));
+    }
+
+    #[test]
+    fn collect_unit_rs_files_recursive() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // 模拟层级结构：src/utils/foo.rs, src/main.rs, flat.rs
+        let utils = dir.path().join("src").join("utils");
+        std::fs::create_dir_all(&utils).unwrap();
+        std::fs::write(utils.join("foo.rs"), "").unwrap();
+        std::fs::write(dir.path().join("src").join("main.rs"), "").unwrap();
+        std::fs::write(dir.path().join("flat.rs"), "").unwrap();
+        std::fs::write(dir.path().join("lib.rs"), "").unwrap();
+        std::fs::write(dir.path().join("src").join("mod.rs"), "").unwrap();
+
+        let files = collect_unit_rs_files(dir.path());
+        assert_eq!(files.len(), 3, "should find foo.rs, main.rs, flat.rs");
+    }
+
+    #[test]
+    fn collect_unit_rs_files_same_stem_different_dirs() {
+        // 验证同名文件位于不同子目录时均能被找到（无冲突）
+        let dir = tempfile::TempDir::new().unwrap();
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("foo.rs"), "// a").unwrap();
+        std::fs::write(b.join("foo.rs"), "// b").unwrap();
+
+        let files = collect_unit_rs_files(dir.path());
+        assert_eq!(files.len(), 2);
     }
 }
