@@ -94,7 +94,12 @@ pub fn extract(
             .iter()
             .filter(|c| !c.name.is_empty())
             .filter(|c| used_classes.contains(&c.name))
-            .filter_map(|ci| build_class_spec(ci, &ast.classes))
+            .map(|ci| build_class_spec(ci, &ast.classes)
+                .unwrap_or_else(|| ClassSpec {
+                    name: ci.name.clone(),
+                    methods: Vec::new(),
+                    associated_fns: Vec::new(),
+                }))
             .collect()
     };
 
@@ -222,6 +227,19 @@ fn build_cpp_block(
         let stmt = if text.ends_with(';') { text } else { format!("{};", text) };
         lines.push(stmt);
         lines.push(String::new());
+    }
+
+    // 模板类定义（在 typedef 之后、具体类之前）
+    for (_, start, end) in &ast.template_class_ranges {
+        let text = extract_range_text(source_bytes, *start, *end);
+        let text = strip_preprocessor_markers(text.trim());
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            for line in trimmed.lines() {
+                lines.push(line.to_string());
+            }
+            lines.push(String::new());
+        }
     }
 
     // 判断是否使用分离风格（含虚函数的类）
@@ -757,8 +775,18 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     };
 
     // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
+    // 例外：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）→ NOT unsafe
+    let primitive_ret = ret_type.as_deref().map(|r| {
+        matches!(r, "i8"|"u8"|"i16"|"u16"|"i32"|"u32"|"i64"|"u64"|"f32"|"f64"|"bool"|"isize"|"usize")
+    }).unwrap_or(false);
     let is_unsafe = params.iter().any(|(_, t)| {
-        t.starts_with("*mut ") || t == "*const i8"
+        if t == "*const i8" { return true; }
+        if let Some(inner) = t.strip_prefix("*mut ") {
+            let is_class = class_names.iter().any(|cn| *cn == inner);
+            if is_class && primitive_ret { return false; }
+            return true;
+        }
+        false
     }) || ret_type.as_deref().is_some_and(|r| r == "*const i8" || r == "*mut i8");
 
     // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名
