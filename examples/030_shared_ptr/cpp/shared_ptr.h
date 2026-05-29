@@ -22,7 +22,7 @@ struct Cache;
 Cache* cache_new(void);
 void cache_delete(Cache* self);
 
-SharedData* cache_get(Cache* self, const char* name);
+SharedData* cache_get(Cache* c, const char* name);
 
 #ifdef __cplusplus
 }

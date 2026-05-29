@@ -84,6 +84,6 @@ void cache_delete(Cache* self) {
     delete self;
 }
 
-SharedData* cache_get(Cache* self, const char* name) {
-    return self ? self->get(name) : nullptr;
+SharedData* cache_get(Cache* c, const char* name) {
+    return c ? c->get(name) : nullptr;
 }

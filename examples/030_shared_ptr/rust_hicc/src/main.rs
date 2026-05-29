@@ -65,8 +65,8 @@ hicc::cpp! {
         delete self;
     }
 
-    SharedData* cache_get(Cache* self, const char* name) {
-        return self->get(name);
+    SharedData* cache_get(Cache* c, const char* name) {
+        return c ? c->get(name) : nullptr;
     }
 }
 
@@ -90,6 +90,8 @@ hicc::import_class! {
 hicc::import_class! {
     #[cpp(class = "Cache")]
     class Cache {
+        #[cpp(method = "SharedData* get(const char* name)")]
+        fn get(&mut self, name: *const i8) -> *mut SharedData;
     }
 }
 
@@ -111,8 +113,8 @@ hicc::import_lib! {
     #[cpp(func = "void cache_delete(Cache* self)")]
     unsafe fn cache_delete(self_: *mut Cache);
 
-    #[cpp(func = "SharedData* cache_get(Cache*, const char*)")]
-    unsafe fn cache_get(self_: *mut Cache, name: *const i8) -> *mut SharedData;
+    #[cpp(func = "SharedData* cache_get(Cache* c, const char*)")]
+    unsafe fn cache_get(c: *mut Cache, name: *const i8) -> *mut SharedData;
 }
 
 fn main() {
