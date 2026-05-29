@@ -30,7 +30,7 @@ pub fn sanitize_mod_ident(s: &str) -> String {
     let mut result = String::with_capacity(s.len() + 1);
     let mut chars = s.chars().peekable();
     // 首字符若为数字，先插一个下划线
-    if chars.peek().map_or(false, |c: &char| c.is_ascii_digit()) {
+    if chars.peek().map_or(false, |c| c.is_ascii_digit()) {
         result.push('_');
     }
     for c in chars {
@@ -75,8 +75,13 @@ fn insert_path(tree: &mut BTreeMap<String, ModuleNode>, parts: &[&str]) {
             .or_insert_with(|| ModuleNode::Dir(BTreeMap::new()));
         if let ModuleNode::Dir(children) = node {
             insert_path(children, &parts[1..]);
+        } else {
+            // 节点已是 Leaf 但又需作为目录（极端冲突），发出警告
+            eprintln!(
+                "Warning: module path conflict at '{}': used as both a file and a directory",
+                parts[0]
+            );
         }
-        // 若节点已是 Leaf（冲突），静默跳过
     }
 }
 

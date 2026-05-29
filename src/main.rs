@@ -221,10 +221,11 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     println!("\nRunning AST parser and code generation on selected files...");
     let mut unit_paths: Vec<String> = Vec::new();
-    let mut seen_unit_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut parse_errors = 0usize;
     // 降级特性统计：tag → 出现次数
     let mut degraded_tags: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    // unit_path → 首次注册该路径的源文件（用于冲突诊断）
+    let mut seen_unit_paths: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
 
     for path in &selected {
         let file_start = Instant::now();
@@ -254,9 +255,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                 .and_then(|s| s.to_str())
                 .unwrap_or("unit");
             let sanitized_stem = project_generator::sanitize_mod_ident(stem);
-            match p.parent().filter(|pp| {
-                *pp != std::path::Path::new("") && *pp != std::path::Path::new(".")
-            }) {
+            match p.parent().filter(|pp| !pp.as_os_str().is_empty()) {
                 Some(parent) => {
                     let parts: Vec<String> = parent
                         .components()
@@ -273,15 +272,17 @@ fn run_init(args: InitArgs) -> Result<()> {
             }
         };
 
-        // 冲突检测：两个不同源文件映射到同一 unit_path
-        if !seen_unit_paths.insert(unit_path.clone()) {
+        // 冲突检测：两个不同源文件映射到同一 unit_path，显示两个文件路径便于排查
+        if let Some(first) = seen_unit_paths.get(&unit_path) {
             eprintln!(
-                "  Warning: unit path conflict '{}' (from {}); skipping duplicate",
+                "  Warning: unit path conflict '{}': first claimed by {}, now skipping {}",
                 unit_path,
+                first.display(),
                 path.display()
             );
             continue;
         }
+        seen_unit_paths.insert(unit_path.clone(), path.clone());
 
         match ast_parser::parse_preprocessed(path) {
             Ok(ast) => {
