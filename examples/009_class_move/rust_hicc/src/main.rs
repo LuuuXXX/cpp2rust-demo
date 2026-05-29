@@ -2,56 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <cstring>
 
-    class UniqueVector {
-        int* data;
-        int size;
-    public:
-        UniqueVector() : data(nullptr), size(0) {}
-        UniqueVector(int* data, int size) : size(size) {
-    this->data = new int[size];
-    std::memcpy(this->data, data, size * sizeof(int));
-}
-        ~UniqueVector() {
-    delete[] data;
-}
-        UniqueVector(UniqueVector&& other) noexcept : data(other.data), size(other.size) {
-    other.data = nullptr;
-    other.size = 0;
-}
-        UniqueVector& operator=(UniqueVector&& other) noexcept {
-    if (this != &other) {
-        delete[] data;
-        data = other.data;
-        size = other.size;
-        other.data = nullptr;
-        other.size = 0;
-    }
-    return *this;
-}
-        int get(int index) const {
-    if (index >= 0 && index < size) {
-        return data[index];
-    }
-    return 0;
-}
-        void set(int index, int value) {
-    if (index >= 0 && index < size) {
-        data[index] = value;
-    }
-}
-        int getSize() const {
-    return size;
-}
-        void moveFrom(UniqueVector& src) {
-    delete[] data;
-    data = src.data;
-    size = src.size;
-    src.data = nullptr;
-    src.size = 0;
-}
-    };
-
-    UniqueVector* unique_vector_new() {
+    UniqueVector* unique_vector_new(void) {
         return new UniqueVector();
     }
 
@@ -70,7 +21,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "UniqueVector")]
+    #[cpp(class = "UniqueVector", destroy = "unique_vector_delete")]
     class UniqueVector {
         #[cpp(method = "int get(int index) const")]
         fn get(&self, index: i32) -> i32;
@@ -92,13 +43,10 @@ hicc::import_lib! {
     class UniqueVector;
 
     #[cpp(func = "UniqueVector* unique_vector_new()")]
-    fn unique_vector_new() -> *mut UniqueVector;
+    fn unique_vector_new() -> UniqueVector;
 
     #[cpp(func = "UniqueVector* unique_vector_newWithData(int*, int)")]
-    unsafe fn unique_vector_new_with_data(data: *mut i32, size: i32) -> *mut UniqueVector;
-
-    #[cpp(func = "void unique_vector_delete(UniqueVector* self)")]
-    unsafe fn unique_vector_delete(self_: *mut UniqueVector);
+    unsafe fn unique_vector_new_with_data(data: *mut i32, size: i32) -> UniqueVector;
 
     #[cpp(func = "void unique_vector_move(UniqueVector* dest, UniqueVector* src)")]
     unsafe fn unique_vector_move(dest: *mut UniqueVector, src: *mut UniqueVector);

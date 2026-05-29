@@ -3,48 +3,6 @@ hicc::cpp! {
     #include <cstring>
     #include <string>
 
-    class Animal {
-    protected:
-        std::string name;
-    public:
-        Animal(const char* n);
-        virtual ~Animal();
-        const char* getName() const;
-        virtual void speak() const;
-    };
-
-    class Dog : public Animal {
-    public:
-        Dog(const char* n);
-        ~Dog() override;
-        void bark() const;
-        void speak() const override;
-    };
-
-    Animal::Animal(const char* n) : name(n) {}
-
-    Animal::~Animal() {}
-
-    const char* Animal::getName() const {
-        return name.c_str();
-    }
-
-    void Animal::speak() const {
-        std::cout << name << " makes a sound" << std::endl;
-    }
-
-    Dog::Dog(const char* n) : Animal(n) {}
-
-    Dog::~Dog() {}
-
-    void Dog::bark() const {
-        std::cout << name << " barks: Woof! Woof!" << std::endl;
-    }
-
-    void Dog::speak() const {
-        std::cout << name << " barks: Woof! Woof!" << std::endl;
-    }
-
     Animal* animal_new(const char* name) {
         return new Animal(name);
     }
@@ -63,7 +21,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Animal")]
+    #[cpp(class = "Animal", destroy = "animal_delete")]
     class Animal {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
@@ -74,7 +32,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Dog")]
+    #[cpp(class = "Dog", destroy = "dog_delete")]
     class Dog {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
@@ -94,16 +52,10 @@ hicc::import_lib! {
     class Dog;
 
     #[cpp(func = "Animal* animal_new(const char*)")]
-    unsafe fn animal_new(name: *const i8) -> *mut Animal;
-
-    #[cpp(func = "void animal_delete(Animal* self)")]
-    unsafe fn animal_delete(self_: *mut Animal);
+    unsafe fn animal_new(name: *const i8) -> Animal;
 
     #[cpp(func = "Dog* dog_new(const char*)")]
-    unsafe fn dog_new(name: *const i8) -> *mut Dog;
-
-    #[cpp(func = "void dog_delete(Dog* self)")]
-    unsafe fn dog_delete(self_: *mut Dog);
+    unsafe fn dog_new(name: *const i8) -> Dog;
 }
 
 fn main() {
@@ -113,9 +65,6 @@ fn main() {
 
     println!("Animal name: {}", decode_cstr(animal.get_name()));
     animal.speak();
-    unsafe {
-        animal_delete(&animal);
-    }
 
     println!();
 
@@ -126,9 +75,6 @@ fn main() {
     println!("Dog name: {}", decode_cstr(dog.get_name()));
     dog.speak();  // Call inherited speak method
     dog.bark();   // Call Dog's own bark method
-    unsafe {
-        dog_delete(&dog);
-    }
 
     println!("\nRust FFI: Single inheritance with hicc pattern");
 }

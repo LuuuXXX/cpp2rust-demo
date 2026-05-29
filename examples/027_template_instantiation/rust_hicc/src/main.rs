@@ -3,51 +3,6 @@ hicc::cpp! {
     #include <vector>
     #include <iomanip>
 
-    template<typename T>
-    class Matrix {
-        int rows_;
-        int cols_;
-        std::vector<T> data_;
-    public:
-        Matrix(int rows, int cols) : rows_(rows), cols_(cols), data_(rows * cols) {}
-        int rows() const { return rows_; }
-        int cols() const { return cols_; }
-        T get(int row, int col) const { return data_[row * cols_ + col]; }
-        void set(int row, int col, T value) { data_[row * cols_ + col] = value; }
-        void print() const {
-            for (int i = 0; i < rows_; i++) {
-                for (int j = 0; j < cols_; j++) {
-                    std::cout << std::setw(4) << get(i, j);
-                }
-                std::cout << std::endl;
-            }
-        }
-    };
-
-    class IntMatrix {
-        Matrix<int>* impl_;
-    public:
-        IntMatrix(int rows, int cols) : impl_(new Matrix<int>(rows, cols)) {}
-        ~IntMatrix() { delete impl_; }
-        int rows() const { return impl_->rows(); }
-        int cols() const { return impl_->cols(); }
-        int get(int row, int col) const { return impl_->get(row, col); }
-        void set(int row, int col, int value) { impl_->set(row, col, value); }
-        void print() const { impl_->print(); }
-    };
-
-    class DoubleMatrix {
-        Matrix<double>* impl_;
-    public:
-        DoubleMatrix(int rows, int cols) : impl_(new Matrix<double>(rows, cols)) {}
-        ~DoubleMatrix() { delete impl_; }
-        int rows() const { return impl_->rows(); }
-        int cols() const { return impl_->cols(); }
-        double get(int row, int col) const { return impl_->get(row, col); }
-        void set(int row, int col, double value) { impl_->set(row, col, value); }
-        void print() const { impl_->print(); }
-    };
-
     IntMatrix* intmatrix_new(int rows, int cols) {
         return new IntMatrix(rows, cols);
     }
@@ -66,7 +21,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntMatrix")]
+    #[cpp(class = "IntMatrix", destroy = "intmatrix_delete")]
     class IntMatrix {
         #[cpp(method = "int rows() const")]
         fn rows(&self) -> i32;
@@ -86,7 +41,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "DoubleMatrix")]
+    #[cpp(class = "DoubleMatrix", destroy = "doublematrix_delete")]
     class DoubleMatrix {
         #[cpp(method = "int rows() const")]
         fn rows(&self) -> i32;
@@ -112,16 +67,10 @@ hicc::import_lib! {
     class DoubleMatrix;
 
     #[cpp(func = "IntMatrix* intmatrix_new(int, int)")]
-    fn intmatrix_new(rows: i32, cols: i32) -> *mut IntMatrix;
-
-    #[cpp(func = "void intmatrix_delete(IntMatrix* self)")]
-    unsafe fn intmatrix_delete(self_: *mut IntMatrix);
+    fn intmatrix_new(rows: i32, cols: i32) -> IntMatrix;
 
     #[cpp(func = "DoubleMatrix* doublematrix_new(int, int)")]
-    fn doublematrix_new(rows: i32, cols: i32) -> *mut DoubleMatrix;
-
-    #[cpp(func = "void doublematrix_delete(DoubleMatrix* self)")]
-    unsafe fn doublematrix_delete(self_: *mut DoubleMatrix);
+    fn doublematrix_new(rows: i32, cols: i32) -> DoubleMatrix;
 }
 
 fn main() {
@@ -157,6 +106,4 @@ fn main() {
     println!("Matrix<int> -> IntMatrix");
     println!("Matrix<double> -> DoubleMatrix");
 }
-
-
 

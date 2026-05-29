@@ -3,49 +3,6 @@ hicc::cpp! {
     #include <cstring>
     #include <string>
 
-    class Base {
-    protected:
-        std::string name;
-    public:
-        Base(const char* n);
-        virtual ~Base();
-        virtual double area() const;
-        const char* getName() const;
-    };
-
-    class Derived : public Base {
-        double value;
-    public:
-        Derived(double v);
-        ~Derived() override;
-        double area() const override;
-        double getValue() const;
-    };
-
-    Base::Base(const char* n) : name(n) {}
-
-    Base::~Base() {}
-
-    double Base::area() const {
-        return 0.0;
-    }
-
-    const char* Base::getName() const {
-        return name.c_str();
-    }
-
-    Derived::Derived(double v) : Base("Derived"), value(v) {}
-
-    Derived::~Derived() {}
-
-    double Derived::area() const {
-        return value * value; // area = value^2 for demonstration
-    }
-
-    double Derived::getValue() const {
-        return value;
-    }
-
     Base* base_create(int type) {
         if (type == 0) {
             std::cout << "Creating Base" << std::endl;
@@ -70,7 +27,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Base")]
+    #[cpp(class = "Base", destroy = "base_delete")]
     class Base {
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
@@ -81,7 +38,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Derived")]
+    #[cpp(class = "Derived", destroy = "derived_delete")]
     class Derived {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
@@ -101,24 +58,10 @@ hicc::import_lib! {
     class Derived;
 
     #[cpp(func = "Base* base_create(int)")]
-    fn base_create(type_: i32) -> *mut Base;
-
-    #[cpp(func = "void base_delete(Base* self)")]
-    unsafe fn base_delete(self_: *mut Base);
+    fn base_create(type_: i32) -> Base;
 
     #[cpp(func = "Derived* derived_new(double)")]
-    fn derived_new(value: f64) -> *mut Derived;
-
-    #[cpp(func = "void derived_delete(Derived* self)")]
-    unsafe fn derived_delete(self_: *mut Derived);
-}
-fn decode_cstr(ptr: *const i8) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    unsafe { std::ffi::CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .to_string()
+    fn derived_new(value: f64) -> Derived;
 }
 
 fn main() {

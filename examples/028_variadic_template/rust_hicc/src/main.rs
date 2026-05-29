@@ -2,31 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <cstdarg>
 
-    class SumCalculator {
-    public:
-        static int calculate_zero() { return 0; }
-        static int calculate_1(int a) { return a; }
-        static int calculate_2(int a, int b) { return a + b; }
-        static int calculate_3(int a, int b, int c) { return a + b + c; }
-        static int calculate_4(int a, int b, int c, int d) { return a + b + c + d; }
-        static int calculate_5(int a, int b, int c, int d, int e) { return a + b + c + d + e; }
-        static double calculate_double_2(double a, double b) { return a + b; }
-        static double calculate_double_3(double a, double b, double c) { return a + b + c; }
-        static double calculate_double_4(double a, double b, double c, double d) { return a + b + c + d; }
-        static const char* get_format(int count) {
-    switch (count) {
-        case 0: return "sum()";
-        case 1: return "sum(%d)";
-        case 2: return "sum(%d, %d)";
-        case 3: return "sum(%d, %d, %d)";
-        case 4: return "sum(%d, %d, %d, %d)";
-        case 5: return "sum(%d, %d, %d, %d, %d)";
-        default: return "unknown";
-    }
-}
-    };
-
-    int sum_zero() {
+    int sum_zero(void) {
         return SumCalculator::calculate_zero();
     }
 

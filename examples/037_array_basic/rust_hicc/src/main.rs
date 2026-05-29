@@ -5,97 +5,7 @@ hicc::cpp! {
     #include <string>
     #include <cstring>
 
-    class IntArray5Impl {
-    public:
-        std::array<int, 5> data;
-    public:
-        IntArray5Impl() : data() {
-}
-        IntArray5Impl(const int* values) : data() {
-    if (values) {
-        for (size_t i = 0; i < 5; ++i) {
-            data[i] = values[i];
-        }
-    }
-}
-        ~IntArray5Impl() {
-}
-    };
-
-    class DoubleArray3Impl {
-    public:
-        std::array<double, 3> data;
-    public:
-        DoubleArray3Impl() : data() {
-}
-        DoubleArray3Impl(const double* values) : data() {
-    if (values) {
-        for (size_t i = 0; i < 3; ++i) {
-            data[i] = values[i];
-        }
-    }
-}
-        ~DoubleArray3Impl() {
-}
-    };
-
-    class StringArray4Impl {
-    public:
-        std::array<std::string, 4> data;
-        bool initialized[4];
-    public:
-        StringArray4Impl() : data(), initialized{false, false, false, false} {
-}
-        ~StringArray4Impl() {
-}
-    };
-
-    struct IntArray5 {
-    public:
-        IntArray5Impl* impl;
-        IntArray5() : impl(new IntArray5Impl()) {
-}
-        IntArray5(const int* values) : impl(new IntArray5Impl(values)) {
-}
-        ~IntArray5() {
-    delete impl;
-    impl = nullptr;
-}
-        size_t size() const { return impl->data.size(); }
-        bool empty() const { return impl->data.empty(); }
-        void set(size_t i, int val) { impl->data[i] = val; }
-        int get(size_t i) const { return impl->data[i]; }
-        int at(size_t i) const { return impl->data.at(i); }
-        int* data() { return impl->data.data(); }
-    };
-
-    struct DoubleArray3 {
-    public:
-        DoubleArray3Impl* impl;
-        DoubleArray3() : impl(new DoubleArray3Impl()) {
-}
-        DoubleArray3(const double* values) : impl(new DoubleArray3Impl(values)) {
-}
-        ~DoubleArray3() {
-    delete impl;
-    impl = nullptr;
-}
-        size_t size() const { return impl->data.size(); }
-    };
-
-    struct StringArray4 {
-    public:
-        StringArray4Impl* impl;
-        StringArray4() : impl(new StringArray4Impl()) {
-}
-        ~StringArray4() {
-    delete impl;
-    impl = nullptr;
-}
-        size_t size() const { return impl->data.size(); }
-    };
-
-    IntArray5* int_array5_new() {
+    IntArray5* int_array5_new(void) {
         return new IntArray5();
     }
 
@@ -107,7 +17,7 @@ hicc::cpp! {
         delete self;
     }
 
-    DoubleArray3* double_array3_new() {
+    DoubleArray3* double_array3_new(void) {
         return new DoubleArray3();
     }
 
@@ -119,7 +29,7 @@ hicc::cpp! {
         delete self;
     }
 
-    StringArray4* string_array4_new() {
+    StringArray4* string_array4_new(void) {
         return new StringArray4();
     }
 
@@ -129,7 +39,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntArray5")]
+    #[cpp(class = "IntArray5", destroy = "int_array5_delete")]
     class IntArray5 {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
@@ -152,7 +62,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "DoubleArray3")]
+    #[cpp(class = "DoubleArray3", destroy = "double_array3_delete")]
     class DoubleArray3 {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
@@ -160,7 +70,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "StringArray4")]
+    #[cpp(class = "StringArray4", destroy = "string_array4_delete")]
     class StringArray4 {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
@@ -175,28 +85,19 @@ hicc::import_lib! {
     class StringArray4;
 
     #[cpp(func = "IntArray5* int_array5_new()")]
-    fn int_array5_new() -> *mut IntArray5;
+    fn int_array5_new() -> IntArray5;
 
     #[cpp(func = "IntArray5* int_array5_new_from(const int*)")]
-    fn int_array5_new_from(values: *const i32) -> *mut IntArray5;
-
-    #[cpp(func = "void int_array5_delete(IntArray5* self)")]
-    unsafe fn int_array5_delete(self_: *mut IntArray5);
+    fn int_array5_new_from(values: *const i32) -> IntArray5;
 
     #[cpp(func = "DoubleArray3* double_array3_new()")]
-    fn double_array3_new() -> *mut DoubleArray3;
+    fn double_array3_new() -> DoubleArray3;
 
     #[cpp(func = "DoubleArray3* double_array3_new_from(const double*)")]
-    fn double_array3_new_from(values: *const f64) -> *mut DoubleArray3;
-
-    #[cpp(func = "void double_array3_delete(DoubleArray3* self)")]
-    unsafe fn double_array3_delete(self_: *mut DoubleArray3);
+    fn double_array3_new_from(values: *const f64) -> DoubleArray3;
 
     #[cpp(func = "StringArray4* string_array4_new()")]
-    fn string_array4_new() -> *mut StringArray4;
-
-    #[cpp(func = "void string_array4_delete(StringArray4* self)")]
-    unsafe fn string_array4_delete(self_: *mut StringArray4);
+    fn string_array4_new() -> StringArray4;
 }
 
 fn main() {
@@ -229,8 +130,6 @@ fn main() {
     let data_ptr = arr.data();
     println!("Data pointer: {:?}", data_ptr);
 
-    unsafe { int_array5_delete(&arr); }
-
     println!();
 
     // IntArray5 from values
@@ -245,14 +144,10 @@ fn main() {
         println!("  [{}] = {}", i, val);
     }
 
-    unsafe { int_array5_delete(&arr); }
-
     println!("\nRust FFI: std::array 映射");
     println!("1. std::array 是固定大小的数组容器");
     println!("2. 大小在编译时确定（模板参数）");
     println!("3. data() 返回原始指针用于批量访问");
     println!("4. 与 Rust 的 [T; N] 数组语义相似");
 }
-
-
 

@@ -4,82 +4,7 @@ hicc::cpp! {
     #include <stdexcept>
     #include <cstring>
 
-    class ExceptionInfo {
-    public:
-        int code;
-        char message[256];
-    public:
-        ExceptionInfo() : code(0) {
-    message[0] = '\0';
-}
-        void clear() {
-    code = 0;
-    message[0] = '\0';
-}
-        void set(int c, const char* msg) {
-    code = c;
-    strncpy(message, msg, 255);
-    message[255] = '\0';
-}
-    };
-
-    class CalculatorImpl {
-    public:
-        ExceptionInfo last_exception;
-    public:
-        CalculatorImpl() {}
-        ~CalculatorImpl() {}
-        void clear_exception() {
-    last_exception.clear();
-}
-        int get_exception() {
-    return last_exception.code;
-}
-        int divide(int a, int b) {
-    if (b == 0) {
-        last_exception.set(3, "Division by zero");
-        throw std::runtime_error("Division by zero");
-    }
-    return a / b;
-}
-        int safe_get(int* arr, int size, int index) {
-    if (index < 0 || index >= size) {
-        last_exception.set(2, "Index out of range");
-        throw std::out_of_range("Index out of range");
-    }
-    return arr[index];
-}
-        int string_to_int(const char* str) {
-    if (!str || *str == '\0') {
-        last_exception.set(1, "Empty string");
-        throw std::invalid_argument("Empty string");
-    }
-    char* end;
-    int result = std::strtol(str, &end, 10);
-    if (*end != '\0') {
-        last_exception.set(1, "Invalid number format");
-        throw std::invalid_argument("Invalid number format");
-    }
-    return result;
-}
-    };
-
-    struct Calculator {
-    public:
-        CalculatorImpl* impl;
-        Calculator() : impl(new CalculatorImpl()) {}
-        ~Calculator() { delete impl; }
-        void clear_exception() { impl->clear_exception(); }
-        int get_exception() { return impl->get_exception(); }
-        int divide(int a, int b) {
-        try { return impl->divide(a, b); } catch (...) { return 0; }
-    }
-        int string_to_int(const char* str) {
-        try { return impl->string_to_int(str); } catch (...) { return 0; }
-    }
-    };
-
-    Calculator* calculator_new() {
+    Calculator* calculator_new(void) {
         return new Calculator();
     }
 
@@ -89,7 +14,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Calculator")]
+    #[cpp(class = "Calculator", destroy = "calculator_delete")]
     class Calculator {
         #[cpp(method = "void clear_exception()")]
         fn clear_exception(&mut self);
@@ -111,20 +36,7 @@ hicc::import_lib! {
     class Calculator;
 
     #[cpp(func = "Calculator* calculator_new()")]
-    fn calculator_new() -> *mut Calculator;
-
-    #[cpp(func = "void calculator_delete(Calculator* self)")]
-    unsafe fn calculator_delete(self_: *mut Calculator);
-}
-fn check_exception(calc: &mut Calculator, operation: &str) {
-    let code = calc.get_exception();
-    match code {
-        0 => println!("  {}: No exception", operation),
-        1 => println!("  {}: Invalid argument exception", operation),
-        2 => println!("  {}: Out of range exception", operation),
-        3 => println!("  {}: Runtime error exception", operation),
-        _ => println!("  {}: Unknown exception code: {}", operation, code),
-    }
+    fn calculator_new() -> Calculator;
 }
 
 fn main() {
@@ -160,10 +72,6 @@ fn main() {
     let result = calc.string_to_int("abc\0".as_ptr() as *const i8);
     println!("string_to_int(\"abc\") = {} (returns 0, check exception)", result);
     check_exception(&mut calc, "string_to_int(\"abc\")");
-
-    unsafe {
-        calculator_delete(&mut calc);
-    }
 
     println!("\n--- Summary ---");
     println!("1. C++ exceptions CANNOT propagate across FFI boundary");

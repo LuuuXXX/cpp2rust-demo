@@ -10,66 +10,6 @@ hicc::cpp! {
         VALUE_TYPE_STRING = 2,
     };
 
-    struct IntFloatUnion {
-    public:
-        union {
-        int int_value;
-        float float_value;
-    } data;
-    };
-
-    class Variant {
-        int type_;
-        union {
-        int int_value_;
-        float float_value_;
-        char string_buffer_[64];
-    } data_;
-    public:
-        Variant() : type_(VALUE_TYPE_INT) {
-    data_.int_value_ = 0;
-}
-        ~Variant() {}
-        int get_type() const {
-    return type_;
-}
-        void set_int(int value) {
-    type_ = VALUE_TYPE_INT;
-    data_.int_value_ = value;
-}
-        void set_float(float value) {
-    type_ = VALUE_TYPE_FLOAT;
-    data_.float_value_ = value;
-}
-        void set_string(const char* value) {
-    type_ = VALUE_TYPE_STRING;
-    if (value) {
-        strncpy(data_.string_buffer_, value, 63);
-        data_.string_buffer_[63] = '\0';
-    } else {
-        data_.string_buffer_[0] = '\0';
-    }
-}
-        int get_int() const {
-    if (type_ == VALUE_TYPE_INT) {
-        return data_.int_value_;
-    }
-    return 0;
-}
-        float get_float() const {
-    if (type_ == VALUE_TYPE_FLOAT) {
-        return data_.float_value_;
-    }
-    return 0.0f;
-}
-        const char* get_string() const {
-    if (type_ == VALUE_TYPE_STRING) {
-        return data_.string_buffer_;
-    }
-    return "";
-}
-    };
-
     Variant* variant_new_int(int value) {
         auto* v = new Variant();
         v->set_int(value);
@@ -120,12 +60,12 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntFloatUnion")]
+    #[cpp(class = "IntFloatUnion", destroy = "union_delete")]
     class IntFloatUnion {}
 }
 
 hicc::import_class! {
-    #[cpp(class = "Variant")]
+    #[cpp(class = "Variant", destroy = "variant_delete")]
     class Variant {
         #[cpp(method = "int get_type() const")]
         fn get_type(&self) -> i32;
@@ -156,23 +96,17 @@ hicc::import_lib! {
     class IntFloatUnion;
     class Variant;
 
+    #[cpp(func = "IntFloatUnion* union_new()")]
+    fn union_new() -> IntFloatUnion;
+
     #[cpp(func = "Variant* variant_new_int(int)")]
-    fn variant_new_int(value: i32) -> *mut Variant;
+    fn variant_new_int(value: i32) -> Variant;
 
     #[cpp(func = "Variant* variant_new_float(float)")]
-    fn variant_new_float(value: f32) -> *mut Variant;
+    fn variant_new_float(value: f32) -> Variant;
 
     #[cpp(func = "Variant* variant_new_string(const char*)")]
-    unsafe fn variant_new_string(value: *const i8) -> *mut Variant;
-
-    #[cpp(func = "void variant_delete(Variant* self)")]
-    unsafe fn variant_delete(self_: *mut Variant);
-
-    #[cpp(func = "IntFloatUnion* union_new()")]
-    fn union_new() -> *mut IntFloatUnion;
-
-    #[cpp(func = "void union_delete(IntFloatUnion* u)")]
-    unsafe fn union_delete(u: *mut IntFloatUnion);
+    unsafe fn variant_new_string(value: *const i8) -> Variant;
 
     #[cpp(func = "int union_get_int(IntFloatUnion* u)")]
     fn union_get_int(u: *mut IntFloatUnion) -> i32;
@@ -187,15 +121,6 @@ hicc::import_lib! {
     unsafe fn union_set_float(u: *mut IntFloatUnion, value: f32);
 }
 
-fn variant_type_name(t: i32) -> &'static str {
-    match t {
-        0 => "INT",
-        1 => "FLOAT",
-        2 => "STRING",
-        _ => "UNKNOWN",
-    }
-}
-
 fn main() {
     println!("=== 045_union_basic - Unions ===\n");
 
@@ -204,16 +129,13 @@ fn main() {
 
     let v_int = variant_new_int(42);
     println!("Type: {}, Value: {}", variant_type_name(v_int.get_type()), v_int.get_int());
-    unsafe { variant_delete(&v_int); }
 
     let v_float = variant_new_float(3.14);
     println!("Type: {}, Value: {}", variant_type_name(v_float.get_type()), v_float.get_float());
-    unsafe { variant_delete(&v_float); }
 
     let v_string = unsafe { variant_new_string("Hello, Union!\0".as_ptr() as *const i8) };
     let s = unsafe { std::ffi::CStr::from_ptr(v_string.get_string()) };
     println!("Type: {}, Value: {}", variant_type_name(v_string.get_type()), s.to_str().unwrap());
-    unsafe { variant_delete(&v_string); }
 
     // Memory overlay demo
     println!("\n--- Memory Overlay Demo ---");

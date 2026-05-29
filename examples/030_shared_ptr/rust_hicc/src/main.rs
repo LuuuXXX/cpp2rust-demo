@@ -5,50 +5,6 @@ hicc::cpp! {
     #include <cstring>
     #include <unordered_map>
 
-    class SharedData {
-        std::string name_;
-    public:
-        int value;
-    public:
-        SharedData(const char* n) : name_(n ? n : ""), value(0) {
-}
-        ~SharedData() {
-}
-        int useCount() const {
-    return 1; // Simplified - actual shared_ptr would have ref count
-}
-        const char* getName() const {
-    return name_.c_str();
-}
-        SharedData* clone() const {
-    return new SharedData(name_.c_str());
-}
-        void reset() {
-    name_.clear();
-}
-    };
-
-    class Cache {
-        std::unordered_map<std::string, void*> data_;
-    public:
-        Cache() : data_() {
-}
-        ~Cache() {
-}
-        SharedData* get(const char* name) {
-    if (!name) return nullptr;
-    std::string key(name);
-    auto it = data_.find(key);
-    if (it != data_.end()) {
-        return reinterpret_cast<SharedData*>(it->second);
-    }
-    // If not found, create new and store
-    SharedData* new_data = new SharedData(name);
-    data_[key] = reinterpret_cast<void*>(new_data);
-    return new_data;
-}
-    };
-
     SharedData* shareddata_new(const char* name) {
         return new SharedData(name);
     }
@@ -57,7 +13,7 @@ hicc::cpp! {
         delete self;
     }
 
-    Cache* cache_new() {
+    Cache* cache_new(void) {
         return new Cache();
     }
 
@@ -71,7 +27,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "SharedData")]
+    #[cpp(class = "SharedData", destroy = "shareddata_delete")]
     class SharedData {
         #[cpp(method = "int useCount() const")]
         fn use_count(&self) -> i32;
@@ -88,7 +44,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Cache")]
+    #[cpp(class = "Cache", destroy = "cache_delete")]
     class Cache {
         #[cpp(method = "SharedData* get(const char* name)")]
         fn get(&mut self, name: *const i8) -> *mut SharedData;
@@ -102,16 +58,10 @@ hicc::import_lib! {
     class Cache;
 
     #[cpp(func = "SharedData* shareddata_new(const char*)")]
-    unsafe fn shareddata_new(name: *const i8) -> *mut SharedData;
-
-    #[cpp(func = "void shareddata_delete(SharedData* self)")]
-    unsafe fn shareddata_delete(self_: *mut SharedData);
+    unsafe fn shareddata_new(name: *const i8) -> SharedData;
 
     #[cpp(func = "Cache* cache_new()")]
-    fn cache_new() -> *mut Cache;
-
-    #[cpp(func = "void cache_delete(Cache* self)")]
-    unsafe fn cache_delete(self_: *mut Cache);
+    fn cache_new() -> Cache;
 
     #[cpp(func = "SharedData* cache_get(Cache* c, const char*)")]
     unsafe fn cache_get(c: *mut Cache, name: *const i8) -> *mut SharedData;

@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-
 hicc::cpp! {
     #include "function_overload.h"
 }

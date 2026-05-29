@@ -2,39 +2,7 @@ hicc::cpp! {
     #include <iostream>
     #include <cstring>
 
-    class Buffer {
-        int* data;
-        int size;
-    public:
-        Buffer() : data(nullptr), size(0) {}
-        Buffer(int sz) : size(sz) {
-    data = new int[sz];
-    std::memset(data, 0, sz * sizeof(int));
-}
-        Buffer(const Buffer& other) : size(other.size) {
-    data = new int[other.size];
-    std::memcpy(data, other.data, other.size * sizeof(int));
-}
-        ~Buffer() {
-    delete[] data;
-}
-        void set(int index, int value) {
-    if (index >= 0 && index < size) {
-        data[index] = value;
-    }
-}
-        int get(int index) const {
-    if (index >= 0 && index < size) {
-        return data[index];
-    }
-    return 0;
-}
-        int getSize() const {
-    return size;
-}
-    };
-
-    Buffer* buffer_new() {
+    Buffer* buffer_new(void) {
         return new Buffer();
     }
 
@@ -52,7 +20,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Buffer")]
+    #[cpp(class = "Buffer", destroy = "buffer_delete")]
     class Buffer {
         #[cpp(method = "void set(int index, int value)")]
         fn set(&mut self, index: i32, value: i32);
@@ -71,16 +39,13 @@ hicc::import_lib! {
     class Buffer;
 
     #[cpp(func = "Buffer* buffer_new()")]
-    fn buffer_new() -> *mut Buffer;
+    fn buffer_new() -> Buffer;
 
     #[cpp(func = "Buffer* buffer_newWithSize(int)")]
-    fn buffer_new_with_size(size: i32) -> *mut Buffer;
+    fn buffer_new_with_size(size: i32) -> Buffer;
 
     #[cpp(func = "Buffer* buffer_newCopy(const struct Buffer* other)")]
-    fn buffer_new_copy(other: *const Buffer) -> *mut Buffer;
-
-    #[cpp(func = "void buffer_delete(Buffer* self)")]
-    unsafe fn buffer_delete(self_: *mut Buffer);
+    fn buffer_new_copy(other: *const Buffer) -> Buffer;
 }
 
 fn main() {

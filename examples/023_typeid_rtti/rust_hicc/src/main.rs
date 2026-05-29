@@ -9,67 +9,6 @@ hicc::cpp! {
         SHAPE_TYPE_TRIANGLE = 2,
     };
 
-    class Shape {
-    public:
-        virtual ~Shape() = default;
-        virtual int getType() const = 0;
-        virtual const char* getTypeName() const = 0;
-        virtual double area() const = 0;
-    };
-
-    class Circle : public Shape {
-        double radius;
-    public:
-        Circle(double r);
-        int getType() const override;
-        const char* getTypeName() const override;
-        double area() const override;
-    };
-
-    class Rectangle : public Shape {
-        double width;
-        double height;
-    public:
-        Rectangle(double w, double h);
-        int getType() const override;
-        const char* getTypeName() const override;
-        double area() const override;
-    };
-
-    class Triangle : public Shape {
-        double base;
-        double height;
-    public:
-        Triangle(double b, double h);
-        int getType() const override;
-        const char* getTypeName() const override;
-        double area() const override;
-    };
-
-    Circle::Circle(double r) : radius(r) {}
-
-    int Circle::getType() const { return SHAPE_TYPE_CIRCLE; }
-
-    const char* Circle::getTypeName() const { return "Circle"; }
-
-    double Circle::area() const { return 3.14159 * radius * radius; }
-
-    Rectangle::Rectangle(double w, double h) : width(w), height(h) {}
-
-    int Rectangle::getType() const { return SHAPE_TYPE_RECTANGLE; }
-
-    const char* Rectangle::getTypeName() const { return "Rectangle"; }
-
-    double Rectangle::area() const { return width * height; }
-
-    Triangle::Triangle(double b, double h) : base(b), height(h) {}
-
-    int Triangle::getType() const { return SHAPE_TYPE_TRIANGLE; }
-
-    const char* Triangle::getTypeName() const { return "Triangle"; }
-
-    double Triangle::area() const { return 0.5 * base * height; }
-
     Shape* shape_new_circle(double radius) {
         return new Circle(radius);
     }
@@ -91,7 +30,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Shape")]
+    #[interface]
     class Shape {
         #[cpp(method = "int getType() const")]
         fn get_type(&self) -> i32;
@@ -110,16 +49,13 @@ hicc::import_lib! {
     class Shape;
 
     #[cpp(func = "Shape* shape_new_circle(double)")]
-    fn shape_new_circle(radius: f64) -> *mut Shape;
+    fn shape_new_circle(radius: f64) -> Shape;
 
     #[cpp(func = "Shape* shape_new_rectangle(double, double)")]
-    fn shape_new_rectangle(width: f64, height: f64) -> *mut Shape;
+    fn shape_new_rectangle(width: f64, height: f64) -> Shape;
 
     #[cpp(func = "Shape* shape_new_triangle(double, double)")]
-    fn shape_new_triangle(base: f64, height: f64) -> *mut Shape;
-
-    #[cpp(func = "void shape_delete(Shape* self)")]
-    unsafe fn shape_delete(self_: *mut Shape);
+    fn shape_new_triangle(base: f64, height: f64) -> Shape;
 }
 
 fn main() {
@@ -146,16 +82,7 @@ fn main() {
         triangle.area()
     );
 
-    unsafe {
-        shape_delete(&circle);
-        shape_delete(&rect);
-        shape_delete(&triangle);
-    }
-
     println!("\nRust FFI: typeid 变成类型枚举或字符串比较");
     println!("RTTI 信息在 FFI 边界丢失，需在 C++ 侧导出类型信息");
 }
-
-
-
 

@@ -4,28 +4,6 @@ hicc::cpp! {
     #include <stdexcept>
     #include <utility>
 
-    class NoexceptMover {
-        int value_;
-    public:
-        NoexceptMover(int value) : value_(value) {}
-        ~NoexceptMover() {}
-        NoexceptMover(NoexceptMover&& other) noexcept : value_(other.value_) {
-    other.value_ = 0;
-}
-        NoexceptMover& operator=(NoexceptMover&& other) noexcept {
-    if (this != &other) {
-        value_ = other.value_;
-        other.value_ = 0;
-    }
-    return *this;
-}
-        int get_value() const {
-    return value_;
-}
-        NoexceptMover(const NoexceptMover &) = default;
-        NoexceptMover & operator=(const NoexceptMover &) {}
-    };
-
     int noexcept_add(int a, int b) noexcept {
         return a + b;
     }
@@ -76,7 +54,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "NoexceptMover")]
+    #[cpp(class = "NoexceptMover", destroy = "noexcept_mover_delete")]
     class NoexceptMover {
         #[cpp(method = "int get_value() const")]
         fn get_value(&self) -> i32;
@@ -87,6 +65,9 @@ hicc::import_lib! {
     #![link_name = "noexcept_basic"]
 
     class NoexceptMover;
+
+    #[cpp(func = "NoexceptMover* noexcept_mover_new(int)")]
+    fn noexcept_mover_new(value: i32) -> NoexceptMover;
 
     #[cpp(func = "int noexcept_add(int, int)")]
     fn noexcept_add(a: i32, b: i32) -> i32;
@@ -99,12 +80,6 @@ hicc::import_lib! {
 
     #[cpp(func = "int conditional_abs(int)")]
     fn conditional_abs(value: i32) -> i32;
-
-    #[cpp(func = "NoexceptMover* noexcept_mover_new(int)")]
-    fn noexcept_mover_new(value: i32) -> *mut NoexceptMover;
-
-    #[cpp(func = "void noexcept_mover_delete(NoexceptMover* self)")]
-    unsafe fn noexcept_mover_delete(self_: *mut NoexceptMover);
 
     #[cpp(func = "NoexceptMover* noexcept_mover_move(NoexceptMover* other)")]
     unsafe fn noexcept_mover_move(other: *mut NoexceptMover) -> *mut NoexceptMover;
@@ -127,8 +102,6 @@ fn main() {
     let mover2 = unsafe { noexcept_mover_move(&mover1) };
     println!("Mover moved (noexcept), new value = {}", mover2.get_value());
 
-    unsafe { noexcept_mover_delete(&mover2); }
-
     println!("\n--- Summary ---");
     println!("1. noexcept declares function won't throw");
     println!("2. Move constructors and move assignment operators often use noexcept");
@@ -136,6 +109,4 @@ fn main() {
     println!("4. noexcept functions cannot call potentially throwing functions");
     println!("5. In FFI, noexcept is part of function signature");
 }
-
-
 

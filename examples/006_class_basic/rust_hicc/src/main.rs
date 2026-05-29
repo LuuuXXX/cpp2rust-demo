@@ -1,23 +1,13 @@
 hicc::cpp! {
     #include <iostream>
 
-    class Counter {
-        int value = 0;
-    public:
-        Counter() : value(0) {}
-        ~Counter() {}
-        int get() const { return value; }
-        void increment() { value++; }
-        void decrement() { value--; }
-    };
-
-    Counter* counter_new() { return new Counter(); }
+    Counter* counter_new(void) { return new Counter(); }
 
     void counter_delete(Counter* self) { delete self; }
 }
 
 hicc::import_class! {
-    #[cpp(class = "Counter")]
+    #[cpp(class = "Counter", destroy = "counter_delete")]
     class Counter {
         #[cpp(method = "int get() const")]
         fn get(&self) -> i32;
@@ -36,10 +26,7 @@ hicc::import_lib! {
     class Counter;
 
     #[cpp(func = "Counter* counter_new()")]
-    fn counter_new() -> *mut Counter;
-
-    #[cpp(func = "void counter_delete(Counter* self)")]
-    unsafe fn counter_delete(self_: *mut Counter);
+    fn counter_new() -> Counter;
 }
 
 fn main() {
@@ -54,9 +41,6 @@ fn main() {
     counter.decrement();
     println!("After 1 decrement: {}", counter.get());
 
-    unsafe {
-        counter_delete(&counter);
-    }
     println!("\nRust FFI: Basic class operations completed!");
 }
 

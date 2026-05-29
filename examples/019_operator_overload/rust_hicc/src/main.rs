@@ -1,24 +1,6 @@
 hicc::cpp! {
     #include <iostream>
 
-    class Number {
-        int value;
-    public:
-        Number(int v) : value(v) {}
-        ~Number() {}
-        int getValue() const { return value; }
-        Number operator+(const Number& other) const { return Number(value + other.value); }
-        Number operator-(const Number& other) const { return Number(value - other.value); }
-        Number operator*(const Number& other) const { return Number(value * other.value); }
-        Number operator/(const Number& other) const { return Number(value / other.value); }
-        int compare(const Number& other) const { return value - other.value; }
-        Number operator-() const { return Number(-value); }
-        Number& operator++() { ++value; return *this; }
-        Number& operator--() { --value; return *this; }
-        Number& operator+=(const Number& other) { value += other.value; return *this; }
-        Number& operator-=(const Number& other) { value -= other.value; return *this; }
-    };
-
     Number* number_new(int value) {
         return new Number(value);
     }
@@ -57,7 +39,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Number")]
+    #[cpp(class = "Number", destroy = "number_delete")]
     class Number {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
@@ -70,10 +52,7 @@ hicc::import_lib! {
     class Number;
 
     #[cpp(func = "Number* number_new(int)")]
-    fn number_new(value: i32) -> *mut Number;
-
-    #[cpp(func = "void number_delete(Number* self)")]
-    unsafe fn number_delete(self_: *mut Number);
+    fn number_new(value: i32) -> Number;
 
     #[cpp(func = "int number_get_value(const Number*)")]
     fn number_getValue(self_: *const Number) -> i32;
@@ -145,9 +124,5 @@ fn main() {
     println!("a - b -> number_sub(a, b)");
     println!("a * b -> number_mul(a, b)");
 
-    unsafe {
-        number_delete(&a);
-        number_delete(&b);
-    }
 }
 

@@ -2,22 +2,6 @@ hicc::cpp! {
     #include <iostream>
     #include <cmath>
 
-    class Point {
-        int x;
-        int y;
-    public:
-        Point(int x, int y) : x(x), y(y) {}
-        ~Point() {}
-        int getX() const { return x; }
-        int getY() const { return y; }
-        double getMagnitude() const {
-    return std::sqrt(x * x + y * y);
-}
-        double getAngle() const {
-    return std::atan2(y, x);
-}
-    };
-
     Point* point_new_xy(int x, int y) {
         return new Point(x, y);
     }
@@ -35,7 +19,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Point")]
+    #[cpp(class = "Point", destroy = "point_delete")]
     class Point {
         #[cpp(method = "int getX() const")]
         fn get_x(&self) -> i32;
@@ -57,13 +41,10 @@ hicc::import_lib! {
     class Point;
 
     #[cpp(func = "Point* point_new_xy(int, int)")]
-    fn point_new_xy(x: i32, y: i32) -> *mut Point;
+    fn point_new_xy(x: i32, y: i32) -> Point;
 
     #[cpp(func = "Point* point_newPolar(double, double)")]
-    fn point_new_polar(r: f64, theta: f64) -> *mut Point;
-
-    #[cpp(func = "void point_delete(Point* self)")]
-    unsafe fn point_delete(self_: *mut Point);
+    fn point_new_polar(r: f64, theta: f64) -> Point;
 }
 
 fn main() {

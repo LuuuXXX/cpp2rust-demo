@@ -1,33 +1,7 @@
 hicc::cpp! {
     #include <iostream>
 
-    class Counter {
-        int value;
-        static int instance_count;
-    public:
-        Counter() : value(0) {
-    instance_count++;
-}
-        ~Counter() {
-    instance_count--;
-}
-        int getValue() const {
-    return value;
-}
-        void increment() {
-    value++;
-}
-        static int getInstanceCount() {
-    return instance_count;
-}
-        static void resetInstanceCount() {
-    instance_count = 0;
-}
-    };
-
-    int Counter::instance_count = 0;
-
-    Counter* counter_new() {
+    Counter* counter_new(void) {
         return new Counter();
     }
 
@@ -35,17 +9,17 @@ hicc::cpp! {
         delete self;
     }
 
-    int counter_getInstanceCount() {
+    int counter_getInstanceCount(void) {
         return Counter::getInstanceCount();
     }
 
-    void counter_resetInstanceCount() {
+    void counter_resetInstanceCount(void) {
         Counter::resetInstanceCount();
     }
 }
 
 hicc::import_class! {
-    #[cpp(class = "Counter")]
+    #[cpp(class = "Counter", destroy = "counter_delete")]
     class Counter {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
@@ -61,10 +35,7 @@ hicc::import_lib! {
     class Counter;
 
     #[cpp(func = "Counter* counter_new()")]
-    fn counter_new() -> *mut Counter;
-
-    #[cpp(func = "void counter_delete(Counter* self)")]
-    unsafe fn counter_delete(self_: *mut Counter);
+    fn counter_new() -> Counter;
 
     #[cpp(func = "int counter_getInstanceCount()")]
     fn counter_get_instance_count() -> i32;
@@ -90,15 +61,8 @@ fn main() {
     println!("c2 value: {}", c2.get_value());
     println!("c3 value: {}", c3.get_value());
 
-    unsafe {
-        counter_delete(&c1);
-    }
     println!("Instance count after deleting c1: {}", counter_get_instance_count());
 
-    unsafe {
-        counter_delete(&c2);
-        counter_delete(&c3);
-    }
     println!("Instance count after deleting all: {}", counter_get_instance_count());
 
     counter_reset_instance_count();
