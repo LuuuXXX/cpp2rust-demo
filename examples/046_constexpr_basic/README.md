@@ -115,6 +115,7 @@ cargo build
 === 046_constexpr_basic - constexpr ===
 
 --- Compile-time Fibonacci ---
+get_fibonacci_10() called, returning compile-time computed value: 55
 fibonacci<10>() = 55 (computed at compile time)
 Rust equivalent: fib(10) = 55 (also compile time)
 

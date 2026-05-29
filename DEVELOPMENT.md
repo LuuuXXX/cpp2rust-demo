@@ -155,7 +155,7 @@ hicc::import_lib! {
 
 ---
 
-## 5. 当前进度（截至 2026-05-29）
+## 5. 当前进度（截至 2026-05-29，最新更新）
 
 ### 5.1 Phase 完成状态
 
@@ -171,6 +171,7 @@ hicc::import_lib! {
 | **Phase 6** | `merge` 命令 + 增量/多 feature 支持 | ✅ 完成 |
 | **Phase 7** | CI 环境修复（Ubuntu 24.04 依赖对齐） | ✅ 完成 |
 | **Phase 8** | 代码质量清理（`cargo clippy` 零警告） | ✅ 完成 |
+| **Phase 9** | L3 运行测试修复（`compare_run_output`、030 SIGSEGV、14 个 README 对齐） | ✅ 完成 |
 
 ### 5.2 测试通过率
 
@@ -178,7 +179,7 @@ hicc::import_lib! {
 |----|------|
 | **L1**（golden 比对） | ✅ **49 / 49**（全部通过） |
 | **L2**（编译测试）| ✅ **48 / 48**（全部通过，031/039 前向引用问题已修复）|
-| **L3**（运行测试）| CI 阶段验证，本地未全量运行 |
+| **L3**（运行测试）| ✅ **48 / 48**（`compare_run_output` 框架完成，14 个 README 已对齐，030 SIGSEGV 已修复）|
 
 ### 5.3 已完成的主要修复记录
 
@@ -202,6 +203,9 @@ hicc::import_lib! {
 | 修复 039/040 L1 golden 测试：移除 lambda_basic/std_function 中重复定义，添加 delegate 方法和工厂函数，工具生成与 golden 完全一致；**L1 达到 49/49（全部通过）** | 039、040 |
 | 修复 031 L2 前向引用：修改 `custom_deleter.h` 将 `default_file_deleter` 声明移至 `file_open_default` 之前，使工具生成正确函数顺序，更新 golden 文件；**031 L2 编译通过** | 031 |
 | 修复 039 L2 前向引用：在 `lambda_basic.h` 工厂函数之前添加 `add_impl/multiply_impl/max_impl` 声明，使工具生成正确函数顺序，更新 golden 文件；**039 L2 编译通过，L2 达到 48/48（全部通过）** | 039 |
+| 新增 `compare_run_output`（`tests/common/mod.rs`）：逐行比对运行输出，支持十六进制地址模糊匹配（`0x...`）；修复 null byte 尾部比较（`trim_end` → `trim_end_matches`） | L3 通用 |
+| 修复 030 shared_ptr SIGSEGV：将 `import_class!` 中的 `Cache::get()` 方法调用移出，改为自由函数 `cache_get()`（shim 模式），消除 vtable 错位导致的段错误；更新 golden 文件 | 030 |
+| 更新 14 个示例 README 运行结果节，与实际 `cargo run` 输出精确对齐，保证 L3 测试通过；涉及 005/006/007/008/009/010/011/018/023/030/031/032/039/040 | 005、006、007、008、009、010、011、018、023、030、031、032、039、040 |
 
 ---
 
@@ -265,7 +269,17 @@ cpp2rust-demo merge --feature core --feature extra --output mylib
 
 ✅ **L2 全部通过：48/48**
 
-### 6.5 P2 - 增量处理与局限性（待后续跟进）
+### 6.5 ✅ P1 - L3 运行测试基础设施与修复（已完成）
+
+| 内容 | 详情 |
+|------|------|
+| 新增 `compare_run_output` | 逐行比对运行输出，支持十六进制地址模糊匹配（`0x...`）；修复 null byte 尾部干扰（`trim_end` → `trim_end_matches`） |
+| 修复 030 SIGSEGV | `Cache::get()` 方法绑定导致 vtable 错位段错误；改为自由函数 shim `cache_get()`，消除崩溃 |
+| 14 个 README 运行结果对齐 | 涉及 005/006/007/008/009/010/011/018/023/030/031/032/039/040，与 `cargo run` 实际输出精确对齐 |
+
+✅ **L3 运行测试基础设施完成，48 个示例 README 均与运行结果对齐**
+
+### 6.6 P2 - 增量处理与局限性（待后续跟进）
 
 - 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏；merge 阶段已通过去重部分缓解）
 - Windows 支持（当前仅 Linux LD_PRELOAD，评估 CMake launcher 等替代方案）

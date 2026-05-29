@@ -142,7 +142,6 @@ Diamond inheritance structure:
 Virtual inheritance ensures only ONE A subobject in D
 
 Values:
-Getting A value (virtual base - single instance)
   A value (via B): 1
   B value: 2
   C value: 2

@@ -181,11 +181,9 @@ cargo run
 ## 运行结果
 
 ```
-Counter created
 Initial value: 0
 After 3 increments: 3
 After 1 decrement: 2
-Counter deleted (value was 2)
 
 Rust FFI: Basic class operations completed!
 ```

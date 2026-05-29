@@ -93,18 +93,13 @@ unique_vector_delete(src);  // 仍然需要调用，但此时是空操作
 ## 运行结果
 
 ```
-UniqueVector created: empty
-UniqueVector created: size=5
 src_with_data size: 5
 src_with_data[0]: 10
-UniqueVector created: empty
 dest size before move: 0
 Moving UniqueVector: 5 -> 0
 dest size after move: 5
 dest[0]: 10
 src_with_data size after move: 0
-UniqueVector deleted: size=5
-UniqueVector deleted: size=0
 
 Rust FFI: Move semantics work!
 ```

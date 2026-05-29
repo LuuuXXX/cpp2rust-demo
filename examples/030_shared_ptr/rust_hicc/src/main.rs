@@ -64,6 +64,10 @@ hicc::cpp! {
     void cache_delete(Cache* self) {
         delete self;
     }
+
+    SharedData* cache_get(Cache* c, const char* name) {
+        return c ? c->get(name) : nullptr;
+    }
 }
 
 hicc::import_class! {
@@ -108,6 +112,9 @@ hicc::import_lib! {
 
     #[cpp(func = "void cache_delete(Cache* self)")]
     unsafe fn cache_delete(self_: *mut Cache);
+
+    #[cpp(func = "SharedData* cache_get(Cache* c, const char*)")]
+    unsafe fn cache_get(c: *mut Cache, name: *const i8) -> *mut SharedData;
 }
 
 fn main() {
@@ -133,8 +140,6 @@ fn main() {
     data1.reset();
     println!("\nAfter reset, data1 is cleared");
 
-    unsafe { shareddata_delete(&data2) };
-
     println!();
 
     // Cache - 演示 weak_ptr 的作用（缓存）
@@ -142,10 +147,9 @@ fn main() {
 
     let key1 = std::ffi::CString::new("key1").expect("CString::new failed");
     let key2 = std::ffi::CString::new("key2").expect("CString::new failed");
-
-    let cached1a = cache.get(key1.as_ptr());
-    let cached1b = cache.get(key1.as_ptr());  // 缓存命中
-    let _cached2 = cache.get(key2.as_ptr());
+    let _cached1a = unsafe { cache_get(&cache, key1.as_ptr()) };
+    let _cached1b = unsafe { cache_get(&cache, key1.as_ptr()) };  // 缓存命中
+    let _cached2 = unsafe { cache_get(&cache, key2.as_ptr()) };
 
     println!("\nCache demo:");
     println!("cached1a and cached1b point to same cache entry");
@@ -159,6 +163,3 @@ fn main() {
     println!("\nweak_ptr 用于缓存，避免循环引用");
     println!("相当于 Rust 的 Weak<T>");
 }
-
-
-

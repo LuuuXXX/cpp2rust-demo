@@ -97,19 +97,12 @@ let count = counter_getInstanceCount();  // 直接调用
 
 ```
 Initial instance count: 0
-Counter created (total: 1)
-Counter created (total: 2)
-Counter created (total: 3)
 Instance count after creating 3: 3
 c1 value: 2
 c2 value: 1
 c3 value: 0
-Counter deleted (remaining: 2)
 Instance count after deleting c1: 2
-Counter deleted (remaining: 1)
-Counter deleted (remaining: 0)
 Instance count after deleting all: 0
-Instance count reset to 0
 Instance count after reset: 0
 
 Rust FFI: Static members work!

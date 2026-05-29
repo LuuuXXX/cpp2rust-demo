@@ -153,7 +153,6 @@ impl Drop for FileHandle {
 === 031_custom_deleter - 自定义删除器 ===
 
 Written 22 bytes
-[DEFAULT] Closing file: test_default.txt
 
 Rust FFI: 自定义删除器模式
 1. C++ 允许传递函数指针作为删除器

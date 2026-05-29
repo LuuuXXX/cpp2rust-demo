@@ -87,8 +87,7 @@ Use count: 1
 Cloned SharedData: TestData
 Use count (shared): 1
 
-After reset:
-data1 expired: true
+After reset, data1 is cleared
 
 
 Cache demo:

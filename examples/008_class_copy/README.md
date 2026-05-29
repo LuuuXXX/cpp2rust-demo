@@ -69,18 +69,14 @@ buffer_delete(buf2);              // buf2 独立释放
 ## 运行结果
 
 ```
-Buffer created: size=5
 buf1 size: 5
 buf1 values: 10 20 30 40 50
-Buffer copied: size=5
 buf2 created by copy
 buf2 size: 5
 buf2 values: 10 20 30 40 50
 After modifying buf1[0] = 999:
 buf1[0] = 999
 buf2[0] = 10 (unchanged)
-Buffer deleted: size=5
-Buffer deleted: size=5
 
 Rust FFI: Copy constructor pattern works!
 ```

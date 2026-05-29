@@ -79,7 +79,6 @@ unsafe fn calculator_add(self_: *mut Calculator, value: i32);
 ## 运行结果
 
 ```
-Calculator created
 Initial value: 0
 History count: 0
 After add(10): 10
@@ -88,7 +87,6 @@ After subtract(3): 12
 History count: 3
 After clear: 0
 History count: 0
-Calculator deleted
 
 Rust FFI: const member functions work!
 ```

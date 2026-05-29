@@ -190,6 +190,59 @@ pub fn cargo_run(dir: &str) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
+/// Compare actual cargo run output against expected README output.
+///
+/// Rules:
+/// - Trailing whitespace on each line is ignored.
+/// - A `0x...` token in an expected line matches any `0x[0-9a-fA-F]+` in the actual line.
+pub fn compare_run_output(actual: &str, expected: &str) -> bool {
+    let actual_lines: Vec<&str> = actual.lines().collect();
+    let expected_lines: Vec<&str> = expected.lines().collect();
+    if actual_lines.len() != expected_lines.len() {
+        return false;
+    }
+    for (a, e) in actual_lines.iter().zip(expected_lines.iter()) {
+        let a = a.trim_end_matches(|c: char| c.is_whitespace() || c == '\0');
+        let e = e.trim_end_matches(|c: char| c.is_whitespace() || c == '\0');
+        if e.contains("0x...") {
+            let normalized = normalize_hex_addresses(a);
+            if normalized != e {
+                return false;
+            }
+        } else if a != e {
+            return false;
+        }
+    }
+    true
+}
+
+/// Replace all `0x[0-9a-fA-F]+` occurrences in `s` with `0x...`.
+fn normalize_hex_addresses(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'0' && bytes[i + 1] == b'x' {
+            let start = i;
+            i += 2;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_hexdigit())
+            {
+                i += 1;
+            }
+            if i > start + 2 {
+                result.push_str("0x...");
+            } else {
+                result.push_str(&s[start..i]);
+            }
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    result
+}
+
 /// Parse README.md and extract the "运行结果" section's code block content.
 pub fn parse_readme_run_result(readme_path: &str) -> String {
     let content = std::fs::read_to_string(readme_path)

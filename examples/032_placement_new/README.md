@@ -129,6 +129,7 @@ Buffer created with capacity: 1024
 Buffer data at: 0x...
 Buffer capacity: 1024
 Buffer constructed size: 0
+Buffer delete called
 
 --- VectorBuffer Demo ---
 VectorBuffer element size: 4

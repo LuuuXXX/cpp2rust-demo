@@ -51,12 +51,12 @@ match shape_getType(shape) {
 
 
 Using typeid to determine runtime type:
-Circle: type=-1, name=Circle, area=0.00
-Rectangle: type=-1, area=0.00
-Triangle: type=-1, area=0.00
-Deleting Shape
-Deleting Shape
-Deleting Shape
+Circle: type=0, name=Circle, area=78.54
+Rectangle: type=1, area=24.00
+Triangle: type=2, area=6.00
+Deleting Circle
+Deleting Rectangle
+Deleting Triangle
 
 Rust FFI: typeid 变成类型枚举或字符串比较
 RTTI 信息在 FFI 边界丢失，需在 C++ 侧导出类型信息
