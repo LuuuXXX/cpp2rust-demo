@@ -31,7 +31,7 @@ pub fn sanitize_mod_ident(s: &str) -> String {
     let mut result = String::with_capacity(s.len() + 1);
     let mut chars = s.chars().peekable();
     // 首字符若为数字，先插一个下划线
-    if chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+    if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
         result.push('_');
     }
     for c in chars {

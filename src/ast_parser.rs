@@ -385,13 +385,11 @@ fn collect_linkage_spec(
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, ast);
             }
-            EntityKind::StructDecl => {
-                // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
-                if entity.is_definition() {
-                    if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
-                        ci.is_in_namespace = false;
-                        ast.classes.push(ci);
-                    }
+            // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
+            EntityKind::StructDecl if entity.is_definition() => {
+                if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
+                    ci.is_in_namespace = false;
+                    ast.classes.push(ci);
                 }
             }
             _ => {}

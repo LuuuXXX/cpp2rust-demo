@@ -539,8 +539,8 @@ fn build_inline_method_line(m: &MethodInfo, source_bytes: &[u8], class_name: &st
         let stripped = strip_preprocessor_markers(&stripped);
         let stripped = strip_method_volatile_qualifier(stripped.trim());
         // 去掉方法返回类型的 volatile 前缀（与 import_class! 中的 cpp_sig 保持一致）
-        let stripped = if stripped.starts_with("volatile ") {
-            stripped[9..].trim_start().to_string()
+        let stripped = if let Some(s) = stripped.strip_prefix("volatile ") {
+            s.trim_start().to_string()
         } else {
             stripped
         };
@@ -828,7 +828,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let is_unsafe = params.iter().any(|(_, t)| {
         if t == "*const i8" { return true; }
         if let Some(inner) = t.strip_prefix("*mut ") {
-            let is_class = class_names.iter().any(|cn| *cn == inner);
+            let is_class = class_names.contains(&inner);
             if is_class && primitive_ret { return false; }
             return true;
         }
@@ -1131,7 +1131,7 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
 /// 仅处理 `ShimKind::Ctor`、`ShimKind::Dtor`、`ShimKind::StaticAccessor`。
 /// 不属于任何已知类（或类无对应 ClassSpec）的函数保留在 fn_bindings 中。
 fn assign_associated_fns(
-    class_specs: &mut Vec<crate::ffi_model::ClassSpec>,
+    class_specs: &mut [crate::ffi_model::ClassSpec],
     lib_spec: &mut crate::ffi_model::LibSpec,
     functions: &[&FunctionInfo],
     class_names: &[&str],

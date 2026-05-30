@@ -171,7 +171,7 @@ pub fn generate(spec: &FfiSpec) -> String {
 }
 
 /// P1-2 辅助：若返回类型是 `*mut ClassName`，去掉指针返回 `ClassName`（owned）
-fn strip_mut_ptr<'a>(ret_type: &'a str, class_name: &str) -> String {
+fn strip_mut_ptr(ret_type: &str, class_name: &str) -> String {
     let expected = format!("*mut {}", class_name);
     if ret_type.trim() == expected.trim() {
         class_name.to_string()
