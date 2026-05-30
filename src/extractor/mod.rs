@@ -826,7 +826,9 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let primitive_ret = ret_type.as_deref().map(|r| {
         matches!(r, "i8"|"u8"|"i16"|"u16"|"i32"|"u32"|"i64"|"u64"|"f32"|"f64"|"bool"|"isize"|"usize")
     }).unwrap_or(false);
-    let has_volatile_param = fi.params.iter().any(|p| p.type_name.contains("volatile"));
+    let has_volatile_param = fi.params.iter().any(|p| {
+        p.type_name.split_whitespace().any(|w| w == "volatile")
+    });
     let is_unsafe = params.iter().any(|(_, t)| {
         if t == "*const i8" { return true; }
         if let Some(inner) = t.strip_prefix("*mut ") {
@@ -940,7 +942,7 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
     let first_param_is_volatile = fi
         .params
         .first()
-        .map(|p| p.type_name.contains("volatile"))
+        .map(|p| p.type_name.split_whitespace().any(|w| w == "volatile"))
         .unwrap_or(false);
     if first_param_is_class_ptr && first_param_name_is_self && !first_param_is_volatile {
         return ShimKind::MethodAccessor;
