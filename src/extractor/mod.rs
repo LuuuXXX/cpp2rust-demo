@@ -518,11 +518,12 @@ fn build_method_decl(m: &MethodInfo) -> String {
 
     let params = format_params_cpp(&m.params);
     let const_sfx = if m.is_const { " const" } else { "" };
+    let volatile_sfx = if m.is_volatile { " volatile" } else { "" };
     let override_sfx = if m.is_override { " override" } else { "" };
     let pure_sfx = if m.is_pure_virtual && !m.is_override { " = 0" } else { "" };
     let default_sfx = if m.is_default { " = default" } else { "" };
 
-    format!("{}{}{}({}){}{}{}{}", qualifier, ret, name, params, const_sfx, override_sfx, pure_sfx, default_sfx)
+    format!("{}{}{}({}){}{}{}{}{}", qualifier, ret, name, params, const_sfx, volatile_sfx, override_sfx, pure_sfx, default_sfx)
 }
 
 /// 构建单行内联方法（内联风格）
@@ -721,6 +722,10 @@ fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -
 }
 
 fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
+    // hicc 不支持 volatile this 限定的方法（方法指针类型不匹配），跳过
+    if m.is_volatile {
+        return None;
+    }
     let rust_name = to_snake_case(&m.name);
     let self_kind = if m.is_const { SelfKind::Ref } else { SelfKind::RefMut };
 
@@ -736,7 +741,8 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         Some(cpp_to_rust(&m.return_type))
     };
 
-    // C++ 方法签名：含参数名（若 AST 有）、剥除 volatile、指针紧贴类型
+    // C++ 方法签名：含参数名（若 AST 有）、剥除参数 volatile、指针紧贴类型
+    // 返回类型 volatile 和方法 this-volatile 均需保留，供 hicc 编译时方法指针类型检查
     let param_types: Vec<String> = m
         .params
         .iter()
@@ -751,11 +757,16 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         })
         .collect();
     let ret_clean = normalize_ptr_spacing(strip_volatile(clean_type(&m.return_type)));
-    let const_suffix = if m.is_const { " const" } else { "" };
+    let cv_suffix = match (m.is_const, m.is_volatile) {
+        (true, true)   => " const volatile",
+        (true, false)  => " const",
+        (false, true)  => " volatile",
+        (false, false) => "",
+    };
     let cpp_sig = if m.return_type.is_empty() || m.return_type == "void" {
-        format!("void {}({}){}", m.name, param_types.join(", "), const_suffix)
+        format!("void {}({}){}", m.name, param_types.join(", "), cv_suffix)
     } else {
-        format!("{} {}({}){}", ret_clean, m.name, param_types.join(", "), const_suffix)
+        format!("{} {}({}){}", ret_clean, m.name, param_types.join(", "), cv_suffix)
     };
 
     Some(MethodBinding { cpp_sig, rust_name, self_kind, params, ret_type })
@@ -1153,8 +1164,8 @@ fn assign_associated_fns(
             // 通过函数签名中的类型（返回类型 / 第一个参数类型）确定归属类。
             // 这比名称前缀匹配更可靠，可正确处理 RapidJsonBigIntegerHandle 这类
             // 类名与函数名前缀不一致的情况。
-            let fi_opt = fn_by_rust_name.get(&fb.rust_name).copied();
-            let owning: Option<&str> = fi_opt.and_then(|fi| {
+            let matching_function = fn_by_rust_name.get(&fb.rust_name).copied();
+            let owning: Option<&str> = matching_function.and_then(|fi| {
                 if matches!(kind, Some(ShimKind::Ctor)) {
                     // Ctor：返回类型中含类名（优先最长匹配，避免子串误匹配）
                     class_names.iter()

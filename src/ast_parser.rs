@@ -40,6 +40,7 @@ pub struct MethodInfo {
     pub return_type: String,
     pub params: Vec<ParamInfo>,
     pub is_const: bool,
+    pub is_volatile: bool,
     pub is_virtual: bool,
     pub is_pure_virtual: bool,
     pub is_static: bool,
@@ -558,6 +559,17 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
         return_type,
         params,
         is_const: entity.is_const_method(),
+        is_volatile: entity
+            .get_type()
+            .map(|t| {
+                let display_name = t.get_display_name();
+                // 方法类型显示名如 "volatile uint32_t () volatile"
+                // 尾部 " volatile" 表示 this-volatile 修饰符（影响方法指针类型）
+                display_name.trim_end().ends_with(") volatile")
+                    || display_name.trim_end().ends_with(") volatile &")
+                    || display_name.trim_end().ends_with(") volatile &&")
+            })
+            .unwrap_or(false),
         is_virtual: entity.is_virtual_method(),
         is_pure_virtual: entity.is_pure_virtual_method(),
         is_static: entity.is_static_method(),
