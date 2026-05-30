@@ -7,115 +7,13 @@ hicc::cpp! {
     #include <fstream>
     #include <cstring>
 
-    class Mutex {
-        std::mutex mtx_;
-        std::string name_;
-    public:
-        Mutex() : mtx_(), name_("unnamed") {
+    #include "raii_pattern.h"
 }
-        Mutex(const char* name) : mtx_(), name_(name ? name : "unnamed") {
-}
-        ~Mutex() {
-}
-        void lock() {
-    mtx_.lock();
-}
-        void unlock() {
-    mtx_.unlock();
-}
-        bool try_lock() {
-    return mtx_.try_lock();
-}
-        const char* name() const {
-    return name_.c_str();
-}
-    };
 
-    class ScopedLock {
-        Mutex* mutex_;
-        bool owns_lock_;
-    public:
-        ScopedLock(Mutex* m) : mutex_(m), owns_lock_(false) {
-    if (mutex_) {
-        mutex_->lock();
-        owns_lock_ = true;
-    }
-}
-        ~ScopedLock() {
-    if (owns_lock_ && mutex_) {
-        mutex_->unlock();
-    }
-}
-        ScopedLock(ScopedLock&& other) noexcept : mutex_(other.mutex_), owns_lock_(other.owns_lock_) {
-    other.owns_lock_ = false;
-}
-        ScopedLock(const ScopedLock &) = default;
-        ScopedLock & operator=(const ScopedLock &) {}
-        bool owns_lock() const { return owns_lock_; }
-    };
-
-    class FileLock {
-        std::mutex mtx_;
-        std::ofstream file_;
-        std::string filename_;
-    public:
-        FileLock(const char* fname) : mtx_(), file_(), filename_(fname ? fname : "") {
-    if (!filename_.empty()) {
-        file_.open(filename_, std::ios::app);
-    }
-}
-        ~FileLock() {
-    if (file_.is_open()) {
-        file_.close();
-    }
-}
-        FileLock(const FileLock &) = default;
-        FileLock & operator=(const FileLock &) {}
-        void lock() {
-    mtx_.lock();
-}
-        void unlock() {
-    mtx_.unlock();
-}
-        const char* filename() const {
-    return filename_.c_str();
-}
-    };
-
-    Mutex* mutex_new() {
-        return new Mutex();
-    }
-
-    void mutex_delete(Mutex* self) {
-        if (self) {
-            std::cout << "Mutex '" << self->name() << "' deleted" << std::endl;
-            delete self;
-        }
-    }
-
-    ScopedLock* scoped_lock_new(Mutex* mutex) {
-        return new ScopedLock(mutex);
-    }
-
-    void scoped_lock_delete(ScopedLock* self) {
-        if (self) {
-            delete self;
-        }
-    }
-
-    FileLock* file_lock_new(const char* filename) {
-        return new FileLock(filename);
-    }
-
-    void file_lock_delete(FileLock* self) {
-        if (self) {
-            delete self;
-        }
-    }
-}
+use hicc::AbiClass;
 
 hicc::import_class! {
-    #[cpp(class = "Mutex")]
+    #[cpp(class = "Mutex", destroy = "mutex_delete")]
     class Mutex {
         #[cpp(method = "void lock()")]
         fn lock(&mut self);
@@ -132,7 +30,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "ScopedLock")]
+    #[cpp(class = "ScopedLock", destroy = "scoped_lock_delete")]
     class ScopedLock {
         #[cpp(method = "bool owns_lock() const")]
         fn owns_lock(&self) -> bool;
@@ -140,7 +38,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "FileLock")]
+    #[cpp(class = "FileLock", destroy = "file_lock_delete")]
     class FileLock {
         #[cpp(method = "void lock()")]
         fn lock(&mut self);
@@ -161,22 +59,13 @@ hicc::import_lib! {
     class FileLock;
 
     #[cpp(func = "Mutex* mutex_new()")]
-    fn mutex_new() -> *mut Mutex;
-
-    #[cpp(func = "void mutex_delete(Mutex* self)")]
-    unsafe fn mutex_delete(self_: *mut Mutex);
+    fn mutex_new() -> Mutex;
 
     #[cpp(func = "ScopedLock* scoped_lock_new(Mutex* mutex)")]
-    unsafe fn scoped_lock_new(mutex: *mut Mutex) -> *mut ScopedLock;
-
-    #[cpp(func = "void scoped_lock_delete(ScopedLock* self)")]
-    unsafe fn scoped_lock_delete(self_: *mut ScopedLock);
+    unsafe fn scoped_lock_new(mutex: *mut Mutex) -> ScopedLock;
 
     #[cpp(func = "FileLock* file_lock_new(const char*)")]
-    unsafe fn file_lock_new(filename: *const i8) -> *mut FileLock;
-
-    #[cpp(func = "void file_lock_delete(FileLock* self)")]
-    unsafe fn file_lock_delete(self_: *mut FileLock);
+    unsafe fn file_lock_new(filename: *const i8) -> FileLock;
 }
 
 fn main() {
@@ -189,18 +78,15 @@ fn main() {
     println!("Critical section started");
     println!("Critical section ended");
     mutex.unlock();
-    unsafe { mutex_delete(&mutex) };
 
     println!();
 
     // ScopedLock 示例（模拟 RAII 自动解锁）
     println!("--- ScopedLock Demo ---");
-    let mutex2 = unsafe { mutex_new() };
-    let lock = unsafe { scoped_lock_new(&mutex2) };
+    let mut mutex2 = unsafe { mutex_new() };
+    let lock = unsafe { scoped_lock_new(&mutex2.as_mut_ptr()) };
     println!("Inside scoped lock region");
     println!("ScopedLock will auto-unlock on delete");
-    unsafe { scoped_lock_delete(&lock) };
-    unsafe { mutex_delete(&mutex2) };
 
     println!();
 
@@ -211,7 +97,10 @@ fn main() {
     file_lock.lock();
     println!("File is locked, performing I/O...");
     file_lock.unlock();
-    unsafe { file_lock_delete(&file_lock) };
+
+    // drop in correct order: lock before mutex2
+    drop(lock);
+    drop(mutex2);
 
     println!("\nRust FFI: RAII 模式映射");
     println!("1. C++ RAII: 构造函数加锁，析构函数解锁");
@@ -219,6 +108,4 @@ fn main() {
     println!("3. FFI 边界: ScopedLock 对象在 Rust 析构时自动释放");
     println!("4. 推荐模式: Rust 封装 RAII guard 类型");
 }
-
-
 

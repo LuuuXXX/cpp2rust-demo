@@ -2,43 +2,11 @@ hicc::cpp! {
     #include <iostream>
     #include <vector>
 
-    class Calculator {
-        int value;
-        std::vector<int> history;
-    public:
-        Calculator() : value(0) {}
-        ~Calculator() {}
-        int getValue() const {
-    return value;
-}
-        int getHistoryCount() const {
-    return static_cast<int>(history.size());
-}
-        void add(int v) {
-    history.push_back(v);
-    value += v;
-}
-        void subtract(int v) {
-    history.push_back(-v);
-    value -= v;
-}
-        void clear() {
-    history.clear();
-    value = 0;
-}
-    };
-
-    Calculator* calculator_new() {
-        return new Calculator();
-    }
-
-    void calculator_delete(Calculator* self) {
-        delete self;
-    }
+    #include "class_const.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "Calculator")]
+    #[cpp(class = "Calculator", destroy = "calculator_delete")]
     class Calculator {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
@@ -63,10 +31,7 @@ hicc::import_lib! {
     class Calculator;
 
     #[cpp(func = "Calculator* calculator_new()")]
-    fn calculator_new() -> *mut Calculator;
-
-    #[cpp(func = "void calculator_delete(Calculator* self)")]
-    unsafe fn calculator_delete(self_: *mut Calculator);
+    fn calculator_new() -> Calculator;
 }
 
 fn main() {
@@ -89,10 +54,6 @@ fn main() {
     calc.clear();
     println!("After clear: {}", calc.get_value());
     println!("History count: {}", calc.get_history_count());
-
-    unsafe {
-        calculator_delete(&calc);
-    }
 
     println!("\nRust FFI: const member functions work!");
 }

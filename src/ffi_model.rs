@@ -24,6 +24,10 @@ pub struct ClassSpec {
     pub methods: Vec<MethodBinding>,
     /// ctor/dtor/factory 关联函数（无 self）；非空时在 import_lib! 中生成 class body 格式
     pub associated_fns: Vec<FnBinding>,
+    /// dtor shim 函数名（如 `foo_delete`）；有值时在 #[cpp(class = "...")] 中生成 destroy = "..."
+    pub destroy_fn: Option<String>,
+    /// 是否为纯虚接口类（所有 public 方法均为纯虚）；true 时生成 #[interface]
+    pub is_interface: bool,
 }
 
 /// 类方法绑定

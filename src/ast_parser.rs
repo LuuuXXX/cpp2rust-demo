@@ -40,6 +40,7 @@ pub struct MethodInfo {
     pub return_type: String,
     pub params: Vec<ParamInfo>,
     pub is_const: bool,
+    pub is_volatile: bool,
     pub is_virtual: bool,
     pub is_pure_virtual: bool,
     pub is_static: bool,
@@ -92,6 +93,8 @@ pub struct ClassInfo {
     pub fields: Vec<FieldInfo>,
     /// 是否来自命名空间（collect_namespace 收集的类）
     pub is_in_namespace: bool,
+    /// 是否定义在当前被解析的 `.cpp2rust` 文件中（false 表示来自被 include 的头文件）
+    pub is_from_current_file: bool,
 }
 
 /// 全局函数
@@ -142,6 +145,13 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         .parse()
         .map_err(|e| anyhow!("parse error in {}: {:?}", file.display(), e))?;
 
+    // 扫描预处理文件中的行号标记，确定哪些字节范围属于 shim cpp 文件自身
+    // （而非 include 进来的头文件）。libclang 对预处理文件始终返回物理文件路径，
+    // 所以必须通过字节偏移量来区分来源。
+    let file_content = std::fs::read_to_string(file)
+        .map_err(|e| anyhow!("failed to read {} for line marker scan: {}", file.display(), e))?;
+    let cpp_ranges = cpp_byte_ranges(&file_content);
+
     let mut ast = CppAst {
         file: file.to_path_buf(),
         classes: Vec::new(),
@@ -164,20 +174,30 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         }
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
-                if let Some(ci) = extract_class(&entity) {
+                if let Some(ci) = extract_class(&entity, &cpp_ranges) {
                     ast.classes.push(ci);
                 }
             }
             EntityKind::ClassTemplate => {
-                if let Some(range) = entity.get_range() {
-                    let start = range.get_start().get_file_location().offset;
-                    let end = range.get_end().get_file_location().offset;
-                    let name = entity.get_name().unwrap_or_default();
-                    ast.template_class_ranges.push((name, start, end));
+                // 仅收集来自当前编译单元的模板类（用字节范围排除 include 进来的头文件）
+                let from_current = entity
+                    .get_range()
+                    .map(|r| {
+                        let offset = r.get_start().get_file_location().offset;
+                        cpp_ranges.iter().any(|range| range.contains(&offset))
+                    })
+                    .unwrap_or(false);
+                if from_current {
+                    if let Some(range) = entity.get_range() {
+                        let start = range.get_start().get_file_location().offset;
+                        let end = range.get_end().get_file_location().offset;
+                        let name = entity.get_name().unwrap_or_default();
+                        ast.template_class_ranges.push((name, start, end));
+                    }
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
-                if let Some(ci) = extract_class(&entity) {
+                if let Some(ci) = extract_class(&entity, &cpp_ranges) {
                     ast.classes.push(ci);
                 }
             }
@@ -193,10 +213,10 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, &mut ast);
+                collect_namespace(&entity, &mut ast, &cpp_ranges);
             }
             EntityKind::LinkageSpec => {
-                collect_linkage_spec(&entity, &mut ast);
+                collect_linkage_spec(&entity, &mut ast, &cpp_ranges);
             }
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, &mut ast);
@@ -285,7 +305,11 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
 //  内部辅助
 // ─────────────────────────────────────────────
 
-fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
+fn collect_namespace(
+    ns: &clang::Entity<'_>,
+    ast: &mut CppAst,
+    cpp_ranges: &[std::ops::Range<u32>],
+) {
     let ns_name = ns.get_name().unwrap_or_default();
     for entity in ns.get_children() {
         if entity
@@ -297,7 +321,7 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
         }
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
-                if let Some(mut ci) = extract_class(&entity) {
+                if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
                     // 命名空间前缀扁平化到类名
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
@@ -307,7 +331,7 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
-                if let Some(mut ci) = extract_class(&entity) {
+                if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
@@ -326,14 +350,18 @@ fn collect_namespace(ns: &clang::Entity<'_>, ast: &mut CppAst) {
                 }
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, ast);
+                collect_namespace(&entity, ast, cpp_ranges);
             }
             _ => {}
         }
     }
 }
 
-fn collect_linkage_spec(spec: &clang::Entity<'_>, ast: &mut CppAst) {
+fn collect_linkage_spec(
+    spec: &clang::Entity<'_>,
+    ast: &mut CppAst,
+    cpp_ranges: &[std::ops::Range<u32>],
+) {
     for entity in spec.get_children() {
         if entity
             .get_location()
@@ -357,13 +385,11 @@ fn collect_linkage_spec(spec: &clang::Entity<'_>, ast: &mut CppAst) {
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, ast);
             }
-            EntityKind::StructDecl => {
-                // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
-                if entity.is_definition() {
-                    if let Some(mut ci) = extract_class(&entity) {
-                        ci.is_in_namespace = false;
-                        ast.classes.push(ci);
-                    }
+            // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
+            EntityKind::StructDecl if entity.is_definition() => {
+                if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
+                    ci.is_in_namespace = false;
+                    ast.classes.push(ci);
                 }
             }
             _ => {}
@@ -379,10 +405,28 @@ fn collect_typedef(entity: &clang::Entity<'_>, ast: &mut CppAst) {
     ast.typedefs.push((name, start, end));
 }
 
-fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
+fn extract_class(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> Option<ClassInfo> {
     let name = entity.get_name()?;
     let is_struct = entity.get_kind() == EntityKind::StructDecl;
     let is_abstract = entity.is_abstract_record();
+
+    // 判断该类是否定义在当前编译单元（shim cpp 文件）中，而非被 include 的头文件。
+    //
+    // libclang 解析预处理文件（`.cpp2rust`）时，所有实体的 `get_location()` 都返回
+    // 物理文件（`.cpp2rust`）的字节偏移量，而非跟随行号标记的逻辑来源文件。
+    // 因此不能用文件路径比较，而必须用字节偏移量与 `cpp_byte_ranges` 扫描结果对比：
+    // 只有落在 shim cpp 内容区间（即 `.cpp` 行号标记之后、`.h` 标记之前的区域）
+    // 的实体才认为来自当前文件。
+    let is_from_current_file = entity
+        .get_range()
+        .map(|r| {
+            let offset = r.get_start().get_file_location().offset;
+            cpp_ranges.iter().any(|range| range.contains(&offset))
+        })
+        .unwrap_or(false);
 
     let mut template_args = Vec::new();
     if let Some(args) = entity.get_template_arguments() {
@@ -481,6 +525,7 @@ fn extract_class(entity: &clang::Entity<'_>) -> Option<ClassInfo> {
         methods,
         fields,
         is_in_namespace: false,
+        is_from_current_file,
     })
 }
 
@@ -512,6 +557,17 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
         return_type,
         params,
         is_const: entity.is_const_method(),
+        is_volatile: entity
+            .get_type()
+            .map(|t| {
+                let display_name = t.get_display_name();
+                // 方法类型显示名如 "volatile uint32_t () volatile"
+                // 尾部 " volatile" 表示 this-volatile 修饰符（影响方法指针类型）
+                display_name.trim_end().ends_with(") volatile")
+                    || display_name.trim_end().ends_with(") volatile &")
+                    || display_name.trim_end().ends_with(") volatile &&")
+            })
+            .unwrap_or(false),
         is_virtual: entity.is_virtual_method(),
         is_pure_virtual: entity.is_pure_virtual_method(),
         is_static: entity.is_static_method(),
@@ -751,4 +807,80 @@ fn func_tags(f: &FunctionInfo) -> String {
     } else {
         format!(" [{}]", tags.join(", "))
     }
+}
+
+// ─────────────────────────────────────────────
+//  行号标记扫描（用于 is_from_current_file 判断）
+// ─────────────────────────────────────────────
+
+/// 扫描 `g++ -E` 生成的预处理文件内容，返回属于 `.cpp`/`.c` 文件（而非 `.h`/`.hpp` 头文件）
+/// 内容的字节偏移量区间列表。
+///
+/// 原理：预处理文件中包含行号标记（linemarker），格式为
+/// `# <行号> "<文件路径>" [标志]`，通过解析这些标记即可知道每段内容来自哪个原始文件。
+/// 后缀为 `.h`/`.hpp` 的标记表示进入了头文件，后缀为 `.cpp`/`.c` 的标记表示回到了
+/// 主 shim 文件；系统虚拟路径（`<built-in>`、`<command-line>` 等）则跳过。
+pub fn cpp_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
+    let mut ranges: Vec<std::ops::Range<u32>> = Vec::new();
+    let mut in_cpp = false;
+    let mut section_start: u32 = 0;
+    let mut byte_pos: u32 = 0;
+
+    for line in content.split('\n') {
+        let line_byte_len = line.len() as u32 + 1; // +1 表示 '\n'
+
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("# ") {
+            if let Some(file_path) = parse_line_marker_file(trimmed) {
+                // 过滤系统虚拟路径（<built-in>、<command-line> 等）
+                let is_virtual = file_path.starts_with('<') || file_path.is_empty();
+                // 头文件后缀
+                let is_header = file_path.ends_with(".h")
+                    || file_path.ends_with(".hpp")
+                    || file_path.ends_with(".hh");
+                // .cpp/.c 文件（即 shim cpp 自身）
+                let is_cpp = !is_virtual && !is_header;
+
+                match (in_cpp, is_cpp) {
+                    (true, false) => {
+                        // 离开 cpp 区间
+                        ranges.push(section_start..byte_pos);
+                        in_cpp = false;
+                    }
+                    (false, true) => {
+                        // 进入 cpp 区间（行号标记行本身不算内容，从下一行开始）
+                        in_cpp = true;
+                        section_start = byte_pos + line_byte_len;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        byte_pos += line_byte_len;
+    }
+
+    if in_cpp && section_start < byte_pos {
+        ranges.push(section_start..byte_pos);
+    }
+
+    ranges
+}
+
+/// 从行号标记中提取文件路径。
+/// 格式：`# <数字> "<路径>" [标志]`，返回引号中的路径部分。
+fn parse_line_marker_file(line: &str) -> Option<&str> {
+    // 跳过 "# " 前缀
+    let rest = line[2..].trim_start();
+    // 跳过数字
+    let after_num = rest
+        .trim_start_matches(|c: char| c.is_ascii_digit())
+        .trim_start();
+    // 必须以 '"' 开头
+    if !after_num.starts_with('"') {
+        return None;
+    }
+    let inner = &after_num[1..];
+    let end = inner.find('"')?;
+    Some(&inner[..end])
 }

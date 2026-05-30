@@ -2,61 +2,11 @@ hicc::cpp! {
     #include <iostream>
     #include <stack>
 
-    template<typename T>
-    class Stack {
-    public:
-        std::stack<T> data;
-        Stack() = default;
-        int size() const { return static_cast<int>(data.size()); }
-        bool empty() const { return data.empty(); }
-        void push(T value) { data.push(value); }
-        T top() const { return data.top(); }
-        void pop() { data.pop(); }
-    };
-
-    class IntStack {
-    public:
-        Stack<int> impl;
-    public:
-        IntStack() = default;
-        int size() const { return impl.size(); }
-        bool empty() const { return impl.empty(); }
-        void push(int value) { impl.push(value); }
-        int top() const { return impl.top(); }
-        void pop() { impl.pop(); }
-    };
-
-    class DoubleStack {
-    public:
-        Stack<double> impl;
-    public:
-        DoubleStack() = default;
-        int size() const { return impl.size(); }
-        bool empty() const { return impl.empty(); }
-        void push(double value) { impl.push(value); }
-        double top() const { return impl.top(); }
-        void pop() { impl.pop(); }
-    };
-
-    IntStack* intstack_new() {
-        return new IntStack();
-    }
-
-    void intstack_delete(IntStack* self) {
-        delete self;
-    }
-
-    DoubleStack* doublestack_new() {
-        return new DoubleStack();
-    }
-
-    void doublestack_delete(DoubleStack* self) {
-        delete self;
-    }
+    #include "template_class.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntStack")]
+    #[cpp(class = "IntStack", destroy = "intstack_delete")]
     class IntStack {
         #[cpp(method = "int size() const")]
         fn size(&self) -> i32;
@@ -76,7 +26,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "DoubleStack")]
+    #[cpp(class = "DoubleStack", destroy = "doublestack_delete")]
     class DoubleStack {
         #[cpp(method = "int size() const")]
         fn size(&self) -> i32;
@@ -102,16 +52,10 @@ hicc::import_lib! {
     class DoubleStack;
 
     #[cpp(func = "IntStack* intstack_new()")]
-    fn intstack_new() -> *mut IntStack;
-
-    #[cpp(func = "void intstack_delete(IntStack* self)")]
-    unsafe fn intstack_delete(self_: *mut IntStack);
+    fn intstack_new() -> IntStack;
 
     #[cpp(func = "DoubleStack* doublestack_new()")]
-    fn doublestack_new() -> *mut DoubleStack;
-
-    #[cpp(func = "void doublestack_delete(DoubleStack* self)")]
-    unsafe fn doublestack_delete(self_: *mut DoubleStack);
+    fn doublestack_new() -> DoubleStack;
 }
 
 fn main() {
@@ -130,8 +74,6 @@ fn main() {
     int_stack.pop();
     println!("After pop, top: {}", int_stack.top());
 
-    unsafe { intstack_delete(&int_stack) };
-
     println!();
 
     // DoubleStack
@@ -147,13 +89,8 @@ fn main() {
     double_stack.pop();
     println!("After pop, top: {}", double_stack.top());
 
-    unsafe { doublestack_delete(&double_stack) };
-
     println!("\nRust FFI: 类模板 = 为每种类型实例化独立结构");
     println!("Stack<int> -> IntStack");
     println!("Stack<double> -> DoubleStack");
 }
-
-
-
 

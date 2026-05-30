@@ -1,36 +1,11 @@
 hicc::cpp! {
     #include <cstdint>
 
-    class Counter {
-        int value = 0;
-    public:
-        Counter() = default;
-        ~Counter() = default;
-        int get() const { return value; }
-        void increment() { value++; }
-        void decrement() { value--; }
-    };
-
-    Counter* counter_new() {
-        return new Counter();
-    }
-
-    void counter_delete(Counter* self) {
-        delete self;
-    }
-
-    int safe_add(int a, int b) noexcept {
-        return a + b;
-    }
-
-    int get_max_size() {
-        const int MAX_SIZE = 100;
-        return MAX_SIZE;
-    }
+    #include "summary.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "Counter")]
+    #[cpp(class = "Counter", destroy = "counter_delete")]
     class Counter {
         #[cpp(method = "int get() const")]
         fn get(&self) -> i32;
@@ -49,10 +24,7 @@ hicc::import_lib! {
     class Counter;
 
     #[cpp(func = "Counter* counter_new()")]
-    fn counter_new() -> *mut Counter;
-
-    #[cpp(func = "void counter_delete(Counter* self)")]
-    unsafe fn counter_delete(self_: *mut Counter);
+    fn counter_new() -> Counter;
 
     #[cpp(func = "int safe_add(int, int)")]
     fn safe_add(a: i32, b: i32) -> i32;
@@ -73,7 +45,6 @@ fn main() {
     println!("After 2 increments: {}", counter.get());
     counter.decrement();
     println!("After 1 decrement: {}", counter.get());
-    unsafe { counter_delete(&counter); }
 
     // 2. Class Import Pattern
     println!("\n--- 2. Class Import Pattern ---");
@@ -137,6 +108,4 @@ fn main() {
     println!("6. constexpr computed at compile time");
     println!("7. noexcept is part of function signature in FFI");
 }
-
-
 

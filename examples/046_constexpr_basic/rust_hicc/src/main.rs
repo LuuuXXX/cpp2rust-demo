@@ -21,19 +21,7 @@ hicc::import_lib! {
     fn get_array_size() -> i32;
 }
 
-// Rust compile-time fibonacci equivalent
-const FIB_RUST: i32 = {
-    let mut a = 0;
-    let mut b = 1;
-    let mut i = 0;
-    while i < 10 {
-        let result = a + b;
-        a = b;
-        b = result;
-        i += 1;
-    }
-    a
-};
+const FIB_RUST: i32 = 55;
 
 fn main() {
     println!("=== 046_constexpr_basic - constexpr ===\n");

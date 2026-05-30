@@ -5,73 +5,13 @@ hicc::cpp! {
     #include <cstring>
     #include <unordered_map>
 
-    class SharedData {
-        std::string name_;
-    public:
-        int value;
-    public:
-        SharedData(const char* n) : name_(n ? n : ""), value(0) {
+    #include "shared_ptr.h"
 }
-        ~SharedData() {
-}
-        int useCount() const {
-    return 1; // Simplified - actual shared_ptr would have ref count
-}
-        const char* getName() const {
-    return name_.c_str();
-}
-        SharedData* clone() const {
-    return new SharedData(name_.c_str());
-}
-        void reset() {
-    name_.clear();
-}
-    };
 
-    class Cache {
-        std::unordered_map<std::string, void*> data_;
-    public:
-        Cache() : data_() {
-}
-        ~Cache() {
-}
-        SharedData* get(const char* name) {
-    if (!name) return nullptr;
-    std::string key(name);
-    auto it = data_.find(key);
-    if (it != data_.end()) {
-        return reinterpret_cast<SharedData*>(it->second);
-    }
-    // If not found, create new and store
-    SharedData* new_data = new SharedData(name);
-    data_[key] = reinterpret_cast<void*>(new_data);
-    return new_data;
-}
-    };
-
-    SharedData* shareddata_new(const char* name) {
-        return new SharedData(name);
-    }
-
-    void shareddata_delete(SharedData* self) {
-        delete self;
-    }
-
-    Cache* cache_new() {
-        return new Cache();
-    }
-
-    void cache_delete(Cache* self) {
-        delete self;
-    }
-
-    SharedData* cache_get(Cache* c, const char* name) {
-        return c ? c->get(name) : nullptr;
-    }
-}
+use hicc::AbiClass;
 
 hicc::import_class! {
-    #[cpp(class = "SharedData")]
+    #[cpp(class = "SharedData", destroy = "shareddata_delete")]
     class SharedData {
         #[cpp(method = "int useCount() const")]
         fn use_count(&self) -> i32;
@@ -88,7 +28,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Cache")]
+    #[cpp(class = "Cache", destroy = "cache_delete")]
     class Cache {
         #[cpp(method = "SharedData* get(const char* name)")]
         fn get(&mut self, name: *const i8) -> *mut SharedData;
@@ -102,16 +42,10 @@ hicc::import_lib! {
     class Cache;
 
     #[cpp(func = "SharedData* shareddata_new(const char*)")]
-    unsafe fn shareddata_new(name: *const i8) -> *mut SharedData;
-
-    #[cpp(func = "void shareddata_delete(SharedData* self)")]
-    unsafe fn shareddata_delete(self_: *mut SharedData);
+    unsafe fn shareddata_new(name: *const i8) -> SharedData;
 
     #[cpp(func = "Cache* cache_new()")]
-    fn cache_new() -> *mut Cache;
-
-    #[cpp(func = "void cache_delete(Cache* self)")]
-    unsafe fn cache_delete(self_: *mut Cache);
+    fn cache_new() -> Cache;
 
     #[cpp(func = "SharedData* cache_get(Cache* c, const char*)")]
     unsafe fn cache_get(c: *mut Cache, name: *const i8) -> *mut SharedData;
@@ -147,14 +81,12 @@ fn main() {
 
     let key1 = std::ffi::CString::new("key1").expect("CString::new failed");
     let key2 = std::ffi::CString::new("key2").expect("CString::new failed");
-    let _cached1a = unsafe { cache_get(&cache, key1.as_ptr()) };
-    let _cached1b = unsafe { cache_get(&cache, key1.as_ptr()) };  // 缓存命中
-    let _cached2 = unsafe { cache_get(&cache, key2.as_ptr()) };
+    let _cached1a = unsafe { cache_get(&cache.as_mut_ptr(), key1.as_ptr()) };
+    let _cached1b = unsafe { cache_get(&cache.as_mut_ptr(), key1.as_ptr()) };  // 缓存命中
+    let _cached2 = unsafe { cache_get(&cache.as_mut_ptr(), key2.as_ptr()) };
 
     println!("\nCache demo:");
     println!("cached1a and cached1b point to same cache entry");
-
-    unsafe { cache_delete(&cache) };
 
     println!("\nRust FFI: shared_ptr 的处理方式");
     println!("1. C++ 侧管理引用计数");

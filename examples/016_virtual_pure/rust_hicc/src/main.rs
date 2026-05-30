@@ -3,80 +3,11 @@ hicc::cpp! {
     #include <cmath>
     #include <cstring>
 
-    class AbstractShape {
-    public:
-        virtual ~AbstractShape() = default;
-        virtual double area() const = 0;
-        virtual const char* getName() const = 0;
-    };
-
-    class Circle : public AbstractShape {
-        double radius;
-    public:
-        Circle(double r);
-        ~Circle() override;
-        double area() const override;
-        const char* getName() const override;
-    };
-
-    class Rectangle : public AbstractShape {
-        double width;
-        double height;
-    public:
-        Rectangle(double w, double h);
-        ~Rectangle() override;
-        double area() const override;
-        const char* getName() const override;
-    };
-
-    Circle::Circle(double r) : radius(r) {}
-
-    Circle::~Circle() {
-        std::cout << "Deleting Circle" << std::endl;
-    }
-
-    double Circle::area() const {
-        return 
-              3.14159265358979323846 
-                   * radius * radius;
-    }
-
-    const char* Circle::getName() const {
-        return "Circle";
-    }
-
-    Rectangle::Rectangle(double w, double h) : width(w), height(h) {}
-
-    Rectangle::~Rectangle() {
-        std::cout << "Deleting Rectangle" << std::endl;
-    }
-
-    double Rectangle::area() const {
-        return width * height;
-    }
-
-    const char* Rectangle::getName() const {
-        return "Rectangle";
-    }
-
-    AbstractShape* abstract_shape_create_circle(double radius) {
-        return new Circle(radius);
-    }
-
-    AbstractShape* abstract_shape_create_rectangle(double width, double height) {
-        return new Rectangle(width, height);
-    }
-
-    void abstract_shape_delete(AbstractShape* self) {
-        if (self) {
-            std::cout << "Deleting " << self->getName() << std::endl;
-            delete self;
-        }
-    }
+    #include "virtual_pure.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "AbstractShape")]
+    #[cpp(class = "AbstractShape", destroy = "abstract_shape_delete")]
     class AbstractShape {
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
@@ -96,18 +27,10 @@ hicc::import_lib! {
 
     #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double, double)")]
     fn abstract_shape_create_rectangle(width: f64, height: f64) -> *mut AbstractShape;
-
-    #[cpp(func = "void abstract_shape_delete(AbstractShape* self)")]
-    unsafe fn abstract_shape_delete(self_: *mut AbstractShape);
 }
 
 fn decode_cstr(ptr: *const i8) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    unsafe { std::ffi::CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .to_string()
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
 fn main() {
@@ -133,11 +56,6 @@ fn main() {
     println!("Area: {:.4}", area);
 
     println!("\n--- Polymorphic behavior demonstrated ---");
-
-    unsafe {
-        abstract_shape_delete(&circle);
-        abstract_shape_delete(&rectangle);
-    }
 
     println!("\nRust FFI: Pure virtual functions work through hicc!");
 }

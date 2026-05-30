@@ -1,31 +1,7 @@
 hicc::cpp! {
     #include <iostream>
 
-    class Number {
-        int value;
-    public:
-        Number(int v) : value(v) {}
-        ~Number() {}
-        int getValue() const { return value; }
-        Number operator+(const Number& other) const { return Number(value + other.value); }
-        Number operator-(const Number& other) const { return Number(value - other.value); }
-        Number operator*(const Number& other) const { return Number(value * other.value); }
-        Number operator/(const Number& other) const { return Number(value / other.value); }
-        int compare(const Number& other) const { return value - other.value; }
-        Number operator-() const { return Number(-value); }
-        Number& operator++() { ++value; return *this; }
-        Number& operator--() { --value; return *this; }
-        Number& operator+=(const Number& other) { value += other.value; return *this; }
-        Number& operator-=(const Number& other) { value -= other.value; return *this; }
-    };
-
-    Number* number_new(int value) {
-        return new Number(value);
-    }
-
-    void number_delete(Number* self) {
-        delete self;
-    }
+    #include "operator_overload.h"
 
     int number_get_value(const Number* self) {
         return self->getValue();
@@ -57,7 +33,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Number")]
+    #[cpp(class = "Number", destroy = "number_delete")]
     class Number {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
@@ -70,10 +46,7 @@ hicc::import_lib! {
     class Number;
 
     #[cpp(func = "Number* number_new(int)")]
-    fn number_new(value: i32) -> *mut Number;
-
-    #[cpp(func = "void number_delete(Number* self)")]
-    unsafe fn number_delete(self_: *mut Number);
+    fn number_new(value: i32) -> Number;
 
     #[cpp(func = "int number_get_value(const Number*)")]
     fn number_getValue(self_: *const Number) -> i32;
@@ -98,45 +71,41 @@ hicc::import_lib! {
 }
 
 fn main() {
+    use hicc::AbiClass;
     println!("=== Operator Overload FFI ===\n");
     println!("C++ operator overloading becomes named method calls in FFI\n");
 
     let a = number_new(10);
     let b = number_new(3);
 
-    println!("Created numbers: a = {}, b = {}", number_getValue(&a.as_ref().as_ptr()), number_getValue(&b.as_ref().as_ptr()));
+    println!("Created numbers: a = {}, b = {}", number_getValue(&a.as_ptr()), number_getValue(&b.as_ptr()));
     println!();
 
     // Addition: a + b
-    let sum = number_add(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
-    println!("Result of a + b = {}", number_getValue(&sum.as_ref().as_ptr()));
-    unsafe { number_delete(&sum) };
+    let sum = number_add(&a.as_ptr(), &b.as_ptr());
+    println!("Result of a + b = {}", number_getValue(&sum.as_ptr()));
 
     // Subtraction: a - b
-    let diff = number_sub(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
-    println!("Result of a - b = {}", number_getValue(&diff.as_ref().as_ptr()));
-    unsafe { number_delete(&diff) };
+    let diff = number_sub(&a.as_ptr(), &b.as_ptr());
+    println!("Result of a - b = {}", number_getValue(&diff.as_ptr()));
 
     // Multiplication: a * b
-    let prod = number_mul(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
-    println!("Result of a * b = {}", number_getValue(&prod.as_ref().as_ptr()));
-    unsafe { number_delete(&prod) };
+    let prod = number_mul(&a.as_ptr(), &b.as_ptr());
+    println!("Result of a * b = {}", number_getValue(&prod.as_ptr()));
 
     // Division: a / b
-    let quot = number_div(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
-    println!("Result of a / b = {}", number_getValue(&quot.as_ref().as_ptr()));
-    unsafe { number_delete(&quot) };
+    let quot = number_div(&a.as_ptr(), &b.as_ptr());
+    println!("Result of a / b = {}", number_getValue(&quot.as_ptr()));
 
     println!();
 
     // Unary operators
     println!("Unary operators:");
-    let neg = number_negate(&a.as_ref().as_ptr());
-    println!("Negation of a = {}", number_getValue(&neg.as_ref().as_ptr()));
-    unsafe { number_delete(&neg) };
+    let neg = number_negate(&a.as_ptr());
+    println!("Negation of a = {}", number_getValue(&neg.as_ptr()));
 
     // Comparison
-    let cmp = number_compare(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    let cmp = number_compare(&a.as_ptr(), &b.as_ptr());
     println!("a compared to b = {}", cmp);
 
     println!();
@@ -145,9 +114,5 @@ fn main() {
     println!("a - b -> number_sub(a, b)");
     println!("a * b -> number_mul(a, b)");
 
-    unsafe {
-        number_delete(&a);
-        number_delete(&b);
-    }
 }
 

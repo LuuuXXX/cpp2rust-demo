@@ -72,7 +72,12 @@ pub fn extract(
 
     // ── hicc::cpp! 块内容 ──────────────────────
     let cpp_block_lines = if namespace_class_mode {
-        Vec::new()  // 空块：命名空间类体不应内联到 hicc cpp 中
+        // 命名空间类模式：只生成项目头文件 include，不内联类体
+        if let Some(hdr) = project_header {
+            vec![format!("#include \"{}\"", hdr)]
+        } else {
+            Vec::new()
+        }
     } else {
         build_cpp_block(
             ast,
@@ -99,6 +104,8 @@ pub fn extract(
                     name: ci.name.clone(),
                     methods: Vec::new(),
                     associated_fns: Vec::new(),
+                    destroy_fn: None,
+                    is_interface: false,
                 }))
             .collect()
     };
@@ -207,20 +214,38 @@ fn build_cpp_block(
         lines.push(String::new());
     }
 
-    // 枚举定义（在类定义之前）
-    for en in &ast.enums {
-        if en.name.is_empty() {
-            continue;
+    // 只内联来自当前文件的类，来自 include 头文件的类通过 #include 引入
+    let local_classes: Vec<&ClassInfo> = ast
+        .classes
+        .iter()
+        .filter(|c| c.is_from_current_file)
+        .collect();
+
+    // 当所有类均来自头文件（local_classes 为空）时：
+    // - include 项目头文件以引入类型定义和函数声明
+    // - 不再重复 emit 枚举（它们已包含在头文件中，重复会导致重复定义错误）
+    // - 不再重复 emit shim 函数体（项目 .cpp 中已有定义，重复会导致 duplicate symbol 链接错误）
+    let use_project_header = local_classes.is_empty() && project_header.is_some();
+    if use_project_header {
+        if let Some(hdr) = project_header {
+            lines.push(format!("#include \"{}\"", hdr));
         }
-        lines.push(format!("enum {} {{", en.name));
-        for v in &en.variants {
-            lines.push(format!("    {} = {},", v.name, v.value));
+    } else {
+        // 枚举定义（在类定义之前；仅在不使用项目头文件时输出，避免重复定义）
+        for en in &ast.enums {
+            if en.name.is_empty() {
+                continue;
+            }
+            lines.push(format!("enum {} {{", en.name));
+            for v in &en.variants {
+                lines.push(format!("    {} = {},", v.name, v.value));
+            }
+            lines.push("};".to_string());
+            lines.push(String::new());
         }
-        lines.push("};".to_string());
-        lines.push(String::new());
     }
 
-    // typedef 定义（在类定义之前）
+    // typedef 定义（在类定义之前；typedef 重复声明在 C++11 中合法，始终输出）
     for (_, start, end) in &ast.typedefs {
         let text = extract_range_text(source_bytes, *start, *end).trim().to_string();
         if text.is_empty() { continue; }
@@ -249,19 +274,19 @@ fn build_cpp_block(
         }
     }
 
+    let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
+
     // 判断是否使用分离风格（含虚函数的类）
     let use_separate_style = ast.classes.iter().any(|c| c.methods.iter().any(|m| m.is_virtual));
 
-    let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-
     if use_separate_style {
         // 分离风格：先放所有类的声明，再放方法实现
-        for ci in &ast.classes {
+        for ci in &local_classes {
             emit_class_decl(ci, source_bytes, &mut lines);
             lines.push(String::new());
         }
         // 方法定义（从源文件读取，跳过 = default / = delete 方法）
-        for ci in &ast.classes {
+        for ci in &local_classes {
             for method in &ci.methods {
                 if method.is_default { continue; }
                 if let Some((start, end)) = method.body_offset {
@@ -281,7 +306,7 @@ fn build_cpp_block(
         }
     } else {
         // 内联风格：类定义含内联方法体
-        for ci in &ast.classes {
+        for ci in &local_classes {
             emit_class_inline(ci, source_bytes, &mut lines);
             lines.push(String::new());
             // 静态成员变量初始化
@@ -305,19 +330,23 @@ fn build_cpp_block(
     }
 
     // Ctor/dtor/standalone shim 函数（含静态访问器）
-    let shim_fns = classify_functions(functions, &class_names);
-    for (fn_info, shim_kind) in &shim_fns {
-        if !matches!(shim_kind, ShimKind::MethodAccessor) {
-            if let Some((start, end)) = fn_info.body_offset {
-                let raw = extract_range_text(source_bytes, start, end);
-                let cleaned = clean_shim_text(&raw);
-                let cleaned = strip_preprocessor_markers(&cleaned);
-                let trimmed = cleaned.trim();
-                if !trimmed.is_empty() {
-                    for line in trimmed.lines() {
-                        lines.push(line.to_string());
+    // 当使用 project_header 模式时，函数已通过头文件中的 extern "C" 声明引入，
+    // 实现体在项目 .cpp 文件中，不需要（也不应）在 cpp! 块中重复定义。
+    if !use_project_header {
+        let shim_fns = classify_functions(functions, &class_names);
+        for (fn_info, shim_kind) in &shim_fns {
+            if !matches!(shim_kind, ShimKind::MethodAccessor) {
+                if let Some((start, end)) = fn_info.body_offset {
+                    let raw = extract_range_text(source_bytes, start, end);
+                    let cleaned = clean_shim_text(&raw);
+                    let cleaned = strip_preprocessor_markers(&cleaned);
+                    let trimmed = cleaned.trim();
+                    if !trimmed.is_empty() {
+                        for line in trimmed.lines() {
+                            lines.push(line.to_string());
+                        }
+                        lines.push(String::new());
                     }
-                    lines.push(String::new());
                 }
             }
         }
@@ -489,11 +518,12 @@ fn build_method_decl(m: &MethodInfo) -> String {
 
     let params = format_params_cpp(&m.params);
     let const_sfx = if m.is_const { " const" } else { "" };
+    let volatile_sfx = if m.is_volatile { " volatile" } else { "" };
     let override_sfx = if m.is_override { " override" } else { "" };
     let pure_sfx = if m.is_pure_virtual && !m.is_override { " = 0" } else { "" };
     let default_sfx = if m.is_default { " = default" } else { "" };
 
-    format!("{}{}{}({}){}{}{}{}", qualifier, ret, name, params, const_sfx, override_sfx, pure_sfx, default_sfx)
+    format!("{}{}{}({}){}{}{}{}{}", qualifier, ret, name, params, const_sfx, volatile_sfx, override_sfx, pure_sfx, default_sfx)
 }
 
 /// 构建单行内联方法（内联风格）
@@ -509,8 +539,8 @@ fn build_inline_method_line(m: &MethodInfo, source_bytes: &[u8], class_name: &st
         let stripped = strip_preprocessor_markers(&stripped);
         let stripped = strip_method_volatile_qualifier(stripped.trim());
         // 去掉方法返回类型的 volatile 前缀（与 import_class! 中的 cpp_sig 保持一致）
-        let stripped = if stripped.starts_with("volatile ") {
-            stripped[9..].trim_start().to_string()
+        let stripped = if let Some(s) = stripped.strip_prefix("volatile ") {
+            s.trim_start().to_string()
         } else {
             stripped
         };
@@ -579,7 +609,7 @@ fn strip_preprocessor_markers(text: &str) -> String {
         .join("\n")
 }
 
-/// 清理 shim 函数文本：去除 `struct ClassName*` → `ClassName*`，`(void)` → `()`
+/// 清理 shim 函数文本：去除 `struct ClassName*` → `ClassName*`
 fn clean_shim_text(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let bytes = text.as_bytes();
@@ -597,12 +627,6 @@ fn clean_shim_text(text: &str) -> String {
                 i += 7;
                 continue;
             }
-        }
-        // 将 `(void)` → `()`（C 风格无参数声明）
-        if i + 6 <= bytes.len() && &bytes[i..i + 6] == b"(void)" {
-            result.push_str("()");
-            i += 6;
-            continue;
         }
         result.push(bytes[i] as char);
         i += 1;
@@ -656,7 +680,12 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
         return None;
     }
 
-    Some(ClassSpec { name: ci.name.clone(), methods, associated_fns: Vec::new() })
+    // 检测纯虚接口类：所有 public 非 ctor/dtor 方法（含继承）均为纯虚
+    let is_interface = !own_methods.is_empty()
+        && own_methods.iter().all(|m| m.is_pure_virtual)
+        && inherited.iter().all(|m| m.is_pure_virtual);
+
+    Some(ClassSpec { name: ci.name.clone(), methods, associated_fns: Vec::new(), destroy_fn: None, is_interface })
 }
 
 /// 递归收集所有基类的 public 非 ctor/dtor 方法（不含静态方法）
@@ -693,6 +722,10 @@ fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -
 }
 
 fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
+    // hicc 不支持 volatile this 限定的方法（方法指针类型不匹配），跳过
+    if m.is_volatile {
+        return None;
+    }
     let rust_name = to_snake_case(&m.name);
     let self_kind = if m.is_const { SelfKind::Ref } else { SelfKind::RefMut };
 
@@ -708,7 +741,8 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         Some(cpp_to_rust(&m.return_type))
     };
 
-    // C++ 方法签名：含参数名（若 AST 有）、剥除 volatile、指针紧贴类型
+    // C++ 方法签名：含参数名（若 AST 有）、剥除参数 volatile、指针紧贴类型
+    // 返回类型 volatile 和方法 this-volatile 均需保留，供 hicc 编译时方法指针类型检查
     let param_types: Vec<String> = m
         .params
         .iter()
@@ -723,11 +757,16 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         })
         .collect();
     let ret_clean = normalize_ptr_spacing(strip_volatile(clean_type(&m.return_type)));
-    let const_suffix = if m.is_const { " const" } else { "" };
+    let cv_suffix = match (m.is_const, m.is_volatile) {
+        (true, true)   => " const volatile",
+        (true, false)  => " const",
+        (false, true)  => " volatile",
+        (false, false) => "",
+    };
     let cpp_sig = if m.return_type.is_empty() || m.return_type == "void" {
-        format!("void {}({}){}", m.name, param_types.join(", "), const_suffix)
+        format!("void {}({}){}", m.name, param_types.join(", "), cv_suffix)
     } else {
-        format!("{} {}({}){}", ret_clean, m.name, param_types.join(", "), const_suffix)
+        format!("{} {}({}){}", ret_clean, m.name, param_types.join(", "), cv_suffix)
     };
 
     Some(MethodBinding { cpp_sig, rust_name, self_kind, params, ret_type })
@@ -789,7 +828,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let is_unsafe = params.iter().any(|(_, t)| {
         if t == "*const i8" { return true; }
         if let Some(inner) = t.strip_prefix("*mut ") {
-            let is_class = class_names.iter().any(|cn| *cn == inner);
+            let is_class = class_names.contains(&inner);
             if is_class && primitive_ret { return false; }
             return true;
         }
@@ -872,7 +911,14 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         return ShimKind::Ctor;
     }
     if first_param_is_class_ptr
-        && (name_lower.contains("_delete") || name_lower.ends_with("delete"))
+        && (name_lower.contains("_delete")
+            || name_lower.ends_with("delete")
+            || name_lower.contains("_free")
+            || name_lower.ends_with("free")
+            || name_lower.contains("_destroy")
+            || name_lower.ends_with("destroy")
+            || name_lower.contains("_release")
+            || name_lower.ends_with("release"))
     {
         return ShimKind::Dtor;
     }
@@ -1085,7 +1131,7 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
 /// 仅处理 `ShimKind::Ctor`、`ShimKind::Dtor`、`ShimKind::StaticAccessor`。
 /// 不属于任何已知类（或类无对应 ClassSpec）的函数保留在 fn_bindings 中。
 fn assign_associated_fns(
-    class_specs: &mut Vec<crate::ffi_model::ClassSpec>,
+    class_specs: &mut [crate::ffi_model::ClassSpec],
     lib_spec: &mut crate::ffi_model::LibSpec,
     functions: &[&FunctionInfo],
     class_names: &[&str],
@@ -1100,27 +1146,61 @@ fn assign_associated_fns(
         kind_map.entry(to_snake_case(&fi.name)).or_insert(kind);
     }
 
+    // 预先构建 rust_name → FunctionInfo 映射，避免在循环中重复计算 to_snake_case
+    let fn_by_rust_name: std::collections::HashMap<String, &FunctionInfo> = functions
+        .iter()
+        .map(|fi| (to_snake_case(&fi.name), *fi))
+        .collect();
+
     let mut remaining = Vec::new();
     for fb in lib_spec.fn_bindings.drain(..) {
+        let kind = kind_map.get(&fb.rust_name).copied();
         let should_move = matches!(
-            kind_map.get(&fb.rust_name),
+            kind,
             Some(ShimKind::Ctor | ShimKind::Dtor | ShimKind::StaticAccessor)
         );
 
         if should_move {
-            // 找到名称前缀与此函数匹配的类（优先最长前缀）
-            let owning = class_names
-                .iter()
-                .filter(|cn| {
-                    let prefix = format!("{}_", cn.to_lowercase());
-                    fb.rust_name.starts_with(&prefix)
-                })
-                .max_by_key(|cn| cn.len())
-                .copied();
+            // 通过函数签名中的类型（返回类型 / 第一个参数类型）确定归属类。
+            // 这比名称前缀匹配更可靠，可正确处理 RapidJsonBigIntegerHandle 这类
+            // 类名与函数名前缀不一致的情况。
+            let matching_function = fn_by_rust_name.get(&fb.rust_name).copied();
+            let owning: Option<&str> = matching_function.and_then(|fi| {
+                if matches!(kind, Some(ShimKind::Ctor)) {
+                    // Ctor：返回类型中含类名（优先最长匹配，避免子串误匹配）
+                    class_names.iter()
+                        .filter(|cn| fi.return_type.contains(*cn))
+                        .max_by_key(|cn| cn.len())
+                        .copied()
+                } else if matches!(kind, Some(ShimKind::Dtor)) {
+                    // Dtor：第一个参数类型含类名（优先最长匹配，避免子串误匹配）
+                    fi.params.first().and_then(|p| {
+                        class_names.iter()
+                            .filter(|cn| p.type_name.contains(*cn))
+                            .max_by_key(|cn| cn.len())
+                            .copied()
+                    })
+                } else {
+                    // StaticAccessor：退回名称前缀匹配
+                    class_names
+                        .iter()
+                        .filter(|cn| {
+                            let prefix = format!("{}_", cn.to_lowercase());
+                            fb.rust_name.starts_with(&prefix)
+                        })
+                        .max_by_key(|cn| cn.len())
+                        .copied()
+                }
+            });
 
             if let Some(cn) = owning {
                 if let Some(cs) = class_specs.iter_mut().find(|c| c.name == cn) {
-                    cs.associated_fns.push(fb);
+                    // Dtor：记录 destroy_fn 名称（不放入 associated_fns，dtor 不在 Rust 端显式调用）
+                    if matches!(kind, Some(ShimKind::Dtor)) {
+                        cs.destroy_fn = Some(fb.rust_name.clone());
+                    } else {
+                        cs.associated_fns.push(fb);
+                    }
                     continue;
                 }
             }

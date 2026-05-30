@@ -7,6 +7,7 @@ fn main() {
     cc_build.include(&cpp_dir);
     cc_build.include(".");
     cc_build.cpp(true);
+    cc_build.file(cpp_dir.join("summary.cpp"));
 
     build.rust_file("src/main.rs").compile("summary");
 

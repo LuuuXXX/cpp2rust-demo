@@ -4,7 +4,7 @@
 //! `hicc::cpp!` + `hicc::import_class!`（有成员方法的类）+ `hicc::import_lib!`
 //!
 //! 所有有成员方法的类都在独立的 `import_class!` 块中生成。
-//! 关联函数（ctor/dtor/factory）在 `import_lib!` 中作为顶层自由函数输出，
+//! 关联函数（ctor/factory）在 `import_lib!` 中作为顶层自由函数输出，
 //! 使用完整的 Rust 函数名（如 `counter_new`），以匹配 `main()` 中的调用方式。
 
 use crate::ffi_model::{FfiSpec, SelfKind};
@@ -28,9 +28,27 @@ pub fn generate(spec: &FfiSpec) -> String {
 
     // ── hicc::import_class! (所有有方法的类都生成独立块) ────
     for cs in &spec.class_specs {
+        // P2-1：跳过空块（无方法、无关联函数、且无 destroy 属性）
+        if cs.methods.is_empty() && cs.associated_fns.is_empty() && cs.destroy_fn.is_none() {
+            continue;
+        }
         out.push('\n');
         out.push_str("hicc::import_class! {\n");
-        out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cs.name));
+
+        // P2-2：有析构函数优先用 #[cpp(class = "...", destroy = "...")]，
+        // 无析构的纯虚接口用 #[interface]，其余用 #[cpp(class = "...")]
+        if let Some(dtor) = &cs.destroy_fn {
+            // P1-1：有析构函数时生成 destroy = "..."（即便是接口类也需要析构）
+            out.push_str(&format!(
+                "    #[cpp(class = \"{}\", destroy = \"{}\")]\n",
+                cs.name, dtor
+            ));
+        } else if cs.is_interface {
+            out.push_str("    #[interface]\n");
+        } else {
+            out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cs.name));
+        }
+
         if cs.methods.is_empty() {
             out.push_str(&format!("    class {} {{}}\n", cs.name));
         } else {
@@ -94,7 +112,7 @@ pub fn generate(spec: &FfiSpec) -> String {
         }
     }
 
-    // 关联函数（ctor/dtor/factory）作为顶层自由函数输出，保留完整 rust_name
+    // 关联函数（ctor/factory）作为顶层自由函数输出，保留完整 rust_name
     for cs in &spec.class_specs {
         for fb in &cs.associated_fns {
             out.push('\n');
@@ -106,8 +124,16 @@ pub fn generate(spec: &FfiSpec) -> String {
                 .map(|(n, t)| format!("{}: {}", n, t))
                 .collect::<Vec<_>>()
                 .join(", ");
+            // P1-2：ctor 若对应类有 destroy_fn，返回类型由 *mut Foo 改为 owned Foo
             let ret_str = match &fb.ret_type {
-                Some(t) => format!(" -> {}", t),
+                Some(t) => {
+                    let owned_t = if cs.destroy_fn.is_some() {
+                        strip_mut_ptr(t, &cs.name)
+                    } else {
+                        t.clone()
+                    };
+                    format!(" -> {}", owned_t)
+                }
                 None => String::new(),
             };
             out.push_str(&format!(
@@ -142,4 +168,14 @@ pub fn generate(spec: &FfiSpec) -> String {
     out.push_str("}\n");
 
     out
+}
+
+/// P1-2 辅助：若返回类型是 `*mut ClassName`，去掉指针返回 `ClassName`（owned）
+fn strip_mut_ptr(ret_type: &str, class_name: &str) -> String {
+    let expected = format!("*mut {}", class_name);
+    if ret_type.trim() == expected.trim() {
+        class_name.to_string()
+    } else {
+        ret_type.to_string()
+    }
 }

@@ -1,53 +1,11 @@
 hicc::cpp! {
     #include <iostream>
 
-    class MyClass {
-        int secret_value;
-    public:
-        MyClass(int v) : secret_value(v) {}
-        ~MyClass() {}
-        int getValue() const { return secret_value; }
-        void setValue(int v) { secret_value = v; }
-    };
-
-    MyClass* myclass_new(int secret_value) {
-        return new MyClass(secret_value);
-    }
-
-    void myclass_delete(MyClass* self) {
-        delete self;
-    }
-
-    int friend_function_getSum(const MyClass* a, const MyClass* b) {
-        int sum = a->getValue() + b->getValue();
-        std::cout << "Friend function getSum: " << a->getValue()
-                  << " + " << b->getValue() << " = " << sum << std::endl;
-        return sum;
-    }
-
-    int friend_function_getProduct(const MyClass* a, const MyClass* b) {
-        int product = a->getValue() * b->getValue();
-        std::cout << "Friend function getProduct: " << a->getValue()
-                  << " * " << b->getValue() << " = " << product << std::endl;
-        return product;
-    }
-
-    int friend_function_compare(const MyClass* a, const MyClass* b) {
-        if (a->getValue() < b->getValue()) {
-            std::cout << "Friend function compare: a < b" << std::endl;
-            return -1;
-        } else if (a->getValue() > b->getValue()) {
-            std::cout << "Friend function compare: a > b" << std::endl;
-            return 1;
-        } else {
-            std::cout << "Friend function compare: a == b" << std::endl;
-            return 0;
-        }
-    }
+    #include "friend_function.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "MyClass")]
+    #[cpp(class = "MyClass", destroy = "myclass_delete")]
     class MyClass {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
@@ -63,10 +21,7 @@ hicc::import_lib! {
     class MyClass;
 
     #[cpp(func = "MyClass* myclass_new(int)")]
-    fn myclass_new(secret_value: i32) -> *mut MyClass;
-
-    #[cpp(func = "void myclass_delete(MyClass* self)")]
-    unsafe fn myclass_delete(self_: *mut MyClass);
+    fn myclass_new(secret_value: i32) -> MyClass;
 
     #[cpp(func = "int friend_function_getSum(const MyClass* a, const MyClass* b)")]
     fn friend_function_get_sum(a: *const MyClass, b: *const MyClass) -> i32;
@@ -84,6 +39,7 @@ fn main() {
 
     let a = myclass_new(10);
     let b = myclass_new(20);
+    use hicc::AbiClass;
 
     println!("Created MyClass objects:");
     println!("  a.value = {}", a.get_value());
@@ -92,13 +48,13 @@ fn main() {
 
     // Friend functions: can access private members
     println!("Friend function operations:");
-    let sum = friend_function_get_sum(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    let sum = friend_function_get_sum(&a.as_ptr(), &b.as_ptr());
     println!("  Sum: {}", sum);
 
-    let product = friend_function_get_product(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    let product = friend_function_get_product(&a.as_ptr(), &b.as_ptr());
     println!("  Product: {}", product);
 
-    let cmp = friend_function_compare(&a.as_ref().as_ptr(), &b.as_ref().as_ptr());
+    let cmp = friend_function_compare(&a.as_ptr(), &b.as_ptr());
     println!("  Compare: {}", cmp);
 
     println!();
@@ -106,9 +62,5 @@ fn main() {
     println!("In C FFI, we can access struct members directly");
     println!("The 'friend' relationship is a C++ access control concept");
 
-    unsafe {
-        myclass_delete(&a);
-        myclass_delete(&b);
-    }
 }
 

@@ -5,77 +5,11 @@ hicc::cpp! {
     #include <string>
     #include <cstring>
 
-    class StringIntMapImpl {
-    public:
-        std::map<std::string, int> data;
-    public:
-        StringIntMapImpl() : data() {
-}
-        ~StringIntMapImpl() {
-    data.clear();
-}
-    };
-
-    class IntStringMapImpl {
-    public:
-        std::map<int, std::string> data;
-    public:
-        IntStringMapImpl() : data() {
-}
-        ~IntStringMapImpl() {
-    data.clear();
-}
-    };
-
-    struct StringIntMap {
-    public:
-        StringIntMapImpl* impl;
-        StringIntMap() : impl(new StringIntMapImpl()) {
-}
-        ~StringIntMap() {
-    delete impl;
-    impl = nullptr;
-}
-        bool insert(const char* key, int val) { return impl->data.insert({key, val}).second; }
-        int get(const char* key) const { return impl->data.count(key) ? impl->data.at(key) : 0; }
-        void set(const char* key, int val) { impl->data[key] = val; }
-        bool erase(const char* key) { return impl->data.erase(key) > 0; }
-        size_t size() const { return impl->data.size(); }
-        bool empty() const { return impl->data.empty(); }
-        void clear() { impl->data.clear(); }
-    };
-
-    struct IntStringMap {
-    public:
-        IntStringMapImpl* impl;
-        IntStringMap() : impl(new IntStringMapImpl()) {
-}
-        ~IntStringMap() {
-    delete impl;
-    impl = nullptr;
-}
-        size_t size() const { return impl->data.size(); }
-    };
-
-    StringIntMap* string_int_map_new() {
-        return new StringIntMap();
-    }
-
-    void string_int_map_delete(StringIntMap* self) {
-        delete self;
-    }
-
-    IntStringMap* int_string_map_new() {
-        return new IntStringMap();
-    }
-
-    void int_string_map_delete(IntStringMap* self) {
-        delete self;
-    }
+    #include "map_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "StringIntMap")]
+    #[cpp(class = "StringIntMap", destroy = "string_int_map_delete")]
     class StringIntMap {
         #[cpp(method = "bool insert(const char* key, int val)")]
         fn insert(&mut self, key: *const i8, val: i32) -> bool;
@@ -101,7 +35,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntStringMap")]
+    #[cpp(class = "IntStringMap", destroy = "int_string_map_delete")]
     class IntStringMap {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
@@ -115,16 +49,10 @@ hicc::import_lib! {
     class IntStringMap;
 
     #[cpp(func = "StringIntMap* string_int_map_new()")]
-    fn string_int_map_new() -> *mut StringIntMap;
-
-    #[cpp(func = "void string_int_map_delete(StringIntMap* self)")]
-    unsafe fn string_int_map_delete(self_: *mut StringIntMap);
+    fn string_int_map_new() -> StringIntMap;
 
     #[cpp(func = "IntStringMap* int_string_map_new()")]
-    fn int_string_map_new() -> *mut IntStringMap;
-
-    #[cpp(func = "void int_string_map_delete(IntStringMap* self)")]
-    unsafe fn int_string_map_delete(self_: *mut IntStringMap);
+    fn int_string_map_new() -> IntStringMap;
 }
 
 fn main() {
@@ -172,10 +100,6 @@ fn main() {
     map.clear();
     println!("After clear, size: {}", map.size());
 
-    unsafe {
-        string_int_map_delete(&map);
-    }
-
     println!("\nRust FFI: std::map 映射");
     println!("1. map 是有序关联容器（红黑树实现）");
     println!("2. 插入: insert(key, value) -> bool");
@@ -183,6 +107,4 @@ fn main() {
     println!("4. 删除: erase(key) -> size_t");
     println!("5. 字符串键需要 CString 转换");
 }
-
-
 

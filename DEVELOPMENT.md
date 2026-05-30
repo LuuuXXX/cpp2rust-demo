@@ -174,6 +174,7 @@ hicc::import_lib! {
 | **Phase 8** | 代码质量清理（`cargo clippy` 零警告） | ✅ 完成 |
 | **Phase 9** | L3 运行测试修复（`compare_run_output`、030 SIGSEGV、14 个 README 对齐） | ✅ 完成 |
 | **Phase 10** | 路径生成修复（`derive_unit_path` 消除双重 `src/` 前缀） | ✅ 完成 |
+| **Phase 11** | Codegen 精确度修复（Dtor/Ctor 归属、接口类检测、`namespace_class_mode` cpp! 块、枚举重复定义、volatile 方法跳过、`is_from_current_file` 来源追踪） | ✅ 完成 |
 
 ### 5.2 测试通过率
 
@@ -209,6 +210,14 @@ hicc::import_lib! {
 | 修复 030 shared_ptr SIGSEGV：将 `import_class!` 中的 `Cache::get()` 方法调用移出，改为自由函数 `cache_get()`（shim 模式），消除 vtable 错位导致的段错误；更新 golden 文件 | 030 |
 | 更新 14 个示例 README 运行结果节，与实际 `cargo run` 输出精确对齐，保证 L3 测试通过；涉及 005/006/007/008/009/010/011/018/023/030/031/032/039/040 | 005、006、007、008、009、010、011、018、023、030、031、032、039、040 |
 | 新增 `derive_unit_path()`（`generator/project_generator.rs`）：在从 C++ 文件路径推导 Rust 模块路径时**去掉首级路径分量**（如 `src/`），消除 `rust/src/src/…` 双重 `src` 问题；同步更新 `main.rs` 调用处及 5 个单元测试 | 路径生成通用 |
+| 修复 Dtor/Ctor 归属误分配（`assign_associated_fns`）：由名称前缀匹配改为基于返回类型（ctor）/第一参数类型（dtor）的最长类名匹配，避免 `VectorBuffer*` 误匹配 `Buffer` 类 | 032、040 |
+| 修复 `is_interface` 覆盖 `destroy_fn`：`ClassSpec` 新增 `destroy_fn` 字段，`hicc_codegen` 生成时 `destroy_fn` 优先于 `is_interface`，纯虚类有析构函数时输出 `#[cpp(class="...", destroy="...")]` | 016、023 |
+| 修复 `namespace_class_mode` 生成空 `cpp!` 块：命名空间类模式现按 `project_header` 生成 `#include "xxx.h"`，而非空 `Vec` | 043、044 |
+| 修复 `use_project_header` 时枚举重复定义：`ClassInfo` 新增 `is_from_current_file` 字段（通过预处理行号标记区分本文件/头文件类）；所有类均来自头文件时不重复 emit 枚举定义 | 023、045 |
+| 修复 typedef 在 golden 文件中的顺序：`#include "project.h"` 应在 typedef 之前，更新对应 golden 文件 | 031、039 |
+| 修复 volatile 方法处理：`MethodInfo` 新增 `is_volatile` 字段，`build_method_binding` 对 volatile 方法返回 `None` 跳过（hicc 0.2.4 不支持 volatile 成员函数指针），`build_method_decl` 保留 `volatile` 限定符 | 012 |
+| 扩展 `ShimKind::Dtor` 识别规则，新增 `_free`、`_destroy`、`_release` 后缀；`assign_associated_fns` Dtor 不放入 `associated_fns` 而记录为 `destroy_fn` | 通用 |
+| 更新 040 golden 文件：构造函数顺序与工具实际输出（声明顺序）对齐 | 040 |
 
 ---
 

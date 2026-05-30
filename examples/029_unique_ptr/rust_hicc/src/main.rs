@@ -4,61 +4,11 @@ hicc::cpp! {
     #include <memory>
     #include <cstring>
 
-    class UniqueBuffer {
-        std::string data;
-    public:
-        UniqueBuffer(int sz) : data(sz, '\0') {
-}
-        ~UniqueBuffer() {
-}
-        int getSize() const {
-    return static_cast<int>(data.size());
-}
-        char* getData() {
-    return data.data();
-}
-        UniqueBuffer move() {
-    return UniqueBuffer(*this);
-}
-        int useCount() const {
-    return 1; // unique_ptr always has use count of 1
-}
-    };
-
-    class Processor {
-        std::string buffer;
-    public:
-        Processor() : buffer() {
-}
-        ~Processor() {
-}
-        char* process(const char* input) {
-    if (input) {
-        buffer = std::string(input) + " [processed]";
-    }
-    return const_cast<char*>(buffer.c_str());
-}
-    };
-
-    UniqueBuffer* uniquebuffer_new(int size) {
-        return new UniqueBuffer(size);
-    }
-
-    void uniquebuffer_delete(UniqueBuffer* self) {
-        delete self;
-    }
-
-    Processor* processor_new() {
-        return new Processor();
-    }
-
-    void processor_delete(Processor* self) {
-        delete self;
-    }
+    #include "unique_ptr.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "UniqueBuffer")]
+    #[cpp(class = "UniqueBuffer", destroy = "uniquebuffer_delete")]
     class UniqueBuffer {
         #[cpp(method = "int getSize() const")]
         fn get_size(&self) -> i32;
@@ -72,7 +22,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Processor")]
+    #[cpp(class = "Processor", destroy = "processor_delete")]
     class Processor {
         #[cpp(method = "char* process(const char* input)")]
         fn process(&mut self, input: *const i8) -> *mut i8;
@@ -86,16 +36,10 @@ hicc::import_lib! {
     class Processor;
 
     #[cpp(func = "UniqueBuffer* uniquebuffer_new(int)")]
-    fn uniquebuffer_new(size: i32) -> *mut UniqueBuffer;
-
-    #[cpp(func = "void uniquebuffer_delete(UniqueBuffer* self)")]
-    unsafe fn uniquebuffer_delete(self_: *mut UniqueBuffer);
+    fn uniquebuffer_new(size: i32) -> UniqueBuffer;
 
     #[cpp(func = "Processor* processor_new()")]
-    fn processor_new() -> *mut Processor;
-
-    #[cpp(func = "void processor_delete(Processor* self)")]
-    unsafe fn processor_delete(self_: *mut Processor);
+    fn processor_new() -> Processor;
 }
 
 fn main() {
@@ -114,8 +58,6 @@ fn main() {
     let count = buffer.use_count();
     println!("Use count: {} (unique_ptr always = 1)", count);
 
-    unsafe { uniquebuffer_delete(&buffer) };
-
     println!();
 
     // Processor - 内部使用 unique_ptr 管理资源
@@ -124,7 +66,6 @@ fn main() {
     let result_ptr = processor.process(input.as_ptr());
     let result = unsafe { std::ffi::CStr::from_ptr(result_ptr as *const i8).to_string_lossy().into_owned() };
     println!("Processed result: {}", result);
-    unsafe { processor_delete(&processor) };
 
     println!("\nRust FFI: unique_ptr 的处理方式");
     println!("1. C++ 侧管理对象生命周期");
@@ -133,6 +74,4 @@ fn main() {
 
     println!("\nhicc-std 提供了 std::unique_ptr 的安全 Rust 包装");
 }
-
-
 
