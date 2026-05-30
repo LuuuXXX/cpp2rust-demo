@@ -23,6 +23,12 @@ hicc::import_lib! {
 
     #[cpp(func = "HardwareDevice* hardware_device_new()")]
     fn hardware_device_new() -> HardwareDevice;
+
+    #[cpp(func = "uint32_t hardware_device_read_status(volatile struct HardwareDevice*)")]
+    unsafe fn hardware_device_read_status(self_: *mut HardwareDevice) -> u32;
+
+    #[cpp(func = "uint32_t hardware_device_read_data(volatile struct HardwareDevice*)")]
+    unsafe fn hardware_device_read_data(self_: *mut HardwareDevice) -> u32;
 }
 
 fn main() {
@@ -31,10 +37,14 @@ fn main() {
 
     device.init();
 
-    println!("Device initialized. Volatile methods (readStatus/readData) require");
-    println!("manual C++ shim wrappers as hicc does not support volatile method pointers.");
+    println!("Reading volatile hardware registers (values may change):");
+    for i in 0..5 {
+        let status = unsafe { hardware_device_read_status(&device.as_mut_ptr()) };
+        let data = unsafe { hardware_device_read_data(&device.as_mut_ptr()) };
+        println!("  Read {}: status=0x{:08x}, data=0x{:08x}", i, status, data);
+    }
 
-    device.reset();
-
-    println!("Device reset. Volatile hardware register access requires custom wrappers.");
+    println!();
+    println!("Rust FFI: volatile qualifier requires volatile pointer in C");
+    println!("Note: In C, volatile on the pointed-to object matters for hardware registers");
 }

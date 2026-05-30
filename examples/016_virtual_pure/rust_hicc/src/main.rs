@@ -1,3 +1,5 @@
+use hicc::AbiClass;
+
 hicc::cpp! {
     #include <iostream>
     #include <cmath>
@@ -23,10 +25,10 @@ hicc::import_lib! {
     class AbstractShape;
 
     #[cpp(func = "AbstractShape* abstract_shape_create_circle(double)")]
-    fn abstract_shape_create_circle(radius: f64) -> *mut AbstractShape;
+    fn abstract_shape_create_circle(radius: f64) -> AbstractShape;
 
     #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double, double)")]
-    fn abstract_shape_create_rectangle(width: f64, height: f64) -> *mut AbstractShape;
+    fn abstract_shape_create_rectangle(width: f64, height: f64) -> AbstractShape;
 }
 
 fn decode_cstr(ptr: *const i8) -> String {
@@ -39,10 +41,10 @@ fn main() {
     println!("Cannot be instantiated directly in C++\n");
 
     // Create Circle (concrete implementation)
-    let circle = unsafe { abstract_shape_create_circle(5.0) };
+    let circle = unsafe { abstract_shape_create_circle(5.0).into_unique() };
 
     // Create Rectangle (concrete implementation)
-    let rectangle = unsafe { abstract_shape_create_rectangle(4.0, 6.0) };
+    let rectangle = unsafe { abstract_shape_create_rectangle(4.0, 6.0).into_unique() };
 
     // Use polymorphism: same interface, different implementations
     println!("\n--- Using circle through abstract interface ---");
@@ -56,6 +58,9 @@ fn main() {
     println!("Area: {:.4}", area);
 
     println!("\n--- Polymorphic behavior demonstrated ---");
+
+    drop(circle);
+    drop(rectangle);
 
     println!("\nRust FFI: Pure virtual functions work through hicc!");
 }

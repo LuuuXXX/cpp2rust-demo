@@ -73,34 +73,33 @@ fn main() {
 
     // 手动锁定/解锁示例
     println!("--- Manual Lock/Unlock ---");
-    let mut mutex = unsafe { mutex_new() };
+    let mut mutex = unsafe { mutex_new().into_unique() };
     mutex.lock();
     println!("Critical section started");
     println!("Critical section ended");
     mutex.unlock();
+    drop(mutex);
 
     println!();
 
     // ScopedLock 示例（模拟 RAII 自动解锁）
     println!("--- ScopedLock Demo ---");
-    let mut mutex2 = unsafe { mutex_new() };
-    let lock = unsafe { scoped_lock_new(&mutex2.as_mut_ptr()) };
+    let mut mutex2 = unsafe { mutex_new().into_unique() };
+    let lock = unsafe { scoped_lock_new(&mutex2.as_mut_ptr()).into_unique() };
     println!("Inside scoped lock region");
     println!("ScopedLock will auto-unlock on delete");
+    drop(lock);
+    drop(mutex2);
 
     println!();
 
     // FileLock 示例
     println!("--- FileLock Demo ---");
     let filename = std::ffi::CString::new("raii_test.txt").expect("CString::new failed");
-    let mut file_lock = unsafe { file_lock_new(filename.as_ptr()) };
+    let mut file_lock = unsafe { file_lock_new(filename.as_ptr()).into_unique() };
     file_lock.lock();
     println!("File is locked, performing I/O...");
     file_lock.unlock();
-
-    // drop in correct order: lock before mutex2
-    drop(lock);
-    drop(mutex2);
 
     println!("\nRust FFI: RAII 模式映射");
     println!("1. C++ RAII: 构造函数加锁，析构函数解锁");

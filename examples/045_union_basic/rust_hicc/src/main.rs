@@ -73,9 +73,9 @@ hicc::import_lib! {
 
 fn variant_type_name(type_code: i32) -> &'static str {
     match type_code {
-        0 => "Int",
-        1 => "Float",
-        2 => "String",
+        0 => "INT",
+        1 => "FLOAT",
+        2 => "STRING",
         _ => "Unknown",
     }
 }

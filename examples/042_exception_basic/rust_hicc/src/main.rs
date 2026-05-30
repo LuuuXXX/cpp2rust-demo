@@ -36,10 +36,16 @@ hicc::import_lib! {
 fn check_exception(calc: &mut Calculator, op: &str) {
     let ex = calc.get_exception();
     if ex != 0 {
-        println!("  Exception in '{}': code={}", op, ex);
+        let name = match ex {
+            1 => "Invalid argument exception",
+            2 => "Out of range exception",
+            3 => "Runtime error exception",
+            _ => "Unknown exception",
+        };
+        println!("  {}: {}", op, name);
         calc.clear_exception();
     } else {
-        println!("  No exception in '{}'", op);
+        println!("  {}: No exception", op);
     }
 }
 
