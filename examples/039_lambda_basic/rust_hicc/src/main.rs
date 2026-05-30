@@ -4,9 +4,9 @@ hicc::cpp! {
     #include <functional>
     #include <algorithm>
 
-    typedef int (*IntBinaryOp)(int, int);
-
     #include "lambda_basic.h"
+
+    typedef int (*IntBinaryOp)(int, int);
 }
 
 hicc::import_class! {

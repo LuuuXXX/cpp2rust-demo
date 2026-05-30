@@ -35,15 +35,16 @@ pub fn generate(spec: &FfiSpec) -> String {
         out.push('\n');
         out.push_str("hicc::import_class! {\n");
 
-        // P2-2：纯虚接口类用 #[interface]，否则用 #[cpp(class = "...")]
-        if cs.is_interface {
-            out.push_str("    #[interface]\n");
-        } else if let Some(dtor) = &cs.destroy_fn {
-            // P1-1：有析构函数时生成 destroy = "..."
+        // P2-2：有析构函数优先用 #[cpp(class = "...", destroy = "...")]，
+        // 无析构的纯虚接口用 #[interface]，其余用 #[cpp(class = "...")]
+        if let Some(dtor) = &cs.destroy_fn {
+            // P1-1：有析构函数时生成 destroy = "..."（即便是接口类也需要析构）
             out.push_str(&format!(
                 "    #[cpp(class = \"{}\", destroy = \"{}\")]\n",
                 cs.name, dtor
             ));
+        } else if cs.is_interface {
+            out.push_str("    #[interface]\n");
         } else {
             out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cs.name));
         }

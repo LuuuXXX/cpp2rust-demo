@@ -3,9 +3,9 @@ hicc::cpp! {
     #include <cstdio>
     #include <cstring>
 
-    typedef void (*FileDeleter)(struct FileHandle*);
-
     #include "custom_deleter.h"
+
+    typedef void (*FileDeleter)(struct FileHandle*);
 }
 
 hicc::import_class! {

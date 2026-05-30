@@ -72,7 +72,12 @@ pub fn extract(
 
     // ── hicc::cpp! 块内容 ──────────────────────
     let cpp_block_lines = if namespace_class_mode {
-        Vec::new()  // 空块：命名空间类体不应内联到 hicc cpp 中
+        // 命名空间类模式：只生成项目头文件 include，不内联类体
+        if let Some(hdr) = project_header {
+            vec![format!("#include \"{}\"", hdr)]
+        } else {
+            Vec::new()
+        }
     } else {
         build_cpp_block(
             ast,
@@ -209,20 +214,38 @@ fn build_cpp_block(
         lines.push(String::new());
     }
 
-    // 枚举定义（在类定义之前）
-    for en in &ast.enums {
-        if en.name.is_empty() {
-            continue;
+    // 只内联来自当前文件的类，来自 include 头文件的类通过 #include 引入
+    let local_classes: Vec<&ClassInfo> = ast
+        .classes
+        .iter()
+        .filter(|c| c.is_from_current_file)
+        .collect();
+
+    // 当所有类均来自头文件（local_classes 为空）时：
+    // - include 项目头文件以引入类型定义和函数声明
+    // - 不再重复 emit 枚举（它们已包含在头文件中，重复会导致重复定义错误）
+    // - 不再重复 emit shim 函数体（项目 .cpp 中已有定义，重复会导致 duplicate symbol 链接错误）
+    let use_project_header = local_classes.is_empty() && project_header.is_some();
+    if use_project_header {
+        if let Some(hdr) = project_header {
+            lines.push(format!("#include \"{}\"", hdr));
         }
-        lines.push(format!("enum {} {{", en.name));
-        for v in &en.variants {
-            lines.push(format!("    {} = {},", v.name, v.value));
+    } else {
+        // 枚举定义（在类定义之前；仅在不使用项目头文件时输出，避免重复定义）
+        for en in &ast.enums {
+            if en.name.is_empty() {
+                continue;
+            }
+            lines.push(format!("enum {} {{", en.name));
+            for v in &en.variants {
+                lines.push(format!("    {} = {},", v.name, v.value));
+            }
+            lines.push("};".to_string());
+            lines.push(String::new());
         }
-        lines.push("};".to_string());
-        lines.push(String::new());
     }
 
-    // typedef 定义（在类定义之前）
+    // typedef 定义（在类定义之前；typedef 重复声明在 C++11 中合法，始终输出）
     for (_, start, end) in &ast.typedefs {
         let text = extract_range_text(source_bytes, *start, *end).trim().to_string();
         if text.is_empty() { continue; }
@@ -251,27 +274,10 @@ fn build_cpp_block(
         }
     }
 
+    let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
+
     // 判断是否使用分离风格（含虚函数的类）
     let use_separate_style = ast.classes.iter().any(|c| c.methods.iter().any(|m| m.is_virtual));
-
-    // 只内联来自当前文件的类，来自 include 头文件的类通过 #include 引入
-    let local_classes: Vec<&ClassInfo> = ast
-        .classes
-        .iter()
-        .filter(|c| c.is_from_current_file)
-        .collect();
-
-    // 当所有类均来自头文件（local_classes 为空）时：
-    // - include 项目头文件以引入类型定义和函数声明
-    // - 不再重复 emit shim 函数体（项目 .cpp 中已有定义，重复会导致 duplicate symbol 链接错误）
-    let use_project_header = local_classes.is_empty() && project_header.is_some();
-    if use_project_header {
-        if let Some(hdr) = project_header {
-            lines.push(format!("#include \"{}\"", hdr));
-        }
-    }
-
-    let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
 
     if use_separate_style {
         // 分离风格：先放所有类的声明，再放方法实现
@@ -1150,12 +1156,18 @@ fn assign_associated_fns(
             let fi_opt = fn_by_rust_name.get(&fb.rust_name).copied();
             let owning: Option<&str> = fi_opt.and_then(|fi| {
                 if matches!(kind, Some(ShimKind::Ctor)) {
-                    // Ctor：返回类型中含类名
-                    class_names.iter().find(|cn| fi.return_type.contains(*cn)).copied()
+                    // Ctor：返回类型中含类名（优先最长匹配，避免子串误匹配）
+                    class_names.iter()
+                        .filter(|cn| fi.return_type.contains(*cn))
+                        .max_by_key(|cn| cn.len())
+                        .copied()
                 } else if matches!(kind, Some(ShimKind::Dtor)) {
-                    // Dtor：第一个参数类型含类名
+                    // Dtor：第一个参数类型含类名（优先最长匹配，避免子串误匹配）
                     fi.params.first().and_then(|p| {
-                        class_names.iter().find(|cn| p.type_name.contains(*cn)).copied()
+                        class_names.iter()
+                            .filter(|cn| p.type_name.contains(*cn))
+                            .max_by_key(|cn| cn.len())
+                            .copied()
                     })
                 } else {
                     // StaticAccessor：退回名称前缀匹配

@@ -60,11 +60,11 @@ hicc::import_lib! {
     #[cpp(func = "Processor* processor_new()")]
     fn processor_new() -> Processor;
 
-    #[cpp(func = "AsyncProcessor* async_processor_new()")]
-    fn async_processor_new() -> AsyncProcessor;
-
     #[cpp(func = "MultiCallback* multi_callback_new()")]
     fn multi_callback_new() -> MultiCallback;
+
+    #[cpp(func = "AsyncProcessor* async_processor_new()")]
+    fn async_processor_new() -> AsyncProcessor;
 
     #[cpp(func = "void processor_set_double(Processor* p)")]
     unsafe fn processor_set_double(p: *mut Processor);
