@@ -85,9 +85,20 @@ cpp2rust-demo init -- g++ -shared -fPIC mylib.cpp -o libmylib.so
 # Make 项目
 cpp2rust-demo init -- make -j4
 
-# 指定 feature 名称（用于多模块项目分批处理）
-cpp2rust-demo init --feature core_lib -- make -j4
+# 指定 feature 名称以区分不同构建目标（如不同平台或构建配置）
+# C++ 的 target 对应 Rust 的 feature：每个 feature 保存一次构建命令的产物
+cpp2rust-demo init --feature linux_x86 -- make -j4
+cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC mylib.cpp -o libmylib.so
 ```
+
+> **多 target 场景**：同一 C++ 项目针对多个平台或构建配置，分别执行 `init` 并指定不同 `--feature`，
+> 输出会落在各自独立的目录下，互不干扰：
+>
+> ```
+> .cpp2rust/linux_x86/      ← linux_x86 构建命令对应的 Rust FFI 绑定
+> .cpp2rust/arm_embedded/   ← arm_embedded 构建命令对应的 Rust FFI 绑定
+> ```
+
 
 `init` 自动完成：
 1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（后续调用自动跳过）
@@ -154,13 +165,13 @@ cpp2rust-demo merge --feature default
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `-- <BUILD_CMD>...` | ✅ | `--` 后面的所有参数作为构建命令传入 |
-| `--feature <name>` | ❌ | feature 名称（默认 `default`） |
+| `--feature <name>` | ❌ | 构建目标名称（对应 Rust feature）；不同平台或构建配置使用不同名称，构建命令的差异即是 target 的差异（默认 `default`） |
 
 #### `cpp2rust-demo merge`
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `--feature <name>` | ❌ | 要操作的 feature（默认 `default`） |
+| `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`） |
 
 #### `cpp2rust-demo parse`（调试用）
 
