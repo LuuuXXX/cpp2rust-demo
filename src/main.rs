@@ -26,8 +26,6 @@ enum Commands {
     Init(InitArgs),
     /// Merge generated per-symbol outputs into module-level files
     Merge(MergeArgs),
-    /// Parse a .cpp2rust file and print the AST structure (for debugging)
-    Parse(ParseArgs),
 }
 
 #[derive(Args)]
@@ -52,35 +50,6 @@ struct MergeArgs {
     /// Feature name to merge (default: "default")
     #[arg(long, default_value = "default")]
     feature: String,
-}
-
-#[derive(Args)]
-struct ParseArgs {
-    /// Path to the .cpp2rust file to parse
-    file: std::path::PathBuf,
-}
-
-fn run_parse(args: ParseArgs) -> Result<()> {
-    let file = &args.file;
-    if !file.exists() {
-        return Err(anyhow!("file not found: {}", file.display()));
-    }
-    println!("Parsing: {}", file.display());
-    println!();
-    let ast = ast_parser::parse_preprocessed(file)?;
-    ast.print_tree();
-
-    // 模板实例化统计
-    let template_classes: Vec<_> = ast.classes.iter().filter(|c| !c.template_args.is_empty()).collect();
-    if !template_classes.is_empty() {
-        println!();
-        println!("Template instantiations ({}):", template_classes.len());
-        for tc in &template_classes {
-            println!("  {} <{}>", tc.name, tc.template_args.join(", "));
-        }
-    }
-
-    Ok(())
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
@@ -309,7 +278,6 @@ fn main() {
     let result = match cli.command {
         Commands::Init(args) => run_init(args),
         Commands::Merge(args) => run_merge(args),
-        Commands::Parse(args) => run_parse(args),
     };
     if let Err(e) = result {
         eprintln!("Error: {:#}", e);
