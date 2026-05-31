@@ -347,7 +347,10 @@ pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
     std::os::unix::fs::symlink("src.2", &src)
         .map_err(|e| anyhow!("symlink src → src.2: {}", e))?;
     #[cfg(not(unix))]
-    return Err(anyhow!("merge_in_place symlink is only supported on Unix"));
+    return Err(anyhow!(
+        "merge_in_place requires symlink support, which is only available on Unix-like systems \
+         (Linux, macOS); Windows is not supported"
+    ));
 
     Ok(())
 }

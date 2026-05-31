@@ -134,12 +134,12 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 
     merger::merge_in_place(&lo.rust_dir)?;
 
-    println!("\n\u{2713} cpp2rust-demo merge completed.");
+    println!("\n✓ cpp2rust-demo merge completed.");
     println!("\nOutput:");
     println!("  .cpp2rust/{}/rust/", feature);
-    println!("    \u{251c}\u{2500}\u{2500} src.1/  (init \u{8f93}\u{51fa}\u{5907}\u{4efd})");
-    println!("    \u{251c}\u{2500}\u{2500} src.2/  (merge \u{8f93}\u{51fa}\u{ff0c}\u{76ee}\u{5f55}\u{7ed3}\u{6784}\u{4e0e} C++ \u{9879}\u{76ee}\u{4e00}\u{81f4})");
-    println!("    \u{2514}\u{2500}\u{2500} src     (symlink \u{2192} src.2)");
+    println!("    ├── src.1/  (init 输出备份)");
+    println!("    ├── src.2/  (merge 输出，目录结构与 C++ 项目一致)");
+    println!("    └── src     (symlink → src.2)");
 
     Ok(())
 }
