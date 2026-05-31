@@ -279,11 +279,10 @@ fn run_init(args: InitArgs) -> Result<()> {
             }
             Err(err) => {
                 let elapsed_ms = file_start.elapsed().as_millis();
-                eprintln!(
-                    "  Error: parse failed for {} [{} ms]: {:#}",
+                return Err(anyhow!(
+                    "parse failed for {} [{} ms]: {:#}",
                     path.display(), elapsed_ms, err
-                );
-                return Err(err);
+                ));
             }
         }
     }
