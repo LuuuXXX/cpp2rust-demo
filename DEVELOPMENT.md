@@ -27,13 +27,18 @@
 ```
 cpp2rust-demo (bin)
 │
-├── hook/                        # LD_PRELOAD 拦截器
+├── hook/                        # LD_PRELOAD 拦截器源码（内嵌进 binary）
 │   ├── hook.cpp                 # 拦截 g++/clang++ 调用，产出 .cpp2rust 预处理文件
 │   └── Makefile
 │
 └── src/
     ├── main.rs                  # CLI 入口：init / merge / parse
     ├── capture.rs               # hook 编译 + LD_PRELOAD 注入执行
+    │                            #   - hook.cpp/Makefile 通过 include_str! 内嵌进 binary
+    │                            #   - ensure_hook_data_dir() 首次运行时解压到用户数据目录
+    │                            #     Linux: ~/.local/share/cpp2rust-demo/hook/
+    │                            #     macOS: ~/Library/Application Support/cpp2rust-demo/hook/
+    │                            #   - build_hook() mtime 快路径：.so 比 hook.cpp 新则跳过 make
     ├── layout.rs                # 目录布局（.cpp2rust/<feature>/c|meta|rust）
     ├── selector.rs              # 交互式文件选择
     ├── ffi_model.rs             # FFI 中间表示（FfiSpec / ClassSpec / FnBinding 等）

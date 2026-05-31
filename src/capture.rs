@@ -3,12 +3,35 @@ use anyhow::anyhow;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Build the `libhook.so` from `hook/Makefile` adjacent to the binary.
+// 将 hook 源文件内容直接嵌入 binary，确保 `cargo install` 后无需额外文件。
+const HOOK_CPP: &str = include_str!("../hook/hook.cpp");
+const HOOK_MAKEFILE: &str = include_str!("../hook/Makefile");
+
+/// Build the `libhook.so` from `hook/Makefile`.
 ///
-/// Returns the path to the built `libhook.so`.
+/// If `libhook.so` already exists and is newer than `hook.cpp`, compilation is
+/// skipped ("up-to-date" fast path).  Returns the path to `libhook.so`.
 pub fn build_hook() -> Result<PathBuf> {
     let hook_dir = hook_dir()?;
     let so = hook_dir.join("libhook.so");
+    let cpp = hook_dir.join("hook.cpp");
+
+    // Fast path: skip recompilation when .so is newer than hook.cpp.
+    // Note: hook_dir() above already calls ensure_hook_data_dir() as its
+    // final fallback, so hook.cpp is guaranteed to exist in the data-dir
+    // case before this check runs.
+    if so.exists() && cpp.exists() {
+        if let (Ok(so_meta), Ok(cpp_meta)) = (so.metadata(), cpp.metadata()) {
+            if let (Ok(so_mtime), Ok(cpp_mtime)) =
+                (so_meta.modified(), cpp_meta.modified())
+            {
+                if so_mtime >= cpp_mtime {
+                    println!("Hook library up-to-date: {}", so.display());
+                    return Ok(so);
+                }
+            }
+        }
+    }
 
     println!("Building hook library from {}...", hook_dir.display());
     let status = Command::new("make")
@@ -80,7 +103,9 @@ pub fn run_with_hook(
 }
 
 /// Locate the `hook/` directory, starting from the directory of the running
-/// binary and searching upward. Falls back to a path relative to the manifest.
+/// binary and searching upward.  As a final fallback, the hook sources
+/// embedded in the binary are extracted to a per-user data directory so that
+/// `cargo install` users do not need a separate checkout.
 fn hook_dir() -> Result<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -104,7 +129,81 @@ fn hook_dir() -> Result<PathBuf> {
         return Ok(cwd_candidate);
     }
 
-    Err(anyhow!(
-        "hook/ directory with Makefile not found (searched near binary and cwd)"
-    ))
+    // Final fallback: extract embedded sources to user data directory.
+    ensure_hook_data_dir()
+}
+
+/// Return the per-user hook data directory, creating it and writing the
+/// embedded `hook.cpp` / `Makefile` when they are absent or stale.
+///
+/// Directory:
+/// - Linux / other:  `$XDG_DATA_HOME/cpp2rust-demo/hook/`
+///                    (default `~/.local/share/cpp2rust-demo/hook/`)
+/// - macOS:          `~/Library/Application Support/cpp2rust-demo/hook/`
+fn ensure_hook_data_dir() -> Result<PathBuf> {
+    let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
+    let hook_dir = base.join("cpp2rust-demo").join("hook");
+
+    std::fs::create_dir_all(&hook_dir)
+        .map_err(|e| anyhow!("create_dir_all {}: {}", hook_dir.display(), e))?;
+
+    // Write hook.cpp if absent or content has changed (auto-upgrade on binary update).
+    let cpp_path = hook_dir.join("hook.cpp");
+    let needs_write = match std::fs::read_to_string(&cpp_path) {
+        Ok(existing) => existing != HOOK_CPP,
+        Err(_) => true,
+    };
+    if needs_write {
+        std::fs::write(&cpp_path, HOOK_CPP)
+            .map_err(|e| anyhow!("write {}: {}", cpp_path.display(), e))?;
+    }
+
+    // Write Makefile if absent or content has changed.
+    let mk_path = hook_dir.join("Makefile");
+    let mk_needs_write = match std::fs::read_to_string(&mk_path) {
+        Ok(existing) => existing != HOOK_MAKEFILE,
+        Err(_) => true,
+    };
+    if mk_needs_write {
+        std::fs::write(&mk_path, HOOK_MAKEFILE)
+            .map_err(|e| anyhow!("write {}: {}", mk_path.display(), e))?;
+    }
+
+    Ok(hook_dir)
+}
+
+/// Platform-specific base data directory (without the application sub-path).
+fn data_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        dirs_home().map(|h| h.join("Library").join("Application Support"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Respect XDG_DATA_HOME; fall back to ~/.local/share.
+        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+            let p = PathBuf::from(xdg);
+            if p.is_absolute() {
+                return Some(p);
+            }
+        }
+        dirs_home().map(|h| h.join(".local").join("share"))
+    }
+}
+
+/// Returns the current user's home directory.
+///
+/// Uses the `HOME` environment variable, which is the standard POSIX mechanism
+/// and covers Linux, macOS, and most Unix-like systems.  Windows is not a
+/// supported target for this tool (it relies on LD_PRELOAD and ELF shared
+/// libraries), so no Windows-specific fallback is needed.
+fn dirs_home() -> Option<PathBuf> {
+    // Prefer HOME env var (works in most POSIX environments).
+    if let Some(h) = std::env::var_os("HOME") {
+        let p = PathBuf::from(h);
+        if p.is_absolute() {
+            return Some(p);
+        }
+    }
+    None
 }
