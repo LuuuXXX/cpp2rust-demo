@@ -1,3 +1,5 @@
+pub mod nm_utils;
+
 use cpp2rust_demo::ast_parser;
 use cpp2rust_demo::extractor;
 use cpp2rust_demo::generator::hicc_codegen;
