@@ -58,7 +58,7 @@ fn main() {
 
     // 创建预分配缓冲区
     let capacity = 1024;
-    let mut buffer = buffer_new(capacity);
+    let mut buffer = unsafe { buffer_new(capacity).into_unique() };
     println!("Buffer created with capacity: {}", capacity);
 
     let data_ptr = buffer.data();
@@ -69,6 +69,8 @@ fn main() {
 
     let buf_size = buffer.size();
     println!("Buffer constructed size: {}", buf_size);
+
+    drop(buffer);
 
     println!("\n--- VectorBuffer Demo ---");
 

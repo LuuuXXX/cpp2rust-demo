@@ -821,28 +821,35 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     };
 
     // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
-    // 例外：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）→ NOT unsafe
+    // 例外：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）
+    //        且参数不含 volatile 限定 → NOT unsafe
     let primitive_ret = ret_type.as_deref().map(|r| {
         matches!(r, "i8"|"u8"|"i16"|"u16"|"i32"|"u32"|"i64"|"u64"|"f32"|"f64"|"bool"|"isize"|"usize")
     }).unwrap_or(false);
+    let has_volatile_param = fi.params.iter().any(|p| {
+        p.type_name.split_whitespace().any(|w| w == "volatile")
+    });
     let is_unsafe = params.iter().any(|(_, t)| {
         if t == "*const i8" { return true; }
         if let Some(inner) = t.strip_prefix("*mut ") {
             let is_class = class_names.contains(&inner);
-            if is_class && primitive_ret { return false; }
+            // volatile 限定的类指针参数不能享受 primitive_ret 豁免：仍标记为 unsafe
+            if is_class && primitive_ret && !has_volatile_param { return false; }
             return true;
         }
         false
     }) || ret_type.as_deref().is_some_and(|r| r == "*const i8" || r == "*mut i8");
 
-    // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名
+    // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名，
+    // 但 self/this/thiz 等接收者惯用名除外（这些参数在 C 签名中通常省略参数名）
     let param_parts: Vec<String> = fi
         .params
         .iter()
         .map(|p| {
             let ty = normalize_ptr_spacing(clean_type(&p.type_name));
             let is_class_ptr = class_names.iter().any(|cn| p.type_name.contains(cn));
-            if is_class_ptr && !p.name.is_empty() && p.name != "_" {
+            let is_self_name = matches!(p.name.as_str(), "self" | "this" | "thiz");
+            if is_class_ptr && !p.name.is_empty() && p.name != "_" && !is_self_name {
                 format!("{} {}", ty, p.name)
             } else {
                 ty.to_string()
@@ -931,7 +938,13 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         .first()
         .map(|p| matches!(p.name.as_str(), "self" | "this" | "thiz"))
         .unwrap_or(false);
-    if first_param_is_class_ptr && first_param_name_is_self {
+    // volatile 限定的指针参数无法作为 hicc 类方法接收者，应归为 Standalone
+    let first_param_is_volatile = fi
+        .params
+        .first()
+        .map(|p| p.type_name.split_whitespace().any(|w| w == "volatile"))
+        .unwrap_or(false);
+    if first_param_is_class_ptr && first_param_name_is_self && !first_param_is_volatile {
         return ShimKind::MethodAccessor;
     }
 

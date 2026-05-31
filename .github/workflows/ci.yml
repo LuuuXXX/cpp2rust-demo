@@ -135,12 +135,10 @@ jobs:
         run: cargo test --test l2_compile_tests
 
   # ── L3: 运行测试（cargo run 输出与 README 一致）────────────────
-  # 依赖完整运行时环境（共享库链接），仅在 push 时执行
   l3-run:
     name: L3 Run tests
     runs-on: ubuntu-latest
     needs: [l1-golden, l2-compile]
-    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
