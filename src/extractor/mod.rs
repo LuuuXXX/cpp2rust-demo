@@ -2,9 +2,6 @@
 //!
 //! 从 `CppAst` 和原始源信息提取 `FfiSpec` IR，供代码生成器使用。
 
-pub mod class_extractor;
-pub mod enum_extractor;
-pub mod function_extractor;
 pub mod type_mapper;
 
 use crate::ast_parser::{ClassInfo, CppAst, FieldInfo, FunctionInfo, MethodInfo, ParamInfo};
