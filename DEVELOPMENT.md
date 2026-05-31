@@ -229,14 +229,24 @@ hicc::import_lib! {
 
 - 扫描 `.cpp2rust/<feature>/rust/src/` 下的 unit `.rs` 文件，解析三类 hicc 块
 - 合并：`cpp!` 块去重 include；`import_class!` 按类名聚合并去重方法；`import_lib!` 去重 fwd_decls 和 fn_bindings
-- 支持 `--feature` 多次指定，合并来自多个 feature 的输出
 - 冲突检测：同名符号签名不一致时输出 ⚠ 警告
-- 输出到 `.cpp2rust/merged/rust/`（单文件 `lib.rs` + `Cargo.toml`）
+- **in-place 输出**：写回同一 feature 目录，维持 C++ 目录结构，提供备份机制（对齐 c2rust-demo）
+
+备份与 symlink 机制：
+
+```
+.cpp2rust/<feature>/rust/
+    ├── src.1/   ← init 输出原始备份（首次运行时 rename from src）
+    ├── src.2/   ← merge 输出（每次运行重写，维持子目录结构）
+    └── src      ← symlink → src.2
+```
+
+- 首次运行：`src/` 重命名为 `src.1/`，输出写入 `src.2/`，建 `src → src.2` symlink
+- 重复运行：`src.1/` 保持不变，仅删除旧 symlink、更新 `src.2/`、重建 symlink
 
 用法：
 ```bash
 cpp2rust-demo merge --feature default
-cpp2rust-demo merge --feature core --feature extra
 ```
 
 ### 6.2 ✅ P1 - CI 环境修复（已完成）

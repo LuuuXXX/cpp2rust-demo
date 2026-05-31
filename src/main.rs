@@ -49,9 +49,9 @@ struct InitArgs {
 
 #[derive(Args)]
 struct MergeArgs {
-    /// Feature name(s) to merge (default: "default"; can be specified multiple times)
+    /// Feature name to merge (default: "default")
     #[arg(long, default_value = "default")]
-    feature: Vec<String>,
+    feature: String,
 }
 
 #[derive(Args)]
@@ -87,85 +87,59 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
 
-    let features: Vec<String> = args.feature;
-    let output_name = "merged";
+    let feature = &args.feature;
 
     println!("=== cpp2rust-demo merge ===");
     println!("Project root : {}", project_root.display());
-    println!("Feature(s)   : {}", features.join(", "));
-    println!("Output       : {}", output_name);
+    println!("Feature      : {}", feature);
     println!();
 
-    // 收集所有 feature 下的 unit .rs 文件
-    let mut all_unit_paths: Vec<std::path::PathBuf> = Vec::new();
-
-    for feature in &features {
-        let feature_root = project_root.join(".cpp2rust").join(feature);
-        if !feature_root.exists() {
-            return Err(anyhow!(
-                "feature '{}' not found at {}; run init first",
-                feature,
-                feature_root.display()
-            ));
-        }
-        let src_dir = feature_root.join("rust").join("src");
-        let unit_files = merger::collect_unit_rs_files(&src_dir);
-        println!(
-            "  Feature '{}': {} unit file(s) in {}",
+    let lo = FeatureLayout::new(project_root.clone(), feature);
+    if !lo.feature_root.exists() {
+        return Err(anyhow!(
+            "feature '{}' not found at {}; run init first",
             feature,
-            unit_files.len(),
-            src_dir.display()
-        );
-        all_unit_paths.extend(unit_files);
+            lo.feature_root.display()
+        ));
     }
 
-    if all_unit_paths.is_empty() {
+    // 确定 canonical 来源（src.1 优先，否则取 src 实际目录）
+    let canonical_src = if lo.rust_dir.join("src.1").is_dir() {
+        lo.rust_dir.join("src.1")
+    } else {
+        lo.rust_dir.join("src")
+    };
+
+    if !canonical_src.exists() {
+        return Err(anyhow!(
+            "rust/src not found under {}; run init first",
+            lo.rust_dir.display()
+        ));
+    }
+
+    let unit_files = merger::collect_unit_rs_files(&canonical_src);
+    println!(
+        "  Feature '{}': {} unit file(s) in {}",
+        feature,
+        unit_files.len(),
+        canonical_src.display()
+    );
+
+    if unit_files.is_empty() {
         println!("\nNo unit .rs files found. Run 'init' first.");
         return Ok(());
     }
 
-    println!("\nMerging {} unit file(s)...", all_unit_paths.len());
+    println!("\nMerging {} unit file(s)...", unit_files.len());
 
-    // 合并
-    let merged_spec = merger::merge_units(&all_unit_paths, output_name);
+    merger::merge_in_place(&lo.rust_dir)?;
 
-    // 报告冲突
-    if !merged_spec.conflicts.is_empty() {
-        eprintln!("\n⚠ {} conflict(s) detected:", merged_spec.conflicts.len());
-        for c in &merged_spec.conflicts {
-            eprintln!("  {}", c);
-        }
-    }
-
-    // 生成合并后的 Rust 代码
-    let merged_rs = merger::emit_merged_rs(&merged_spec, output_name);
-
-    // 写出到 .cpp2rust/<output>/rust/
-    let output_layout = FeatureLayout::new(project_root.clone(), output_name);
-    output_layout.create_dirs()?;
-
-    // 写 lib.rs（合并内容）
-    let src_dir = output_layout.rust_dir.join("src");
-    std::fs::create_dir_all(&src_dir)
-        .map_err(|e| anyhow!("create src dir: {}", e))?;
-    let lib_rs_path = src_dir.join("lib.rs");
-    std::fs::write(&lib_rs_path, &merged_rs)
-        .map_err(|e| anyhow!("write lib.rs: {}", e))?;
-
-    // 写 Cargo.toml
-    project_generator::write_cargo_toml(&output_layout.rust_dir, output_name)?;
-
-    println!("\n\u{2713} cpp2rust-demo merge completed.");
-    println!("\nMerge summary:");
-    println!(
-        "  {} class(es), {} fn binding(s), {} include line(s)",
-        merged_spec.class_order.len(),
-        merged_spec.fn_bindings.len(),
-        merged_spec.cpp_lines.iter().filter(|l| l.contains("#include")).count(),
-    );
+    println!("\n✓ cpp2rust-demo merge completed.");
     println!("\nOutput:");
-    println!("  {}", lib_rs_path.display());
-    println!("  {}", output_layout.rust_dir.join("Cargo.toml").display());
+    println!("  .cpp2rust/{}/rust/", feature);
+    println!("    ├── src.1/  (init 输出备份)");
+    println!("    ├── src.2/  (merge 输出，目录结构与 C++ 项目一致)");
+    println!("    └── src     (symlink → src.2)");
 
     Ok(())
 }
@@ -340,5 +314,51 @@ fn main() {
     if let Err(e) = result {
         eprintln!("Error: {:#}", e);
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_help_does_not_panic() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn merge_default_feature() {
+        let args = Cli::try_parse_from(["cpp2rust-demo", "merge"]).unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.feature, "default");
+    }
+
+    #[test]
+    fn merge_custom_feature() {
+        let args =
+            Cli::try_parse_from(["cpp2rust-demo", "merge", "--feature", "core_lib"]).unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.feature, "core_lib");
+    }
+
+    #[test]
+    fn init_default_feature() {
+        let args = Cli::try_parse_from(["cpp2rust-demo", "init", "--", "make"]).unwrap();
+        let Commands::Init(init) = args.command else {
+            panic!("expected Init");
+        };
+        assert_eq!(init.feature, "default");
+        assert_eq!(init.build_cmd, vec!["make"]);
+    }
+
+    #[test]
+    fn init_requires_build_cmd() {
+        let result = Cli::try_parse_from(["cpp2rust-demo", "init"]);
+        assert!(result.is_err());
     }
 }
