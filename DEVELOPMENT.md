@@ -231,12 +231,12 @@ hicc::import_lib! {
 - 合并：`cpp!` 块去重 include；`import_class!` 按类名聚合并去重方法；`import_lib!` 去重 fwd_decls 和 fn_bindings
 - 支持 `--feature` 多次指定，合并来自多个 feature 的输出
 - 冲突检测：同名符号签名不一致时输出 ⚠ 警告
-- 输出到 `.cpp2rust/<output>/rust/`（单文件 `lib.rs` + `Cargo.toml`）
+- 输出到 `.cpp2rust/merged/rust/`（单文件 `lib.rs` + `Cargo.toml`）
 
 用法：
 ```bash
-cpp2rust-demo merge --feature default --output mylib
-cpp2rust-demo merge --feature core --feature extra --output mylib
+cpp2rust-demo merge --feature default
+cpp2rust-demo merge --feature core --feature extra
 ```
 
 ### 6.2 ✅ P1 - CI 环境修复（已完成）
@@ -321,10 +321,10 @@ cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 cargo run -- parse <path>.cpp2rust
 
 # 合并单个 feature 的输出
-cargo run -- merge --feature default --output mylib
+cargo run -- merge --feature default
 
 # 合并多个 feature
-cargo run -- merge --feature core --feature extra --output mylib
+cargo run -- merge --feature core --feature extra
 
 # 运行 L2 编译测试
 cargo test --test l2_compile_tests

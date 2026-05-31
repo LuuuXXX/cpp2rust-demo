@@ -36,10 +36,6 @@ struct InitArgs {
     #[arg(long, default_value = "default")]
     feature: String,
 
-    /// Skip files that fail later phases (stub in Phase T/0)
-    #[arg(long)]
-    skip_failed: bool,
-
     /// Build command to execute (use after '--')
     /// Example: cpp2rust-demo init -- make -j4
     #[arg(
@@ -56,10 +52,6 @@ struct MergeArgs {
     /// Feature name(s) to merge (default: "default"; can be specified multiple times)
     #[arg(long, default_value = "default")]
     feature: Vec<String>,
-
-    /// Output feature name for the merged project (default: "merged")
-    #[arg(long, default_value = "merged")]
-    output: String,
 }
 
 #[derive(Args)]
@@ -96,7 +88,7 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     let project_root = layout::find_project_root(&cwd);
 
     let features: Vec<String> = args.feature;
-    let output_name = &args.output;
+    let output_name = "merged";
 
     println!("=== cpp2rust-demo merge ===");
     println!("Project root : {}", project_root.display());
@@ -188,7 +180,6 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("=== cpp2rust-demo init ===");
     println!("Project root : {}", project_root.display());
     println!("Feature      : {}", feature);
-    println!("Skip failed  : {}", args.skip_failed);
     println!("Build command: {}", build_cmd.join(" "));
     println!();
 
@@ -221,7 +212,6 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     println!("\nRunning AST parser and code generation on selected files...");
     let mut unit_paths: Vec<String> = Vec::new();
-    let mut parse_errors = 0usize;
     // 降级特性统计：tag → 出现次数
     let mut degraded_tags: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     // unit_path → 首次注册该路径的源文件（用于冲突诊断）
@@ -288,30 +278,13 @@ fn run_init(args: InitArgs) -> Result<()> {
                 unit_paths.push(unit_path);
             }
             Err(err) => {
-                parse_errors += 1;
                 let elapsed_ms = file_start.elapsed().as_millis();
-                if args.skip_failed {
-                    eprintln!(
-                        "  Warning: parse failed for {} [{} ms]: {:#}",
-                        path.display(), elapsed_ms, err
-                    );
-                    // 生成 stub 文件，避免 lib.rs 中模块声明缺失
-                    let stub_code = format!(
-                        "// cpp2rust-todo[PARSE_FAILED]: {}\n// Error: {:#}\n",
-                        path.display(),
-                        err
-                    );
-                    project_generator::write_unit_rs(&lo.rust_dir, &unit_path, &stub_code)?;
-                    unit_paths.push(unit_path);
-                } else {
-                    return Err(err);
-                }
+                return Err(anyhow!(
+                    "parse failed for {} [{} ms]: {:#}",
+                    path.display(), elapsed_ms, err
+                ));
             }
         }
-    }
-
-    if parse_errors > 0 {
-        println!("\nWarning: {} file(s) failed to parse (--skip-failed active).", parse_errors);
     }
 
     // 降级特性汇总
