@@ -8,7 +8,7 @@ use cpp2rust_demo::generator::hicc_codegen;
 use cpp2rust_demo::generator::project_generator;
 use cpp2rust_demo::layout::{self, FeatureLayout};
 use cpp2rust_demo::merger;
-use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
+use cpp2rust_demo::selector::{FileSelector, InteractiveSelector, SelectAll};
 use std::time::Instant;
 
 #[derive(Parser)]
@@ -26,6 +26,8 @@ enum Commands {
     Init(InitArgs),
     /// Merge generated per-symbol outputs into module-level files
     Merge(MergeArgs),
+    /// Run init (selecting all files) then merge in one non-interactive step
+    Auto(AutoArgs),
 }
 
 #[derive(Args)]
@@ -50,6 +52,23 @@ struct MergeArgs {
     /// Feature name to merge (default: "default")
     #[arg(long, default_value = "default")]
     feature: String,
+}
+
+#[derive(Args)]
+struct AutoArgs {
+    /// Feature name (default: "default")
+    #[arg(long, default_value = "default")]
+    feature: String,
+
+    /// Build command to execute (use after '--')
+    /// Example: cpp2rust-demo auto -- make -j4
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        required = true,
+        value_name = "BUILD_CMD"
+    )]
+    build_cmd: Vec<String>,
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
@@ -114,9 +133,20 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 }
 
 fn run_init(args: InitArgs) -> Result<()> {
-    let feature = &args.feature;
-    let build_cmd = &args.build_cmd;
+    let sel = InteractiveSelector;
+    run_init_with(&args.feature, &args.build_cmd, &sel)
+}
 
+fn run_auto(args: AutoArgs) -> Result<()> {
+    println!("=== cpp2rust-demo auto ===");
+    println!("(non-interactive: all captured files will be selected automatically)");
+    println!();
+    let sel = SelectAll;
+    run_init_with(&args.feature, &args.build_cmd, &sel)?;
+    run_merge(MergeArgs { feature: args.feature })
+}
+
+fn run_init_with(feature: &str, build_cmd: &[String], sel: &dyn FileSelector) -> Result<()> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
 
@@ -142,7 +172,6 @@ fn run_init(args: InitArgs) -> Result<()> {
         return Ok(());
     }
 
-    let sel = InteractiveSelector;
     let selected = sel.select(&captured)?;
     println!("{} file(s) selected for this feature", selected.len());
 
@@ -278,6 +307,7 @@ fn main() {
     let result = match cli.command {
         Commands::Init(args) => run_init(args),
         Commands::Merge(args) => run_merge(args),
+        Commands::Auto(args) => run_auto(args),
     };
     if let Err(e) = result {
         eprintln!("Error: {:#}", e);
@@ -327,6 +357,34 @@ mod tests {
     #[test]
     fn init_requires_build_cmd() {
         let result = Cli::try_parse_from(["cpp2rust-demo", "init"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn auto_default_feature() {
+        let args = Cli::try_parse_from(["cpp2rust-demo", "auto", "--", "make"]).unwrap();
+        let Commands::Auto(auto) = args.command else {
+            panic!("expected Auto");
+        };
+        assert_eq!(auto.feature, "default");
+        assert_eq!(auto.build_cmd, vec!["make"]);
+    }
+
+    #[test]
+    fn auto_custom_feature() {
+        let args =
+            Cli::try_parse_from(["cpp2rust-demo", "auto", "--feature", "core", "--", "make", "-j4"])
+                .unwrap();
+        let Commands::Auto(auto) = args.command else {
+            panic!("expected Auto");
+        };
+        assert_eq!(auto.feature, "core");
+        assert_eq!(auto.build_cmd, vec!["make", "-j4"]);
+    }
+
+    #[test]
+    fn auto_requires_build_cmd() {
+        let result = Cli::try_parse_from(["cpp2rust-demo", "auto"]);
         assert!(result.is_err());
     }
 }

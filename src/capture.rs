@@ -3,32 +3,86 @@ use anyhow::anyhow;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Build the `libhook.so` from `hook/Makefile` adjacent to the binary.
-///
-/// Returns the path to the built `libhook.so`.
-pub fn build_hook() -> Result<PathBuf> {
-    let hook_dir = hook_dir()?;
-    let so = hook_dir.join("libhook.so");
+/// Source of `hook.cpp` embedded at compile time so that `cargo install` works
+/// without requiring a separate `hook/` directory on the user's machine.
+const HOOK_CPP_SRC: &str = include_str!("../hook/hook.cpp");
 
-    println!("Building hook library from {}...", hook_dir.display());
-    let status = Command::new("make")
-        .current_dir(&hook_dir)
-        .arg("-s")
+/// Returns the per-user cache directory for cpp2rust-demo artefacts.
+///
+/// Priority: `$XDG_DATA_HOME/cpp2rust-demo` → `~/.local/share/cpp2rust-demo` → `$TMPDIR/cpp2rust-demo`.
+fn user_hook_cache_dir() -> PathBuf {
+    let base = std::env::var("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::env::var("HOME")
+                .map(|h| PathBuf::from(h).join(".local").join("share"))
+                .unwrap_or_else(|_| std::env::temp_dir())
+        });
+    base.join("cpp2rust-demo")
+}
+
+/// Compile `libhook.so` from the source code embedded in the binary.
+///
+/// The source is written to the user cache directory and compiled with `g++`.
+/// This is the fallback path used after `cargo install` when the `hook/`
+/// source directory is not adjacent to the installed binary.
+fn build_hook_embedded() -> Result<PathBuf> {
+    let cache_dir = user_hook_cache_dir();
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| anyhow!("create cache dir {}: {}", cache_dir.display(), e))?;
+
+    let src = cache_dir.join("hook.cpp");
+    let so = cache_dir.join("libhook.so");
+
+    std::fs::write(&src, HOOK_CPP_SRC)
+        .map_err(|e| anyhow!("write hook.cpp to {}: {}", src.display(), e))?;
+
+    println!("Compiling hook library from embedded source to {}...", cache_dir.display());
+    let status = Command::new("g++")
+        .args(["-Wall", "-fPIC", "-shared", "-o"])
+        .arg(&so)
+        .arg(&src)
+        .arg("-ldl")
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
-        .map_err(|e| anyhow!("failed to run make in {}: {}", hook_dir.display(), e))?;
+        .map_err(|e| anyhow!("g++ not found (required to compile hook): {}", e))?;
 
     if !status.success() {
-        return Err(anyhow!("make failed in {}", hook_dir.display()));
+        return Err(anyhow!("failed to compile hook.cpp to {}", so.display()));
     }
 
-    if !so.exists() {
-        return Err(anyhow!("libhook.so not found after build at {}", so.display()));
-    }
-
-    println!("Hook library built: {}", so.display());
+    println!("Hook library compiled: {}", so.display());
     Ok(so)
+}
+
+/// Build `libhook.so`, preferring a local `hook/Makefile` when available and
+/// falling back to compiling the embedded source for `cargo install` setups.
+///
+/// Returns the path to the built `libhook.so`.
+pub fn build_hook() -> Result<PathBuf> {
+    match hook_dir() {
+        Ok(dir) => {
+            let so = dir.join("libhook.so");
+            println!("Building hook library from {}...", dir.display());
+            let status = Command::new("make")
+                .current_dir(&dir)
+                .arg("-s")
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status()
+                .map_err(|e| anyhow!("failed to run make in {}: {}", dir.display(), e))?;
+            if !status.success() {
+                return Err(anyhow!("make failed in {}", dir.display()));
+            }
+            if !so.exists() {
+                return Err(anyhow!("libhook.so not found after build at {}", so.display()));
+            }
+            println!("Hook library built: {}", so.display());
+            Ok(so)
+        }
+        Err(_) => build_hook_embedded(),
+    }
 }
 
 /// Execute the user-supplied build command with LD_PRELOAD set to libhook.so.

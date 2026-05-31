@@ -1,0 +1,120 @@
+name: cpp2rust-convert
+description: |
+  Automate C++ to Rust FFI binding generation using cpp2rust-demo.
+  Given a C++ project root and its build command, generates hicc-based Rust FFI
+  scaffolding in one step (LD_PRELOAD capture → AST parse → code generation → merge).
+
+# ─── Invocation ───────────────────────────────────────────────────────────────
+#
+#   In the C++ project root directory:
+#
+#     cpp2rust-demo auto -- <build_command>
+#
+#   Examples:
+#     cpp2rust-demo auto -- make -j4
+#     cpp2rust-demo auto -- cmake --build build
+#     cpp2rust-demo auto -- g++ -c src/main.cpp -Iinclude
+#     cpp2rust-demo auto --feature core_lib -- make -j4
+#
+# ─── Requirements ─────────────────────────────────────────────────────────────
+#
+#   Install once:
+#     cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
+#
+#   System dependencies (Ubuntu/Debian):
+#     sudo apt-get install -y g++ libclang-dev
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+instructions: |
+  You are helping automate C++ → Rust FFI conversion using the cpp2rust-demo tool.
+
+  ## Prerequisites
+
+  1. Install cpp2rust-demo (once per machine):
+     ```bash
+     cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
+     ```
+     This embeds the LD_PRELOAD hook source inside the binary, so no manual
+     `LD_PRELOAD` configuration is needed — the tool handles it automatically.
+
+  2. Install system dependencies:
+     ```bash
+     # Ubuntu / Debian
+     sudo apt-get install -y g++ libclang-dev
+     ```
+
+  ## Run the conversion
+
+  Navigate to the C++ project root directory, then run:
+
+  ```bash
+  cpp2rust-demo auto -- <build_command>
+  ```
+
+  The `auto` command:
+  - Compiles the LD_PRELOAD hook library automatically (uses embedded source)
+  - Runs your build with `LD_PRELOAD` to intercept all C++ compiler invocations
+  - Captures preprocessed `.cpp2rust` files for every compiled translation unit
+  - Parses the AST with libclang and extracts classes / functions / enums
+  - Generates hicc-format Rust FFI scaffolding (three-block: `cpp!` / `import_class!` / `import_lib!`)
+  - Merges per-unit files into a module-level layout
+
+  ## Output structure
+
+  After a successful run you will find:
+
+  ```
+  <project_root>/
+  └── .cpp2rust/
+      └── <feature>/          # "default" unless --feature is specified
+          ├── c/              # captured .cpp2rust preprocessed files
+          ├── meta/           # build_cmd.txt, selected_files.json
+          └── rust/           # generated Rust crate
+              ├── Cargo.toml
+              ├── src.1/      # per-unit .rs files (init output)
+              ├── src.2/      # merged by-module .rs files
+              └── src -> src.2 (symlink)
+  ```
+
+  ## Typical agent workflow
+
+  1. Identify the C++ project root and its build command.
+  2. Run `cpp2rust-demo auto -- <build_command>` from the project root.
+  3. Inspect `.cpp2rust/default/rust/src/` for generated FFI bindings.
+  4. Note any `cpp2rust-todo` markers in the generated code — these indicate
+     features that require manual attention (e.g. complex templates, lambdas).
+  5. Add the generated crate as a dependency in the consuming Rust project.
+
+  ## Feature flag (large projects)
+
+  For large projects you can split the conversion by module:
+
+  ```bash
+  cpp2rust-demo auto --feature parser  -- make parser.a
+  cpp2rust-demo auto --feature network -- make network.a
+  ```
+
+  Each feature produces an independent Rust crate under `.cpp2rust/<feature>/rust/`.
+
+steps:
+  - name: Check prerequisites
+    run: |
+      command -v g++ >/dev/null 2>&1 || { echo "g++ not found — install build-essential"; exit 1; }
+      command -v cpp2rust-demo >/dev/null 2>&1 || {
+        echo "cpp2rust-demo not found — installing..."
+        cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
+      }
+
+  - name: Run automated C++ to Rust conversion
+    run: cpp2rust-demo auto -- ${BUILD_COMMAND}
+    env:
+      BUILD_COMMAND: "make -j$(nproc)"   # override with the actual project build command
+
+  - name: Show output summary
+    run: |
+      echo "=== Generated Rust FFI bindings ==="
+      find .cpp2rust -name "*.rs" | grep -v "lib.rs\|mod.rs" | head -20
+      echo ""
+      echo "=== cpp2rust-todo items (require manual review) ==="
+      grep -r "cpp2rust-todo" .cpp2rust/*/rust/src/ 2>/dev/null | wc -l | xargs echo "Total todo markers:"
