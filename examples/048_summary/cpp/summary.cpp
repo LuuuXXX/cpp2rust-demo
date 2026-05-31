@@ -5,11 +5,11 @@ Counter* counter_new() {
     return new Counter();
 }
 
-void counter_delete(Counter* self) {
+void counter_delete(struct Counter* self) {
     delete self;
 }
 
-int safe_add(int a, int b) noexcept {
+int safe_add(int a, int b) {
     return a + b;
 }
 
