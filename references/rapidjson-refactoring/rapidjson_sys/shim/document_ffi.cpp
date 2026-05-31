@@ -4,25 +4,13 @@
 // rapidjson::Value for use by the Rust rapidjson_sys crate.
 
 #include "document_ffi.h"
+#include "internal_handles.h"
 
 #include <new>
 #include <cstring>
 #include <stdint.h>
 
-// Use CrtAllocator for standalone Value handles so they don't need a
-// parent Document to provide memory.
 #include "rapidjson/document.h"
-
-using namespace rapidjson;
-
-typedef GenericDocument<UTF8<>, CrtAllocator> CrtDocument;
-typedef GenericValue<UTF8<>, CrtAllocator>    CrtValue;
-
-// ── Document handle ───────────────────────────────────────────────────────────
-
-struct RapidJsonDocumentHandle {
-    CrtDocument doc;
-};
 
 RapidJsonDocumentHandle* rapidjson_document_new(void) {
     return new (std::nothrow) RapidJsonDocumentHandle();
@@ -89,13 +77,7 @@ size_t rapidjson_document_size(const RapidJsonDocumentHandle* d) {
 }
 
 // ── Value handle ─────────────────────────────────────────────────────────────
-
-struct RapidJsonValueHandle {
-    CrtValue val;
-    CrtDocument::AllocatorType alloc;
-
-    RapidJsonValueHandle() : val(), alloc() {}
-};
+// RapidJsonValueHandle is defined in internal_handles.h.
 
 RapidJsonValueHandle* rapidjson_value_new_null(void) {
     auto* h = new (std::nothrow) RapidJsonValueHandle();

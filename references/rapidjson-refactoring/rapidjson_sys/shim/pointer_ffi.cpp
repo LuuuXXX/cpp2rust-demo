@@ -1,7 +1,7 @@
 // FFI shim implementation for rapidjson Pointer.
 
 #include "pointer_ffi.h"
-#include "document_ffi.h"
+#include "internal_handles.h"
 
 #include <new>
 #include <cstring>
@@ -11,12 +11,8 @@
 
 using namespace rapidjson;
 
-typedef GenericDocument<UTF8<>, CrtAllocator>  CrtDocument;
+// RapidJsonDocumentHandle is defined in internal_handles.h.
 typedef GenericPointer<GenericValue<UTF8<>, CrtAllocator>, CrtAllocator> CrtPointer;
-
-struct RapidJsonDocumentHandle {
-    CrtDocument doc;
-};
 
 struct RapidJsonPointerHandle {
     CrtPointer ptr;

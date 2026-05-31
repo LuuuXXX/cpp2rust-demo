@@ -75,7 +75,14 @@ pub fn compile_cpp_obj(srcs: &[&Path], includes: &[&str], out_path: &Path) -> Op
     // Compile each source to an individual .o, then partial-link them together.
     let mut obj_paths: Vec<PathBuf> = Vec::new();
     for (i, src) in srcs.iter().enumerate() {
-        let obj = out_path.with_extension(format!("{}.tmp.o", i));
+        // Build a sibling filename like "<stem>.<i>.tmp.o" so we never
+        // accidentally clobber the final output path.
+        let stem = out_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "obj".to_string());
+        let obj = out_path
+            .with_file_name(format!("{}.{}.tmp.o", stem, i));
         let mut cmd = Command::new("g++");
         cmd.args(["-c", "-fPIC", "-w"]);
         for inc in includes {

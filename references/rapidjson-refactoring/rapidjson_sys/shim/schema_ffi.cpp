@@ -1,7 +1,7 @@
 // FFI shim implementation for rapidjson SchemaDocument / SchemaValidator.
 
 #include "schema_ffi.h"
-#include "document_ffi.h"
+#include "internal_handles.h"
 
 #include <new>
 #include <cstring>
@@ -14,12 +14,8 @@
 
 using namespace rapidjson;
 
-typedef GenericDocument<UTF8<>, CrtAllocator> CrtDocument;
+// RapidJsonDocumentHandle is defined in internal_handles.h.
 typedef SchemaDocument CrtSchemaDocument;
-
-struct RapidJsonDocumentHandle {
-    CrtDocument doc;
-};
 
 struct RapidJsonSchemaDocHandle {
     CrtSchemaDocument sd;

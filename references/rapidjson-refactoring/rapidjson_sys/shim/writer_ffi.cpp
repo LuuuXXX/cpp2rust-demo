@@ -1,6 +1,7 @@
 // FFI shim implementation for rapidjson StringBuffer, Writer, PrettyWriter.
 
 #include "writer_ffi.h"
+#include "internal_handles.h"
 
 #include <new>
 #include <cstring>
@@ -12,10 +13,7 @@
 using namespace rapidjson;
 
 // ── StringBuffer ─────────────────────────────────────────────────────────────
-
-struct RapidJsonStringBufferHandle {
-    StringBuffer sb;
-};
+// RapidJsonStringBufferHandle is defined in internal_handles.h.
 
 RapidJsonStringBufferHandle* rapidjson_stringbuffer_new(void) {
     return new (std::nothrow) RapidJsonStringBufferHandle();

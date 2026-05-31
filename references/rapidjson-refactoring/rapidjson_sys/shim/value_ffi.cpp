@@ -1,6 +1,7 @@
 // FFI shim implementation for standalone rapidjson Value operations.
 
 #include "value_ffi.h"
+#include "internal_handles.h"
 
 #include <new>
 #include <cstring>
@@ -11,13 +12,7 @@
 
 using namespace rapidjson;
 
-typedef GenericValue<UTF8<>, CrtAllocator>    CrtValue;
-
-struct RapidJsonValueHandle {
-    CrtValue val;
-    CrtAllocator alloc;
-    RapidJsonValueHandle() : val(), alloc() {}
-};
+// RapidJsonValueHandle is defined in internal_handles.h.
 
 // ── Value iteration ───────────────────────────────────────────────────────────
 
