@@ -61,9 +61,16 @@ cpp2rust-demo/
 # 系统依赖（Ubuntu/Debian）
 sudo apt-get install clang libclang-dev g++ libstdc++-14-dev
 
-# 编译并安装工具
+# 从 GitHub 安装（无需克隆仓库）
+cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
+
+# 或从本地源码安装（开发者）
 cargo install --path .
 ```
+
+> **注意**：`hook/hook.cpp` 已内嵌进 binary，无需额外文件。首次执行 `init` 时工具
+> 自动将 hook 源码解压到 `~/.local/share/cpp2rust-demo/hook/`（Linux）或
+> `~/Library/Application Support/cpp2rust-demo/hook/`（macOS）并编译；后续调用自动跳过重编译。
 
 ### Step 1 — `init`：捕获构建 + 生成 FFI 脚手架
 
@@ -83,7 +90,7 @@ cpp2rust-demo init --feature core_lib -- make -j4
 ```
 
 `init` 自动完成：
-1. 编译 `hook/libhook.so`（首次自动 make）
+1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（后续调用自动跳过）
 2. 通过 LD_PRELOAD 注入构建过程，捕获 `.cpp2rust` 预处理文件
 3. 交互式选择参与转换的文件（非交互环境自动全选）
 4. libclang 解析 AST，提取类/函数/枚举/模板实例化
