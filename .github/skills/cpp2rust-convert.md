@@ -2,7 +2,7 @@
 
 **触发条件**：用户在 C++ 项目根目录请求"转换为 Rust FFI"，或要求"用 cpp2rust-demo 分析/转换这个 C++ 项目"。
 
-**前提**：已安装 `cpp2rust-demo`（`cargo install --git https://github.com/LuuuXXX/cpp2rust-demo`）及系统依赖（`clang`、`libclang-dev`、`g++`）。
+**前提**：已安装 `cpp2rust-demo`（`cargo install --git https://github.com/LuuuXXX/cpp2rust-demo`，该工具目前从 GitHub 源码安装）及系统依赖（`clang`、`libclang-dev`、`g++`）。
 
 ---
 

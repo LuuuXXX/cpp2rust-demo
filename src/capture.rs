@@ -155,7 +155,7 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
             .map_err(|e| anyhow!("write {}: {}", cpp_path.display(), e))?;
     }
 
-    // Always write Makefile (it is small and idempotent).
+    // Write Makefile if absent or content has changed.
     let mk_path = hook_dir.join("Makefile");
     let mk_needs_write = match std::fs::read_to_string(&mk_path) {
         Ok(existing) => existing != HOOK_MAKEFILE,
@@ -189,6 +189,11 @@ fn data_dir() -> Option<PathBuf> {
 }
 
 /// Returns the current user's home directory.
+///
+/// Uses the `HOME` environment variable, which is the standard POSIX mechanism
+/// and covers Linux, macOS, and most Unix-like systems.  Windows is not a
+/// supported target for this tool (it relies on LD_PRELOAD and ELF shared
+/// libraries), so no Windows-specific fallback is needed.
 fn dirs_home() -> Option<PathBuf> {
     // Prefer HOME env var (works in most POSIX environments).
     if let Some(h) = std::env::var_os("HOME") {
