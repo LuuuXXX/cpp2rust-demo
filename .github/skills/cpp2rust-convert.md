@@ -13,38 +13,41 @@
 确保当前目录是 C++ 项目根目录（存在 `.cpp` 文件、`Makefile`、`CMakeLists.txt` 等构建标志）。
 若不确定，先询问用户或使用 `ls` / `find` 探查。
 
-### 步骤 1：确定 feature 名称
+### 步骤 1：询问 feature 名称
 
-- 默认使用 `default`。
-- 多模块项目可按模块命名（如 `core_lib`、`json_parser`）。
+向用户提问：
+
+> 请输入 feature 名称（直接回车跳过则使用默认值 `default`）：
+
+- 若用户提供了名称，使用该名称；
+- 若用户跳过（直接回车或未填写），使用 `default`。
 
 ```bash
-FEATURE=default   # 可按需修改
+FEATURE=<用户输入，或 default>
 ```
 
-### 步骤 2：检测构建系统并构造构建命令
+### 步骤 2：询问构建命令
 
-按优先级依次检测：
+向用户提问：
 
-| 检测条件 | 构建命令 |
-|---------|---------|
-| 存在 `Makefile` | `make -j$(nproc)` |
-| 存在 `CMakeLists.txt` | `cmake -B build -DCMAKE_BUILD_TYPE=Debug && cmake --build build -- -j$(nproc)` |
-| 存在 `build.sh` | `bash build.sh` |
-| 仅有少量 `.cpp` 文件（无构建系统） | `g++ -shared -fPIC *.cpp -o libout.so` |
+> 请输入构建命令（例如 `make -j$(nproc)`、`cmake --build build -- -j$(nproc)`、`bash build.sh` 等）：
 
-> **CMake 特别说明**：需将 cmake 的两步拆分为两条独立的 `cpp2rust-demo init` 调用，
-> 或先执行 `cmake -B build -DCMAKE_BUILD_TYPE=Debug`，再以 `cmake --build build` 作为
-> init 的构建命令：
-> ```bash
-> cmake -B build -DCMAKE_BUILD_TYPE=Debug
-> cpp2rust-demo init --feature "$FEATURE" -- cmake --build build -- -j$(nproc)
-> ```
+- 用户**必须**提供构建命令，不可为空。
+- 若用户提供的是 CMake 项目，提示其先在外部执行配置步骤，再将构建命令（如 `cmake --build build -- -j$(nproc)`）填入此处：
+  ```bash
+  cmake -B build -DCMAKE_BUILD_TYPE=Debug
+  # 然后将下方命令作为构建命令输入：
+  cmake --build build -- -j$(nproc)
+  ```
+
+```bash
+BUILD_CMD=<用户输入的构建命令>
+```
 
 ### 步骤 3：执行捕获与代码生成
 
 ```bash
-cpp2rust-demo init --feature "$FEATURE" -- <步骤2确定的构建命令>
+cpp2rust-demo init --feature "$FEATURE" -- $BUILD_CMD
 ```
 
 `init` 自动完成：
@@ -75,17 +78,31 @@ cpp2rust-demo merge --feature "$FEATURE"
 
 ## 完整示例（以 rapidjson 为例）
 
+以下为 Agent 与用户交互的完整流程示意：
+
+```
+Agent: 请输入 feature 名称（直接回车跳过则使用默认值 `default`）：
+User:  （回车跳过）
+→ FEATURE=default
+
+Agent: 请输入构建命令（例如 `make -j$(nproc)`、`cmake --build build -- -j$(nproc)` 等）：
+User:  cmake --build build -- -j$(nproc)
+→ BUILD_CMD=cmake --build build -- -j$(nproc)
+```
+
 ```bash
 # 克隆 rapidjson
 git clone https://github.com/Tencent/rapidjson /tmp/rapidjson
 cd /tmp/rapidjson
 
-# CMake 项目：先配置再捕获构建
+# CMake 项目：先执行配置步骤（在 Agent 询问构建命令前手动完成）
 cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cpp2rust-demo init --feature default -- cmake --build build -- -j$(nproc)
+
+# Agent 收集用户输入后执行捕获构建
+cpp2rust-demo init --feature "$FEATURE" -- $BUILD_CMD
 
 # 整理目录结构
-cpp2rust-demo merge --feature default
+cpp2rust-demo merge --feature "$FEATURE"
 
 # 查看生成结果
 find .cpp2rust/default/rust/src -name "*.rs" | head -20
