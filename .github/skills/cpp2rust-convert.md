@@ -48,7 +48,7 @@ cpp2rust-demo init --feature "$FEATURE" -- <步骤2确定的构建命令>
 ```
 
 `init` 自动完成：
-1. 将 `hook/hook.cpp` 编译为 `libhook.so`（首次运行，后续自动跳过）
+1. 将 binary 内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（首次运行；后续 hook 库为最新版时自动跳过）
 2. 通过 `LD_PRELOAD` 拦截构建过程，捕获 `.cpp2rust` 预处理文件
 3. 交互式（或自动全选）选择参与转换的文件
 4. libclang 解析 AST，生成 `.cpp2rust/$FEATURE/rust/` 下的 hicc Rust 脚手架

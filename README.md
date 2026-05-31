@@ -70,7 +70,7 @@ cargo install --path .
 
 > **注意**：`hook/hook.cpp` 已内嵌进 binary，无需额外文件。首次执行 `init` 时工具
 > 自动将 hook 源码解压到 `~/.local/share/cpp2rust-demo/hook/`（Linux）或
-> `~/Library/Application Support/cpp2rust-demo/hook/`（macOS）并编译；后续调用自动跳过重编译。
+> `~/Library/Application Support/cpp2rust-demo/hook/`（macOS）并编译；后续调用在 hook 库为最新版时自动跳过重编译。
 
 ### Step 1 — `init`：捕获构建 + 生成 FFI 脚手架
 

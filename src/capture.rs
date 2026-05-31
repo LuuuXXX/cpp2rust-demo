@@ -17,6 +17,9 @@ pub fn build_hook() -> Result<PathBuf> {
     let cpp = hook_dir.join("hook.cpp");
 
     // Fast path: skip recompilation when .so is newer than hook.cpp.
+    // Note: hook_dir() above already calls ensure_hook_data_dir() as its
+    // final fallback, so hook.cpp is guaranteed to exist in the data-dir
+    // case before this check runs.
     if so.exists() && cpp.exists() {
         if let (Ok(so_meta), Ok(cpp_meta)) = (so.metadata(), cpp.metadata()) {
             if let (Ok(so_mtime), Ok(cpp_mtime)) =
