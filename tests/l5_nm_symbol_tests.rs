@@ -18,7 +18,7 @@ mod common;
 
 use common::nm_utils::{
     assert_cpp_exports_linked, cargo_build_example, collect_archive_symbols, compile_cpp_obj,
-    nm_binary_t_symbols, nm_c_exports,
+    nm_c_exports,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -94,8 +94,16 @@ const EXAMPLES: &[ExampleSpec] = &[
     ExampleSpec { dir_name: "048_summary",                bin_name: "summary" },
 ];
 
-/// Validate one example: compile its C++ sources, build its Rust binary,
-/// then assert all C++ extern-C exports are linked in Rust.
+/// Validate one example: compile its C++ sources, build its Rust crate,
+/// then assert all C++ extern-C exports appear in the compiled static archive.
+///
+/// We check the `.a` archive produced by `build.rs` (via `cc::Build::compile`)
+/// rather than the final linked binary.  The reason is that the hicc framework
+/// generates its own C++ bindings for `import_class!` methods, so it does NOT
+/// call the hand-written C wrapper functions (e.g. `adder_add`).  Those wrappers
+/// are compiled into the archive but are never referenced from Rust, so the
+/// linker dead-strips them from the final executable.  The archive retains every
+/// compiled symbol regardless of whether Rust calls it.
 fn validate_example(spec: &ExampleSpec) {
     let root = repo_root();
     let example_dir = root.join("examples").join(spec.dir_name);
@@ -135,22 +143,30 @@ fn validate_example(spec: &ExampleSpec) {
     );
 
     // ── Step 4: cargo build Rust crate ───────────────────────────────────────
+    // This also triggers build.rs which compiles the C++ sources into a static
+    // archive via cc::Build::compile().
     let rust_dir = example_dir
         .join("rust_hicc")
         .to_string_lossy()
         .into_owned();
-    let bin_path = cargo_build_example(&rust_dir, spec.bin_name).unwrap_or_else(|| {
+    let _bin = cargo_build_example(&rust_dir, spec.bin_name).unwrap_or_else(|| {
         panic!(
             "[L5-nm] {}: cargo build failed or binary '{}' not found",
             spec.dir_name, spec.bin_name
         )
     });
 
-    // ── Step 5: extract Rust-side symbols, filtered by cpp_exports set ───────
+    // ── Step 5: collect symbols from the static archives in the build output ──
+    // `cc::Build::compile("name")` places `libname.a` in $OUT_DIR which is
+    // under `target/debug/build/{pkg}-{hash}/out/`.  We scan all .a files
+    // under `target/debug/` to cover that location without needing to know
+    // the exact hash-suffixed directory name.
     let cpp_set: HashSet<String> = cpp_exports.iter().cloned().collect();
-    let rust_linked = nm_binary_t_symbols(&bin_path, &cpp_set);
+    let build_dir = example_dir.join("rust_hicc").join("target/debug");
+    let archive_symbols = collect_archive_symbols(&build_dir);
+    let rust_linked: HashSet<String> = cpp_set.intersection(&archive_symbols).cloned().collect();
 
-    // ── Step 6: bidirectional assertion ──────────────────────────────────────
+    // ── Step 6: assertion ────────────────────────────────────────────────────
     assert_cpp_exports_linked(&cpp_exports, &rust_linked, spec.dir_name);
 }
 
@@ -287,8 +303,12 @@ fn nm_rapidjson_shim_validation() {
         "[L5-nm] rapidjson_shim: cargo build of rapidjson_sys failed"
     );
 
-    // ── Step 5: find .a archives in rapidjson_sys target/debug ───────────────
-    let build_dir = rapidjson_sys_dir.join("target/debug");
+    // ── Step 5: find .a archives in the workspace target/debug ──────────────
+    // `rapidjson_sys` is a member of the workspace at `references/rapidjson-
+    // refactoring/`.  When `cargo build` is run inside `rapidjson_sys/`, cargo
+    // uses the workspace-level target directory one level up, NOT a local
+    // `target/` inside `rapidjson_sys/` itself.
+    let build_dir = rapidjson_sys_dir.join("../target/debug");
     let rust_archive_symbols = collect_archive_symbols(&build_dir);
 
     println!(
