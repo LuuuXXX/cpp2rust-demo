@@ -5,7 +5,7 @@
 //! 本测试作为 CI 门禁：任何破坏 rapidjson 转换输出格式的改动都会在此检测到。
 //!
 //! 覆盖范围：
-//! - 21 个 example 文件：覆盖 rapidjson 全部公开 API（Document/Reader/Writer/
+//! - 20 个 example 文件：覆盖 rapidjson 全部公开 API（Document/Reader/Writer/
 //!   PrettyWriter/Pointer/Schema/Stream 等）
 //! - 10 个 unittest 文件：深度覆盖内部实现（Allocator/Encoding/Value/DOM 等）
 
@@ -136,7 +136,7 @@ fn assert_valid_hicc_format(code: &str, unit_name: &str) {
         }
     }
 
-    // 3. import_class! 块的类注解检查
+    // 4. import_class! 块的类注解检查
     if code.contains("hicc::import_class! {") {
         assert!(
             code.contains("#[cpp(class") || code.contains("#[interface]"),
@@ -145,7 +145,7 @@ fn assert_valid_hicc_format(code: &str, unit_name: &str) {
         );
     }
 
-    // 4. import_lib! 块的 link_name 检查
+    // 5. import_lib! 块的 link_name 检查
     if code.contains("hicc::import_lib! {") {
         assert!(
             code.contains("#![link_name = \""),
@@ -154,7 +154,7 @@ fn assert_valid_hicc_format(code: &str, unit_name: &str) {
         );
     }
 
-    // 5. 方法绑定属性检查
+    // 6. 方法绑定属性检查
     if code.contains("hicc::import_class! {") && code.contains("fn ") {
         assert!(
             code.contains("#[cpp(method = \""),
@@ -163,7 +163,7 @@ fn assert_valid_hicc_format(code: &str, unit_name: &str) {
         );
     }
 
-    // 6. 函数绑定属性检查
+    // 7. 函数绑定属性检查
     if code.contains("hicc::import_lib! {") && code.contains("fn ") {
         assert!(
             code.contains("#[cpp(func = \""),
