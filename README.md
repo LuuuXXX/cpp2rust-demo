@@ -116,13 +116,13 @@ Output structure:
 
 ```bash
 # 合并单个 feature
-cpp2rust-demo merge --feature default --output mylib
+cpp2rust-demo merge --feature default
 
 # 合并多个 feature（分批处理不同模块时使用）
-cpp2rust-demo merge --feature core --feature extra --output mylib
+cpp2rust-demo merge --feature core --feature extra
 ```
 
-合并后在 `.cpp2rust/mylib/rust/` 下生成：
+合并后在 `.cpp2rust/merged/rust/` 下生成：
 - `src/lib.rs`：去重后的全量 hicc 块（单文件）
 - `Cargo.toml`：可直接 `cargo build` 的 Rust crate
 
@@ -135,7 +135,6 @@ cpp2rust-demo merge --feature core --feature extra --output mylib
 | `[OP]` | 运算符重载（C ABI 无运算符符号） | 为生成的命名 shim（`{class}_add` 等）添加 Rust `std::ops::*` trait 实现 |
 | `[VA]` | 可变参数模板（编译期展开，FFI 无法表达任意参数数） | 检查 wrapper 类展开的版本数量是否满足需求，按需手动添加新版本 |
 | `[LM]` | 有状态 Lambda / std::function（捕获列表不透明） | 若需 Rust 闭包 → C++ 回调，手动编写 trampoline |
-| `[PARSE_FAILED]` | 文件解析失败（`--skip-failed` 时） | 手动编写对应 FFI 绑定 |
 
 ### CLI 参数参考
 
@@ -145,14 +144,12 @@ cpp2rust-demo merge --feature core --feature extra --output mylib
 |------|------|------|
 | `-- <BUILD_CMD>...` | ✅ | `--` 后面的所有参数作为构建命令传入 |
 | `--feature <name>` | ❌ | feature 名称（默认 `default`） |
-| `--skip-failed` | ❌ | 跳过 AST 解析失败的文件，继续处理其余文件 |
 
 #### `cpp2rust-demo merge`
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `--feature <name>` | ❌ | 要合并的 feature（可重复指定，默认 `default`） |
-| `--output <name>` | ❌ | 输出 feature 名称（默认 `merged`） |
 
 #### `cpp2rust-demo parse`（调试用）
 
