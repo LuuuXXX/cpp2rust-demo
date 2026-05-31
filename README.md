@@ -107,24 +107,28 @@ Output structure:
   .cpp2rust/default/
     ├── c/          (captured .cpp2rust files)
     ├── meta/       (build_cmd.txt, selected_files.json)
-    └── rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/*.rs)
+    └── rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/**/*.rs)
 ```
 
-### Step 2 — `merge`：合并多编译单元输出（可选）
+### Step 2 — `merge`：备份并整理编译单元输出（可选）
 
-当项目有多个源文件时，`merge` 将各编译单元的 hicc 块去重合并为单文件：
+`merge` 将 `init` 生成的 `src/` 目录原地备份，并将整理后的输出写回同一 feature 目录，完整保留 C++ 项目的目录结构：
 
 ```bash
-# 合并单个 feature
 cpp2rust-demo merge --feature default
-
-# 合并多个 feature（分批处理不同模块时使用）
-cpp2rust-demo merge --feature core --feature extra
 ```
 
-合并后在 `.cpp2rust/merged/rust/` 下生成：
-- `src/lib.rs`：去重后的全量 hicc 块（单文件）
-- `Cargo.toml`：可直接 `cargo build` 的 Rust crate
+执行后在 `.cpp2rust/<feature>/rust/` 下生成：
+
+```
+.cpp2rust/default/rust/
+    ├── src.1/   ← init 输出的原始备份（rename from src）
+    ├── src.2/   ← merge 输出（维持 C++ 目录结构）
+    └── src      ← symlink → src.2
+```
+
+- 首次运行：`src/` 重命名为 `src.1/`，输出写入 `src.2/`，建立 `src → src.2` symlink
+- 重复运行：`src.1/` 保持不变，仅更新 `src.2/` 并重建 symlink
 
 ### Step 3 — 手动完善降级特性
 
@@ -149,7 +153,7 @@ cpp2rust-demo merge --feature core --feature extra
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `--feature <name>` | ❌ | 要合并的 feature（可重复指定，默认 `default`） |
+| `--feature <name>` | ❌ | 要操作的 feature（默认 `default`） |
 
 #### `cpp2rust-demo parse`（调试用）
 

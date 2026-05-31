@@ -1,11 +1,21 @@
 //! Merge 命令核心逻辑（Phase 6）
 //!
-//! 将一个或多个 feature 下按编译单元生成的 `.rs` 文件合并为去重后的单文件输出：
-//! 单个 `hicc::cpp!` + 每类一个 `hicc::import_class!` + 单个 `hicc::import_lib!`
+//! 将一个 feature 下按编译单元生成的 `.rs` 文件整理为备份后的镜像输出，
+//! 维持与 C++ 项目相同的目录结构。
+//!
+//! 输出结构（写回同一 feature 目录）：
+//! ```text
+//! .cpp2rust/<feature>/rust/
+//!     ├── src.1/   ← 原始 init 输出的备份
+//!     ├── src.2/   ← merge 输出（目录结构与 init 一致）
+//!     └── src      ← symlink → src.2
+//! ```
 
 pub mod block_parser;
 
+use anyhow::anyhow;
 use block_parser::{parse_unit_rs, ParsedFnBinding, ParsedUnit};
+use crate::error::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -259,6 +269,90 @@ fn collect_unit_rs_recursive(dir: &Path, result: &mut Vec<std::path::PathBuf>) {
     }
 }
 
+// ─────────────────────────────────────────────
+//  目录操作：copy_dir_all + merge_in_place
+// ─────────────────────────────────────────────
+
+/// 递归复制目录 `src` 的全部内容到 `dst`（`dst` 不必预先存在）。
+pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst)
+        .map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
+    for entry in std::fs::read_dir(src)
+        .map_err(|e| anyhow!("read dir {}: {}", src.display(), e))?
+    {
+        let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)
+                .map_err(|e| anyhow!("copy {} → {}: {}", from.display(), to.display(), e))?;
+        }
+    }
+    Ok(())
+}
+
+/// 将 `rust_dir/src`（init 输出）整理为带备份的 merge 输出：
+///
+/// - 首次运行：`src/` → rename → `src.1/`；复制 `src.1/` → `src.2/`；建 symlink `src → src.2`
+/// - 重复运行：删除旧 symlink；重新复制 `src.1/` → `src.2/`；重建 symlink `src → src.2`
+///
+/// 目录结构始终维持与 C++ 项目一致的子目录层级。
+pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
+    let src  = rust_dir.join("src");
+    let src1 = rust_dir.join("src.1");
+    let src2 = rust_dir.join("src.2");
+
+    // ── 确定 canonical（init 原始输出）来源 ──
+    let canonical_src: std::path::PathBuf = if src1.is_dir() {
+        // 已有备份（重复运行）：直接从 src.1 读取
+        src1.clone()
+    } else if src.is_dir() && !src.is_symlink() {
+        // 首次运行：src 是真实目录
+        src.clone()
+    } else {
+        return Err(anyhow!(
+            "rust/src not found at {}; run init first",
+            src.display()
+        ));
+    };
+
+    // ── 清理旧的 src.2（重复运行时覆写）──
+    if src2.exists() || src2.is_symlink() {
+        std::fs::remove_dir_all(&src2)
+            .map_err(|e| anyhow!("remove {}: {}", src2.display(), e))?;
+    }
+
+    // ── 复制 canonical → src.2（维持目录结构）──
+    copy_dir_all(&canonical_src, &src2)?;
+
+    // ── 处理 src ──
+    if src.is_symlink() {
+        // 重复运行：删除旧 symlink
+        std::fs::remove_file(&src)
+            .map_err(|e| anyhow!("remove symlink {}: {}", src.display(), e))?;
+    } else if src.is_dir() {
+        // 首次运行：备份 src → src.1
+        if src1.exists() {
+            std::fs::remove_dir_all(&src1)
+                .map_err(|e| anyhow!("remove {}: {}", src1.display(), e))?;
+        }
+        std::fs::rename(&src, &src1)
+            .map_err(|e| anyhow!("rename {} → {}: {}", src.display(), src1.display(), e))?;
+    }
+
+    // ── 建 symlink src → src.2（相对路径）──
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("src.2", &src)
+        .map_err(|e| anyhow!("symlink src → src.2: {}", e))?;
+    #[cfg(not(unix))]
+    return Err(anyhow!("merge_in_place symlink is only supported on Unix"));
+
+    Ok(())
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,5 +493,111 @@ hicc::import_lib! {
 
         let files = collect_unit_rs_files(dir.path());
         assert_eq!(files.len(), 2);
+    }
+
+    // ── copy_dir_all ───────────────────────────
+
+    #[test]
+    fn copy_dir_all_copies_flat_files() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "// lib").unwrap();
+        std::fs::write(src.join("foo.rs"), "// foo").unwrap();
+
+        copy_dir_all(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read_to_string(dst.join("lib.rs")).unwrap(), "// lib");
+        assert_eq!(std::fs::read_to_string(dst.join("foo.rs")).unwrap(), "// foo");
+    }
+
+    #[test]
+    fn copy_dir_all_preserves_subdirectory_structure() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        let utils = src.join("utils");
+        std::fs::create_dir_all(&utils).unwrap();
+        std::fs::write(src.join("lib.rs"), "// lib").unwrap();
+        std::fs::write(utils.join("foo.rs"), "// foo").unwrap();
+
+        let dst = tmp.path().join("dst");
+        copy_dir_all(&src, &dst).unwrap();
+
+        assert!(dst.join("lib.rs").exists());
+        assert!(dst.join("utils").is_dir());
+        assert_eq!(std::fs::read_to_string(dst.join("utils/foo.rs")).unwrap(), "// foo");
+    }
+
+    // ── merge_in_place ─────────────────────────
+
+    #[test]
+    fn merge_in_place_creates_backup_and_symlink() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let rust_dir = tmp.path().to_path_buf();
+        let src = rust_dir.join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "// lib").unwrap();
+
+        merge_in_place(&rust_dir).unwrap();
+
+        // src.1 是 init 输出的备份
+        assert!(rust_dir.join("src.1").is_dir(), "src.1 should be backup dir");
+        assert!(rust_dir.join("src.1/lib.rs").exists());
+        // src.2 是 merge 输出
+        assert!(rust_dir.join("src.2").is_dir(), "src.2 should be merge output");
+        assert!(rust_dir.join("src.2/lib.rs").exists());
+        // src 是 symlink
+        assert!(rust_dir.join("src").is_symlink(), "src should be a symlink");
+        // symlink 可正常访问
+        assert!(rust_dir.join("src/lib.rs").exists());
+    }
+
+    #[test]
+    fn merge_in_place_maintains_directory_structure() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let rust_dir = tmp.path().to_path_buf();
+        let src = rust_dir.join("src");
+        let utils = src.join("utils");
+        std::fs::create_dir_all(&utils).unwrap();
+        std::fs::write(src.join("lib.rs"), "// lib").unwrap();
+        std::fs::write(utils.join("foo.rs"), "// foo").unwrap();
+
+        merge_in_place(&rust_dir).unwrap();
+
+        // 子目录结构在 src.2 中保留
+        assert!(rust_dir.join("src.2/utils/foo.rs").exists(), "subdirectory structure preserved");
+        // 通过 symlink 可正常访问
+        assert!(rust_dir.join("src/utils/foo.rs").exists());
+    }
+
+    #[test]
+    fn merge_in_place_rerun_updates_symlink_keeps_src1() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let rust_dir = tmp.path().to_path_buf();
+        let src = rust_dir.join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "// original").unwrap();
+
+        // 首次 merge
+        merge_in_place(&rust_dir).unwrap();
+        // 重复运行
+        merge_in_place(&rust_dir).unwrap();
+
+        // src.1 仍保留 init 原始内容
+        let content = std::fs::read_to_string(rust_dir.join("src.1/lib.rs")).unwrap();
+        assert_eq!(content, "// original", "src.1 should retain original init output");
+        // src.2 正常存在
+        assert!(rust_dir.join("src.2/lib.rs").exists());
+        // src 仍是 symlink
+        assert!(rust_dir.join("src").is_symlink());
+    }
+
+    #[test]
+    fn merge_in_place_errors_when_src_missing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // rust_dir 下既没有 src 也没有 src.1
+        let result = merge_in_place(tmp.path());
+        assert!(result.is_err(), "should error when src does not exist");
     }
 }

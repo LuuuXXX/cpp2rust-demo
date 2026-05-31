@@ -200,11 +200,20 @@ g++ -E -C \
 │   ├── build_cmd.txt                # 原始构建命令
 │   └── init-interface-report.md    # 初始化报告
 ├── rust/                            # 生成的 Rust 项目
-│   └── src/
+│   └── src/                        # init 初始输出（或 merge 后 symlink → src.2）
 │       ├── lib.rs
 │       ├── <unit>.rs                # 扁平文件（C++ 根目录下的编译单元）
 │       └── <subdir>/<unit>.rs       # 带子目录（源文件位于 src/ 等子目录时，首级目录已去掉）
 └── targets.list                     # 链接目标列表
+```
+
+执行 `merge` 后，`rust/` 下多出备份与 symlink：
+
+```
+.cpp2rust/<feature>/rust/
+├── src.1/   ← init 输出原始备份（首次 merge 时 rename from src）
+├── src.2/   ← merge 输出（维持 C++ 目录结构，每次重写）
+└── src      ← symlink → src.2（与 init 后接口一致）
 ```
 
 **使用示例**（feature 名为 `core_lib`）：
@@ -216,6 +225,9 @@ cpp2rust-demo init --feature core_lib -- make -j4
 # 省略 --feature 时默认使用 default
 cpp2rust-demo init -- make -j4
 # 产物在 .cpp2rust/default/c/src/*.cpp2rust
+
+# merge（可选）：备份 src/ 并整理输出结构
+cpp2rust-demo merge --feature default
 ```
 
 ---
