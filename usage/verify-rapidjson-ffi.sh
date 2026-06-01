@@ -154,6 +154,11 @@ if [ -n "${GTEST_SOURCE_DIR}" ]; then
     # 而 rapidjson 的 CMakeLists.txt 未设置 CXX_STANDARD，默认 C++11 会编译失败。
     # bundled GTest 是较旧版本，不需要此标志；但加上也无害（C++14 向后兼容 C++11）。
     CMAKE_ARGS+=(-DCMAKE_CXX_STANDARD=14)
+    # bundled GTest（ba96d0b）中 gtest-death-test.cc StackGrowsDown() 存在一个
+    # 未初始化变量警告（dummy）。GCC 13 将该警告提升为错误（-Werror=maybe-uninitialized），
+    # 导致构建失败。该问题属于旧版 GTest 代码缺陷，与 rapidjson 本身无关。
+    # 通过 -Wno-maybe-uninitialized 仅在 GTest 子目录范围内抑制该警告。
+    CMAKE_ARGS+=(-DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized")
     info "已启用测试目标（GTEST_SOURCE_DIR=${GTEST_SOURCE_DIR}）"
 else
     CMAKE_ARGS+=(-DRAPIDJSON_BUILD_TESTS=OFF)
