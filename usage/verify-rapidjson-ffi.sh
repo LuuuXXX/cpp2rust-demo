@@ -64,29 +64,7 @@ if ! pkg-config --exists libclang 2>/dev/null && \
     warn "  Ubuntu/Debian：sudo apt-get install -y clang libclang-dev"
 fi
 
-# 检查 GTest 源码目录（优先使用 rapidjson 自带的 bundled GTest，避免系统 GTest 1.14
-# 在 C++11 模式下的兼容性问题）
-GTEST_SOURCE_DIR=""
-for candidate in \
-    "${RAPIDJSON_DIR}/thirdparty/gtest/googletest" \
-    "/usr/src/googletest/googletest" \
-    "/usr/src/gtest"; do
-    if [ -f "${candidate}/CMakeLists.txt" ] && \
-       [ -f "${candidate}/src/gtest_main.cc" ]; then
-        GTEST_SOURCE_DIR="${candidate}"
-        break
-    fi
-done
-
-if [ -z "${GTEST_SOURCE_DIR}" ]; then
-    warn "未找到 GTest 源码目录，将跳过测试目标的构建。"
-    warn "  如需启用测试，请克隆时使用 --recurse-submodules 初始化 rapidjson 子模块。"
-fi
-
 ok "环境检查完成"
-if [ -n "${GTEST_SOURCE_DIR}" ]; then
-    info "GTest 源码：${GTEST_SOURCE_DIR}"
-fi
 
 # =============================================================================
 # § 1. 安装 cpp2rust-demo
@@ -130,6 +108,28 @@ fi
 ok "rapidjson 源码就绪：${RAPIDJSON_DIR}"
 info "rapidjson 版本：$(git -C "${RAPIDJSON_DIR}" describe --tags --always 2>/dev/null || echo unknown)"
 
+# 检测 GTest 源码目录（必须在 clone 之后执行，才能找到 rapidjson bundled GTest）
+# 优先使用 rapidjson 自带的 bundled GTest（较旧版本，兼容 C++11），避免系统 GTest 1.14+
+# 要求 C++14 导致的编译失败。
+GTEST_SOURCE_DIR=""
+for candidate in \
+    "${RAPIDJSON_DIR}/thirdparty/gtest/googletest" \
+    "/usr/src/googletest/googletest" \
+    "/usr/src/gtest"; do
+    if [ -f "${candidate}/CMakeLists.txt" ] && \
+       [ -f "${candidate}/src/gtest_main.cc" ]; then
+        GTEST_SOURCE_DIR="${candidate}"
+        break
+    fi
+done
+
+if [ -z "${GTEST_SOURCE_DIR}" ]; then
+    warn "未找到 GTest 源码目录，将跳过测试目标的构建。"
+    warn "  如需启用测试，请确认 rapidjson 已通过 --recurse-submodules 初始化子模块。"
+else
+    info "GTest 源码：${GTEST_SOURCE_DIR}"
+fi
+
 # =============================================================================
 # § 3. 配置构建环境（CMake）
 # =============================================================================
@@ -150,6 +150,10 @@ if [ -n "${GTEST_SOURCE_DIR}" ]; then
         -DRAPIDJSON_BUILD_TESTS=ON
         -DGTEST_SOURCE_DIR="${GTEST_SOURCE_DIR}"
     )
+    # 系统 GTest 1.14+（/usr/src/gtest 或 /usr/src/googletest）明确要求 C++14，
+    # 而 rapidjson 的 CMakeLists.txt 未设置 CXX_STANDARD，默认 C++11 会编译失败。
+    # bundled GTest 是较旧版本，不需要此标志；但加上也无害（C++14 向后兼容 C++11）。
+    CMAKE_ARGS+=(-DCMAKE_CXX_STANDARD=14)
     info "已启用测试目标（GTEST_SOURCE_DIR=${GTEST_SOURCE_DIR}）"
 else
     CMAKE_ARGS+=(-DRAPIDJSON_BUILD_TESTS=OFF)
