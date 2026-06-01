@@ -143,6 +143,7 @@ mkdir -p "${BUILD_DIR}"
 
 CMAKE_ARGS=(
     -DCMAKE_BUILD_TYPE=Debug
+    -DCMAKE_CXX_STANDARD=14          # GTest 1.14（Ubuntu 24.04）需要 C++14；C++14 完全兼容 C++11
     -DRAPIDJSON_BUILD_EXAMPLES=OFF   # 减少无关编译单元
     -DRAPIDJSON_BUILD_DOC=OFF
 )
