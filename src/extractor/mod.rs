@@ -978,7 +978,9 @@ fn strip_class_prefix(text: &str, class_name: &str) -> String {
     }
 }
 
-/// 判断是否为 Rust 关键字（Rust 2021 严格关键字 + 保留关键字）
+/// 判断是否为 Rust 关键字（Rust 2021 严格关键字 + 保留关键字）。
+///
+/// 用于参数名、函数名、方法名的消歧处理，防止生成的 Rust 代码出现关键字冲突。
 fn is_rust_keyword(s: &str) -> bool {
     matches!(
         s,
@@ -1003,7 +1005,10 @@ fn sanitize_param_name(name: &str) -> String {
     }
 }
 
-/// 函数/方法名清理：先转 snake_case，再对关键字加 `_` 后缀
+/// 函数/方法名清理：先转 snake_case，再对关键字加 `_` 后缀。
+///
+/// 用于 `build_method_binding` 和 `build_fn_binding` 生成 `rust_name`，
+/// 确保结果不与 Rust 关键字冲突。
 fn sanitize_fn_name(name: &str) -> String {
     let snake = to_snake_case(name);
     if is_rust_keyword(&snake) {
