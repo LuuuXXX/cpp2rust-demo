@@ -692,7 +692,7 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
 /// 递归收集所有基类的 public 非 ctor/dtor 方法（不含静态方法）
 fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -> Vec<&'a MethodInfo> {
     let mut result: Vec<&'a MethodInfo> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     for base in &ci.bases {
         let base_name = clean_type(&base.name).to_string();
@@ -700,8 +700,7 @@ fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -
             // 先递归收集基类的基类
             let grand_inherited = collect_inherited_methods(base_ci, all_classes);
             for m in grand_inherited {
-                if !seen.contains(&m.name) {
-                    seen.insert(m.name.clone());
+                if seen.insert(m.name.as_str()) {
                     result.push(m);
                 }
             }
@@ -712,8 +711,7 @@ fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -
                     && m.accessibility == "public"
                     && !m.is_static
             }) {
-                if !seen.contains(&m.name) {
-                    seen.insert(m.name.clone());
+                if seen.insert(m.name.as_str()) {
                     result.push(m);
                 }
             }
@@ -845,7 +843,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
             if is_class_ptr && !p.name.is_empty() && p.name != "_" && !is_self_name {
                 format!("{} {}", ty, p.name)
             } else {
-                ty.to_string()
+                ty
             }
         })
         .collect();
@@ -853,7 +851,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let ret_clean = if fi.return_type.is_empty() || fi.return_type == "void" {
         "void".to_string()
     } else {
-        normalize_ptr_spacing(clean_type(&fi.return_type)).to_string()
+        normalize_ptr_spacing(clean_type(&fi.return_type))
     };
 
     // 无参数时：extern_c → "(void)"，否则 "()"
@@ -1118,8 +1116,6 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
             if rest.starts_with('<') { Some(format!("#include {}", rest)) } else { None }
         })
         .collect();
-    let h_set: std::collections::HashSet<String> = h_includes.iter().cloned().collect();
-
     // 收集 .cpp 中的系统 include（保序）
     let mut cpp_includes: Vec<String> = Vec::new();
     let mut cpp_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1160,7 +1156,6 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
         }
     }
 
-    let _ = h_set; // suppress unused warning
     (system, project)
 }
 
