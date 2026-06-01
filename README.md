@@ -173,13 +173,6 @@ cpp2rust-demo merge --feature default
 |------|------|------|
 | `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`） |
 
-#### `cpp2rust-demo parse`（调试用）
-
-```bash
-# 解析单个 .cpp2rust 文件并打印 AST 结构
-cpp2rust-demo parse <path>.cpp2rust
-```
-
 #### 环境变量
 
 | 变量 | 说明 |

@@ -32,7 +32,7 @@ cpp2rust-demo (bin)
 │   └── Makefile
 │
 └── src/
-    ├── main.rs                  # CLI 入口：init / merge / parse
+    ├── main.rs                  # CLI 入口：init / merge
     ├── capture.rs               # hook 编译 + LD_PRELOAD 注入执行
     │                            #   - hook.cpp/Makefile 通过 include_str! 内嵌进 binary
     │                            #   - ensure_hook_data_dir() 首次运行时解压到用户数据目录
@@ -44,19 +44,13 @@ cpp2rust-demo (bin)
     ├── ffi_model.rs             # FFI 中间表示（FfiSpec / ClassSpec / FnBinding 等）
     ├── error.rs                 # 统一错误类型
     ├── ast_parser.rs            # C++ AST 解析（clang crate → CppAst）
-    ├── instantiation_tracker.rs # 模板实例化追踪
     ├── extractor/               # Phase 2：CppAst → FfiSpec IR 提取
-    │   ├── mod.rs               # 公共入口 extract()、命名空间模式检测
-    │   ├── class_extractor.rs   # 类/结构体提取
-    │   ├── function_extractor.rs# 函数提取
-    │   ├── enum_extractor.rs    # 枚举提取
+    │   ├── mod.rs               # 公共入口 extract()、命名空间模式检测、类/函数/枚举提取
     │   └── type_mapper.rs       # C++ 类型 → Rust 类型映射
     ├── postprocessor/           # Phase 4：特殊情况后处理
     │   ├── mod.rs
     │   ├── operator_handler.rs  # 运算符重载 [OP]
-    │   ├── friend_handler.rs    # 友元函数
-    │   ├── diamond_handler.rs   # 菱形继承路径检测与命名 shim 生成
-    │   └── lambda_handler.rs    # Lambda / std::function [LM]
+    │   └── diamond_handler.rs   # 菱形继承路径检测与命名 shim 生成
     └── generator/               # Phase 5：FfiSpec → Rust 代码
         ├── mod.rs
         ├── hicc_codegen.rs      # hicc 三段式代码生成
@@ -147,13 +141,15 @@ hicc::import_lib! {
 
 ## 4. 测试体系
 
-测试分三层，位于 `tests/` 目录：
+测试分五层，位于 `tests/` 目录：
 
 | 层 | 文件 | 验证内容 | 运行命令 |
 |----|------|---------|---------|
 | L1 | `l1_golden_tests.rs` | 工具生成的 FFI 脚手架与 `rust_hicc/src/main.rs` 中对应段落一致 | `cargo test --test l1_golden_tests -- --include-ignored --test-threads=1` |
 | L2 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | `cargo test --test l2_compile_tests` |
-| L3 | `l3_run_tests.rs` | `cargo run` 输出与 README 中"运行结果"一致 | `cargo test --test l3_run_tests` |
+| L3 | `l3_run_tests.rs` | `cargo run` 输出与 README 中"运行结果"一致 | `cargo test --test l3_run_tests -- --include-ignored --test-threads=1` |
+| L4 | `rapidjson_e2e_test.rs` | 对 rapidjson 开源项目执行完整 init + merge 转换，验证 hicc 三段式格式 | `cargo test --test rapidjson_e2e_test -- --include-ignored` |
+| L5 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | `cargo test --test l5_nm_symbol_tests -- --include-ignored` |
 
 **L1 核心逻辑**：从 `rust_hicc/src/main.rs` 提取 `hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三种块作为黄金片段，与工具生成的 `lib.rs` 对应块比对，忽略 `fn main()` 和注释差异。
 
@@ -317,8 +313,8 @@ cpp2rust-demo merge --feature default
 ## 7. 开发环境搭建
 
 ```bash
-# 系统依赖
-apt-get install clang libclang-dev g++ libstdc++-dev
+# 系统依赖（Ubuntu 24.04）
+apt-get install clang libclang-dev g++ libstdc++-14-dev
 
 # 构建工具
 cargo build
@@ -332,14 +328,8 @@ cargo test --test l1_golden_tests test_006_class_basic -- --include-ignored
 # 更新 golden 文件（工具输出有意变更时使用）
 cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 
-# 解析单个 .cpp2rust 文件（调试用）
-cargo run -- parse <path>.cpp2rust
-
 # 合并单个 feature 的输出
 cargo run -- merge --feature default
-
-# 合并多个 feature
-cargo run -- merge --feature core --feature extra
 
 # 运行 L2 编译测试
 cargo test --test l2_compile_tests
