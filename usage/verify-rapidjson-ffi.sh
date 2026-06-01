@@ -64,34 +64,7 @@ if ! pkg-config --exists libclang 2>/dev/null && \
     warn "  Ubuntu/Debian：sudo apt-get install -y clang libclang-dev"
 fi
 
-# 检查 GTest 源码目录（FindGTestSrc.cmake 搜索路径）
-GTEST_SOURCE_DIR=""
-for candidate in \
-    "/usr/src/gtest" \
-    "/usr/src/googletest/googletest" \
-    "${RAPIDJSON_DIR}/thirdparty/gtest/googletest"; do
-    if [ -f "${candidate}/CMakeLists.txt" ] && \
-       [ -f "${candidate}/src/gtest_main.cc" ]; then
-        GTEST_SOURCE_DIR="${candidate}"
-        break
-    fi
-done
-
-if [ -z "${GTEST_SOURCE_DIR}" ]; then
-    warn "未找到 GTest 源码目录。尝试安装 libgtest-dev …"
-    if command -v apt-get &>/dev/null; then
-        sudo apt-get install -y libgtest-dev 2>/dev/null \
-            && GTEST_SOURCE_DIR="/usr/src/gtest" \
-            || warn "apt-get install libgtest-dev 失败，将跳过测试目标的构建"
-    else
-        warn "非 Debian/Ubuntu 系统，请手动安装 googletest 并设置 GTEST_SOURCE_DIR。"
-    fi
-fi
-
 ok "环境检查完成"
-if [ -n "${GTEST_SOURCE_DIR}" ]; then
-    info "GTest 源码：${GTEST_SOURCE_DIR}"
-fi
 
 # =============================================================================
 # § 1. 安装 cpp2rust-demo
@@ -125,13 +98,37 @@ step "§ 2. git clone rapidjson"
 if [ -d "${RAPIDJSON_DIR}/.git" ]; then
     info "目录已存在，执行 git pull …"
     git -C "${RAPIDJSON_DIR}" pull --ff-only 2>&1 | tail -3
+    git -C "${RAPIDJSON_DIR}" submodule update --init --recursive 2>&1 | tail -3
 else
     info "克隆 rapidjson → ${RAPIDJSON_DIR}"
-    git clone --depth 1 "${RAPIDJSON_REPO}" "${RAPIDJSON_DIR}"
+    git clone --depth 1 --recurse-submodules --shallow-submodules \
+        "${RAPIDJSON_REPO}" "${RAPIDJSON_DIR}"
 fi
 
 ok "rapidjson 源码就绪：${RAPIDJSON_DIR}"
 info "rapidjson 版本：$(git -C "${RAPIDJSON_DIR}" describe --tags --always 2>/dev/null || echo unknown)"
+
+# 检测 GTest 源码目录（必须在 clone 之后执行，才能找到 rapidjson bundled GTest）
+# 优先使用 rapidjson 自带的 bundled GTest（较旧版本，兼容 C++11），避免系统 GTest 1.14+
+# 要求 C++14 导致的编译失败。
+GTEST_SOURCE_DIR=""
+for candidate in \
+    "${RAPIDJSON_DIR}/thirdparty/gtest/googletest" \
+    "/usr/src/googletest/googletest" \
+    "/usr/src/gtest"; do
+    if [ -f "${candidate}/CMakeLists.txt" ] && \
+       [ -f "${candidate}/src/gtest_main.cc" ]; then
+        GTEST_SOURCE_DIR="${candidate}"
+        break
+    fi
+done
+
+if [ -z "${GTEST_SOURCE_DIR}" ]; then
+    warn "未找到 GTest 源码目录，将跳过测试目标的构建。"
+    warn "  如需启用测试，请确认 rapidjson 已通过 --recurse-submodules 初始化子模块。"
+else
+    info "GTest 源码：${GTEST_SOURCE_DIR}"
+fi
 
 # =============================================================================
 # § 3. 配置构建环境（CMake）
@@ -153,6 +150,15 @@ if [ -n "${GTEST_SOURCE_DIR}" ]; then
         -DRAPIDJSON_BUILD_TESTS=ON
         -DGTEST_SOURCE_DIR="${GTEST_SOURCE_DIR}"
     )
+    # 系统 GTest 1.14+（/usr/src/gtest 或 /usr/src/googletest）明确要求 C++14，
+    # 而 rapidjson 的 CMakeLists.txt 未设置 CXX_STANDARD，默认 C++11 会编译失败。
+    # bundled GTest 是较旧版本，不需要此标志；但加上也无害（C++14 向后兼容 C++11）。
+    CMAKE_ARGS+=(-DCMAKE_CXX_STANDARD=14)
+    # bundled GTest（ba96d0b）中 gtest-death-test.cc StackGrowsDown() 存在一个
+    # 未初始化变量警告（dummy）。GCC 13 将该警告提升为错误（-Werror=maybe-uninitialized），
+    # 导致构建失败。该问题属于旧版 GTest 代码缺陷，与 rapidjson 本身无关。
+    # 通过 -Wno-maybe-uninitialized 仅在 GTest 子目录范围内抑制该警告。
+    CMAKE_ARGS+=(-DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized")
     info "已启用测试目标（GTEST_SOURCE_DIR=${GTEST_SOURCE_DIR}）"
 else
     CMAKE_ARGS+=(-DRAPIDJSON_BUILD_TESTS=OFF)
@@ -238,11 +244,11 @@ fi
 echo -e "\n${BOLD}6b. 生成 Rust 代码中的 FFI 声明（extern / import_lib! / import_class!）${NC}"
 if [ -d "${RUST_SRC}" ]; then
     echo "──── hicc::cpp! 块（C++ shim 实现，前 40 行）────"
-    grep -r "hicc::cpp!" "${RUST_SRC}" -l 2>/dev/null | head -5 | while read -r f; do
+    while IFS= read -r f; do
         echo "  文件：${f##*/}"
         grep -A 20 "hicc::cpp!" "${f}" | head -40 || true
         echo ""
-    done
+    done < <(grep -r "hicc::cpp!" "${RUST_SRC}" -l 2>/dev/null | head -5 || true)
 
     echo "──── import_lib! 绑定函数（前 30 条）────"
     grep -rn "fn " "${RUST_SRC}" 2>/dev/null | grep -v "//\|test\|mod " | head -30 || true
@@ -266,14 +272,14 @@ if [ -n "${GENERATED_FUNS}" ]; then
     find "${BUILD_DIR}" -name "*.o" 2>/dev/null \
         | xargs -r nm --demangle 2>/dev/null > "${NM_CACHE}" || true
 
-    echo "${GENERATED_FUNS}" | head -30 | while read -r fname; do
+    while IFS= read -r fname; do
         printf "  %-40s" "${fname}"
         if grep -q "${fname}" "${NM_CACHE}"; then
             echo -e "${GREEN}✓ 在目标文件中找到${NC}"
         else
             echo -e "${YELLOW}? 未在目标文件中直接找到（可能在 hicc cpp! 宏展开后才出现）${NC}"
         fi
-    done
+    done < <(echo "${GENERATED_FUNS}" | head -30 || true)
     rm -f "${NM_CACHE}"
 else
     info "未在生成代码中找到 #[cpp(func=...)] 标注（可能全部通过 import_class! 绑定）"

@@ -210,6 +210,42 @@ jobs:
           cargo test --test rapidjson_e2e_test -- \
             --test-threads=1
 
+  # ── Usage: verify-rapidjson-ffi.sh（本地验证脚本门禁）──────────
+  usage-verify-rapidjson-ffi:
+    name: Usage verify-rapidjson-ffi
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev \
+            cmake binutils git
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-rapidjson-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
+
   # ── L5: nm 符号链接验证（C++ extern-C ⊆ Rust binary）───────────
   l5-nm-symbols:
     name: L5 nm symbol validation
