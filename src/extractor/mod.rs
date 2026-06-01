@@ -956,10 +956,12 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
 /// 将 C++ 返回类型字符串转换为 Rust `Option<String>`（`None` 表示 void 或空）。
 ///
 /// 统一用于 `build_method_binding` 和 `build_fn_binding`，消除重复判断逻辑。
+/// 注：`cpp_to_rust_ffi` 是 `cpp_to_rust` 的等价别名，两处调用行为一致。
 fn ret_type_from_cpp(s: &str) -> Option<String> {
     if s.is_empty() || s == "void" {
         return None;
     }
+    // cpp_to_rust_ffi == cpp_to_rust（见 type_mapper.rs），两处上下文行为相同
     let rt = cpp_to_rust(s);
     if rt.is_empty() { None } else { Some(rt) }
 }

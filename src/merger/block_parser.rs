@@ -221,6 +221,15 @@ fn parse_cpp_content(inner_lines: &[String]) -> Vec<String> {
     if start >= end { Vec::new() } else { lines[start..end].to_vec() }
 }
 
+/// 从 `class Foo {` 或 `class Foo {}` 行中提取类名。
+fn extract_class_name_from_line(line: &str) -> String {
+    let rest = line.trim_start_matches("class ").trim();
+    rest.split(|c: char| !c.is_alphanumeric() && c != '_')
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
 /// 解析 `hicc::import_class!` 块内容 → `ParsedClassBlock`
 ///
 /// 格式：
@@ -266,13 +275,7 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
             if trimmed.starts_with("class ") && trimmed.contains('{') {
                 // 若是 interface 类，从这里提取类名
                 if class_name.is_empty() {
-                    // "class Foo {" → take token after "class "
-                    let rest = trimmed.trim_start_matches("class ").trim();
-                    class_name = rest
-                        .split(|c: char| !c.is_alphanumeric() && c != '_')
-                        .next()
-                        .unwrap_or("")
-                        .to_string();
+                    class_name = extract_class_name_from_line(trimmed);
                 }
                 in_class_body = true;
                 class_body_depth = 1;
@@ -281,12 +284,7 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
             // `class Foo {}` 空类
             if trimmed.starts_with("class ") && trimmed.ends_with('}') {
                 if class_name.is_empty() {
-                    let rest = trimmed.trim_start_matches("class ").trim();
-                    class_name = rest
-                        .split(|c: char| !c.is_alphanumeric() && c != '_')
-                        .next()
-                        .unwrap_or("")
-                        .to_string();
+                    class_name = extract_class_name_from_line(trimmed);
                 }
                 break;
             }
