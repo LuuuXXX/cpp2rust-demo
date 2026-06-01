@@ -27,7 +27,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
         let prefix = format!("{}_", cn_lower);
 
         // 收集该类的所有 MethodAccessors（第一个参数是该类的指针且参数名为 self/this/thiz）
-        let accessors: Vec<&FunctionInfo> = functions
+        let mut accessors: Vec<&FunctionInfo> = functions
             .iter()
             .filter(|fi| is_class_accessor(&fi.name, &prefix, fi, &ci.name, &class_names))
             .copied()
@@ -65,6 +65,12 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
 
         let mut cpp_shims: Vec<String> = Vec::new();
         let mut new_bindings: Vec<FnBinding> = Vec::new();
+
+        // 按类别排序 accessors：Getter(0) → 二元运算符(1) → 一元运算符(2) → 比较方法(3)
+        // 保证生成顺序与逻辑分类一致，不受头文件声明顺序影响
+        accessors.sort_by_key(|fi| {
+            accessor_category(fi, &prefix, &ci.name)
+        });
 
         // 单次遍历 accessors，依次匹配 Getter / 二元运算符 / 一元运算符 / 比较方法
         for fi in &accessors {
@@ -249,4 +255,34 @@ fn is_compare_accessor(fi: &FunctionInfo, class_name: &str) -> bool {
         .iter()
         .skip(1)
         .any(|p| p.type_name.contains(class_name))
+}
+
+/// 返回 accessor 的类别优先级，用于排序：
+/// 0 = Getter, 1 = 二元运算符, 2 = 一元运算符, 3 = 比较方法, 4 = 其他
+fn accessor_category(fi: &FunctionInfo, prefix: &str, class_name: &str) -> u8 {
+    let stripped = match fi.name.strip_prefix(prefix) {
+        Some(s) => s,
+        None => return 4,
+    };
+    let extra_params = &fi.params[1..];
+    let ret_is_class = fi.return_type.contains(class_name);
+    let ret_is_void = fi.return_type.is_empty() || fi.return_type == "void";
+
+    // Getter：0 个额外参数，基础类型返回值
+    if extra_params.is_empty() && !ret_is_class && !ret_is_void {
+        return 0;
+    }
+    // 二元运算符：名称在 BINARY_OPS 中 + 1 个额外参数 + 返回类类型
+    if BINARY_OPS.iter().any(|(n, _)| *n == stripped) && extra_params.len() == 1 && ret_is_class {
+        return 1;
+    }
+    // 一元运算符：名称在 UNARY_OPS 中 + 0 个额外参数 + 返回类类型
+    if UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class {
+        return 2;
+    }
+    // 比较方法：1 个额外类类型参数 + 返回基础类型
+    if extra_params.len() == 1 && !ret_is_class && !ret_is_void {
+        return 3;
+    }
+    4
 }
