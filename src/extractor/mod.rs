@@ -27,16 +27,24 @@ pub fn extract(
     let has_classes = ast.classes.iter().any(|c| !c.is_in_namespace);
 
     // 去重：对于同名函数，只保留一个（有 body_offset 的优先；否则 is_extern_c=false 优先）
-    let functions = dedup_functions(&ast.functions);
+    // 只纳入来自当前 .cpp 文件本身或显式 extern "C" 声明的函数，
+    // 过滤掉通过 #include 引入的头文件内部函数（它们不应被导出为 FFI）。
+    let eligible_functions: Vec<FunctionInfo> = ast
+        .functions
+        .iter()
+        .filter(|f| f.is_from_current_file || f.is_extern_c)
+        .cloned()
+        .collect();
+    let functions = dedup_functions(&eligible_functions);
 
     // ── 计算函数签名中引用的类名集合 ─────────────
-    // 先检查 extern-C 函数，若无则检查所有函数（有些 header 不用 extern "C" 包裹）
+    // 先检查 extern-C 函数，若无则检查所有符合条件的函数（有些 header 不用 extern "C" 包裹）
     let used_classes: std::collections::HashSet<String> = {
         let mut set = std::collections::HashSet::new();
         let all_cn: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
         let candidate_fns: Vec<&FunctionInfo> = {
-            let extern_c: Vec<&FunctionInfo> = ast.functions.iter().filter(|f| f.is_extern_c).collect();
-            if extern_c.is_empty() { ast.functions.iter().collect() } else { extern_c }
+            let extern_c: Vec<&FunctionInfo> = eligible_functions.iter().filter(|f| f.is_extern_c).collect();
+            if extern_c.is_empty() { eligible_functions.iter().collect() } else { extern_c }
         };
         for fi in &candidate_fns {
             for cn in &all_cn {
@@ -57,7 +65,7 @@ pub fn extract(
     //   044: example::OperationResult* 命名空间类型指针 → 同样压制
     //   028: int/double 原始类型（辅助类）→ 正常生成
     let namespace_class_mode = has_any_classes && used_classes.is_empty() && {
-        ast.functions.iter().any(|f| f.is_extern_c && {
+        eligible_functions.iter().any(|f| f.is_extern_c && {
             let rt = &f.return_type;
             rt.contains("::") || rt.contains("void *") || rt.contains("void*") ||
             f.params.iter().any(|p| {

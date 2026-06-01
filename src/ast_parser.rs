@@ -111,6 +111,9 @@ pub struct FunctionInfo {
     pub friend_of: Option<String>,
     /// 函数定义的字节范围（在 .cpp2rust 文件中）：(start, end)
     pub body_offset: Option<(u32, u32)>,
+    /// 函数声明/定义是否位于当前编译单元（.cpp 文件自身），而非被 include 的头文件。
+    /// 与 `ClassInfo::is_from_current_file` 语义一致，通过 `cpp_byte_ranges` 判断。
+    pub is_from_current_file: bool,
 }
 
 /// 顶层 AST 结果
@@ -202,7 +205,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::FunctionDecl => {
-                if let Some(fi) = extract_function(&entity, None) {
+                if let Some(fi) = extract_function(&entity, None, &cpp_ranges) {
                     ast.functions.push(fi);
                 }
             }
@@ -340,7 +343,7 @@ fn collect_namespace(
                 }
             }
             EntityKind::FunctionDecl => {
-                if let Some(fi) = extract_function(&entity, None) {
+                if let Some(fi) = extract_function(&entity, None, cpp_ranges) {
                     ast.functions.push(fi);
                 }
             }
@@ -372,7 +375,7 @@ fn collect_linkage_spec(
         }
         match entity.get_kind() {
             EntityKind::FunctionDecl => {
-                if let Some(mut fi) = extract_function(&entity, None) {
+                if let Some(mut fi) = extract_function(&entity, None, cpp_ranges) {
                     fi.is_extern_c = true;
                     ast.functions.push(fi);
                 }
@@ -581,7 +584,11 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
     })
 }
 
-fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Option<FunctionInfo> {
+fn extract_function(
+    entity: &clang::Entity<'_>,
+    friend_of: Option<&str>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> Option<FunctionInfo> {
     let name = entity.get_name()?;
     // 跳过所有 C++ 操作符命名的自由函数（含 UDL operator""h 等），
     // 这类函数在 C 链接层无法直接表示，且生成的 Rust 名称不合法。
@@ -610,6 +617,16 @@ fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Opti
         None
     };
 
+    // 判断函数声明/定义是否来自当前 .cpp 文件（而非被 include 的头文件）。
+    // 与 ClassInfo::is_from_current_file 使用相同的字节偏移量判断逻辑。
+    let is_from_current_file = entity
+        .get_range()
+        .map(|r| {
+            let offset = r.get_start().get_file_location().offset;
+            cpp_ranges.iter().any(|range| range.contains(&offset))
+        })
+        .unwrap_or(false);
+
     Some(FunctionInfo {
         name,
         return_type,
@@ -619,6 +636,7 @@ fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Opti
         is_extern_c: false,
         friend_of: friend_of.map(String::from),
         body_offset,
+        is_from_current_file,
     })
 }
 
