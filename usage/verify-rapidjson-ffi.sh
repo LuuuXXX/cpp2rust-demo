@@ -244,11 +244,11 @@ fi
 echo -e "\n${BOLD}6b. 生成 Rust 代码中的 FFI 声明（extern / import_lib! / import_class!）${NC}"
 if [ -d "${RUST_SRC}" ]; then
     echo "──── hicc::cpp! 块（C++ shim 实现，前 40 行）────"
-    grep -r "hicc::cpp!" "${RUST_SRC}" -l 2>/dev/null | head -5 | while read -r f; do
+    while IFS= read -r f; do
         echo "  文件：${f##*/}"
         grep -A 20 "hicc::cpp!" "${f}" | head -40 || true
         echo ""
-    done
+    done < <(grep -r "hicc::cpp!" "${RUST_SRC}" -l 2>/dev/null | head -5 || true)
 
     echo "──── import_lib! 绑定函数（前 30 条）────"
     grep -rn "fn " "${RUST_SRC}" 2>/dev/null | grep -v "//\|test\|mod " | head -30 || true
@@ -272,14 +272,14 @@ if [ -n "${GENERATED_FUNS}" ]; then
     find "${BUILD_DIR}" -name "*.o" 2>/dev/null \
         | xargs -r nm --demangle 2>/dev/null > "${NM_CACHE}" || true
 
-    echo "${GENERATED_FUNS}" | head -30 | while read -r fname; do
+    while IFS= read -r fname; do
         printf "  %-40s" "${fname}"
         if grep -q "${fname}" "${NM_CACHE}"; then
             echo -e "${GREEN}✓ 在目标文件中找到${NC}"
         else
             echo -e "${YELLOW}? 未在目标文件中直接找到（可能在 hicc cpp! 宏展开后才出现）${NC}"
         fi
-    done
+    done < <(echo "${GENERATED_FUNS}" | head -30 || true)
     rm -f "${NM_CACHE}"
 else
     info "未在生成代码中找到 #[cpp(func=...)] 标注（可能全部通过 import_class! 绑定）"
