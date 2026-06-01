@@ -641,7 +641,7 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
         .methods
         .iter()
         .filter(|m| !m.is_constructor && !m.is_destructor && m.accessibility == "public" && !m.is_static)
-        .filter(|m| !m.name.starts_with("operator") && m.name != "move")
+        .filter(|m| !m.name.starts_with("operator") && !is_rust_keyword(&to_snake_case(&m.name)))
         .collect();
 
     // 收集所有基类的 public 方法（递归，保持顺序）
@@ -658,7 +658,7 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
     for im in &inherited {
         if !own_names.contains(im.name.as_str())
             && !im.name.starts_with("operator")
-            && im.name != "move"
+            && !is_rust_keyword(&to_snake_case(&im.name))
         {
             if let Some(mb) = build_method_binding(im) {
                 methods.push(mb);
@@ -723,7 +723,7 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
     if m.is_volatile {
         return None;
     }
-    let rust_name = to_snake_case(&m.name);
+    let rust_name = sanitize_fn_name(&m.name);
     let self_kind = if m.is_const { SelfKind::Ref } else { SelfKind::RefMut };
 
     let params: Vec<(String, String)> = m
@@ -779,6 +779,7 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         .iter()
         .filter(|(_, k)| !matches!(k, ShimKind::MethodAccessor))
         .filter(|(fi, _)| !fi.is_variadic)
+        .filter(|(fi, _)| !fi.name.starts_with("operator"))
         .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("(*)")))
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
@@ -803,7 +804,7 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
 }
 
 fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
-    let rust_name = to_snake_case(&fi.name);
+    let rust_name = sanitize_fn_name(&fi.name);
     let params: Vec<(String, String)> = fi
         .params
         .iter()
@@ -977,16 +978,43 @@ fn strip_class_prefix(text: &str, class_name: &str) -> String {
     }
 }
 
+/// 判断是否为 Rust 关键字（Rust 2021 严格关键字 + 保留关键字）。
+///
+/// 用于参数名、函数名、方法名的消歧处理，防止生成的 Rust 代码出现关键字冲突。
+fn is_rust_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        // 严格关键字（Rust 2021）
+        "as" | "async" | "await" | "break" | "const" | "continue" | "crate" | "dyn"
+        | "else" | "enum" | "extern" | "false" | "fn" | "for" | "if" | "impl" | "in"
+        | "let" | "loop" | "match" | "mod" | "move" | "mut" | "pub" | "ref" | "return"
+        | "self" | "Self" | "static" | "struct" | "super" | "trait" | "true" | "type"
+        | "union" | "unsafe" | "use" | "where" | "while"
+        // 保留关键字
+        | "abstract" | "become" | "box" | "do" | "final" | "gen" | "macro" | "override"
+        | "priv" | "try" | "typeof" | "unsized" | "virtual" | "yield"
+    )
+}
+
 /// 参数名称清理（避免 Rust 关键字）
 fn sanitize_param_name(name: &str) -> String {
     match name {
-        "self" => "self_".to_string(),
-        "type" => "type_".to_string(),
-        "fn" => "fn_".to_string(),
-        "loop" => "loop_".to_string(),
-        "move" => "move_".to_string(),
         "" | "_" => "arg".to_string(),
+        _ if is_rust_keyword(name) => format!("{}_", name),
         _ => name.to_string(),
+    }
+}
+
+/// 函数/方法名清理：先转 snake_case，再对关键字加 `_` 后缀。
+///
+/// 用于 `build_method_binding` 和 `build_fn_binding` 生成 `rust_name`，
+/// 确保结果不与 Rust 关键字冲突。
+fn sanitize_fn_name(name: &str) -> String {
+    let snake = to_snake_case(name);
+    if is_rust_keyword(&snake) {
+        format!("{}_", snake)
+    } else {
+        snake
     }
 }
 

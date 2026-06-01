@@ -583,6 +583,11 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
 
 fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Option<FunctionInfo> {
     let name = entity.get_name()?;
+    // 跳过所有 C++ 操作符命名的自由函数（含 UDL operator""h 等），
+    // 这类函数在 C 链接层无法直接表示，且生成的 Rust 名称不合法。
+    if name.starts_with("operator") {
+        return None;
+    }
     let return_type = entity
         .get_result_type()
         .map(|t| t.get_display_name())
