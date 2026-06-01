@@ -102,8 +102,16 @@ if [ "${SKIP_INSTALL}" = "1" ] && command -v cpp2rust-demo &>/dev/null; then
     ok "已检测到 cpp2rust-demo，跳过安装（SKIP_INSTALL=1）"
 else
     info "从 GitHub 源码安装 cpp2rust-demo（首次编译需要几分钟）…"
-    cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked 2>&1 \
-        | tail -5
+    INSTALL_LOG=$(mktemp)
+    if ! cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked \
+             >"${INSTALL_LOG}" 2>&1; then
+        echo "── cargo install 失败，完整日志：──"
+        cat "${INSTALL_LOG}"
+        rm -f "${INSTALL_LOG}"
+        fail "cpp2rust-demo 安装失败，请检查上方日志"
+    fi
+    tail -5 "${INSTALL_LOG}"
+    rm -f "${INSTALL_LOG}"
     ok "cpp2rust-demo 安装完成：$(which cpp2rust-demo)"
 fi
 
@@ -163,7 +171,7 @@ info "工作目录：${RAPIDJSON_DIR}"
 info "feature 名称：${FEATURE}"
 info "构建命令：cmake --build ${BUILD_DIR} -- -j${NPROC}"
 
-# 非交互模式：自动全选所有被拦截的 .cpp 文件
+# 非交互模式：自动全选所有被拦截的 .cpp 文件（等同于对"选择参与转换的文件"对话框全部回车确认）
 export CPP2RUST_NON_INTERACTIVE=1
 
 cd "${RAPIDJSON_DIR}"
@@ -247,22 +255,26 @@ fi
 
 # ── 6c. 交叉比对：cpp2rust-demo 生成的 shim 函数名 vs. nm 符号 ───────────────
 echo -e "\n${BOLD}6c. FFI shim 函数名交叉比对${NC}"
-# 从生成的 .rs 文件中提取 #[cpp(func = ...)] 或 fn <name>( 声明
+# 从生成的 .rs 文件中提取 #[cpp(func = ...)] 声明
 GENERATED_FUNS=$(grep -roh '#\[cpp(func = "[^"]*")\]' "${RUST_SRC}" 2>/dev/null \
     | grep -oP '"[^"]*"' | tr -d '"' | sort -u)
 
 if [ -n "${GENERATED_FUNS}" ]; then
     echo "生成的 shim 函数（来自 #[cpp(func=...)]）："
+    # 一次性收集所有目标文件的符号，避免对每个函数名重复调用 nm（O(n*m) → O(n+m)）
+    NM_CACHE=$(mktemp)
+    find "${BUILD_DIR}" -name "*.o" 2>/dev/null \
+        | xargs -r nm --demangle 2>/dev/null > "${NM_CACHE}" || true
+
     echo "${GENERATED_FUNS}" | head -30 | while read -r fname; do
         printf "  %-40s" "${fname}"
-        # 在 build 目录的目标文件中搜索该函数的 C 符号
-        if find "${BUILD_DIR}" -name "*.o" -exec nm --demangle {} \; 2>/dev/null \
-               | grep -q "${fname}"; then
+        if grep -q "${fname}" "${NM_CACHE}"; then
             echo -e "${GREEN}✓ 在目标文件中找到${NC}"
         else
             echo -e "${YELLOW}? 未在目标文件中直接找到（可能在 hicc cpp! 宏展开后才出现）${NC}"
         fi
     done
+    rm -f "${NM_CACHE}"
 else
     info "未在生成代码中找到 #[cpp(func=...)] 标注（可能全部通过 import_class! 绑定）"
 fi
