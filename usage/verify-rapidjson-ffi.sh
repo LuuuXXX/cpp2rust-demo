@@ -64,12 +64,13 @@ if ! pkg-config --exists libclang 2>/dev/null && \
     warn "  Ubuntu/Debian：sudo apt-get install -y clang libclang-dev"
 fi
 
-# 检查 GTest 源码目录（FindGTestSrc.cmake 搜索路径）
+# 检查 GTest 源码目录（优先使用 rapidjson 自带的 bundled GTest，避免系统 GTest 1.14
+# 在 C++11 模式下的兼容性问题）
 GTEST_SOURCE_DIR=""
 for candidate in \
-    "/usr/src/gtest" \
+    "${RAPIDJSON_DIR}/thirdparty/gtest/googletest" \
     "/usr/src/googletest/googletest" \
-    "${RAPIDJSON_DIR}/thirdparty/gtest/googletest"; do
+    "/usr/src/gtest"; do
     if [ -f "${candidate}/CMakeLists.txt" ] && \
        [ -f "${candidate}/src/gtest_main.cc" ]; then
         GTEST_SOURCE_DIR="${candidate}"
@@ -78,14 +79,8 @@ for candidate in \
 done
 
 if [ -z "${GTEST_SOURCE_DIR}" ]; then
-    warn "未找到 GTest 源码目录。尝试安装 libgtest-dev …"
-    if command -v apt-get &>/dev/null; then
-        sudo apt-get install -y libgtest-dev 2>/dev/null \
-            && GTEST_SOURCE_DIR="/usr/src/gtest" \
-            || warn "apt-get install libgtest-dev 失败，将跳过测试目标的构建"
-    else
-        warn "非 Debian/Ubuntu 系统，请手动安装 googletest 并设置 GTEST_SOURCE_DIR。"
-    fi
+    warn "未找到 GTest 源码目录，将跳过测试目标的构建。"
+    warn "  如需启用测试，请克隆时使用 --recurse-submodules 初始化 rapidjson 子模块。"
 fi
 
 ok "环境检查完成"
@@ -125,9 +120,11 @@ step "§ 2. git clone rapidjson"
 if [ -d "${RAPIDJSON_DIR}/.git" ]; then
     info "目录已存在，执行 git pull …"
     git -C "${RAPIDJSON_DIR}" pull --ff-only 2>&1 | tail -3
+    git -C "${RAPIDJSON_DIR}" submodule update --init --recursive 2>&1 | tail -3
 else
     info "克隆 rapidjson → ${RAPIDJSON_DIR}"
-    git clone --depth 1 "${RAPIDJSON_REPO}" "${RAPIDJSON_DIR}"
+    git clone --depth 1 --recurse-submodules --shallow-submodules \
+        "${RAPIDJSON_REPO}" "${RAPIDJSON_DIR}"
 fi
 
 ok "rapidjson 源码就绪：${RAPIDJSON_DIR}"
@@ -143,7 +140,6 @@ mkdir -p "${BUILD_DIR}"
 
 CMAKE_ARGS=(
     -DCMAKE_BUILD_TYPE=Debug
-    -DCMAKE_CXX_STANDARD=14          # GTest 1.14（Ubuntu 24.04）需要 C++14；C++14 完全兼容 C++11
     -DRAPIDJSON_BUILD_EXAMPLES=OFF   # 减少无关编译单元
     -DRAPIDJSON_BUILD_DOC=OFF
 )
