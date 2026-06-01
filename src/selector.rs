@@ -21,8 +21,7 @@ impl FileSelector for InteractiveSelector {
             return Ok(vec![]);
         }
 
-        use std::io::IsTerminal;
-        if !std::io::stdin().is_terminal() {
+        if is_non_interactive() {
             println!(
                 "Non-interactive terminal: selecting all {} file(s) automatically.",
                 candidates.len()
@@ -46,6 +45,14 @@ impl FileSelector for InteractiveSelector {
 
         Ok(selections.into_iter().map(|i| candidates[i].clone()).collect())
     }
+}
+
+/// 判断当前运行环境是否为非交互式终端（CI、管道、测试等）。
+///
+/// 当 stdin 不是 TTY 时返回 `true`，此时应跳过用户交互自动选择全部文件。
+fn is_non_interactive() -> bool {
+    use std::io::IsTerminal;
+    !std::io::stdin().is_terminal()
 }
 
 /// Selector that selects all candidates without user interaction. Used in tests.

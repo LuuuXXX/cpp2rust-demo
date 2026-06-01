@@ -26,6 +26,8 @@ pub struct ParsedUnit {
 #[derive(Debug)]
 pub struct ParsedClassBlock {
     pub class_name: String,
+    /// 完整属性行，如 `#[cpp(class = "Foo")]`、`#[cpp(class = "Foo", destroy = "foo_del")]` 或 `#[interface]`
+    pub class_attr: String,
     pub methods: Vec<BlockMethod>,
 }
 
@@ -230,8 +232,10 @@ fn parse_cpp_content(inner_lines: &[String]) -> Vec<String> {
 ///
 ///     }
 /// ```
+/// 也支持 `#[interface]` 和 `#[cpp(class = "Foo", destroy = "foo_del")]`。
 fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
     let mut class_name = String::new();
+    let mut class_attr = String::new();
     let mut methods: Vec<BlockMethod> = Vec::new();
     let mut pending_attr: Option<String> = None;
     let mut in_class_body = false;
@@ -245,19 +249,46 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
         }
 
         if !in_class_body {
-            // 寻找 `#[cpp(class = "...")]` 属性行
+            // `#[cpp(class = "...")]` 或 `#[cpp(class = "...", destroy = "...")]`
             if trimmed.starts_with("#[cpp(class") {
-                // 提取类名
+                class_attr = trimmed.to_string();
                 if let Some(name) = extract_quoted_value(trimmed, "class = ") {
                     class_name = name;
                 }
                 continue;
             }
-            // 寻找 `class Foo {` 行
+            // `#[interface]` 属性行：类名从后续的 `class Foo {` 行提取
+            if trimmed == "#[interface]" {
+                class_attr = trimmed.to_string();
+                continue;
+            }
+            // `class Foo {` 行
             if trimmed.starts_with("class ") && trimmed.contains('{') {
+                // 若是 interface 类，从这里提取类名
+                if class_name.is_empty() {
+                    // "class Foo {" → take token after "class "
+                    let rest = trimmed.trim_start_matches("class ").trim();
+                    class_name = rest
+                        .split(|c: char| !c.is_alphanumeric() && c != '_')
+                        .next()
+                        .unwrap_or("")
+                        .to_string();
+                }
                 in_class_body = true;
                 class_body_depth = 1;
                 continue;
+            }
+            // `class Foo {}` 空类
+            if trimmed.starts_with("class ") && trimmed.ends_with('}') {
+                if class_name.is_empty() {
+                    let rest = trimmed.trim_start_matches("class ").trim();
+                    class_name = rest
+                        .split(|c: char| !c.is_alphanumeric() && c != '_')
+                        .next()
+                        .unwrap_or("")
+                        .to_string();
+                }
+                break;
             }
         } else {
             // 在类体内
@@ -287,7 +318,7 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
     if class_name.is_empty() {
         None
     } else {
-        Some(ParsedClassBlock { class_name, methods })
+        Some(ParsedClassBlock { class_name, class_attr, methods })
     }
 }
 
