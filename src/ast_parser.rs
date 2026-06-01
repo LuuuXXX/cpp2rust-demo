@@ -423,13 +423,7 @@ fn extract_class(
     // 因此不能用文件路径比较，而必须用字节偏移量与 `cpp_byte_ranges` 扫描结果对比：
     // 只有落在 shim cpp 内容区间（即 `.cpp` 行号标记之后、`.h` 标记之前的区域）
     // 的实体才认为来自当前文件。
-    let is_from_current_file = entity
-        .get_range()
-        .map(|r| {
-            let offset = r.get_start().get_file_location().offset;
-            cpp_ranges.iter().any(|range| range.contains(&offset))
-        })
-        .unwrap_or(false);
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
 
     let mut template_args = Vec::new();
     if let Some(args) = entity.get_template_arguments() {
@@ -618,14 +612,7 @@ fn extract_function(
     };
 
     // 判断函数声明/定义是否来自当前 .cpp 文件（而非被 include 的头文件）。
-    // 与 ClassInfo::is_from_current_file 使用相同的字节偏移量判断逻辑。
-    let is_from_current_file = entity
-        .get_range()
-        .map(|r| {
-            let offset = r.get_start().get_file_location().offset;
-            cpp_ranges.iter().any(|range| range.contains(&offset))
-        })
-        .unwrap_or(false);
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
 
     Some(FunctionInfo {
         name,
@@ -835,6 +822,21 @@ fn func_tags(f: &FunctionInfo) -> String {
 // ─────────────────────────────────────────────
 //  行号标记扫描（用于 is_from_current_file 判断）
 // ─────────────────────────────────────────────
+
+/// 判断 clang 实体的起始偏移量是否落在 `cpp_ranges` 范围内，
+/// 即实体是否来自当前 `.cpp` 文件本身（而非 `#include` 引入的头文件）。
+fn entity_is_from_current_file(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> bool {
+    entity
+        .get_range()
+        .map(|r| {
+            let offset = r.get_start().get_file_location().offset;
+            cpp_ranges.iter().any(|range| range.contains(&offset))
+        })
+        .unwrap_or(false)
+}
 
 /// 扫描 `g++ -E` 生成的预处理文件内容，返回属于 `.cpp`/`.c` 文件（而非 `.h`/`.hpp` 头文件）
 /// 内容的字节偏移量区间列表。
