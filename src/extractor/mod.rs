@@ -779,6 +779,7 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         .iter()
         .filter(|(_, k)| !matches!(k, ShimKind::MethodAccessor))
         .filter(|(fi, _)| !fi.is_variadic)
+        .filter(|(fi, _)| !fi.name.starts_with("operator"))
         .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("(*)")))
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
