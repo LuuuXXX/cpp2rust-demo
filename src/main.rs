@@ -169,9 +169,11 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\nRunning AST parser and code generation on selected files...");
     let mut unit_paths: Vec<String> = Vec::new();
     let mut unit_stats: Vec<InitUnitStat> = Vec::new();
-    // 降级特性统计：tag → 出现次数
-    let mut degraded_tags: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    // 降级特性统计：tag → (unit_path → 出现次数)
+    let mut degraded_tags: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, usize>,
+    > = std::collections::HashMap::new();
     // unit_path → 首次注册该路径的源文件（用于冲突诊断）
     let mut seen_unit_paths: std::collections::HashMap<String, std::path::PathBuf> =
         std::collections::HashMap::new();
@@ -221,7 +223,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                 let code = hicc_codegen::generate(&spec);
 
                 // 统计降级特性（扫描生成代码中的 cpp2rust-todo 标签）
-                count_degraded_tags(&code, &mut degraded_tags);
+                count_degraded_tags(&code, &unit_path, &mut degraded_tags);
 
                 let elapsed_ms = file_start.elapsed().as_millis();
                 println!(
@@ -258,15 +260,26 @@ fn run_init(args: InitArgs) -> Result<()> {
     }
 
     // 降级特性汇总
-    let mut sorted_tags: Vec<(String, usize)> = degraded_tags.into_iter().collect();
+    let mut sorted_tags: Vec<(String, Vec<(String, usize)>)> = degraded_tags
+        .into_iter()
+        .map(|(tag, unit_map)| {
+            let mut units: Vec<(String, usize)> = unit_map.into_iter().collect();
+            units.sort_by(|a, b| a.0.cmp(&b.0));
+            (tag, units)
+        })
+        .collect();
     sorted_tags.sort_by(|a, b| a.0.cmp(&b.0));
     if !sorted_tags.is_empty() {
-        println!("\n\u{26a0} Degraded features (require manual attention):");
-        for (tag, count) in &sorted_tags {
-            println!("  [{}] \u{d7} {}", tag, count);
+        println!("\n\u{26a0} 降级特性（需要人工处理）：");
+        for (tag, units) in &sorted_tags {
+            let total: usize = units.iter().map(|(_, c)| c).sum();
+            println!("  [{}] \u{d7} {} 次", tag, total);
+            for (unit_path, count) in units {
+                println!("      {} （{} 次）", unit_path, count);
+            }
         }
         println!(
-            "  \u{2192} Search for 'cpp2rust-todo' in generated files to find these locations."
+            "  \u{2192} 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。"
         );
     }
 
@@ -312,14 +325,22 @@ fn run_init(args: InitArgs) -> Result<()> {
     Ok(())
 }
 
-/// 扫描生成代码中的 `cpp2rust-todo[TAG]` 标签，统计各 tag 出现次数。
-fn count_degraded_tags(code: &str, tags: &mut std::collections::HashMap<String, usize>) {
+/// 扫描生成代码中的 `cpp2rust-todo[TAG]` 标签，按编译单元统计各 tag 出现次数。
+fn count_degraded_tags(
+    code: &str,
+    unit_path: &str,
+    tags: &mut std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
+) {
     for line in code.lines() {
         if let Some(start) = line.find("cpp2rust-todo[") {
             let rest = &line[start + "cpp2rust-todo[".len()..];
             if let Some(end) = rest.find(']') {
                 let tag = rest[..end].to_string();
-                *tags.entry(tag).or_insert(0) += 1;
+                *tags
+                    .entry(tag)
+                    .or_default()
+                    .entry(unit_path.to_string())
+                    .or_insert(0) += 1;
             }
         }
     }
