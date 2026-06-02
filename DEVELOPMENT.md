@@ -167,7 +167,7 @@ hicc::import_lib! {
 | **Phase 0** | Hook 机制（`hook.cpp` + `capture.rs`） | ✅ 完成 |
 | **Phase 1** | AST 解析（`ast_parser.rs`，clang crate） | ✅ 完成 |
 | **Phase 2** | 基础提取器（class/function/enum extractor） | ✅ 完成 |
-| **Phase 3** | 模板实例化追踪（`instantiation_tracker.rs`） | ✅ 完成 |
+| **Phase 3** | 模板实例化追踪（集成于 `ast_parser.rs`，`template_class_ranges` 字段） | ✅ 完成 |
 | **Phase 4** | 后处理器（operator/friend/lambda handler，含菱形继承） | ✅ 完成 |
 | **Phase 5** | hicc 代码生成器（`hicc_codegen.rs`） | ✅ 完成 |
 | **Phase 6** | `merge` 命令 + 增量/多 feature 支持 | ✅ 完成 |
@@ -195,7 +195,7 @@ hicc::import_lib! {
 | 同步 7 个 golden 文件（012/025/027/031/033/045/046） | 多个 |
 | 新增 `diamond_handler.rs`：检测菱形继承路径，生成命名 shim | 018 |
 | 对齐 `operator_handler.rs` 降级输出格式（shim 名称规则、TODO 注释） | 019 |
-| 对齐 `lambda_handler.rs` class wrapper 格式（wrapper 类名、`call()` 签名） | 039、040 |
+| 对齐 039/040 lambda/std_function class wrapper 格式（wrapper 类名、`call()` 签名，处理逻辑位于 `extractor/mod.rs`） | 039、040 |
 | CI 系统依赖修正：将 `libstdc++-dev` 改为 `libstdc++-14-dev`（Ubuntu 24.04 适配） | — |
 | 将 17 个预存在 L2 编译失败标记为 `#[ignore]`，使 CI l2-compile 阶段绿色通过 | 009、012、020、023、025、027、031–033、036、038–041、045 |
 | 修复 type_mapper 引用类型映射 + volatile 方法限定符生成（`T&` → `&mut T`，`is_volatile` 字段）；009/012 编译通过 | 009、012 |
