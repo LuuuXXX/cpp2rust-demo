@@ -211,8 +211,10 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
             }
             EntityKind::FunctionTemplate => {}
             EntityKind::EnumDecl => {
-                if let Some(ei) = extract_enum(&entity) {
-                    ast.enums.push(ei);
+                if entity_is_from_current_file(&entity, &cpp_ranges) {
+                    if let Some(ei) = extract_enum(&entity) {
+                        ast.enums.push(ei);
+                    }
                 }
             }
             EntityKind::Namespace => {
@@ -222,7 +224,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 collect_linkage_spec(&entity, &mut ast, &cpp_ranges);
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, &mut ast);
+                collect_typedef(&entity, &mut ast, &cpp_ranges);
             }
             _ => {}
         }
@@ -348,8 +350,10 @@ fn collect_namespace(
                 }
             }
             EntityKind::EnumDecl => {
-                if let Some(ei) = extract_enum(&entity) {
-                    ast.enums.push(ei);
+                if entity_is_from_current_file(&entity, cpp_ranges) {
+                    if let Some(ei) = extract_enum(&entity) {
+                        ast.enums.push(ei);
+                    }
                 }
             }
             EntityKind::Namespace => {
@@ -381,12 +385,14 @@ fn collect_linkage_spec(
                 }
             }
             EntityKind::EnumDecl => {
-                if let Some(ei) = extract_enum(&entity) {
-                    ast.enums.push(ei);
+                if entity_is_from_current_file(&entity, cpp_ranges) {
+                    if let Some(ei) = extract_enum(&entity) {
+                        ast.enums.push(ei);
+                    }
                 }
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, ast);
+                collect_typedef(&entity, ast, cpp_ranges);
             }
             // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
             EntityKind::StructDecl if entity.is_definition() => {
@@ -400,7 +406,16 @@ fn collect_linkage_spec(
     }
 }
 
-fn collect_typedef(entity: &clang::Entity<'_>, ast: &mut CppAst) {
+fn collect_typedef(
+    entity: &clang::Entity<'_>,
+    ast: &mut CppAst,
+    cpp_ranges: &[std::ops::Range<u32>],
+) {
+    // 只收集来自当前编译单元（.cpp 文件本身）的 typedef，
+    // 排除通过 #include 引入的头文件中的 typedef（避免系统类型污染）。
+    if !entity_is_from_current_file(entity, cpp_ranges) {
+        return;
+    }
     let Some(name) = entity.get_name() else { return };
     let Some(range) = entity.get_range() else { return };
     let start = range.get_start().get_file_location().offset;

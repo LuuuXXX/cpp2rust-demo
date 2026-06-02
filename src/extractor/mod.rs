@@ -798,7 +798,16 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         .map(|n| format!("class {};", n))
         .collect();
 
-    LibSpec { link_name: unit_name.to_string(), fwd_decls, fn_bindings }
+    // link_name 只取路径末段（文件名），避免将模块路径（如 "unittest/documenttest"）
+    // 直接用作链接库名导致 hicc-build 无法找到对应的编译产物。
+    // 使用 std::path::Path::file_name() 而非手动拆分 '/'，跨平台更安全。
+    let link_name = std::path::Path::new(unit_name)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(unit_name)
+        .to_string();
+
+    LibSpec { link_name, fwd_decls, fn_bindings }
 }
 
 fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {

@@ -241,8 +241,9 @@ fn run_init(args: InitArgs) -> Result<()> {
         println!("  \u{2192} Search for 'cpp2rust-todo' in generated files to find these locations.");
     }
 
-    // 生成 Cargo.toml 和 lib.rs（含中间 mod.rs）
+    // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
     project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
+    project_generator::write_build_rs(&lo.rust_dir)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
     println!("\n\u{2713} cpp2rust-demo init completed.");

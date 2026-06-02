@@ -15,6 +15,18 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         return cpp_to_rust(rest.trim());
     }
 
+    // 去掉 `__restrict__` / `__restrict` / `restrict` 限定符
+    // 这些限定符可出现在指针类型末尾（如 `wchar_t *__restrict`），在 Rust 中没有对应语义
+    let cpp = if let Some(rest) = cpp
+        .strip_suffix(" __restrict__")
+        .or_else(|| cpp.strip_suffix(" __restrict"))
+        .or_else(|| cpp.strip_suffix(" restrict"))
+    {
+        rest.trim()
+    } else {
+        cpp
+    };
+
     // 原始类型精确映射
     match cpp {
         "void" => return String::new(), // void → ()，调用方处理
@@ -185,5 +197,14 @@ mod tests {
         assert_eq!(to_snake_case("getX"), "get_x");
         assert_eq!(to_snake_case("getName"), "get_name");
         assert_eq!(to_snake_case("hello"), "hello");
+    }
+
+    #[test]
+    fn test_restrict_qualifier_stripped() {
+        // __restrict / __restrict__ 出现在指针末尾时应被去掉，生成合法 Rust 类型
+        assert_eq!(cpp_to_rust("wchar_t * __restrict"), "*mut wchar_t");
+        assert_eq!(cpp_to_rust("const wchar_t * __restrict"), "*const wchar_t");
+        assert_eq!(cpp_to_rust("wchar_t * __restrict__"), "*mut wchar_t");
+        assert_eq!(cpp_to_rust("char * restrict"), "*mut i8");
     }
 }
