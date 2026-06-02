@@ -138,7 +138,7 @@ fn hook_dir() -> Result<PathBuf> {
 ///
 /// Directory:
 /// - Linux / other:  `$XDG_DATA_HOME/cpp2rust-demo/hook/`
-///                    (default `~/.local/share/cpp2rust-demo/hook/`)
+///   (default `~/.local/share/cpp2rust-demo/hook/`)
 /// - macOS:          `~/Library/Application Support/cpp2rust-demo/hook/`
 fn ensure_hook_data_dir() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
