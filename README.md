@@ -323,7 +323,7 @@ hicc::import_lib! {
 
 | 示例 | C++ 特性 | 状态 | FFI 策略 |
 |------|---------|------|---------|
-| [043_namespace_nested](examples/043_namespace_nested) | 嵌套命名空间 | ✅ | 命名空间前缀扁平化到函数名（`foo::bar::Baz` → `foo_bar_baz`） |
+| [043_namespace_nested](examples/043_namespace_nested) | 嵌套命名空间 | ✅ | `import_class!` 不支持嵌套命名空间类；改用 `void*` opaque pointer + raw `extern "C"` 绑定，函数名前缀扁平化（`foo::bar::Baz` → `foo_bar_baz_*`） |
 | [044_enum_class](examples/044_enum_class) | 强类型枚举（enum class） | ✅ | 枚举值导出为 Rust `const`，建议手动实现 `enum` + `TryFrom<i32>` |
 | [045_union_basic](examples/045_union_basic) | union | ✅ | opaque pointer + 按字段名 getter/setter shim；Rust 侧用 `#[repr(C)] union` |
 | [046_constexpr_basic](examples/046_constexpr_basic) | constexpr 常量/函数 | ✅ | 编译期常量读取 AST `IntegerLiteral` 值，生成 Rust `const`；constexpr 函数按普通函数处理 |
