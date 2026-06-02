@@ -264,20 +264,22 @@ fn run_init(args: InitArgs) -> Result<()> {
     // ── 跨模块类型映射：class_name → 定义该类型的 unit_path ──────────────────
     // 只有实际生成了 import_class! 块的类（即不被 hicc_codegen 跳过的 ClassSpec）才加入映射。
     // 与 hicc_codegen::generate 的跳过条件保持一致：methods/associated_fns/destroy_fn 全空则跳过。
-    let class_to_module: HashMap<String, String> = all_units
-        .iter()
-        .flat_map(|ud| {
-            ud.spec
-                .class_specs
-                .iter()
-                .filter(|cs| {
-                    !(cs.methods.is_empty()
-                        && cs.associated_fns.is_empty()
-                        && cs.destroy_fn.is_none())
-                })
-                .map(move |cs| (cs.name.clone(), ud.unit_path.clone()))
-        })
-        .collect();
+    let mut class_to_module: HashMap<String, String> = HashMap::new();
+    for ud in &all_units {
+        for cs in ud.spec.class_specs.iter().filter(|cs| {
+            !(cs.methods.is_empty() && cs.associated_fns.is_empty() && cs.destroy_fn.is_none())
+        }) {
+            if let Some(existing) = class_to_module.get(&cs.name) {
+                eprintln!(
+                    "  Warning: class '{}' defined in both '{}' and '{}'; \
+                     cross-module references will use the first definition",
+                    cs.name, existing, ud.unit_path
+                );
+            } else {
+                class_to_module.insert(cs.name.clone(), ud.unit_path.clone());
+            }
+        }
+    }
 
     // ── 第二趟：生成代码（附加跨模块 use / opaque 声明）并写入文件 ──────────
     let mut unit_paths: Vec<String> = Vec::new();
@@ -374,6 +376,13 @@ fn opaque_import_class_block(type_name: &str) -> String {
     )
 }
 
+/// 返回 `true` 当且仅当 `s` 是合法的 C++/Rust 标识符（ASCII 字母、数字、下划线，首字符非数字）。
+fn is_valid_identifier(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 fn build_cross_module_preamble(
     spec: &FfiSpec,
     current_unit_path: &str,
@@ -401,7 +410,23 @@ fn build_cross_module_preamble(
             .unwrap_or("")
             .trim();
 
-        if type_name.is_empty() || local_class_names.contains(type_name) {
+        if type_name.is_empty() {
+            eprintln!(
+                "  Warning: malformed fwd_decl {:?} in unit '{}'; expected format 'class TypeName;'",
+                fwd_decl, current_unit_path
+            );
+            continue;
+        }
+
+        if !is_valid_identifier(type_name) {
+            eprintln!(
+                "  Warning: fwd_decl {:?} in unit '{}' contains an invalid identifier '{}'; skipping",
+                fwd_decl, current_unit_path, type_name
+            );
+            continue;
+        }
+
+        if local_class_names.contains(type_name) {
             // 本模块已有 import_class! 定义，无需额外引入
             continue;
         }
@@ -502,5 +527,68 @@ mod tests {
     fn init_requires_build_cmd() {
         let result = Cli::try_parse_from(["cpp2rust-demo", "init"]);
         assert!(result.is_err());
+    }
+
+    // ── is_valid_identifier ──────────────────────────────────────────────────
+
+    #[test]
+    fn valid_identifier_simple() {
+        assert!(is_valid_identifier("Foo"));
+        assert!(is_valid_identifier("_bar"));
+        assert!(is_valid_identifier("Vec2"));
+        assert!(is_valid_identifier("my_type_123"));
+    }
+
+    #[test]
+    fn invalid_identifier_empty() {
+        assert!(!is_valid_identifier(""));
+    }
+
+    #[test]
+    fn invalid_identifier_starts_with_digit() {
+        assert!(!is_valid_identifier("1Foo"));
+    }
+
+    #[test]
+    fn invalid_identifier_contains_namespace() {
+        assert!(!is_valid_identifier("std::vector"));
+    }
+
+    #[test]
+    fn invalid_identifier_contains_space() {
+        assert!(!is_valid_identifier("Foo Bar"));
+    }
+
+    // ── build_cross_module_preamble: malformed fwd_decl ─────────────────────
+
+    #[test]
+    fn preamble_skips_malformed_fwd_decl() {
+        use cpp2rust_demo::ffi_model::{FfiSpec, LibSpec};
+        let spec = FfiSpec {
+            lib_spec: LibSpec {
+                fwd_decls: vec!["struct Foo;".to_string()],  // not "class ..." format
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let map = HashMap::new();
+        // malformed fwd_decl → preamble should be empty (no panic, no generated code)
+        let preamble = build_cross_module_preamble(&spec, "mymod", &map);
+        assert!(preamble.is_empty(), "expected empty preamble, got: {preamble:?}");
+    }
+
+    #[test]
+    fn preamble_skips_invalid_identifier_in_fwd_decl() {
+        use cpp2rust_demo::ffi_model::{FfiSpec, LibSpec};
+        let spec = FfiSpec {
+            lib_spec: LibSpec {
+                fwd_decls: vec!["class std::vector;".to_string()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let map = HashMap::new();
+        let preamble = build_cross_module_preamble(&spec, "mymod", &map);
+        assert!(preamble.is_empty(), "expected empty preamble, got: {preamble:?}");
     }
 }
