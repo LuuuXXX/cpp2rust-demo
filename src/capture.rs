@@ -22,9 +22,7 @@ pub fn build_hook() -> Result<PathBuf> {
     // case before this check runs.
     if so.exists() && cpp.exists() {
         if let (Ok(so_meta), Ok(cpp_meta)) = (so.metadata(), cpp.metadata()) {
-            if let (Ok(so_mtime), Ok(cpp_mtime)) =
-                (so_meta.modified(), cpp_meta.modified())
-            {
+            if let (Ok(so_mtime), Ok(cpp_mtime)) = (so_meta.modified(), cpp_meta.modified()) {
                 if so_mtime >= cpp_mtime {
                     println!("Hook library up-to-date: {}", so.display());
                     return Ok(so);
@@ -47,7 +45,10 @@ pub fn build_hook() -> Result<PathBuf> {
     }
 
     if !so.exists() {
-        return Err(anyhow!("libhook.so not found after build at {}", so.display()));
+        return Err(anyhow!(
+            "libhook.so not found after build at {}",
+            so.display()
+        ));
     }
 
     println!("Hook library built: {}", so.display());
@@ -113,7 +114,11 @@ fn hook_dir() -> Result<PathBuf> {
             if candidate.join("Makefile").exists() {
                 return Ok(candidate);
             }
-            if let Some(workspace) = parent.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+            if let Some(workspace) = parent
+                .parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.parent())
+            {
                 let candidate = workspace.join("hook");
                 if candidate.join("Makefile").exists() {
                     return Ok(candidate);

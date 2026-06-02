@@ -81,8 +81,7 @@ pub fn compile_cpp_obj(srcs: &[&Path], includes: &[&str], out_path: &Path) -> Op
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "obj".to_string());
-        let obj = out_path
-            .with_file_name(format!("{}.{}.tmp.o", stem, i));
+        let obj = out_path.with_file_name(format!("{}.{}.tmp.o", stem, i));
         let mut cmd = Command::new("g++");
         cmd.args(["-c", "-fPIC", "-w"]);
         for inc in includes {
@@ -186,7 +185,11 @@ pub fn nm_binary_t_symbols(bin_path: &Path, filter_by: &HashSet<String>) -> Hash
 
 /// Assert that every symbol in `cpp_exports` is present in `rust_linked`.
 /// Always prints a report; panics with a diff when any are missing.
-pub fn assert_cpp_exports_linked(cpp_exports: &[String], rust_linked: &HashSet<String>, label: &str) {
+pub fn assert_cpp_exports_linked(
+    cpp_exports: &[String],
+    rust_linked: &HashSet<String>,
+    label: &str,
+) {
     let mut missing: Vec<&str> = cpp_exports
         .iter()
         .filter(|s| !rust_linked.contains(s.as_str()))
@@ -245,7 +248,11 @@ pub fn cargo_build_example(dir: &str, bin_name: &str) -> Option<PathBuf> {
     }
 
     let bin = PathBuf::from(dir).join("target/debug").join(bin_name);
-    if bin.exists() { Some(bin) } else { None }
+    if bin.exists() {
+        Some(bin)
+    } else {
+        None
+    }
 }
 
 /// Recursively find all `.a` static-library files under `dir`.

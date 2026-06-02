@@ -44,8 +44,14 @@ golden_test!(test_022_mutable_member, "022_mutable_member");
 golden_test!(test_023_typeid_rtti, "023_typeid_rtti");
 golden_test!(test_024_template_function, "024_template_function");
 golden_test!(test_025_template_class, "025_template_class");
-golden_test!(test_026_template_specialization, "026_template_specialization");
-golden_test!(test_027_template_instantiation, "027_template_instantiation");
+golden_test!(
+    test_026_template_specialization,
+    "026_template_specialization"
+);
+golden_test!(
+    test_027_template_instantiation,
+    "027_template_instantiation"
+);
 golden_test!(test_028_variadic_template, "028_variadic_template");
 golden_test!(test_029_unique_ptr, "029_unique_ptr");
 golden_test!(test_030_shared_ptr, "030_shared_ptr");

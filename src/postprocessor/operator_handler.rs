@@ -8,12 +8,7 @@ use crate::extractor::type_mapper::{clean_type, cpp_to_rust_ffi, to_snake_case};
 use crate::ffi_model::{FfiSpec, FnBinding};
 
 /// 支持的二元运算符名称及其 C++ 符号
-const BINARY_OPS: &[(&str, &str)] = &[
-    ("add", "+"),
-    ("sub", "-"),
-    ("mul", "*"),
-    ("div", "/"),
-];
+const BINARY_OPS: &[(&str, &str)] = &[("add", "+"), ("sub", "-"), ("mul", "*"), ("div", "/")];
 
 /// 支持的一元运算符名称
 const UNARY_OPS: &[&str] = &["negate"];
@@ -52,8 +47,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                 && extra_params.len() == 1
                 && ret_is_class;
             // 一元运算符：名称匹配 + 0 个额外参数 + 返回类类型
-            let is_unary =
-                UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class;
+            let is_unary = UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class;
             // 比较方法：1 个额外类类型参数 + 返回基础类型
             let is_compare = !ret_is_class && !ret_is_void && is_compare_accessor(fi, &ci.name);
 
@@ -68,9 +62,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
 
         // 按类别排序 accessors：Getter(0) → 二元运算符(1) → 一元运算符(2) → 比较方法(3)
         // 保证生成顺序与逻辑分类一致，不受头文件声明顺序影响
-        accessors.sort_by_key(|fi| {
-            accessor_category(fi, &prefix, &ci.name)
-        });
+        accessors.sort_by_key(|fi| accessor_category(fi, &prefix, &ci.name));
 
         // 单次遍历 accessors，依次匹配 Getter / 二元运算符 / 一元运算符 / 比较方法
         for fi in &accessors {
@@ -113,10 +105,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                         "{}* {}(const {}* a, const {}* b) {{",
                         ci.name, shim_fn_name, ci.name, ci.name
                     ));
-                    cpp_shims.push(format!(
-                        "    return new {}(*a {} *b);",
-                        ci.name, op_sym
-                    ));
+                    cpp_shims.push(format!("    return new {}(*a {} *b);", ci.name, op_sym));
                     cpp_shims.push("}".to_string());
                     cpp_shims.push(String::new());
 

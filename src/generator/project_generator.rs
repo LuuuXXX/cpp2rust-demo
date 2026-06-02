@@ -169,12 +169,16 @@ pub fn derive_unit_path(c_dir: &Path, cpp2rust_file: &Path) -> String {
 }
 
 /// 在 `rust_dir` 下写出 Cargo.toml，`package.name = feature_name`。
+///
+/// 注：使用 edition 2018 而非 2021，以避免 Rust 2021 对 `L'\0'`（C++ 宽字符字面量）
+/// 保留前缀的 lex 错误。在 hicc::cpp! 中 C++ 代码以 token stream 传入，Rust 2021
+/// 会在 proc macro 执行前就报 lex error；2018 则将其 tokenize 为标识符 `L` + 字符字面量。
 pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
     let content = format!(
         r#"[package]
 name = "{feature_name}"
 version = "0.1.0"
-edition = "2021"
+edition = "2018"
 
 [lib]
 name = "{lib_name}"
@@ -227,6 +231,22 @@ pub fn write_unit_rs(rust_dir: &Path, unit_path: &str, code: &str) -> Result<()>
             .map_err(|e| anyhow!("create dir {}: {}", parent.display(), e))?;
     }
     std::fs::write(&file_path, code).map_err(|e| anyhow!("write {}: {}", file_path.display(), e))
+}
+
+/// 写出 `build.rs`，调用 `hicc_build::Build::new()` 完成 C++ shim 编译。
+///
+/// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，
+/// 必须有对应的 `build.rs` 才能触发构建脚本。
+pub fn write_build_rs(rust_dir: &Path, lib_name: &str) -> Result<()> {
+    let content = format!(
+        "\
+fn main() {{
+    hicc_build::Build::new().rust_file(\"src/lib.rs\").compile(\"{lib_name}\");
+}}
+"
+    );
+    let path = rust_dir.join("build.rs");
+    std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
 }
 
 // ─────────────────────────────────────────────
@@ -320,7 +340,11 @@ mod tests {
         // derive_unit_path 已去掉首级目录（"src"），故 unit_path 形如 "utils/foo"
         write_lib_rs(
             tmp.path(),
-            &["utils/foo".to_string(), "utils/bar".to_string(), "main".to_string()],
+            &[
+                "utils/foo".to_string(),
+                "utils/bar".to_string(),
+                "main".to_string(),
+            ],
         )
         .unwrap();
 
@@ -339,11 +363,7 @@ mod tests {
     #[test]
     fn write_lib_rs_mixed_depth() {
         let tmp = TempDir::new().unwrap();
-        write_lib_rs(
-            tmp.path(),
-            &["flat".to_string(), "sub/deep".to_string()],
-        )
-        .unwrap();
+        write_lib_rs(tmp.path(), &["flat".to_string(), "sub/deep".to_string()]).unwrap();
 
         let lib = std::fs::read_to_string(tmp.path().join("src/lib.rs")).unwrap();
         assert!(lib.contains("pub mod flat;"));
@@ -416,5 +436,18 @@ mod tests {
         // <c_dir>/src/a/b/c.cpp.cpp2rust → "a/b/c"（仅去掉首级 "src"）
         let f = c_dir.join("src/a/b/c.cpp.cpp2rust");
         assert_eq!(derive_unit_path(&c_dir, &f), "a/b/c");
+    }
+
+    // ── write_build_rs ────────────────────────
+
+    #[test]
+    fn write_build_rs_creates_file() {
+        let tmp = TempDir::new().unwrap();
+        write_build_rs(tmp.path(), "my_lib").unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
+        assert!(content.contains("hicc_build::Build::new()"));
+        assert!(content.contains(".rust_file(\"src/lib.rs\")"));
+        assert!(content.contains(".compile(\"my_lib\")"));
+        assert!(content.contains("fn main()"));
     }
 }

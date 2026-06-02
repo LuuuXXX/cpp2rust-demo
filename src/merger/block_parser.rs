@@ -136,7 +136,10 @@ fn extract_raw_blocks(src: &str) -> Vec<RawBlock> {
             if depth <= 0 {
                 // 这是关闭块的 `}`
                 if let Some(kind) = current_kind.take() {
-                    blocks.push(RawBlock { kind, inner_lines: inner_lines.clone() });
+                    blocks.push(RawBlock {
+                        kind,
+                        inner_lines: inner_lines.clone(),
+                    });
                 }
                 inner_lines.clear();
                 depth = 0;
@@ -216,9 +219,20 @@ fn parse_cpp_content(inner_lines: &[String]) -> Vec<String> {
         .collect();
 
     // 去掉首尾空行
-    let start = lines.iter().position(|l| !l.is_empty()).unwrap_or(lines.len());
-    let end = lines.iter().rposition(|l| !l.is_empty()).map(|i| i + 1).unwrap_or(0);
-    if start >= end { Vec::new() } else { lines[start..end].to_vec() }
+    let start = lines
+        .iter()
+        .position(|l| !l.is_empty())
+        .unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|l| !l.is_empty())
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    if start >= end {
+        Vec::new()
+    } else {
+        lines[start..end].to_vec()
+    }
 }
 
 /// 从 `class Foo {` 或 `class Foo {}` 行中提取类名。
@@ -306,7 +320,10 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
             // 方法签名行（以 `fn ` 开头）
             if trimmed.starts_with("fn ") {
                 if let Some(attr) = pending_attr.take() {
-                    methods.push(BlockMethod { attr, fn_sig: trimmed.to_string() });
+                    methods.push(BlockMethod {
+                        attr,
+                        fn_sig: trimmed.to_string(),
+                    });
                 }
                 continue;
             }
@@ -316,7 +333,11 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
     if class_name.is_empty() {
         None
     } else {
-        Some(ParsedClassBlock { class_name, class_attr, methods })
+        Some(ParsedClassBlock {
+            class_name,
+            class_attr,
+            methods,
+        })
     }
 }
 
@@ -382,7 +403,11 @@ fn parse_lib_content(inner_lines: &[String]) -> Option<ParsedLibBlock> {
     if link_name.is_empty() {
         None
     } else {
-        Some(ParsedLibBlock { link_name, fwd_decls, fn_bindings })
+        Some(ParsedLibBlock {
+            link_name,
+            fwd_decls,
+            fn_bindings,
+        })
     }
 }
 
@@ -431,7 +456,10 @@ hicc::import_lib! {
     #[test]
     fn parse_cpp_block() {
         let unit = parse_unit_rs(SAMPLE);
-        assert!(unit.cpp_lines.iter().any(|l| l.contains("#include \"foo.h\"")));
+        assert!(unit
+            .cpp_lines
+            .iter()
+            .any(|l| l.contains("#include \"foo.h\"")));
         assert!(unit.cpp_lines.iter().any(|l| l.contains("foo_new")));
     }
 

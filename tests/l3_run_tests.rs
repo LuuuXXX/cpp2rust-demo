@@ -47,7 +47,10 @@ run_test!(run_022_mutable_member, "022_mutable_member");
 run_test!(run_023_typeid_rtti, "023_typeid_rtti");
 run_test!(run_024_template_function, "024_template_function");
 run_test!(run_025_template_class, "025_template_class");
-run_test!(run_026_template_specialization, "026_template_specialization");
+run_test!(
+    run_026_template_specialization,
+    "026_template_specialization"
+);
 run_test!(run_027_template_instantiation, "027_template_instantiation");
 run_test!(run_028_variadic_template, "028_variadic_template");
 run_test!(run_029_unique_ptr, "029_unique_ptr");

@@ -55,8 +55,14 @@ compile_test!(compile_022_mutable_member, "022_mutable_member");
 compile_test!(compile_023_typeid_rtti, "023_typeid_rtti");
 compile_test!(compile_024_template_function, "024_template_function");
 compile_test!(compile_025_template_class, "025_template_class");
-compile_test!(compile_026_template_specialization, "026_template_specialization");
-compile_test!(compile_027_template_instantiation, "027_template_instantiation");
+compile_test!(
+    compile_026_template_specialization,
+    "026_template_specialization"
+);
+compile_test!(
+    compile_027_template_instantiation,
+    "027_template_instantiation"
+);
 compile_test!(compile_028_variadic_template, "028_variadic_template");
 compile_test!(compile_029_unique_ptr, "029_unique_ptr");
 compile_test!(compile_030_shared_ptr, "030_shared_ptr");

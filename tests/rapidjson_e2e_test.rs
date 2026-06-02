@@ -9,7 +9,9 @@
 //!   PrettyWriter/Pointer/Schema/Stream 等）
 //! - 10 个 unittest 文件：深度覆盖内部实现（Allocator/Encoding/Value/DOM 等）
 
-use cpp2rust_demo::{ast_parser, extractor, generator::hicc_codegen, generator::project_generator, merger};
+use cpp2rust_demo::{
+    ast_parser, extractor, generator::hicc_codegen, generator::project_generator, merger,
+};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
@@ -77,7 +79,11 @@ fn preprocess(
     }
     cmd.arg(src).arg("-o").arg(&out);
     let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
-    if ok { Some(out) } else { None }
+    if ok {
+        Some(out)
+    } else {
+        None
+    }
 }
 
 /// 验证生成的 hicc 代码符合三段式格式约束（"最初计划的内容"）：
@@ -115,14 +121,20 @@ fn assert_valid_hicc_format(code: &str, unit_name: &str) {
             let mut esc = false;
             let mut closed = false;
             for c in code[block_start..].chars() {
-                if esc { esc = false; continue; }
+                if esc {
+                    esc = false;
+                    continue;
+                }
                 match c {
                     '\\' if in_str => esc = true,
                     '"' => in_str = !in_str,
                     '{' if !in_str => depth += 1,
                     '}' if !in_str => {
                         depth -= 1;
-                        if depth == 0 { closed = true; break; }
+                        if depth == 0 {
+                            closed = true;
+                            break;
+                        }
                     }
                     _ => {}
                 }
@@ -323,7 +335,11 @@ fn rapidjson_merge_phase() {
 
     for src_rel in &all_sources {
         let is_unittest = src_rel.contains("unittest");
-        let includes: &[&str] = if is_unittest { unittest_includes } else { example_includes };
+        let includes: &[&str] = if is_unittest {
+            unittest_includes
+        } else {
+            example_includes
+        };
 
         if let Some((unit_name, code)) = process_source(src_rel, &root, includes, &preprocess_dir) {
             project_generator::write_unit_rs(&rust_dir, &unit_name, &code)
@@ -338,10 +354,8 @@ fn rapidjson_merge_phase() {
     );
 
     // 生成 Cargo.toml 与 lib.rs（merge 前必须存在 src/）
-    project_generator::write_cargo_toml(&rust_dir, "rapidjson")
-        .expect("write_cargo_toml 失败");
-    project_generator::write_lib_rs(&rust_dir, &unit_paths)
-        .expect("write_lib_rs 失败");
+    project_generator::write_cargo_toml(&rust_dir, "rapidjson").expect("write_cargo_toml 失败");
+    project_generator::write_lib_rs(&rust_dir, &unit_paths).expect("write_lib_rs 失败");
 
     // ── Merge 阶段 ─────────────────────────────────────────────────
     merger::merge_in_place(&rust_dir).expect("merge_in_place 失败");
@@ -352,7 +366,10 @@ fn rapidjson_merge_phase() {
     let src_link = rust_dir.join("src");
 
     assert!(src1.is_dir(), "merge: src.1/ 目录不存在（init 备份未生成）");
-    assert!(src2.is_dir(), "merge: src.2/ 目录不存在（merge 输出未生成）");
+    assert!(
+        src2.is_dir(),
+        "merge: src.2/ 目录不存在（merge 输出未生成）"
+    );
     assert!(
         src_link.is_symlink(),
         "merge: src 不是符号链接（应指向 src.2/）"
@@ -376,8 +393,7 @@ fn rapidjson_merge_phase() {
 
     let mut format_errors = Vec::new();
     for rs_path in &merged_files {
-        let content = std::fs::read_to_string(rs_path)
-            .expect("读取合并后 .rs 文件失败");
+        let content = std::fs::read_to_string(rs_path).expect("读取合并后 .rs 文件失败");
         // lib.rs 和 mod.rs 不含 hicc 块，跳过
         let fname = rs_path.file_name().and_then(|f| f.to_str()).unwrap_or("");
         if fname == "lib.rs" || fname == "mod.rs" {
@@ -410,4 +426,26 @@ fn rapidjson_merge_phase() {
         unit_paths.len(),
         merged_files.len()
     );
+
+    // ── cargo check：验证生成的 Rust 项目可编译 ────────────────────
+    let cargo_check_output = Command::new("cargo")
+        .args(["check", "--quiet"])
+        .current_dir(&rust_dir)
+        .output();
+    match cargo_check_output {
+        Ok(output) => {
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                panic!(
+                    "cargo check 失败（init + merge 生成的 Rust 项目不可编译）:\n{}",
+                    stderr
+                );
+            }
+            println!("cargo check 通过");
+        }
+        Err(e) => {
+            // cargo 未安装或不可用时，跳过检查并打印警告
+            println!("cargo check 跳过（cargo 不可用: {}）", e);
+        }
+    }
 }

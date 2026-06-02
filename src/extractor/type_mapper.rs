@@ -15,8 +15,42 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         return cpp_to_rust(rest.trim());
     }
 
+    // 去掉 `__restrict__` / `__restrict` 前缀形式（MSVC 风格，如 `__restrict int *`）
+    if let Some(rest) = cpp
+        .strip_prefix("__restrict__ ")
+        .or_else(|| cpp.strip_prefix("__restrict "))
+    {
+        return cpp_to_rust(rest.trim());
+    }
+
+    // 处理 `*__restrict` 无空格形式（libclang 预处理展开后常见，如 `wchar_t *__restrict`）
+    // 必须在后缀形式处理之前，因为 `*__restrict` 不以 ` ` 开始无法被 strip_suffix 匹配
+    if cpp.contains("*__restrict") {
+        let normalized = cpp.replace("*__restrict__", "*").replace("*__restrict", "*");
+        return cpp_to_rust(normalized.trim());
+    }
+
+    // 纯值类型 `const T`（不含 `*`、`&`、`[`）→ 去掉 const 限定符
+    // 例如 `const struct timespec` → `struct timespec` → `timespec`
+    // `const T *`（指针到 const T）和 `const T[N]`（const 数组）不在此处理
+    if let Some(rest) = cpp.strip_prefix("const ") {
+        let rest = rest.trim();
+        if !rest.contains('*') && !rest.contains('&') && !rest.contains('[') {
+            return cpp_to_rust(rest);
+        }
+    }
+
+    // 去掉 `__restrict__` / `__restrict` / `restrict` 后缀形式
+    // 这些限定符可出现在指针类型末尾（如 `wchar_t *__restrict`），在 Rust 中没有对应语义
+    let cpp_no_restrict = cpp
+        .strip_suffix(" __restrict__")
+        .or_else(|| cpp.strip_suffix(" __restrict"))
+        .or_else(|| cpp.strip_suffix(" restrict"))
+        .map(str::trim)
+        .unwrap_or(cpp);
+
     // 原始类型精确映射
-    match cpp {
+    match cpp_no_restrict {
         "void" => return String::new(), // void → ()，调用方处理
         "bool" | "_Bool" => return "bool".to_string(),
         "char" => return "i8".to_string(),
@@ -49,16 +83,63 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // `const char *` 系列 → *const i8（C char 为 signed，对应 Rust i8）
-    if cpp == "const char *" || cpp == "const char*" || cpp == "char const *" {
+    if cpp_no_restrict == "const char *"
+        || cpp_no_restrict == "const char*"
+        || cpp_no_restrict == "char const *"
+    {
         return "*const i8".to_string();
     }
     // `char *` → *mut i8
-    if cpp == "char *" || cpp == "char*" {
+    if cpp_no_restrict == "char *" || cpp_no_restrict == "char*" {
         return "*mut i8".to_string();
     }
 
+    // C 定长数组参数类型（如 `char[20]`、`__cancel_jmp_buf_tag[1]`）及无界数组（如 `double[]`）
+    // 在 C 函数签名中数组参数会退化为指针，映射为 `*mut T`（const 基类型 → `*const T`）
+    if cpp_no_restrict.ends_with(']') {
+        if let Some(bracket_pos) = cpp_no_restrict.rfind('[') {
+            let between = &cpp_no_restrict[bracket_pos + 1..cpp_no_restrict.len() - 1];
+            // `T[N]`（N 为纯数字）或 `T[]`（无界）都退化为指针
+            let is_array =
+                between.is_empty() || between.chars().all(|c| c.is_ascii_digit());
+            if is_array {
+                let base = cpp_no_restrict[..bracket_pos].trim();
+                // `const T[N]` → 元素不可变 → `*const T`
+                let (inner, is_const) = base
+                    .strip_prefix("const ")
+                    .map(|b| (b.trim(), true))
+                    .unwrap_or((base, false));
+                let inner_rust = cpp_to_rust(inner);
+                return if is_const {
+                    if inner_rust.is_empty() {
+                        "*const u8".to_string()
+                    } else {
+                        format!("*const {}", inner_rust)
+                    }
+                } else if inner_rust.is_empty() {
+                    "*mut u8".to_string()
+                } else {
+                    format!("*mut {}", inner_rust)
+                };
+            }
+        }
+    }
+
+    // `T *const` → C 语言中指针本身是 const（如 `char *const`、`void *const`）
+    // 在 Rust FFI 中等价于 `T *`，映射为 `*mut T`（Rust 无"指针本身不可变"的概念）
+    if let Some(rest) = cpp_no_restrict
+        .strip_suffix(" *const")
+        .or_else(|| cpp_no_restrict.strip_suffix("*const"))
+    {
+        let normalized = format!("{} *", rest.trim());
+        return cpp_to_rust(&normalized);
+    }
+
     // `const T *` → `*const T_rust`
-    if let Some(rest) = cpp.strip_suffix(" *").or_else(|| cpp.strip_suffix("*")) {
+    if let Some(rest) = cpp_no_restrict
+        .strip_suffix(" *")
+        .or_else(|| cpp_no_restrict.strip_suffix("*"))
+    {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
@@ -79,7 +160,10 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // 引用类型：T& → &mut T，const T& → &T
-    if let Some(rest) = cpp.strip_suffix(" &").or_else(|| cpp.strip_suffix("&")) {
+    if let Some(rest) = cpp_no_restrict
+        .strip_suffix(" &")
+        .or_else(|| cpp_no_restrict.strip_suffix("&"))
+    {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
@@ -97,12 +181,15 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // 剥除 struct/class 前缀
-    if let Some(rest) = cpp.strip_prefix("struct ").or_else(|| cpp.strip_prefix("class ")) {
+    if let Some(rest) = cpp_no_restrict
+        .strip_prefix("struct ")
+        .or_else(|| cpp_no_restrict.strip_prefix("class "))
+    {
         return cpp_to_rust(rest);
     }
 
     // 未知：原样返回
-    cpp.to_string()
+    cpp_no_restrict.to_string()
 }
 
 /// `cpp_to_rust` 的 FFI 函数版本（现与 `cpp_to_rust` 行为一致，均使用 i8 表示 char*）。
@@ -185,5 +272,46 @@ mod tests {
         assert_eq!(to_snake_case("getX"), "get_x");
         assert_eq!(to_snake_case("getName"), "get_name");
         assert_eq!(to_snake_case("hello"), "hello");
+    }
+
+    #[test]
+    fn test_restrict_qualifier_stripped() {
+        // 后缀形式（有空格）：__restrict / __restrict__ 出现在指针末尾时应被去掉，生成合法 Rust 类型
+        assert_eq!(cpp_to_rust("wchar_t * __restrict"), "*mut wchar_t");
+        assert_eq!(cpp_to_rust("const wchar_t * __restrict"), "*const wchar_t");
+        assert_eq!(cpp_to_rust("wchar_t * __restrict__"), "*mut wchar_t");
+        assert_eq!(cpp_to_rust("char * restrict"), "*mut i8");
+        // 无空格形式：libclang 预处理展开后的实际输出（如 `wchar_t *__restrict`）
+        assert_eq!(cpp_to_rust("wchar_t *__restrict"), "*mut wchar_t");
+        assert_eq!(cpp_to_rust("const wchar_t *__restrict"), "*const wchar_t");
+        assert_eq!(cpp_to_rust("wchar_t *__restrict__"), "*mut wchar_t");
+        assert_eq!(cpp_to_rust("char *__restrict"), "*mut i8");
+        // 前缀形式：MSVC 风格 `__restrict int *` / `__restrict__ char *`
+        assert_eq!(cpp_to_rust("__restrict int *"), "*mut i32");
+        assert_eq!(cpp_to_rust("__restrict__ char *"), "*mut i8");
+    }
+
+    #[test]
+    fn test_c_array_param_becomes_pointer() {
+        // C 定长数组参数类型（libclang 将其显示为 `T[N]`），应映射为 `*mut T`
+        assert_eq!(cpp_to_rust("char[20]"), "*mut i8");
+        assert_eq!(cpp_to_rust("int[4]"), "*mut i32");
+        assert_eq!(cpp_to_rust("__cancel_jmp_buf_tag[1]"), "*mut __cancel_jmp_buf_tag");
+        assert_eq!(cpp_to_rust("unsigned char[16]"), "*mut u8");
+        // 无界数组 `T[]` 同样退化为指针
+        assert_eq!(cpp_to_rust("double[]"), "*mut f64");
+        assert_eq!(cpp_to_rust("int[]"), "*mut i32");
+        // const 数组 `const T[N]` → `*const T`
+        assert_eq!(cpp_to_rust("const struct timespec[2]"), "*const timespec");
+        assert_eq!(cpp_to_rust("const char[16]"), "*const i8");
+    }
+
+    #[test]
+    fn test_const_pointer_qualifier() {
+        // `T *const` 是 C 中指针本身 const（不可重赋值），Rust FFI 中等同于 `T *`
+        assert_eq!(cpp_to_rust("char *const"), "*mut i8");
+        assert_eq!(cpp_to_rust("void *const"), "*mut u8");
+        // `char *const *` → 指向 const 指针的指针 → `*mut *mut i8`
+        assert_eq!(cpp_to_rust("char *const *"), "*mut *mut i8");
     }
 }

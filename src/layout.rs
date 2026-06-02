@@ -55,8 +55,7 @@ impl FeatureLayout {
     /// Write `meta/build_cmd.txt`.
     pub fn save_build_cmd(&self, cmd: &[String]) -> Result<()> {
         let path = self.meta_dir.join("build_cmd.txt");
-        std::fs::write(&path, cmd.join(" "))
-            .map_err(|e| anyhow!("write {}: {}", path.display(), e))
+        std::fs::write(&path, cmd.join(" ")).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
     /// Write `meta/selected_files.json`.
@@ -137,7 +136,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
         layout.create_dirs().unwrap();
-        layout.save_build_cmd(&["make".into(), "-j4".into()]).unwrap();
+        layout
+            .save_build_cmd(&["make".into(), "-j4".into()])
+            .unwrap();
         let content = std::fs::read_to_string(layout.meta_dir.join("build_cmd.txt")).unwrap();
         assert_eq!(content, "make -j4");
     }
