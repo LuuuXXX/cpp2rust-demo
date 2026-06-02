@@ -58,6 +58,8 @@ set -euo pipefail
 FEATURE="${FEATURE:-rapidjson_shim}"
 NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 SKIP_INSTALL="${SKIP_INSTALL:-0}"   # 置 1 可跳过 cargo install 步骤（已安装时使用）
+CXX_STD="c++11"                     # C++ 标准版本（shim 文件要求 C++11 以上）
+TMPDIR="${TMPDIR:-/tmp}"            # 系统临时目录（macOS/Linux 均适用）
 
 # ─── 颜色 / 辅助函数 ──────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -154,20 +156,25 @@ ok "shim 文件就绪"
 # =============================================================================
 step "§ 3. 编译 shim 目标文件"
 
-OBJ_DIR=$(mktemp -d /tmp/rapidjson_shim_obj_XXXXXX)
+OBJ_DIR=$(mktemp -d)
 info "目标文件输出目录：${OBJ_DIR}"
+
+# 注册 trap 清理临时目录
+trap 'rm -rf "${OBJ_DIR}" "${NM_CACHE:-}" 2>/dev/null || true' EXIT
 
 COMPILE_ERRORS=0
 while IFS= read -r src; do
     name="$(basename "${src}" .cpp)"
     obj="${OBJ_DIR}/${name}.o"
-    if g++ -c -std=c++11 \
+    compile_log="${OBJ_DIR}/${name}.log"
+    if g++ -c -std="${CXX_STD}" \
            -I"${RAPIDJSON_INCLUDE}" \
            -I"${SHIM_DIR}" \
-           "${src}" -o "${obj}" 2>&1; then
+           "${src}" -o "${obj}" >"${compile_log}" 2>&1; then
         info "编译成功：${name}.o"
     else
         warn "编译失败：${name}.cpp"
+        cat "${compile_log}" >&2
         COMPILE_ERRORS=$((COMPILE_ERRORS + 1))
     fi
 done < <(find "${SHIM_DIR}" -maxdepth 1 -name "*.cpp" | sort)
@@ -184,13 +191,13 @@ fi
 step "§ 4. cpp2rust-demo init（捕获 FFI 脚手架）"
 
 # 创建临时构建脚本：g++ -c 编译每个 shim 文件，触发 LD_PRELOAD hook 拦截
-BUILD_SCRIPT=$(mktemp /tmp/shim_build_XXXXXX.sh)
+BUILD_SCRIPT=$(mktemp)
 cat > "${BUILD_SCRIPT}" << EOF
 #!/bin/bash
 # 临时构建脚本：由 cpp2rust-demo init 的 LD_PRELOAD hook 拦截 g++ 调用
 set -e
 while IFS= read -r src; do
-    g++ -c -std=c++11 \\
+    g++ -c -std="${CXX_STD}" \\
         -I"${RAPIDJSON_INCLUDE}" \\
         -I"${SHIM_DIR}" \\
         "\${src}" -o /dev/null 2>&1
@@ -375,7 +382,7 @@ if [ -n "${GENERATED_FUNS}" ]; then
 else
     info "未在生成代码中找到 #[cpp(func=...)] 标注（可能全部通过 import_class! 绑定）"
 fi
-rm -f "${NM_CACHE}"
+# NM_CACHE 由 EXIT trap 清理，无需手动删除
 
 # ── 6d. 预处理文件大小统计 ────────────────────────────────────────────────────
 echo -e "\n${BOLD}6d. 捕获的 .cpp2rust 预处理文件大小统计${NC}"
@@ -421,9 +428,7 @@ if [ -d "${RUST_SRC}" ]; then
 else
     warn "Rust 源码目录不存在，跳过特性④⑤验证"
 fi
-
-# 清理临时目标文件
-rm -rf "${OBJ_DIR}"
+# OBJ_DIR 由 EXIT trap 清理，无需手动删除
 
 # =============================================================================
 # § 7. 生成结果汇报

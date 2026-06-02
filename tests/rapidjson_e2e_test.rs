@@ -566,7 +566,7 @@ fn rapidjson_shim_ffi_generates_importlib() {
         for line in code.lines() {
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix("#![link_name = \"") {
-                let ln = rest.trim_end_matches('"').trim_end_matches("\"]");
+                let ln = rest.strip_suffix("\"]").unwrap_or(rest);
                 if ln.contains('/') || ln.contains('\\') {
                     failed_ffi.push(format!(
                         "{}: link_name 含路径分隔符：{}",
