@@ -6,7 +6,9 @@ use cpp2rust_demo::error::Result;
 use cpp2rust_demo::extractor;
 use cpp2rust_demo::generator::hicc_codegen;
 use cpp2rust_demo::generator::project_generator;
-use cpp2rust_demo::layout::{self, FeatureLayout, InitReportData, InitUnitStat, MergeReportData};
+use cpp2rust_demo::layout::{
+    self, CrossMergeReportData, FeatureLayout, InitReportData, InitUnitStat, MergeReportData,
+};
 use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
 use std::time::Instant;
@@ -47,17 +49,34 @@ struct InitArgs {
 
 #[derive(Args)]
 struct MergeArgs {
-    /// Feature name to merge (default: "default")
-    #[arg(long, default_value = "default")]
-    feature: String,
+    /// Feature 名称，可重复指定多次（默认："default"）。
+    /// 指定一个时：与原有行为一致，将该 feature 的 init 输出整理备份。
+    /// 指定多个时：将各 feature 的编译单元跨 feature 合并，输出到以下划线拼接的新目录，
+    /// 例如 `--feature a --feature b` → `.cpp2rust/a_b/`。
+    #[arg(long = "feature", value_name = "NAME")]
+    features: Vec<String>,
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
 
-    let feature = &args.feature;
+    // 单 feature 模式（0 或 1 个 feature）
+    let features = if args.features.is_empty() {
+        vec!["default".to_string()]
+    } else {
+        args.features
+    };
 
+    if features.len() == 1 {
+        run_merge_single(project_root, &features[0])
+    } else {
+        run_merge_cross(project_root, &features)
+    }
+}
+
+/// 单 feature merge：与原有逻辑完全一致。
+fn run_merge_single(project_root: std::path::PathBuf, feature: &str) -> Result<()> {
     println!("=== cpp2rust-demo merge ===");
     println!("Project root : {}", project_root.display());
     println!("Feature      : {}", feature);
@@ -122,6 +141,97 @@ fn run_merge(args: MergeArgs) -> Result<()> {
         "        \u{251c}\u{2500}\u{2500} src.2/  (merge \u{8f93}\u{51fa}\u{ff0c}\u{76ee}\u{5f55}\u{7ed3}\u{6784}\u{4e0e} C++ \u{9879}\u{76ee}\u{4e00}\u{81f4})"
     );
     println!("        \u{2514}\u{2500}\u{2500} src     (symlink \u{2192} src.2)");
+
+    Ok(())
+}
+
+/// 多 feature 跨 feature 合并：将多个 feature 的编译单元聚合到新目录。
+fn run_merge_cross(project_root: std::path::PathBuf, features: &[String]) -> Result<()> {
+    let merged_name = features.join("_");
+
+    println!("=== cpp2rust-demo merge (跨 feature 合并) ===");
+    println!("Project root  : {}", project_root.display());
+    println!("Source features: {}", features.join(", "));
+    println!("Output feature : {}", merged_name);
+    println!();
+
+    // 验证各 source feature 目录存在，收集 unit 文件
+    let mut all_unit_files: Vec<std::path::PathBuf> = Vec::new();
+    for feature in features {
+        let lo = FeatureLayout::new(project_root.clone(), feature);
+        if !lo.feature_root.exists() {
+            return Err(anyhow!(
+                "feature '{}' not found at {}; run 'init --feature {}' first",
+                feature,
+                lo.feature_root.display(),
+                feature,
+            ));
+        }
+        let unit_files = merger::collect_feature_unit_rs_files(&lo);
+        println!(
+            "  Feature '{}': {} unit file(s)",
+            feature,
+            unit_files.len()
+        );
+        all_unit_files.extend(unit_files);
+    }
+
+    if all_unit_files.is_empty() {
+        println!("\nNo unit .rs files found in any source feature. Run 'init' first.");
+        return Ok(());
+    }
+
+    println!(
+        "\nMerging {} unit file(s) across {} features...",
+        all_unit_files.len(),
+        features.len()
+    );
+
+    // 跨 feature 聚合（去重 + 冲突检测）
+    let spec = merger::merge_units(&all_unit_files);
+
+    if !spec.conflicts.is_empty() {
+        println!("\n\u{26a0} {} 个冲突（详见 merge-report.md）：", spec.conflicts.len());
+        for c in &spec.conflicts {
+            println!("  - {}", c.lines().next().unwrap_or(c));
+        }
+    }
+
+    // 创建 output feature 目录并写出 Rust 项目
+    let out_lo = FeatureLayout::new(project_root.clone(), &merged_name);
+    out_lo.create_dirs()?;
+
+    // 将每个 unit 的合并代码写出——由于 merge_units 聚合了所有 unit，
+    // 需要按 unit_path 分别取各 unit 的原始文件写出
+    // 这里直接从各 source unit 文件复制，并以目标 feature 的 layout 为基础。
+    // 生成合并后的单一 ffi.rs（所有 symbol 合并到一个文件）
+    let ffi_code = merger::emit_merged_rs(&spec, &merged_name);
+    let unit_paths = vec!["ffi".to_string()];
+    project_generator::write_unit_rs(&out_lo.rust_dir, "ffi", &ffi_code)?;
+    project_generator::write_cargo_toml(&out_lo.rust_dir, &merged_name)?;
+    project_generator::write_build_rs(&out_lo.rust_dir, &merged_name.replace('-', "_"))?;
+    project_generator::write_lib_rs(&out_lo.rust_dir, &unit_paths)?;
+
+    // 生成 meta/merge-report.md
+    let report_data = CrossMergeReportData {
+        source_features: features,
+        merged_name: &merged_name,
+        unit_count: all_unit_files.len(),
+        conflicts: &spec.conflicts,
+    };
+    out_lo.save_cross_merge_report(&report_data)?;
+
+    println!("\n\u{2713} cpp2rust-demo merge (跨 feature 合并) completed.");
+    println!("\nOutput:");
+    println!("  .cpp2rust/{}/", merged_name);
+    println!("    \u{251c}\u{2500}\u{2500} meta/");
+    println!("    \u{2502}   \u{2514}\u{2500}\u{2500} merge-report.md  (合并摘要)");
+    println!("    \u{2514}\u{2500}\u{2500} rust/");
+    println!("        \u{251c}\u{2500}\u{2500} Cargo.toml");
+    println!("        \u{251c}\u{2500}\u{2500} build.rs");
+    println!("        \u{2514}\u{2500}\u{2500} src/");
+    println!("            \u{251c}\u{2500}\u{2500} lib.rs");
+    println!("            \u{2514}\u{2500}\u{2500} ffi.rs   (所有 feature 的合并 FFI 代码)");
 
     Ok(())
 }
@@ -369,22 +479,42 @@ mod tests {
     }
 
     #[test]
-    fn merge_default_feature() {
+    fn merge_no_feature_defaults_to_default() {
+        // 不传 --feature 时，features 为空向量；run_merge 内部自动补充 "default"
         let args = Cli::try_parse_from(["cpp2rust-demo", "merge"]).unwrap();
         let Commands::Merge(merge) = args.command else {
             panic!("expected Merge");
         };
-        assert_eq!(merge.feature, "default");
+        assert!(merge.features.is_empty(), "no --feature → empty vec");
     }
 
     #[test]
-    fn merge_custom_feature() {
+    fn merge_single_feature() {
         let args =
             Cli::try_parse_from(["cpp2rust-demo", "merge", "--feature", "core_lib"]).unwrap();
         let Commands::Merge(merge) = args.command else {
             panic!("expected Merge");
         };
-        assert_eq!(merge.feature, "core_lib");
+        assert_eq!(merge.features, vec!["core_lib"]);
+    }
+
+    #[test]
+    fn merge_multi_feature_computes_merged_name() {
+        let args = Cli::try_parse_from([
+            "cpp2rust-demo",
+            "merge",
+            "--feature",
+            "linux_x86",
+            "--feature",
+            "arm",
+        ])
+        .unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.features, vec!["linux_x86", "arm"]);
+        // 验证拼接逻辑
+        assert_eq!(merge.features.join("_"), "linux_x86_arm");
     }
 
     #[test]

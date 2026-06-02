@@ -98,6 +98,8 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 > .cpp2rust/linux_x86/      ← linux_x86 构建命令对应的 Rust FFI 绑定
 > .cpp2rust/arm_embedded/   ← arm_embedded 构建命令对应的 Rust FFI 绑定
 > ```
+>
+> 各 target `init` 完成后，可用 `merge` 的多 feature 模式将它们聚合为一个统一 crate（详见 Step 2b）。
 
 
 `init` 自动完成：
@@ -133,7 +135,8 @@ Output structure:
 `merge` 将 `init` 生成的 `src/` 目录原地备份，并将整理后的输出写回同一 feature 目录，完整保留 C++ 项目的目录结构：
 
 ```bash
-cpp2rust-demo merge --feature default
+cpp2rust-demo merge                        # 默认 feature="default"
+cpp2rust-demo merge --feature linux_x86   # 指定单个 feature
 ```
 
 执行后在 `.cpp2rust/<feature>/rust/` 下生成：
@@ -147,6 +150,36 @@ cpp2rust-demo merge --feature default
 
 - 首次运行：`src/` 重命名为 `src.1/`，输出写入 `src.2/`，建立 `src → src.2` symlink
 - 重复运行：`src.1/` 保持不变，仅更新 `src.2/` 并重建 symlink
+
+### Step 2b — `merge`（多 feature 模式）：跨 feature 聚合（可选）
+
+`--feature` 可重复传入多次。指定多个 feature 时，工具将各 feature 的编译单元**跨 feature 聚合**（去重 + 冲突检测），输出到以各 feature 名**下划线拼接**命名的新目录，source feature 目录保持不变：
+
+```bash
+# 将 linux_x86 和 arm_embedded 两个 feature 合并
+cpp2rust-demo merge --feature linux_x86 --feature arm_embedded
+# 输出到 .cpp2rust/linux_x86_arm_embedded/
+```
+
+执行后生成：
+
+```
+.cpp2rust/linux_x86_arm_embedded/
+    ├── meta/
+    │   └── merge-report.md   ← 列出来源 feature、合并单元数、冲突（如有）
+    └── rust/
+        ├── Cargo.toml         ← package.name = "linux_x86_arm_embedded"
+        ├── build.rs
+        └── src/
+            ├── lib.rs
+            └── ffi.rs         ← 所有 feature 的合并 FFI 代码（include 去重、方法去重）
+```
+
+合并逻辑：
+- **include 去重**：相同 `#include` 行只保留一次
+- **class 方法去重**：相同 class 的相同方法签名只保留一次；不同签名的同名方法记为冲突
+- **函数绑定去重**：相同 `#[cpp(func = "...")]` 绑定去重；签名不一致时记为冲突
+- **冲突报告**：冲突会打印在终端，并详细记录于 `merge-report.md`；工具不会因冲突中止，保留第一次出现的版本
 
 ### Step 3 — 手动完善降级特性
 
@@ -171,7 +204,7 @@ cpp2rust-demo merge --feature default
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`） |
+| `--feature <name>` | ❌ | 要操作的 feature 名称（可重复）。不传时默认 `default`（单 feature 模式）；传入多次时启用**跨 feature 合并**（多 feature 模式），输出目录名为各 feature 名下划线拼接 |
 
 #### 环境变量
 

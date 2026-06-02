@@ -42,6 +42,18 @@ pub struct MergeReportData<'a> {
     pub conflicts: &'a [String],
 }
 
+/// 跨 feature 合并阶段报告所需的完整数据。
+pub struct CrossMergeReportData<'a> {
+    /// 来源 feature 名称列表（按用户传入顺序）
+    pub source_features: &'a [String],
+    /// 合并后生成的新目录名（各 feature 名下划线拼接）
+    pub merged_name: &'a str,
+    /// 合并后的编译单元总数
+    pub unit_count: usize,
+    /// 合并时发现的冲突描述列表
+    pub conflicts: &'a [String],
+}
+
 /// Locate the project root by searching for `.cpp2rust/` upward from `start`.
 /// Falls back to `start` itself if not found.
 pub fn find_project_root(start: &Path) -> PathBuf {
@@ -226,6 +238,61 @@ impl FeatureLayout {
         let path = self.meta_dir.join("merge-report.md");
         std::fs::write(&path, out).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
+
+    /// Write `meta/merge-report.md` with a summary of a cross-feature merge.
+    pub fn save_cross_merge_report(&self, data: &CrossMergeReportData<'_>) -> Result<()> {
+        let mut out = String::new();
+
+        out.push_str(&format!(
+            "# Merge 报告 — 跨 feature 合并 → `{}`\n\n",
+            data.merged_name
+        ));
+        out.push_str(
+            "由 **cpp2rust-demo merge**（多 feature 模式）生成。\n\n\
+             本文档汇总了将多个 feature 的编译单元合并为统一 Rust 项目的结果。\n\n---\n\n",
+        );
+
+        // 来源 feature 列表
+        out.push_str("## 来源 feature\n\n");
+        for (i, f) in data.source_features.iter().enumerate() {
+            out.push_str(&format!("{}. `{}`\n", i + 1, f));
+        }
+        out.push_str("\n---\n\n");
+
+        // 汇总
+        out.push_str("## 汇总\n\n");
+        out.push_str(&format!(
+            "- **合并后目录名：** `{}`\n",
+            data.merged_name
+        ));
+        out.push_str(&format!(
+            "- **合并的编译单元文件数：** {}\n\n",
+            data.unit_count
+        ));
+
+        // 冲突
+        out.push_str("## 冲突\n\n");
+        if data.conflicts.is_empty() {
+            out.push_str("*（无）*\n");
+        } else {
+            for conflict in data.conflicts {
+                out.push_str(&format!("- {}\n", conflict));
+            }
+        }
+        out.push_str("\n---\n\n");
+
+        // 输出目录结构
+        out.push_str("## 输出目录结构\n\n");
+        out.push_str("```\n");
+        out.push_str(&format!(".cpp2rust/{}/\n", data.merged_name));
+        out.push_str("    ├── meta/\n");
+        out.push_str("    │   └── merge-report.md  （本文件）\n");
+        out.push_str("    └── rust/       （合并后的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）\n");
+        out.push_str("```\n");
+
+        let path = self.meta_dir.join("merge-report.md");
+        std::fs::write(&path, out).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+    }
 }
 
 /// Scan `.cpp2rust/<feature>/c/` for all `*.cpp2rust` files.
@@ -400,5 +467,51 @@ mod tests {
         let content = std::fs::read_to_string(layout.meta_dir.join("merge-report.md")).unwrap();
         assert!(content.contains("conflict A"));
         assert!(content.contains("conflict B"));
+    }
+
+    #[test]
+    fn save_cross_merge_report_creates_file() {
+        let tmp = TempDir::new().unwrap();
+        let layout = FeatureLayout::new(tmp.path().to_path_buf(), "linux_x86_arm_embedded");
+        layout.create_dirs().unwrap();
+
+        let sources = vec!["linux_x86".to_string(), "arm_embedded".to_string()];
+        let data = CrossMergeReportData {
+            source_features: &sources,
+            merged_name: "linux_x86_arm_embedded",
+            unit_count: 5,
+            conflicts: &[],
+        };
+        layout.save_cross_merge_report(&data).unwrap();
+
+        let content =
+            std::fs::read_to_string(layout.meta_dir.join("merge-report.md")).unwrap();
+        assert!(content.contains("linux_x86_arm_embedded"));
+        assert!(content.contains("5"));
+        assert!(content.contains("*（无）*"));
+    }
+
+    #[test]
+    fn save_cross_merge_report_shows_sources() {
+        let tmp = TempDir::new().unwrap();
+        let layout = FeatureLayout::new(tmp.path().to_path_buf(), "a_b");
+        layout.create_dirs().unwrap();
+
+        let sources = vec!["a".to_string(), "b".to_string()];
+        let conflicts = vec!["conflict X".to_string()];
+        let data = CrossMergeReportData {
+            source_features: &sources,
+            merged_name: "a_b",
+            unit_count: 3,
+            conflicts: &conflicts,
+        };
+        layout.save_cross_merge_report(&data).unwrap();
+
+        let content =
+            std::fs::read_to_string(layout.meta_dir.join("merge-report.md")).unwrap();
+        assert!(content.contains("来源 feature"));
+        assert!(content.contains("`a`"));
+        assert!(content.contains("`b`"));
+        assert!(content.contains("conflict X"));
     }
 }

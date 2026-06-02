@@ -1,23 +1,33 @@
 //! Merge 命令核心逻辑（Phase 6）
 //!
-//! 将一个 feature 下按编译单元生成的 `.rs` 文件整理为备份后的镜像输出，
+//! 将一个或多个 feature 下按编译单元生成的 `.rs` 文件整理为备份后的镜像输出，
 //! 维持与 C++ 项目相同的目录结构。
 //!
-//! 输出结构（写回同一 feature 目录）：
+//! **单 feature 模式**：输出写回同一 feature 目录。
+//!
 //! ```text
 //! .cpp2rust/<feature>/rust/
 //!     ├── src.1/   ← 原始 init 输出的备份
 //!     ├── src.2/   ← merge 输出（目录结构与 init 一致）
 //!     └── src      ← symlink → src.2
 //! ```
+//!
+//! **多 feature 模式**：将多个 feature 的编译单元聚合（去重 + 冲突检测），
+//! 输出到新的合并目录（各 feature 名以下划线拼接），source feature 保持不变。
+//!
+//! ```text
+//! .cpp2rust/<f1>_<f2>/rust/
+//!     └── src/     ← 合并后的 Rust 项目（Cargo.toml、src/lib.rs、src/**/*.rs）
+//! ```
 
 pub mod block_parser;
 
 use crate::error::Result;
+use crate::layout::FeatureLayout;
 use anyhow::anyhow;
 use block_parser::{parse_unit_rs, ParsedFnBinding, ParsedUnit};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // ─────────────────────────────────────────────
 //  合并后的中间结构
@@ -54,6 +64,24 @@ pub struct ParsedMethod {
 // ─────────────────────────────────────────────
 //  主入口：从文件列表合并
 // ─────────────────────────────────────────────
+
+/// 收集指定 feature 下所有 unit `.rs` 文件，优先取 `src.1/`（merge 后的备份目录），
+/// 不存在时回退到 `src/`（init 直接输出目录）。
+///
+/// 这一规则与 `run_merge` 中的单 feature 逻辑保持一致：`src.1/` 是经过备份的 init 输出，
+/// 保证在重复运行 merge 时始终从原始输出中读取。
+pub fn collect_feature_unit_rs_files(layout: &FeatureLayout) -> Vec<PathBuf> {
+    let canonical_src = if layout.rust_dir.join("src.1").is_dir() {
+        layout.rust_dir.join("src.1")
+    } else {
+        layout.rust_dir.join("src")
+    };
+    if canonical_src.exists() {
+        collect_unit_rs_files(&canonical_src)
+    } else {
+        vec![]
+    }
+}
 
 /// 合并多个 unit `.rs` 文件到一个 `MergedSpec`。
 pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
@@ -621,5 +649,53 @@ hicc::import_lib! {
         // rust_dir 下既没有 src 也没有 src.1
         let result = merge_in_place(tmp.path());
         assert!(result.is_err(), "should error when src does not exist");
+    }
+
+    // ── collect_feature_unit_rs_files ──────────
+
+    #[test]
+    fn collect_feature_unit_rs_files_prefers_src1() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let layout = crate::layout::FeatureLayout::new(tmp.path().to_path_buf(), "feat");
+        layout.create_dirs().unwrap();
+
+        // 建立 src.1/（merge 后的备份）和 src/（init 输出）
+        let src1 = layout.rust_dir.join("src.1");
+        let src = layout.rust_dir.join("src");
+        std::fs::create_dir_all(&src1).unwrap();
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src1.join("from_src1.rs"), "").unwrap();
+        std::fs::write(src.join("from_src.rs"), "").unwrap();
+
+        let files = collect_feature_unit_rs_files(&layout);
+        // 应只从 src.1 取，不包含 src/ 中的文件
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("from_src1.rs"));
+    }
+
+    #[test]
+    fn collect_feature_unit_rs_files_falls_back_to_src() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let layout = crate::layout::FeatureLayout::new(tmp.path().to_path_buf(), "feat");
+        layout.create_dirs().unwrap();
+
+        // 只有 src/，没有 src.1/
+        let src = layout.rust_dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("unit_a.rs"), "").unwrap();
+        std::fs::write(src.join("unit_b.rs"), "").unwrap();
+
+        let files = collect_feature_unit_rs_files(&layout);
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn collect_feature_unit_rs_files_returns_empty_when_neither_exists() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let layout = crate::layout::FeatureLayout::new(tmp.path().to_path_buf(), "feat");
+        layout.create_dirs().unwrap();
+        // rust_dir 下没有 src 也没有 src.1
+        let files = collect_feature_unit_rs_files(&layout);
+        assert!(files.is_empty());
     }
 }
