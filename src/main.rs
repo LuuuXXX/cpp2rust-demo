@@ -24,20 +24,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Capture a C++ build and prepare Rust scaffolding inputs
+    /// 捕获 C++ 构建过程并准备 Rust 脚手架输入
     Init(InitArgs),
-    /// Merge generated per-symbol outputs into module-level files
+    /// 将每个符号生成的输出合并到模块级文件
     Merge(MergeArgs),
 }
 
 #[derive(Args)]
 struct InitArgs {
-    /// Feature name (default: "default")
+    /// 特性名称（默认："default"）
     #[arg(long, default_value = "default")]
     feature: String,
 
-    /// Build command to execute (use after '--')
-    /// Example: cpp2rust-demo init -- make -j4
+    /// 要执行的构建命令（置于 '--' 之后）
+    /// 示例：cpp2rust-demo init -- make -j4
     #[arg(
         trailing_var_arg = true,
         allow_hyphen_values = true,
@@ -49,7 +49,7 @@ struct InitArgs {
 
 #[derive(Args)]
 struct MergeArgs {
-    /// Feature name to merge (default: "default")
+    /// 要合并的特性名称（默认："default"）
     #[arg(long, default_value = "default")]
     feature: String,
 }
@@ -383,8 +383,8 @@ fn is_valid_identifier(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// `fwd_decl` が `"class TypeName;"` 形式であれば `TypeName` を返す。
-/// 形式が不正または識別子が無効な場合は警告を出力して `None` を返す。
+/// 若 `fwd_decl` 为 `"class TypeName;"` 形式，则返回 `TypeName`。
+/// 若格式不合法或标识符无效，则输出警告并返回 `None`。
 fn parse_fwd_decl<'a>(fwd_decl: &'a str, unit_path: &str) -> Option<&'a str> {
     let type_name = fwd_decl
         .strip_prefix("class ")
