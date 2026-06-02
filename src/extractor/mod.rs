@@ -1136,22 +1136,20 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
             }
         }
     }
-    let cpp_set: std::collections::HashSet<String> = cpp_includes.iter().cloned().collect();
-
     // 合并：header-only 优先（按 .h 顺序），然后 cpp 中的按顺序
     let mut system: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     // 1. header-only includes
     for inc in &h_includes {
-        if !cpp_set.contains(inc) && seen.insert(inc.clone()) {
+        if !cpp_seen.contains(inc) && seen.insert(inc.as_str()) {
             system.push(inc.clone());
         }
     }
 
     // 2. cpp includes（按 cpp 文件顺序，含同时出现在 header 中的）
     for inc in &cpp_includes {
-        if seen.insert(inc.clone()) {
+        if seen.insert(inc.as_str()) {
             system.push(inc.clone());
         }
     }
