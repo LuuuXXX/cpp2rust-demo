@@ -157,7 +157,7 @@ hicc::import_lib! {
 
 ---
 
-## 5. 当前进度（截至 2026-05-29，最新更新）
+## 5. 当前进度（截至 2026-06-02，最新更新）
 
 ### 5.1 Phase 完成状态
 
@@ -219,6 +219,7 @@ hicc::import_lib! {
 | 修复 volatile 方法处理：`MethodInfo` 新增 `is_volatile` 字段，`build_method_binding` 对 volatile 方法返回 `None` 跳过（hicc 0.2.4 不支持 volatile 成员函数指针），`build_method_decl` 保留 `volatile` 限定符 | 012 |
 | 扩展 `ShimKind::Dtor` 识别规则，新增 `_free`、`_destroy`、`_release` 后缀；`assign_associated_fns` Dtor 不放入 `associated_fns` 而记录为 `destroy_fn` | 通用 |
 | 更新 040 golden 文件：构造函数顺序与工具实际输出（声明顺序）对齐 | 040 |
+| 对齐 043 `main.rs` 运行输出：修正第 4/5 条总结文字（移除 `（*mut u8）` 多余说明；将 `import_lib! 支持 void* opaque pointer 模式` 改为 `import_class! 不支持嵌套命名空间，使用 raw extern "C"`），使 L3 输出与 README 运行结果节精确匹配 | 043 |
 
 ---
 
