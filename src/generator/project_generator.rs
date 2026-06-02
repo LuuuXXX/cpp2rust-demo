@@ -259,9 +259,16 @@ fn main() {{
 
 /// 为多 feature 合并项目写出 Cargo.toml。
 ///
+/// `combined_name` 为各 feature 名称以 `_` 连接的组合名称（如 `feat1_feat2`），
+/// 用作 `package.name` 和 `[lib] name`。
 /// 生成的项目在 `[features]` 中列出每个 feature，
 /// 支持 `cargo build --features <feature>` 按需构建对应代码。
-pub fn write_multi_feature_cargo_toml(rust_dir: &Path, feature_names: &[&str]) -> Result<()> {
+pub fn write_multi_feature_cargo_toml(
+    rust_dir: &Path,
+    combined_name: &str,
+    feature_names: &[&str],
+) -> Result<()> {
+    let lib_name = combined_name.replace('-', "_");
     let features_section = feature_names
         .iter()
         .map(|f| format!("{} = []", f))
@@ -270,12 +277,12 @@ pub fn write_multi_feature_cargo_toml(rust_dir: &Path, feature_names: &[&str]) -
 
     let content = format!(
         r#"[package]
-name = "cpp2rust-merged"
+name = "{combined_name}"
 version = "0.1.0"
 edition = "2018"
 
 [lib]
-name = "cpp2rust_merged"
+name = "{lib_name}"
 path = "src/lib.rs"
 
 [features]
@@ -289,6 +296,8 @@ hicc-std = {{ version = "0.2" }}
 hicc-build = {{ version = "0.2" }}
 cc = "1.0"
 "#,
+        combined_name = combined_name,
+        lib_name = lib_name,
         features_section = features_section,
     );
     let path = rust_dir.join("Cargo.toml");
@@ -623,12 +632,12 @@ mod tests {
     #[test]
     fn write_multi_feature_cargo_toml_contains_features() {
         let tmp = TempDir::new().unwrap();
-        write_multi_feature_cargo_toml(tmp.path(), &["feat1", "feat2"]).unwrap();
+        write_multi_feature_cargo_toml(tmp.path(), "feat1_feat2", &["feat1", "feat2"]).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
         assert!(content.contains("[features]"));
         assert!(content.contains("feat1 = []"));
         assert!(content.contains("feat2 = []"));
-        assert!(content.contains("name = \"cpp2rust-merged\""));
+        assert!(content.contains("name = \"feat1_feat2\""));
     }
 
     #[test]

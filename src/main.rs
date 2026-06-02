@@ -183,14 +183,22 @@ fn run_multi_feature_merge(features: &[String]) -> Result<()> {
     }
     println!();
 
-    // 生成合并项目到 .cpp2rust/rust/
-    let combined_rust_dir = project_root.join(".cpp2rust").join("rust");
+    // 生成合并项目到 .cpp2rust/<feat1>_<feat2>_.../rust/
+    let combined_name = features.join("_");
+    let combined_rust_dir = project_root
+        .join(".cpp2rust")
+        .join(&combined_name)
+        .join("rust");
     std::fs::create_dir_all(&combined_rust_dir)
         .map_err(|e| anyhow!("create dir {}: {}", combined_rust_dir.display(), e))?;
 
     let feature_name_strs: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
 
-    project_generator::write_multi_feature_cargo_toml(&combined_rust_dir, &feature_name_strs)?;
+    project_generator::write_multi_feature_cargo_toml(
+        &combined_rust_dir,
+        &combined_name,
+        &feature_name_strs,
+    )?;
     project_generator::write_multi_feature_lib_rs(&combined_rust_dir, &feature_name_strs)?;
     project_generator::write_multi_feature_build_rs(&combined_rust_dir, &feature_name_strs)?;
 
@@ -202,9 +210,10 @@ fn run_multi_feature_merge(features: &[String]) -> Result<()> {
 
     println!("\n\u{2713} cpp2rust-demo merge completed.");
     println!("\nOutput:");
-    println!("  .cpp2rust/rust/");
+    println!("  .cpp2rust/{}/rust/", combined_name);
     println!(
-        "    \u{251c}\u{2500}\u{2500} Cargo.toml  (package name: cpp2rust-merged; features: {})",
+        "    \u{251c}\u{2500}\u{2500} Cargo.toml  (package name: {}; features: {})",
+        combined_name,
         features.join(", ")
     );
     println!("    \u{251c}\u{2500}\u{2500} build.rs");
