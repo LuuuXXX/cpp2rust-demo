@@ -5,7 +5,7 @@ hicc::cpp! {
 hicc::import_lib! {
     #![link_name = "namespace_nested"]
 
-    #[cpp(func = "void* config_manager_new(void)")]
+    #[cpp(func = "void* config_manager_new()")]
     fn config_manager_new() -> *mut u8;
 
     #[cpp(func = "void config_manager_delete(void*)")]
@@ -20,7 +20,7 @@ hicc::import_lib! {
     #[cpp(func = "int string_length(const char*)")]
     unsafe fn string_length(str: *const i8) -> i32;
 
-    #[cpp(func = "void* data_processor_new(void)")]
+    #[cpp(func = "void* data_processor_new()")]
     fn data_processor_new() -> *mut u8;
 
     #[cpp(func = "void data_processor_delete(void*)")]
@@ -29,10 +29,10 @@ hicc::import_lib! {
     #[cpp(func = "int data_processor_process(void*, int)")]
     unsafe fn data_processor_process(self_: *mut u8, input: i32) -> i32;
 
-    #[cpp(func = "const char* get_version(void)")]
+    #[cpp(func = "const char* get_version()")]
     unsafe fn get_version() -> *const i8;
 
-    #[cpp(func = "int get_build_number(void)")]
+    #[cpp(func = "int get_build_number()")]
     fn get_build_number() -> i32;
 }
 
