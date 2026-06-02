@@ -7,7 +7,9 @@
 //! 覆盖范围：
 //! - 20 个 example 文件：覆盖 rapidjson 全部公开 API（Document/Reader/Writer/
 //!   PrettyWriter/Pointer/Schema/Stream 等）
-//! - 10 个 unittest 文件：深度覆盖内部实现（Allocator/Encoding/Value/DOM 等）
+//! - 10 个 unittest 文件：深度覆盖内部实现（需要 libgtest-dev，标记为 #[ignore]）
+//! - 10 个 shim 文件：`references/rapidjson-refactoring/rapidjson_sys/shim/` 中的
+//!   `extern "C"` 包装层，验证工具能生成完整的 import_lib! FFI 绑定
 
 use cpp2rust_demo::{
     ast_parser, extractor, generator::hicc_codegen, generator::project_generator, merger,
@@ -20,6 +22,23 @@ const RAPIDJSON_ROOT: &str = "references/rapidjson-refactoring/rapidjson_legacy"
 const RAPIDJSON_INCLUDE: &str = "references/rapidjson-refactoring/rapidjson_legacy/include";
 const RAPIDJSON_UNITTEST_DIR: &str =
     "references/rapidjson-refactoring/rapidjson_legacy/test/unittest";
+
+/// rapidjson extern-C shim 文件目录（相对仓库根目录）
+const RAPIDJSON_SHIM_DIR: &str = "references/rapidjson-refactoring/rapidjson_sys/shim";
+
+/// shim 源文件（相对 RAPIDJSON_SHIM_DIR），每个文件对应一个 C++ 子系统的 extern-C 包装层
+const SHIM_SOURCES: &[&str] = &[
+    "allocator_ffi.cpp",
+    "bigintegertest_ffi.cpp",
+    "document_ffi.cpp",
+    "encoding_ffi.cpp",
+    "pointer_ffi.cpp",
+    "reader_ffi.cpp",
+    "schema_ffi.cpp",
+    "stringbuffer_ffi.cpp",
+    "value_ffi.cpp",
+    "writer_ffi.cpp",
+];
 
 /// rapidjson example 源文件（相对 RAPIDJSON_ROOT），覆盖所有公开 API
 const EXAMPLE_SOURCES: &[&str] = &[
@@ -266,7 +285,9 @@ fn rapidjson_init_examples() {
 
 /// L4-Init-Unittests：对全部 rapidjson unittest 文件执行 init 阶段转换。
 /// unittest 文件依赖 gtest，需要系统安装 libgtest-dev。
+/// 使用 `cargo test -- --ignored` 显式运行此测试。
 #[test]
+#[ignore = "需要 libgtest-dev；运行方式：cargo test -- --ignored"]
 fn rapidjson_init_unittests() {
     let tmp = TempDir::new().unwrap();
     let preprocess_dir = tmp.path().join("c");
@@ -448,4 +469,146 @@ fn rapidjson_merge_phase() {
             println!("cargo check 跳过（cargo 不可用: {}）", e);
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  L4-Shim FFI 验证测试
+// ─────────────────────────────────────────────────────────────────
+
+/// L4-Shim-FFI：对 rapidjson_sys/shim/ 中的 extern-C 包装文件执行 init 阶段转换，
+/// 验证工具能从含 `extern "C"` 函数的 C++ 文件生成完整的三段式 hicc Rust FFI 绑定。
+///
+/// 这是 verify-rapidjson-ffi.sh 对应的自动化回归测试。
+/// shim 文件采用"不透明句柄 + extern C 包装层"模式，是为纯 C++ 库（rapidjson）
+/// 生成 Rust safe FFI 的推荐工作流。
+///
+/// 验证要点：
+/// 1. 每个 shim 文件都能成功预处理
+/// 2. 每个 shim 文件生成的代码包含 `hicc::import_lib!` 块（非空 FFI 绑定）
+/// 3. `import_lib!` 块包含正确的函数绑定（`#[cpp(func = ...)]`）
+/// 4. link_name 不含路径分隔符
+#[test]
+fn rapidjson_shim_ffi_generates_importlib() {
+    let tmp = TempDir::new().unwrap();
+    let preprocess_dir = tmp.path().join("c");
+    std::fs::create_dir_all(&preprocess_dir).unwrap();
+
+    let shim_dir = PathBuf::from(RAPIDJSON_SHIM_DIR);
+    let includes: &[&str] = &[RAPIDJSON_INCLUDE, RAPIDJSON_SHIM_DIR];
+
+    assert!(
+        shim_dir.exists(),
+        "shim 目录不存在：{}\n  请确认 references/rapidjson-refactoring/ 子目录已就绪",
+        shim_dir.display()
+    );
+
+    let mut processed = 0usize;
+    let mut failed_ffi: Vec<String> = Vec::new();
+    let mut skipped: Vec<&str> = Vec::new();
+
+    for src_name in SHIM_SOURCES {
+        let src_path = shim_dir.join(src_name);
+        let unit_name = src_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unit")
+            .to_string();
+
+        let preprocessed = match preprocess(&src_path, includes, &preprocess_dir, &unit_name) {
+            Some(p) => p,
+            None => {
+                skipped.push(src_name);
+                continue;
+            }
+        };
+
+        let ast = match ast_parser::parse_preprocessed(&preprocessed) {
+            Ok(a) => a,
+            Err(e) => {
+                failed_ffi.push(format!("{}: AST 解析失败: {}", unit_name, e));
+                continue;
+            }
+        };
+
+        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
+        let code = hicc_codegen::generate(&spec);
+
+        // 验证 1：必须有 import_lib! 块
+        if !code.contains("hicc::import_lib! {") {
+            failed_ffi.push(format!(
+                "{}: 生成代码缺少 hicc::import_lib! 块（fn_bindings={}）",
+                unit_name,
+                spec.lib_spec.fn_bindings.len()
+            ));
+            continue;
+        }
+
+        // 验证 2：函数绑定数量 > 0
+        if spec.lib_spec.fn_bindings.is_empty() {
+            failed_ffi.push(format!(
+                "{}: import_lib! 块存在但 fn_bindings 为空",
+                unit_name
+            ));
+            continue;
+        }
+
+        // 验证 3：必须有 #[cpp(func = "...")] 注解
+        if !code.contains("#[cpp(func = \"") {
+            failed_ffi.push(format!(
+                "{}: import_lib! 块缺少 #[cpp(func = \"...\")] 注解",
+                unit_name
+            ));
+            continue;
+        }
+
+        // 验证 4：link_name 不含路径分隔符
+        for line in code.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("#![link_name = \"") {
+                let ln = rest.trim_end_matches('"').trim_end_matches("\"]");
+                if ln.contains('/') || ln.contains('\\') {
+                    failed_ffi.push(format!(
+                        "{}: link_name 含路径分隔符：{}",
+                        unit_name, ln
+                    ));
+                }
+            }
+        }
+
+        println!(
+            "  [OK] {}: {} fn_bindings, {} class_specs",
+            unit_name,
+            spec.lib_spec.fn_bindings.len(),
+            spec.class_specs.len()
+        );
+        processed += 1;
+    }
+
+    assert!(
+        skipped.is_empty(),
+        "shim-ffi: {} 个文件预处理失败（g++ 是否已安装？）:\n{}",
+        skipped.len(),
+        skipped.join("\n")
+    );
+
+    assert!(
+        failed_ffi.is_empty(),
+        "shim-ffi: {} 个 shim 文件未能生成预期的 import_lib! FFI 绑定:\n{}",
+        failed_ffi.len(),
+        failed_ffi.join("\n")
+    );
+
+    assert_eq!(
+        processed,
+        SHIM_SOURCES.len(),
+        "shim-ffi: 期望处理 {} 个 shim 文件，实际 {}",
+        SHIM_SOURCES.len(),
+        processed
+    );
+
+    println!(
+        "\nshim-ffi: {} 个 shim 文件全部生成 import_lib! FFI 绑定 ✓",
+        processed
+    );
 }
