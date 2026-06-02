@@ -7,7 +7,7 @@ pub mod type_mapper;
 use crate::ast_parser::{ClassInfo, CppAst, FieldInfo, FunctionInfo, MethodInfo, ParamInfo};
 use crate::ffi_model::{ClassSpec, FfiSpec, FnBinding, LibSpec, MethodBinding, SelfKind};
 use std::fs;
-use type_mapper::{clean_type, cpp_to_rust, cpp_to_rust_ffi, to_snake_case};
+use type_mapper::{clean_type, cpp_to_rust, to_snake_case};
 
 // ─────────────────────────────────────────────
 //  公共入口
@@ -885,14 +885,14 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         // 返回类型含函数指针/成员函数指针语法，同样无法映射为有效 Rust FFI 类型，跳过整个函数
         .filter(|(fi, _)| !fi.return_type.contains("(*)"))
         .filter(|(fi, _)| !fi.return_type.contains("::*)"))
-        // 参数或返回类型经 cpp_to_rust_ffi 映射后仍是无法在 Rust FFI 中使用的类型
+        // 参数或返回类型经 cpp_to_rust 映射后仍是无法在 Rust FFI 中使用的类型
         // （如未声明的 C 类型 FILE、未知 C++ 类型 MessageMap、含命名空间的 std::string 等），
         // 跳过整个函数以避免生成无法编译的绑定代码
         .filter(|(fi, _)| {
             fi.params
                 .iter()
-                .all(|p| is_mappable_rust_type(&cpp_to_rust_ffi(&p.type_name), class_names))
-                && is_mappable_rust_type(&cpp_to_rust_ffi(&fi.return_type), class_names)
+                .all(|p| is_mappable_rust_type(&cpp_to_rust(&p.type_name), class_names))
+                && is_mappable_rust_type(&cpp_to_rust(&fi.return_type), class_names)
         })
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
@@ -944,7 +944,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         .map(|(i, p)| {
             (
                 sanitize_param_name(&p.name, i),
-                cpp_to_rust_ffi(&p.type_name),
+                cpp_to_rust(&p.type_name),
             )
         })
         .collect();
@@ -1139,12 +1139,10 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
 /// 将 C++ 返回类型字符串转换为 Rust `Option<String>`（`None` 表示 void 或空）。
 ///
 /// 统一用于 `build_method_binding` 和 `build_fn_binding`，消除重复判断逻辑。
-/// 注：`cpp_to_rust_ffi` 是 `cpp_to_rust` 的等价别名，两处调用行为一致。
 fn ret_type_from_cpp(s: &str) -> Option<String> {
     if s.is_empty() || s == "void" {
         return None;
     }
-    // cpp_to_rust_ffi == cpp_to_rust（见 type_mapper.rs），两处上下文行为相同
     let rt = cpp_to_rust(s);
     if rt.is_empty() {
         None
@@ -1153,7 +1151,7 @@ fn ret_type_from_cpp(s: &str) -> Option<String> {
     }
 }
 
-/// 判断 `cpp_to_rust_ffi` 映射后的 Rust 类型在 FFI 上下文中是否合法可用。
+/// 判断经 `cpp_to_rust` 映射后的 Rust 类型在 FFI 上下文中是否合法可用。
 ///
 /// 合法类型包括：
 /// - 空字符串（void 返回值）

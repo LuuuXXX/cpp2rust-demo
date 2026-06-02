@@ -114,22 +114,30 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 输出示例：
 ```
 === cpp2rust-demo init ===
-Project root : /path/to/my-cpp-project
-Feature      : default
+项目根目录   : /path/to/my-cpp-project
+Feature    : default
+构建命令   : make -j4
 ...
-  mylib.cpp.cpp2rust → 2 class(es), 5 fn(s), 0 enum(s)  [142 ms]
+已捕获 3 个 .cpp2rust 文件
+已为本 feature 选择 3 个文件
 
-⚠ Degraded features (require manual attention):
-  [OP] × 2
-  → Search for 'cpp2rust-todo' in generated files to find these locations.
+正在对选定文件运行 AST 解析与代码生成...
+  mylib.cpp.cpp2rust → 2 个类、5 个函数、0 个枚举  [142 ms]
 
-✓ cpp2rust-demo init completed.
+⚠ 降级特性（需要人工处理）：
+  [OP] × 2 次
+      utils/foo （2 次）
+  → 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。
 
-Output structure:
+✓ cpp2rust-demo init 完成。
+
+输出目录结构:
   .cpp2rust/default/
-    ├── c/          (captured .cpp2rust files)
-    ├── meta/       (build_cmd.txt, selected_files.json)
-    └── rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/**/*.rs)
+    ├── c/          （捕获的 .cpp2rust 文件，目录结构与 C++ 项目一致）
+    ├── meta/       （build_cmd.txt、selected_files.json、init-report.md）
+    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）
+
+已在 .cpp2rust/default/rust/src/ 生成 3 个单元文件
 ```
 
 ### Step 2 — `merge`：备份并整理编译单元输出（可选）

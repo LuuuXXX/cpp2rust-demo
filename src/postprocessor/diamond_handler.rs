@@ -4,7 +4,7 @@
 //! 并生成独立的 snake_case shim 函数插入 `cpp!` 块和 `import_lib!`。
 
 use crate::ast_parser::{ClassInfo, CppAst, FunctionInfo};
-use crate::extractor::type_mapper::{clean_type, cpp_to_rust_ffi, to_snake_case};
+use crate::extractor::type_mapper::{clean_type, cpp_to_rust, to_snake_case};
 use crate::ffi_model::{FfiSpec, FnBinding};
 use std::collections::HashSet;
 
@@ -73,7 +73,7 @@ fn apply_class(
 
         // 生成 snake_case shim 名（如 d_get_a_value）
         let shim_name = to_snake_case(&accessor_name);
-        let rust_ret = cpp_to_rust_ffi(&ret_cpp);
+        let rust_ret = cpp_to_rust(&ret_cpp);
 
         // 生成 cpp! 块中的 shim 函数
         cpp_shim_lines.push(format!("{} {}({}* self) {{", ret_cpp, shim_name, ci.name));

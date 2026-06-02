@@ -3,7 +3,7 @@ use std::fmt;
 
 pub type Result<T> = anyhow::Result<T>;
 
-/// Convenience trait for mapping errors with context
+/// 为错误附加上下文信息的便捷 trait
 pub trait ToError<T> {
     fn ctx(self, info: &str) -> Result<T>;
 }
