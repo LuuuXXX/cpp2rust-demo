@@ -49,16 +49,28 @@ struct InitArgs {
 
 #[derive(Args)]
 struct MergeArgs {
-    /// 要合并的特性名称（默认："default"）
-    #[arg(long, default_value = "default")]
-    feature: String,
+    /// 要合并的特性名称（默认："default"；可多次指定以合并多个 feature）
+    #[arg(long = "feature", value_name = "FEATURE")]
+    features: Vec<String>,
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
+    let features = if args.features.is_empty() {
+        vec!["default".to_string()]
+    } else {
+        args.features
+    };
+
+    if features.len() == 1 {
+        run_single_feature_merge(&features[0])
+    } else {
+        run_multi_feature_merge(&features)
+    }
+}
+
+fn run_single_feature_merge(feature: &str) -> Result<()> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
-
-    let feature = &args.feature;
 
     println!("=== cpp2rust-demo merge ===");
     println!("Project root : {}", project_root.display());
@@ -124,6 +136,96 @@ fn run_merge(args: MergeArgs) -> Result<()> {
         "        \u{251c}\u{2500}\u{2500} src.2/  (merge \u{8f93}\u{51fa}\u{ff0c}\u{76ee}\u{5f55}\u{7ed3}\u{6784}\u{4e0e} C++ \u{9879}\u{76ee}\u{4e00}\u{81f4})"
     );
     println!("        \u{2514}\u{2500}\u{2500} src     (symlink \u{2192} src.2)");
+
+    Ok(())
+}
+
+fn run_multi_feature_merge(features: &[String]) -> Result<()> {
+    let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
+    let project_root = layout::find_project_root(&cwd);
+
+    println!("=== cpp2rust-demo merge (multi-feature) ===");
+    println!("Project root : {}", project_root.display());
+    println!("Features     : {}", features.join(", "));
+    println!();
+
+    // 验证每个 feature 存在，并确定其 canonical src 目录
+    let mut feature_srcs: Vec<(&str, std::path::PathBuf)> = Vec::new();
+    for feature in features {
+        let lo = FeatureLayout::new(project_root.clone(), feature);
+        if !lo.feature_root.exists() {
+            return Err(anyhow!(
+                "feature '{}' not found at {}; run init first",
+                feature,
+                lo.feature_root.display()
+            ));
+        }
+        // src.1 优先（已运行过单 feature merge），否则取 src（init 直接输出）
+        let canonical_src = if lo.rust_dir.join("src.1").is_dir() {
+            lo.rust_dir.join("src.1")
+        } else {
+            lo.rust_dir.join("src")
+        };
+        if !canonical_src.exists() {
+            return Err(anyhow!(
+                "rust/src not found under {}; run init first",
+                lo.rust_dir.display()
+            ));
+        }
+        let unit_count = merger::collect_unit_rs_files(&canonical_src).len();
+        println!(
+            "  Feature '{}': {} unit file(s) in {}",
+            feature,
+            unit_count,
+            canonical_src.display()
+        );
+        feature_srcs.push((feature.as_str(), canonical_src));
+    }
+    println!();
+
+    // 生成合并项目到 .cpp2rust/<feat1>_<feat2>_.../rust/
+    let combined_name = features.join("_");
+    let combined_rust_dir = project_root
+        .join(".cpp2rust")
+        .join(&combined_name)
+        .join("rust");
+    std::fs::create_dir_all(&combined_rust_dir)
+        .map_err(|e| anyhow!("create dir {}: {}", combined_rust_dir.display(), e))?;
+
+    let feature_name_strs: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
+
+    project_generator::write_multi_feature_cargo_toml(
+        &combined_rust_dir,
+        &combined_name,
+        &feature_name_strs,
+    )?;
+    project_generator::write_multi_feature_lib_rs(&combined_rust_dir, &feature_name_strs)?;
+    project_generator::write_multi_feature_build_rs(&combined_rust_dir, &feature_name_strs)?;
+
+    // 将每个 feature 的源文件复制到 src/<feature>/
+    for (feature, canonical_src) in &feature_srcs {
+        let feature_dest = combined_rust_dir.join("src").join(feature);
+        project_generator::copy_feature_src_to_module(canonical_src, &feature_dest, feature)?;
+    }
+
+    println!("\n\u{2713} cpp2rust-demo merge completed.");
+    println!("\nOutput:");
+    println!("  .cpp2rust/{}/rust/", combined_name);
+    println!(
+        "    \u{251c}\u{2500}\u{2500} Cargo.toml  (package name: {}; features: {})",
+        combined_name,
+        features.join(", ")
+    );
+    println!("    \u{251c}\u{2500}\u{2500} build.rs");
+    println!("    \u{2514}\u{2500}\u{2500} src/");
+    println!("        \u{251c}\u{2500}\u{2500} lib.rs      (#[cfg(feature = \"...\")] pub mod ...;)");
+    for feature in features {
+        println!("        \u{251c}\u{2500}\u{2500} {}/", feature);
+    }
+    println!();
+    println!(
+        "Build a specific feature with:  cargo build --features <feature>"
+    );
 
     Ok(())
 }
@@ -510,7 +612,8 @@ mod tests {
         let Commands::Merge(merge) = args.command else {
             panic!("expected Merge");
         };
-        assert_eq!(merge.feature, "default");
+        // 未提供 --feature 时，features 为空（代码内默认为 "default"）
+        assert!(merge.features.is_empty());
     }
 
     #[test]
@@ -520,7 +623,34 @@ mod tests {
         let Commands::Merge(merge) = args.command else {
             panic!("expected Merge");
         };
-        assert_eq!(merge.feature, "core_lib");
+        assert_eq!(merge.features, vec!["core_lib"]);
+    }
+
+    #[test]
+    fn merge_multiple_features() {
+        let args = Cli::try_parse_from([
+            "cpp2rust-demo",
+            "merge",
+            "--feature",
+            "feat1",
+            "--feature",
+            "feat2",
+            "--feature",
+            "feat3",
+        ])
+        .unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.features, vec!["feat1", "feat2", "feat3"]);
+    }
+
+    #[test]
+    fn multi_feature_combined_name_uses_underscore_join() {
+        // 验证多 feature 合并时目录名由 features.join("_") 生成
+        let features = vec!["linux_x86".to_string(), "arm_embedded".to_string()];
+        let combined_name = features.join("_");
+        assert_eq!(combined_name, "linux_x86_arm_embedded");
     }
 
     #[test]

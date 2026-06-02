@@ -98,6 +98,10 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 > .cpp2rust/linux_x86/      ← linux_x86 构建命令对应的 Rust FFI 绑定
 > .cpp2rust/arm_embedded/   ← arm_embedded 构建命令对应的 Rust FFI 绑定
 > ```
+>
+> 完成各 feature 的 `init` + `merge` 之后，可通过 `merge --feature linux_x86 --feature arm_embedded`
+> 将多个 feature 合并为一个支持 `cargo build --features <feature>` 按需编译的统一 Rust 项目。
+> 详见下文 [Step 2b](#step-2b)。
 
 
 `init` 自动完成：
@@ -148,6 +152,50 @@ cpp2rust-demo merge --feature default
 - 首次运行：`src/` 重命名为 `src.1/`，输出写入 `src.2/`，建立 `src → src.2` symlink
 - 重复运行：`src.1/` 保持不变，仅更新 `src.2/` 并重建 symlink
 
+### Step 2b — `merge`（多 feature 合并）：生成统一 Rust 项目 <a name="step-2b"></a>
+
+当项目拥有多个 feature（如多平台/多配置）时，可以在各 feature 完成单独的 `init` + `merge` 之后，
+通过一次 `merge` 调用将它们合并为一个支持 `cargo build --features <feature>` 按需编译的统一 Rust 项目：
+
+```bash
+# 对每个 feature 先完成单独的 init + merge
+cpp2rust-demo init --feature linux_x86 -- make -j4
+cpp2rust-demo merge --feature linux_x86
+
+cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ ...
+cpp2rust-demo merge --feature arm_embedded
+
+# 多 feature 合并：输出到 .cpp2rust/linux_x86_arm_embedded/rust/
+cpp2rust-demo merge --feature linux_x86 --feature arm_embedded
+```
+
+执行后在 `.cpp2rust/<feat1>_<feat2>/rust/` 下生成组合项目：
+
+```
+.cpp2rust/linux_x86_arm_embedded/
+└── rust/
+    ├── Cargo.toml  ← package.name = "linux_x86_arm_embedded"，含 [features] 段
+    ├── build.rs    ← 按 feature 条件编译各 feature 的 C++ shim
+    └── src/
+        ├── lib.rs              ← #[cfg(feature = "...")] pub mod ...;
+        ├── linux_x86/          ← linux_x86 的 Rust 源文件
+        │   └── mod.rs
+        └── arm_embedded/       ← arm_embedded 的 Rust 源文件
+            └── mod.rs
+```
+
+在生成的项目中按需编译特定 feature：
+
+```bash
+cd .cpp2rust/linux_x86_arm_embedded/rust
+cargo build --features linux_x86
+cargo build --features arm_embedded
+cargo build --features linux_x86,arm_embedded
+```
+
+> **注意**：多 feature 合并**不影响**原有的单 feature 目录（`.cpp2rust/linux_x86/`、
+> `.cpp2rust/arm_embedded/`），它们保持不变，可以继续独立使用。
+
 ### Step 3 — 手动完善降级特性
 
 搜索生成代码中的 `cpp2rust-todo` 注释，按 TAG 说明手动完善：
@@ -171,7 +219,7 @@ cpp2rust-demo merge --feature default
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`） |
+| `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`）；**可重复指定**，传入 2 个及以上时进入多 feature 合并模式，输出到 `.cpp2rust/<feat1>_<feat2>/rust/` |
 
 #### 环境变量
 
