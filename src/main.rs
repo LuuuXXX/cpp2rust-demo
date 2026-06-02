@@ -272,7 +272,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             if let Some(existing) = class_to_module.get(&cs.name) {
                 eprintln!(
                     "  Warning: class '{}' defined in both '{}' and '{}'; \
-                     cross-module references will use the first definition",
+cross-module references will use the first definition",
                     cs.name, existing, ud.unit_path
                 );
             } else {
@@ -383,6 +383,32 @@ fn is_valid_identifier(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// `fwd_decl` が `"class TypeName;"` 形式であれば `TypeName` を返す。
+/// 形式が不正または識別子が無効な場合は警告を出力して `None` を返す。
+fn parse_fwd_decl<'a>(fwd_decl: &'a str, unit_path: &str) -> Option<&'a str> {
+    let type_name = fwd_decl
+        .strip_prefix("class ")
+        .and_then(|s| s.strip_suffix(';'))
+        .map(str::trim)
+        .unwrap_or("");
+
+    if type_name.is_empty() {
+        eprintln!(
+            "  Warning: malformed fwd_decl {:?} in unit '{}'; expected format 'class TypeName;'",
+            fwd_decl, unit_path
+        );
+        return None;
+    }
+    if !is_valid_identifier(type_name) {
+        eprintln!(
+            "  Warning: fwd_decl {:?} in unit '{}' contains an invalid identifier '{}'; skipping",
+            fwd_decl, unit_path, type_name
+        );
+        return None;
+    }
+    Some(type_name)
+}
+
 fn build_cross_module_preamble(
     spec: &FfiSpec,
     current_unit_path: &str,
@@ -404,27 +430,11 @@ fn build_cross_module_preamble(
     for fwd_decl in &spec.lib_spec.fwd_decls {
         // fwd_decl 的格式固定为 `"class TypeName;"` ——由 extractor::build_lib_spec 的
         // `format!("class {};", name)` 生成，不含命名空间限定或 struct 前缀。
-        let type_name = fwd_decl
-            .strip_prefix("class ")
-            .and_then(|s| s.strip_suffix(';'))
-            .unwrap_or("")
-            .trim();
-
-        if type_name.is_empty() {
-            eprintln!(
-                "  Warning: malformed fwd_decl {:?} in unit '{}'; expected format 'class TypeName;'",
-                fwd_decl, current_unit_path
-            );
-            continue;
-        }
-
-        if !is_valid_identifier(type_name) {
-            eprintln!(
-                "  Warning: fwd_decl {:?} in unit '{}' contains an invalid identifier '{}'; skipping",
-                fwd_decl, current_unit_path, type_name
-            );
-            continue;
-        }
+        // parse_fwd_decl 负责校验格式和标识符合法性，失败时输出警告并返回 None。
+        let type_name = match parse_fwd_decl(fwd_decl, current_unit_path) {
+            Some(n) => n,
+            None => continue,
+        };
 
         if local_class_names.contains(type_name) {
             // 本模块已有 import_class! 定义，无需额外引入
