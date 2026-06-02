@@ -371,11 +371,11 @@ fi
 echo -e "\n${BOLD}6e. struct/class 前缀 & restrict 清理验证（特性③④）${NC}"
 if [ -d "${RUST_SRC}" ]; then
     STRUCT_HITS=$(grep -rn '\bstruct \b' "${RUST_SRC}" 2>/dev/null \
-        | grep -v '^\s*//' | grep -v 'hicc::cpp!' | wc -l || echo 0)
+        | grep -v '^\s*//' | grep -v 'hicc::cpp!' | wc -l) || STRUCT_HITS=0
     CLASS_HITS=$(grep -rn '\bclass \b' "${RUST_SRC}" 2>/dev/null \
-        | grep -v '^\s*//' | grep -v 'hicc::cpp!' | wc -l || echo 0)
+        | grep -v '^\s*//' | grep -v 'hicc::cpp!' | wc -l) || CLASS_HITS=0
     RESTRICT_HITS=$(grep -rn '__restrict\|[^_]restrict[^_]' "${RUST_SRC}" 2>/dev/null \
-        | grep -v '^\s*//' | wc -l || echo 0)
+        | grep -v '^\s*//' | wc -l) || RESTRICT_HITS=0
 
     if [ "${STRUCT_HITS}" -eq 0 ] && [ "${CLASS_HITS}" -eq 0 ]; then
         ok "Rust 绑定中无多余的 struct/class 前缀（特性③ 通过）"
@@ -425,7 +425,7 @@ fi
 echo ""
 
 # 是否存在 todo 标记
-TODO_COUNT=$(grep -r "cpp2rust-todo" "${RUST_SRC}" 2>/dev/null | wc -l | tr -d '[:space:]')
+TODO_COUNT=$(grep -r "cpp2rust-todo" "${RUST_SRC}" 2>/dev/null | wc -l | tr -d '[:space:]') || TODO_COUNT=0
 TODO_COUNT="${TODO_COUNT:-0}"
 if [ "${TODO_COUNT}" -gt 0 ]; then
     echo -e "  ${YELLOW}⚠ 降级标记（需手动完善）：${TODO_COUNT} 处${NC}"
