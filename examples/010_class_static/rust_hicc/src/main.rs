@@ -8,7 +8,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Counter", destroy = "counter_delete")]
-    class Counter {
+    pub class Counter {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
 

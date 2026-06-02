@@ -10,7 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Shape", destroy = "shape_delete")]
-    class Shape {
+    pub class Shape {
         #[cpp(method = "int getType() const")]
         fn get_type(&self) -> i32;
 

@@ -8,7 +8,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Base", destroy = "base_delete")]
-    class Base {
+    pub class Base {
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
 
@@ -19,7 +19,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Derived", destroy = "derived_delete")]
-    class Derived {
+    pub class Derived {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
 

@@ -14,7 +14,7 @@ use hicc::AbiClass;
 
 hicc::import_class! {
     #[cpp(class = "Mutex", destroy = "mutex_delete")]
-    class Mutex {
+    pub class Mutex {
         #[cpp(method = "void lock()")]
         fn lock(&mut self);
 
@@ -31,7 +31,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "ScopedLock", destroy = "scoped_lock_delete")]
-    class ScopedLock {
+    pub class ScopedLock {
         #[cpp(method = "bool owns_lock() const")]
         fn owns_lock(&self) -> bool;
     }
@@ -39,7 +39,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "FileLock", destroy = "file_lock_delete")]
-    class FileLock {
+    pub class FileLock {
         #[cpp(method = "void lock()")]
         fn lock(&mut self);
 

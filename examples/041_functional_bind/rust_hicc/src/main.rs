@@ -9,7 +9,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Adder", destroy = "adder_delete")]
-    class Adder {
+    pub class Adder {
         #[cpp(method = "int add(int value)")]
         fn add(&mut self, value: i32) -> i32;
     }
@@ -17,7 +17,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Multiplier", destroy = "multiplier_delete")]
-    class Multiplier {
+    pub class Multiplier {
         #[cpp(method = "int multiply(int value)")]
         fn multiply(&mut self, value: i32) -> i32;
     }
@@ -25,7 +25,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "StringProcessor", destroy = "string_processor_delete")]
-    class StringProcessor {
+    pub class StringProcessor {
         #[cpp(method = "void set_target(const char* t)")]
         fn set_target(&mut self, t: *const i8);
 

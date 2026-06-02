@@ -10,7 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "FileHandle", destroy = "refcounted_file_deleter")]
-    class FileHandle {
+    pub class FileHandle {
         #[cpp(method = "bool is_open() const")]
         fn is_open(&self) -> bool;
 

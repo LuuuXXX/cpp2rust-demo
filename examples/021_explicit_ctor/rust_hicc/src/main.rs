@@ -6,7 +6,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Widget", destroy = "widget_delete")]
-    class Widget {
+    pub class Widget {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
     }

@@ -7,7 +7,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Point", destroy = "point_delete")]
-    class Point {
+    pub class Point {
         #[cpp(method = "int getX() const")]
         fn get_x(&self) -> i32;
 

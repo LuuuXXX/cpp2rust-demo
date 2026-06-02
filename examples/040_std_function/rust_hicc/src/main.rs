@@ -13,7 +13,7 @@ use hicc::AbiClass;
 
 hicc::import_class! {
     #[cpp(class = "CallbackWrapper", destroy = "callback_wrapper_delete")]
-    class CallbackWrapper {
+    pub class CallbackWrapper {
         #[cpp(method = "int invoke(int value)")]
         fn invoke(&mut self, value: i32) -> i32;
     }
@@ -21,7 +21,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Processor", destroy = "processor_delete")]
-    class Processor {
+    pub class Processor {
         #[cpp(method = "int process(int value)")]
         fn process(&mut self, value: i32) -> i32;
     }
@@ -29,7 +29,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "MultiCallback", destroy = "multi_callback_delete")]
-    class MultiCallback {
+    pub class MultiCallback {
         #[cpp(method = "void invoke_all(int value)")]
         fn invoke_all(&mut self, value: i32);
     }
@@ -37,7 +37,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "AsyncProcessor", destroy = "async_processor_delete")]
-    class AsyncProcessor {
+    pub class AsyncProcessor {
         #[cpp(method = "bool is_cancelled() const")]
         fn is_cancelled(&self) -> bool;
 

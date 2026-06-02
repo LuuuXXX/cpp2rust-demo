@@ -7,7 +7,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "DataFetcher", destroy = "datafetcher_delete")]
-    class DataFetcher {
+    pub class DataFetcher {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
 

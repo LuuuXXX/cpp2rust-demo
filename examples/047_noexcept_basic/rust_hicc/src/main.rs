@@ -9,7 +9,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "NoexceptMover", destroy = "noexcept_mover_delete")]
-    class NoexceptMover {
+    pub class NoexceptMover {
         #[cpp(method = "int get_value() const")]
         fn get_value(&self) -> i32;
     }

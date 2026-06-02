@@ -7,7 +7,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "UniqueVector", destroy = "unique_vector_delete")]
-    class UniqueVector {
+    pub class UniqueVector {
         #[cpp(method = "int get(int index) const")]
         fn get(&self, index: i32) -> i32;
 

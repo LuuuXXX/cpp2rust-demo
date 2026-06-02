@@ -11,7 +11,7 @@ use hicc::AbiClass;
 
 hicc::import_class! {
     #[cpp(class = "Buffer", destroy = "buffer_delete")]
-    class Buffer {
+    pub class Buffer {
         #[cpp(method = "void* data()")]
         fn data(&mut self) -> *mut u8;
 
@@ -28,7 +28,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "VectorBuffer", destroy = "vector_buffer_delete")]
-    class VectorBuffer {
+    pub class VectorBuffer {
         #[cpp(method = "void* data()")]
         fn data(&mut self) -> *mut u8;
 

@@ -7,7 +7,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Calculator", destroy = "calculator_delete")]
-    class Calculator {
+    pub class Calculator {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
 

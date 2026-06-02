@@ -9,7 +9,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Calculator", destroy = "calculator_delete")]
-    class Calculator {
+    pub class Calculator {
         #[cpp(method = "void clear_exception()")]
         fn clear_exception(&mut self);
 

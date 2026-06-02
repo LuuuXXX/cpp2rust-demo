@@ -12,7 +12,7 @@ use hicc::AbiClass;
 
 hicc::import_class! {
     #[cpp(class = "SharedData", destroy = "shareddata_delete")]
-    class SharedData {
+    pub class SharedData {
         #[cpp(method = "int useCount() const")]
         fn use_count(&self) -> i32;
 
@@ -29,7 +29,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Cache", destroy = "cache_delete")]
-    class Cache {
+    pub class Cache {
         #[cpp(method = "SharedData* get(const char* name)")]
         fn get(&mut self, name: *const i8) -> *mut SharedData;
     }

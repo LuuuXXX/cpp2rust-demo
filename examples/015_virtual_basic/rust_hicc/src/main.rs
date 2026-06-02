@@ -9,7 +9,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Shape", destroy = "shape_delete")]
-    class Shape {
+    pub class Shape {
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
 
@@ -20,7 +20,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Circle", destroy = "circle_delete")]
-    class Circle {
+    pub class Circle {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
 
