@@ -220,6 +220,7 @@ hicc::import_lib! {
 | 扩展 `ShimKind::Dtor` 识别规则，新增 `_free`、`_destroy`、`_release` 后缀；`assign_associated_fns` Dtor 不放入 `associated_fns` 而记录为 `destroy_fn` | 通用 |
 | 更新 040 golden 文件：构造函数顺序与工具实际输出（声明顺序）对齐 | 040 |
 | 对齐 043 `main.rs` 运行输出：修正第 4/5 条总结文字（移除 `（*mut u8）` 多余说明；将 `import_lib! 支持 void* opaque pointer 模式` 改为 `import_class! 不支持嵌套命名空间，使用 raw extern "C"`），使 L3 输出与 README 运行结果节精确匹配 | 043 |
+| 新增跨 feature 合并（multi-feature merge）：`merge` 支持多次指定 `--feature`，2 个及以上时生成 `.cpp2rust/<feat1>_<feat2>/rust/` 组合项目（`Cargo.toml` 含 `[features]` 段，`src/lib.rs` 使用 `#[cfg(feature)]` 条件编译，`build.rs` 按 feature 条件编译 shim）；单 feature 路径不受影响 | 通用 |
 
 ---
 

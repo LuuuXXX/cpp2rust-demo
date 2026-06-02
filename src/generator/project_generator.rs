@@ -641,6 +641,22 @@ mod tests {
     }
 
     #[test]
+    fn write_multi_feature_cargo_toml_hyphen_to_underscore_lib_name() {
+        // combined_name 中含连字符时，[lib] name 应将 '-' 替换为 '_'
+        let tmp = TempDir::new().unwrap();
+        write_multi_feature_cargo_toml(tmp.path(), "my-feat_other", &["my-feat", "other"]).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        assert!(
+            content.contains("name = \"my-feat_other\""),
+            "package.name 应保留原始连字符"
+        );
+        assert!(
+            content.contains("name = \"my_feat_other\""),
+            "[lib] name 应将连字符替换为下划线"
+        );
+    }
+
+    #[test]
     fn write_multi_feature_lib_rs_conditional_mods() {
         let tmp = TempDir::new().unwrap();
         write_multi_feature_lib_rs(tmp.path(), &["feat1", "feat2"]).unwrap();
