@@ -182,6 +182,91 @@ cpp2rust-demo merge --feature default
 
 ---
 
+## 对纯 C++ 库使用 shim 工作流
+
+`cpp2rust-demo` 通过解析 C++ 预处理后的 AST 来提取 `extern "C"` 函数。对于**纯 C++ 库**（例如 rapidjson、Eigen、Abseil），其头文件和源文件中均无 `extern "C"` 声明，直接运行 `init` 只会生成 `hicc::cpp!` 头文件块，**不会生成 `import_lib!` FFI 绑定**。
+
+这是预期行为，不是 bug。正确的做法是先编写一层 **C++ shim 文件**（`extern "C"` 不透明句柄包装层），再对 shim 文件运行 `cpp2rust-demo init`。
+
+### 推荐工作流
+
+```
+纯 C++ 库（如 rapidjson）
+        │
+        ▼
+  ① 编写 C++ shim 文件
+     （extern "C" 包装层，暴露必要的 API 为 C 函数）
+        │
+        ▼
+  ② cpp2rust-demo init --feature <name> -- <编译 shim 的命令>
+     （工具拦截 g++ 调用，提取 shim 中的 extern-C 函数）
+        │
+        ▼
+  ③ cpp2rust-demo merge --feature <name>
+        │
+        ▼
+  ④ 在生成的 Rust 项目中使用 import_lib! 绑定调用原始 C++ API
+```
+
+### shim 文件示例
+
+```cpp
+// document_ffi.h — 暴露为 extern "C" 的不透明句柄 API
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct RapidDocument RapidDocument;
+
+RapidDocument* rapid_document_new();
+void           rapid_document_delete(RapidDocument* doc);
+int            rapid_document_parse(RapidDocument* doc, const char* json);
+
+#ifdef __cplusplus
+}
+#endif
+
+// document_ffi.cpp — 实现（include header，g++ 编译时 extern-C 来自 header）
+#include "document_ffi.h"
+#include "rapidjson/document.h"
+
+struct RapidDocument { rapidjson::Document inner; };
+
+RapidDocument* rapid_document_new() { return new RapidDocument{}; }
+void rapid_document_delete(RapidDocument* doc) { delete doc; }
+int rapid_document_parse(RapidDocument* doc, const char* json) {
+    doc->inner.Parse(json);
+    return doc->inner.HasParseError() ? -1 : 0;
+}
+```
+
+### rapidjson 完整参考实现
+
+本仓库已包含 rapidjson 的完整 shim 参考实现（10 个子系统），位于：
+
+```
+references/rapidjson-refactoring/rapidjson_sys/shim/
+├── allocator_ffi.cpp / .h
+├── document_ffi.cpp / .h
+├── pointer_ffi.cpp / .h
+├── reader_ffi.cpp / .h
+├── stringbuffer_ffi.cpp / .h
+├── value_ffi.cpp / .h
+└── …（共 10 个子系统）
+```
+
+使用本地验证脚本体验完整流程：
+
+```bash
+# 自动定位本地 shim 文件并运行完整转换 + 验证
+bash usage/verify-rapidjson-ffi.sh
+```
+
+> **生成 Cargo.toml 包含 `hicc-std` 依赖**：工具在生成的 `Cargo.toml` 中自动添加
+> `hicc-std` 依赖（STL 容器绑定所需的辅助宏），无需手动添加。
+
+---
+
 ## 生成代码格式（三段式）
 
 工具输出标准的 hicc 三段式 Rust FFI 代码：
@@ -352,7 +437,7 @@ hicc::import_lib! {
 | **L1** 黄金文件测试 | `l1_golden_tests.rs` | 工具生成的 hicc 脚手架与 `rust_hicc/src/main.rs` 中对应块一致 | ✅ **49/49 通过** |
 | **L2** 编译测试 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | ✅ **48/48 通过** |
 | **L3** 运行测试 | `l3_run_tests.rs` | `cargo run` 输出与各示例 README 中"运行结果"一致 | ✅ **48/48 通过** |
-| **L4** E2E 测试 | `rapidjson_e2e_test.rs` | 对 rapidjson 开源项目执行完整 init + merge 转换，验证 hicc 三段式格式 | ✅ 通过 |
+| **L4** E2E 测试 | `rapidjson_e2e_test.rs` | 对 rapidjson shim 文件（`references/rapidjson-refactoring/rapidjson_sys/shim/`）执行完整 init + merge 转换，验证生成真实 `import_lib!` FFI 绑定（而非仅 `cpp!` 块） | ✅ 通过 |
 | **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
 ### 测试命令
@@ -367,8 +452,11 @@ cargo test --test l2_compile_tests
 # 运行 L3 运行测试
 cargo test --test l3_run_tests -- --include-ignored --test-threads=1
 
-# 运行 L4 rapidjson E2E 测试
-cargo test --test rapidjson_e2e_test -- --include-ignored
+# 运行 L4 rapidjson E2E 测试（须单线程：避免并行磁盘操作冲突）
+cargo test --test rapidjson_e2e_test -- --test-threads=1
+
+# 显式运行需要 libgtest-dev 的 unittest 测试（非 CI 环境）
+# cargo test --test rapidjson_e2e_test -- --ignored --test-threads=1
 
 # 运行 L5 nm 符号验证测试
 cargo test --test l5_nm_symbol_tests -- --include-ignored
