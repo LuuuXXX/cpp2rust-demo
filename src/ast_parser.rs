@@ -1040,6 +1040,7 @@ pub fn user_content_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
 
     // 没有行号标记（如 -P 生成）→ 覆盖全文，使字节过滤退化为无过滤
     if !found_any_marker {
+        #[allow(clippy::single_range_in_vec_init)]
         return vec![0..content.len() as u32];
     }
 
@@ -1098,7 +1099,10 @@ mod tests {
             .collect();
         assert!(user_text.contains("int a;"), "应包含用户代码 'int a;'");
         assert!(user_text.contains("int b;"), "应包含用户代码 'int b;'");
-        assert!(!user_text.contains("void sys();"), "不应包含系统头函数 'void sys();'");
+        assert!(
+            !user_text.contains("void sys();"),
+            "不应包含系统头函数 'void sys();'"
+        );
     }
 
     #[test]

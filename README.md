@@ -345,13 +345,15 @@ hicc::import_lib! {
 
 ## 测试体系
 
-测试分三层，位于 `tests/` 目录：
+测试分五层，位于 `tests/` 目录：
 
 | 层 | 文件 | 验证内容 | 当前状态 |
 |----|------|---------|---------|
 | **L1** 黄金文件测试 | `l1_golden_tests.rs` | 工具生成的 hicc 脚手架与 `rust_hicc/src/main.rs` 中对应块一致 | ✅ **49/49 通过** |
 | **L2** 编译测试 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | ✅ **48/48 通过** |
 | **L3** 运行测试 | `l3_run_tests.rs` | `cargo run` 输出与各示例 README 中"运行结果"一致 | ✅ **48/48 通过** |
+| **L4** E2E 测试 | `rapidjson_e2e_test.rs` | 对 rapidjson 开源项目执行完整 init + merge 转换，验证 hicc 三段式格式 | ✅ 通过 |
+| **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
 ### 测试命令
 
@@ -364,6 +366,12 @@ cargo test --test l2_compile_tests
 
 # 运行 L3 运行测试
 cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+
+# 运行 L4 rapidjson E2E 测试
+cargo test --test rapidjson_e2e_test -- --include-ignored
+
+# 运行 L5 nm 符号验证测试
+cargo test --test l5_nm_symbol_tests -- --include-ignored
 
 # 运行某个示例的全部测试
 cargo test 006_class_basic

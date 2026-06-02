@@ -14,22 +14,6 @@ macro_rules! compile_test {
     };
 }
 
-// Known pre-existing compilation failures that need investigation and fixing.
-macro_rules! compile_test_ignore {
-    ($name:ident, $example:literal) => {
-        #[test]
-        #[ignore = "known pre-existing compilation failure - needs investigation"]
-        fn $name() {
-            let dir = concat!("examples/", $example, "/rust_hicc");
-            assert!(
-                common::cargo_build(dir),
-                "cargo build failed for {}",
-                $example
-            );
-        }
-    };
-}
-
 compile_test!(compile_001_hello_world, "001_hello_world");
 compile_test!(compile_002_function_overload, "002_function_overload");
 compile_test!(compile_003_default_args, "003_default_args");

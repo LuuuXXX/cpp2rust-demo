@@ -26,7 +26,9 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     // 处理 `*__restrict` 无空格形式（libclang 预处理展开后常见，如 `wchar_t *__restrict`）
     // 必须在后缀形式处理之前，因为 `*__restrict` 不以 ` ` 开始无法被 strip_suffix 匹配
     if cpp.contains("*__restrict") {
-        let normalized = cpp.replace("*__restrict__", "*").replace("*__restrict", "*");
+        let normalized = cpp
+            .replace("*__restrict__", "*")
+            .replace("*__restrict", "*");
         return cpp_to_rust(normalized.trim());
     }
 
@@ -100,8 +102,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         if let Some(bracket_pos) = cpp_no_restrict.rfind('[') {
             let between = &cpp_no_restrict[bracket_pos + 1..cpp_no_restrict.len() - 1];
             // `T[N]`（N 为纯数字）或 `T[]`（无界）都退化为指针
-            let is_array =
-                between.is_empty() || between.chars().all(|c| c.is_ascii_digit());
+            let is_array = between.is_empty() || between.chars().all(|c| c.is_ascii_digit());
             if is_array {
                 let base = cpp_no_restrict[..bracket_pos].trim();
                 // `const T[N]` → 元素不可变 → `*const T`
@@ -296,7 +297,10 @@ mod tests {
         // C 定长数组参数类型（libclang 将其显示为 `T[N]`），应映射为 `*mut T`
         assert_eq!(cpp_to_rust("char[20]"), "*mut i8");
         assert_eq!(cpp_to_rust("int[4]"), "*mut i32");
-        assert_eq!(cpp_to_rust("__cancel_jmp_buf_tag[1]"), "*mut __cancel_jmp_buf_tag");
+        assert_eq!(
+            cpp_to_rust("__cancel_jmp_buf_tag[1]"),
+            "*mut __cancel_jmp_buf_tag"
+        );
         assert_eq!(cpp_to_rust("unsigned char[16]"), "*mut u8");
         // 无界数组 `T[]` 同样退化为指针
         assert_eq!(cpp_to_rust("double[]"), "*mut f64");
