@@ -40,6 +40,18 @@ pub struct MergeReportData<'a> {
     pub unit_count: usize,
     /// 合并时发现的冲突描述列表
     pub conflicts: &'a [String],
+    /// 合并后生成的 .rs 文件总数
+    pub rs_file_count: usize,
+    /// 包含 `hicc::import_lib!` 块的文件数
+    pub import_lib_files: usize,
+    /// 包含 `hicc::import_class!` 块的文件数
+    pub import_class_files: usize,
+    /// `#[cpp(func = "...")]` 绑定函数总数
+    pub fn_binding_count: usize,
+    /// 降级标记总数（`cpp2rust-todo`）
+    pub todo_count: usize,
+    /// link_name 含路径分隔符的异常数量
+    pub bad_link_name_count: usize,
 }
 
 /// 从 `start` 向上逐级查找 `.cpp2rust/` 目录，返回项目根目录。
@@ -199,8 +211,12 @@ impl FeatureLayout {
         // 汇总
         out.push_str("## 汇总\n\n");
         out.push_str(&format!(
-            "- **已合并的编译单元文件数：** {}\n\n",
+            "- **已合并的编译单元文件数：** {}\n",
             data.unit_count
+        ));
+        out.push_str(&format!(
+            "- **生成 `.rs` 文件总数：** {}\n\n",
+            data.rs_file_count
         ));
 
         // 冲突
@@ -211,6 +227,39 @@ impl FeatureLayout {
             for conflict in data.conflicts {
                 out.push_str(&format!("- {}\n", conflict));
             }
+        }
+        out.push_str("\n---\n\n");
+
+        // FFI 绑定统计
+        out.push_str("## FFI 绑定统计\n\n");
+        out.push_str("| 指标 | 数量 |\n|------|------|\n");
+        out.push_str(&format!(
+            "| `import_lib!` 绑定文件数 | {} |\n",
+            data.import_lib_files
+        ));
+        out.push_str(&format!(
+            "| `import_class!` 绑定文件数 | {} |\n",
+            data.import_class_files
+        ));
+        out.push_str(&format!(
+            "| FFI 函数绑定总数（`#[cpp(func=...)]`）| {} |\n",
+            data.fn_binding_count
+        ));
+        if data.bad_link_name_count == 0 {
+            out.push_str("| `link_name` 一致性 | ✓ 全部通过 |\n");
+        } else {
+            out.push_str(&format!(
+                "| `link_name` 含路径分隔符 | ⚠ {} 处异常 |\n",
+                data.bad_link_name_count
+            ));
+        }
+        if data.todo_count == 0 {
+            out.push_str("| 降级标记（`cpp2rust-todo`）| ✓ 无 |\n");
+        } else {
+            out.push_str(&format!(
+                "| 降级标记（`cpp2rust-todo`）| ⚠ {} 处 |\n",
+                data.todo_count
+            ));
         }
         out.push_str("\n---\n\n");
 
@@ -374,6 +423,12 @@ mod tests {
             feature: "default",
             unit_count: 7,
             conflicts: &[],
+            rs_file_count: 10,
+            import_lib_files: 3,
+            import_class_files: 2,
+            fn_binding_count: 15,
+            todo_count: 0,
+            bad_link_name_count: 0,
         };
         layout.save_merge_report(&data).unwrap();
 
@@ -381,6 +436,8 @@ mod tests {
         assert!(content.contains("# Merge 报告 — feature `default`"));
         assert!(content.contains("7"));
         assert!(content.contains("*（无）*"));
+        assert!(content.contains("import_lib!"));
+        assert!(content.contains("✓ 全部通过"));
     }
 
     #[test]
@@ -394,11 +451,18 @@ mod tests {
             feature: "default",
             unit_count: 2,
             conflicts: &conflicts,
+            rs_file_count: 0,
+            import_lib_files: 0,
+            import_class_files: 0,
+            fn_binding_count: 0,
+            todo_count: 1,
+            bad_link_name_count: 0,
         };
         layout.save_merge_report(&data).unwrap();
 
         let content = std::fs::read_to_string(layout.meta_dir.join("merge-report.md")).unwrap();
         assert!(content.contains("conflict A"));
         assert!(content.contains("conflict B"));
+        assert!(content.contains("⚠"));
     }
 }
