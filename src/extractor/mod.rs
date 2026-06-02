@@ -894,6 +894,15 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         // 返回类型含函数指针/成员函数指针语法，同样无法映射为有效 Rust FFI 类型，跳过整个函数
         .filter(|(fi, _)| !fi.return_type.contains("(*)"))
         .filter(|(fi, _)| !fi.return_type.contains("::*)"))
+        // 参数或返回类型经 cpp_to_rust_ffi 映射后仍是无法在 Rust FFI 中使用的类型
+        // （如未声明的 C 类型 FILE、未知 C++ 类型 MessageMap、含命名空间的 std::string 等），
+        // 跳过整个函数以避免生成无法编译的绑定代码
+        .filter(|(fi, _)| {
+            fi.params
+                .iter()
+                .all(|p| is_mappable_rust_type(&cpp_to_rust_ffi(&p.type_name), class_names))
+                && is_mappable_rust_type(&cpp_to_rust_ffi(&fi.return_type), class_names)
+        })
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
 
@@ -1146,6 +1155,63 @@ fn ret_type_from_cpp(s: &str) -> Option<String> {
     } else {
         Some(rt)
     }
+}
+
+/// 判断 `cpp_to_rust_ffi` 映射后的 Rust 类型在 FFI 上下文中是否合法可用。
+///
+/// 合法类型包括：
+/// - 空字符串（void 返回值）
+/// - Rust 原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）
+/// - `*const i8` / `*mut i8` / `*const u8` / `*mut u8`（C 字符串或 void 指针）
+/// - `*mut T` / `*const T`（T 为 `class_names` 中的已知类或原始类型）
+/// - `&T` / `&mut T`（T 为 `class_names` 中的已知类或原始类型）
+///
+/// 以下情况为非法（会导致生成的 Rust 代码无法编译）：
+/// - 含 `::` 的 C++ 命名空间类型（如 `std::string`）
+/// - 未声明的 C 类型（如 `FILE`，展开为 `*mut FILE`）
+/// - 未知 C++ 类型（如 `MessageMap`、`ValueType`、`SchemaDocument`）
+fn is_mappable_rust_type(rust_ty: &str, class_names: &[&str]) -> bool {
+    if rust_ty.is_empty() {
+        return true; // void 返回值
+    }
+    // 含 :: 的路径表达式（如 std::string）在 FFI 类型位置非法
+    if rust_ty.contains("::") {
+        return false;
+    }
+    const PRIMITIVES: &[&str] = &[
+        "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f64", "bool", "isize",
+        "usize",
+    ];
+    if PRIMITIVES.contains(&rust_ty) {
+        return true;
+    }
+    // 裸指针：*mut T 或 *const T
+    if let Some(inner) = rust_ty
+        .strip_prefix("*mut ")
+        .or_else(|| rust_ty.strip_prefix("*const "))
+    {
+        // 字节指针/C 字符串指针始终合法
+        if inner == "i8" || inner == "u8" {
+            return true;
+        }
+        // 指向原始类型的指针（如 *mut i32）合法
+        if PRIMITIVES.contains(&inner) {
+            return true;
+        }
+        // 指向已知类的指针合法
+        return class_names.contains(&inner);
+    }
+    // 引用：&T 或 &mut T
+    if let Some(inner) = rust_ty
+        .strip_prefix("&mut ")
+        .or_else(|| rust_ty.strip_prefix("&"))
+    {
+        if PRIMITIVES.contains(&inner) {
+            return true;
+        }
+        return class_names.contains(&inner);
+    }
+    false
 }
 
 /// 从源文件字节数组中读取范围文本
@@ -1613,6 +1679,120 @@ mod tests {
         assert!(
             build_method_binding(&m).is_some(),
             "普通方法不应被过滤，但返回了 None"
+        );
+    }
+
+    // ── is_mappable_rust_type 单元测试 ─────────────────────────────
+
+    #[test]
+    fn is_mappable_rust_type_primitives() {
+        for ty in &["i8", "u8", "i32", "u32", "i64", "f64", "bool", "isize", "usize"] {
+            assert!(is_mappable_rust_type(ty, &[]), "原始类型 {} 应合法", ty);
+        }
+    }
+
+    #[test]
+    fn is_mappable_rust_type_void() {
+        assert!(is_mappable_rust_type("", &[]), "空字符串（void）应合法");
+    }
+
+    #[test]
+    fn is_mappable_rust_type_c_string_ptrs() {
+        assert!(is_mappable_rust_type("*const i8", &[]), "*const i8 应合法");
+        assert!(is_mappable_rust_type("*mut i8", &[]), "*mut i8 应合法");
+        assert!(is_mappable_rust_type("*mut u8", &[]), "*mut u8（void*）应合法");
+        assert!(is_mappable_rust_type("*const u8", &[]), "*const u8 应合法");
+    }
+
+    #[test]
+    fn is_mappable_rust_type_known_class_ptr() {
+        let classes = &["MyClass"];
+        assert!(
+            is_mappable_rust_type("*mut MyClass", classes),
+            "*mut 已知类 应合法"
+        );
+        assert!(
+            is_mappable_rust_type("&mut MyClass", classes),
+            "&mut 已知类 应合法"
+        );
+        assert!(
+            is_mappable_rust_type("&MyClass", classes),
+            "& 已知类 应合法"
+        );
+    }
+
+    #[test]
+    fn is_mappable_rust_type_unknown_type_is_invalid() {
+        assert!(!is_mappable_rust_type("FILE", &[]), "未知裸类型 FILE 应非法");
+        assert!(
+            !is_mappable_rust_type("*mut FILE", &[]),
+            "*mut FILE（未知类）应非法"
+        );
+        assert!(
+            !is_mappable_rust_type("&mut MessageMap", &[]),
+            "&mut 未知类 应非法"
+        );
+        assert!(
+            !is_mappable_rust_type("SchemaDocument", &[]),
+            "未知裸类型 SchemaDocument 应非法"
+        );
+    }
+
+    #[test]
+    fn is_mappable_rust_type_namespace_is_invalid() {
+        assert!(
+            !is_mappable_rust_type("std::string", &[]),
+            "含命名空间 std::string 应非法"
+        );
+    }
+
+    /// 含未知参数类型的函数不应出现在 import_lib! 中
+    #[test]
+    fn build_lib_spec_filters_unknown_param_type() {
+        // FILE 是 C 标准类型，不在 class_names 中，无法映射为合法 Rust 类型
+        let fi = make_fn("open_encoded_file", "void", &["const char *", "FILE *"]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert!(
+            spec.fn_bindings.is_empty(),
+            "含未知参数类型（FILE *）的函数应被过滤"
+        );
+    }
+
+    /// 含未知返回类型的函数不应出现在 import_lib! 中
+    #[test]
+    fn build_lib_spec_filters_unknown_return_type() {
+        let fi = make_fn("return_schema_doc", "SchemaDocument", &[]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert!(
+            spec.fn_bindings.is_empty(),
+            "含未知返回类型（SchemaDocument）的函数应被过滤"
+        );
+    }
+
+    /// 含命名空间返回类型的函数不应出现在 import_lib! 中
+    #[test]
+    fn build_lib_spec_filters_namespace_return_type() {
+        let fi = make_fn("get_string", "std::string", &[]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert!(
+            spec.fn_bindings.is_empty(),
+            "含命名空间返回类型（std::string）的函数应被过滤"
+        );
+    }
+
+    /// 参数为已知类引用的函数应保留在 import_lib! 中
+    #[test]
+    fn build_lib_spec_keeps_known_class_ref_param() {
+        let fi = make_fn("process", "int", &["MyClass &"]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &["MyClass"]);
+        assert_eq!(
+            spec.fn_bindings.len(),
+            1,
+            "参数为已知类引用的函数应保留"
         );
     }
 }
