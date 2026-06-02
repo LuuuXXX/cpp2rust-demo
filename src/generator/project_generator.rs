@@ -334,7 +334,11 @@ mod tests {
         // derive_unit_path 已去掉首级目录（"src"），故 unit_path 形如 "utils/foo"
         write_lib_rs(
             tmp.path(),
-            &["utils/foo".to_string(), "utils/bar".to_string(), "main".to_string()],
+            &[
+                "utils/foo".to_string(),
+                "utils/bar".to_string(),
+                "main".to_string(),
+            ],
         )
         .unwrap();
 
@@ -353,11 +357,7 @@ mod tests {
     #[test]
     fn write_lib_rs_mixed_depth() {
         let tmp = TempDir::new().unwrap();
-        write_lib_rs(
-            tmp.path(),
-            &["flat".to_string(), "sub/deep".to_string()],
-        )
-        .unwrap();
+        write_lib_rs(tmp.path(), &["flat".to_string(), "sub/deep".to_string()]).unwrap();
 
         let lib = std::fs::read_to_string(tmp.path().join("src/lib.rs")).unwrap();
         assert!(lib.contains("pub mod flat;"));

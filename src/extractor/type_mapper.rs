@@ -16,7 +16,10 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // 去掉 `__restrict__` / `__restrict` 前缀形式（MSVC 风格，如 `__restrict int *`）
-    if let Some(rest) = cpp.strip_prefix("__restrict__ ").or_else(|| cpp.strip_prefix("__restrict ")) {
+    if let Some(rest) = cpp
+        .strip_prefix("__restrict__ ")
+        .or_else(|| cpp.strip_prefix("__restrict "))
+    {
         return cpp_to_rust(rest.trim());
     }
 
@@ -63,7 +66,10 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // `const char *` 系列 → *const i8（C char 为 signed，对应 Rust i8）
-    if cpp_no_restrict == "const char *" || cpp_no_restrict == "const char*" || cpp_no_restrict == "char const *" {
+    if cpp_no_restrict == "const char *"
+        || cpp_no_restrict == "const char*"
+        || cpp_no_restrict == "char const *"
+    {
         return "*const i8".to_string();
     }
     // `char *` → *mut i8
@@ -72,7 +78,10 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // `const T *` → `*const T_rust`
-    if let Some(rest) = cpp_no_restrict.strip_suffix(" *").or_else(|| cpp_no_restrict.strip_suffix("*")) {
+    if let Some(rest) = cpp_no_restrict
+        .strip_suffix(" *")
+        .or_else(|| cpp_no_restrict.strip_suffix("*"))
+    {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
@@ -93,7 +102,10 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // 引用类型：T& → &mut T，const T& → &T
-    if let Some(rest) = cpp_no_restrict.strip_suffix(" &").or_else(|| cpp_no_restrict.strip_suffix("&")) {
+    if let Some(rest) = cpp_no_restrict
+        .strip_suffix(" &")
+        .or_else(|| cpp_no_restrict.strip_suffix("&"))
+    {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
@@ -111,7 +123,10 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // 剥除 struct/class 前缀
-    if let Some(rest) = cpp_no_restrict.strip_prefix("struct ").or_else(|| cpp_no_restrict.strip_prefix("class ")) {
+    if let Some(rest) = cpp_no_restrict
+        .strip_prefix("struct ")
+        .or_else(|| cpp_no_restrict.strip_prefix("class "))
+    {
         return cpp_to_rust(rest);
     }
 

@@ -156,9 +156,11 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\nRunning AST parser and code generation on selected files...");
     let mut unit_paths: Vec<String> = Vec::new();
     // 降级特性统计：tag → 出现次数
-    let mut degraded_tags: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut degraded_tags: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     // unit_path → 首次注册该路径的源文件（用于冲突诊断）
-    let mut seen_unit_paths: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+    let mut seen_unit_paths: std::collections::HashMap<String, std::path::PathBuf> =
+        std::collections::HashMap::new();
 
     for path in &selected {
         let file_start = Instant::now();
@@ -224,7 +226,9 @@ fn run_init(args: InitArgs) -> Result<()> {
                 let elapsed_ms = file_start.elapsed().as_millis();
                 return Err(anyhow!(
                     "parse failed for {} [{} ms]: {:#}",
-                    path.display(), elapsed_ms, err
+                    path.display(),
+                    elapsed_ms,
+                    err
                 ));
             }
         }
@@ -238,7 +242,9 @@ fn run_init(args: InitArgs) -> Result<()> {
         for (tag, count) in &tags {
             println!("  [{}] \u{d7} {}", tag, count);
         }
-        println!("  \u{2192} Search for 'cpp2rust-todo' in generated files to find these locations.");
+        println!(
+            "  \u{2192} Search for 'cpp2rust-todo' in generated files to find these locations."
+        );
     }
 
     // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
@@ -253,7 +259,11 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("    \u{251c}\u{2500}\u{2500} meta/       (build_cmd.txt, selected_files.json)");
     println!("    \u{2514}\u{2500}\u{2500} rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/**/*.rs)");
     println!();
-    println!("Generated {} unit file(s) in .cpp2rust/{}/rust/src/", unit_paths.len(), feature);
+    println!(
+        "Generated {} unit file(s) in .cpp2rust/{}/rust/src/",
+        unit_paths.len(),
+        feature
+    );
     if unit_paths.iter().any(|p| p.contains('/')) {
         println!("  (directory structure mirrors the C++ project layout)");
     }

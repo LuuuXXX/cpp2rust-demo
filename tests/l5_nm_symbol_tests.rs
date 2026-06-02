@@ -39,59 +39,203 @@ fn repo_root() -> std::path::PathBuf {
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct ExampleSpec {
-    dir_name: &'static str,   // e.g. "001_hello_world"
-    bin_name: &'static str,   // Cargo.toml package.name, e.g. "hello_world"
+    dir_name: &'static str, // e.g. "001_hello_world"
+    bin_name: &'static str, // Cargo.toml package.name, e.g. "hello_world"
 }
 
 const EXAMPLES: &[ExampleSpec] = &[
-    ExampleSpec { dir_name: "001_hello_world",            bin_name: "hello_world" },
-    ExampleSpec { dir_name: "002_function_overload",      bin_name: "function_overload" },
-    ExampleSpec { dir_name: "003_default_args",           bin_name: "default_args" },
-    ExampleSpec { dir_name: "004_inline_functions",       bin_name: "inline_functions" },
-    ExampleSpec { dir_name: "005_variadic_functions",     bin_name: "variadic_functions" },
-    ExampleSpec { dir_name: "006_class_basic",            bin_name: "class_basic" },
-    ExampleSpec { dir_name: "007_class_constructor",      bin_name: "class_constructor" },
-    ExampleSpec { dir_name: "008_class_copy",             bin_name: "class_copy" },
-    ExampleSpec { dir_name: "009_class_move",             bin_name: "class_move" },
-    ExampleSpec { dir_name: "010_class_static",           bin_name: "class_static" },
-    ExampleSpec { dir_name: "011_class_const",            bin_name: "class_const" },
-    ExampleSpec { dir_name: "012_class_volatile",         bin_name: "class_volatile" },
-    ExampleSpec { dir_name: "013_inheritance_single",     bin_name: "inheritance_single" },
-    ExampleSpec { dir_name: "014_inheritance_multiple",   bin_name: "inheritance_multiple" },
-    ExampleSpec { dir_name: "015_virtual_basic",          bin_name: "virtual_basic" },
-    ExampleSpec { dir_name: "016_virtual_pure",           bin_name: "virtual_pure" },
-    ExampleSpec { dir_name: "017_virtual_override",       bin_name: "virtual_override" },
-    ExampleSpec { dir_name: "018_virtual_diamond",        bin_name: "virtual_diamond" },
-    ExampleSpec { dir_name: "019_operator_overload",      bin_name: "operator_overload" },
-    ExampleSpec { dir_name: "020_friend_function",        bin_name: "friend_function" },
-    ExampleSpec { dir_name: "021_explicit_ctor",          bin_name: "explicit_ctor" },
-    ExampleSpec { dir_name: "022_mutable_member",         bin_name: "mutable_member" },
-    ExampleSpec { dir_name: "023_typeid_rtti",            bin_name: "typeid_rtti" },
-    ExampleSpec { dir_name: "024_template_function",      bin_name: "template_function" },
-    ExampleSpec { dir_name: "025_template_class",         bin_name: "template_class" },
-    ExampleSpec { dir_name: "026_template_specialization",bin_name: "template_specialization" },
-    ExampleSpec { dir_name: "027_template_instantiation", bin_name: "template_instantiation" },
-    ExampleSpec { dir_name: "028_variadic_template",      bin_name: "variadic_template" },
-    ExampleSpec { dir_name: "029_unique_ptr",             bin_name: "unique_ptr" },
-    ExampleSpec { dir_name: "030_shared_ptr",             bin_name: "shared_ptr" },
-    ExampleSpec { dir_name: "031_custom_deleter",         bin_name: "custom_deleter" },
-    ExampleSpec { dir_name: "032_placement_new",          bin_name: "placement_new" },
-    ExampleSpec { dir_name: "033_raii_pattern",           bin_name: "raii_pattern" },
-    ExampleSpec { dir_name: "034_vector_basic",           bin_name: "vector_basic" },
-    ExampleSpec { dir_name: "035_map_basic",              bin_name: "map_basic" },
-    ExampleSpec { dir_name: "036_string_basic",           bin_name: "string_basic" },
-    ExampleSpec { dir_name: "037_array_basic",            bin_name: "array_basic" },
-    ExampleSpec { dir_name: "038_tuple_basic",            bin_name: "tuple_basic" },
-    ExampleSpec { dir_name: "039_lambda_basic",           bin_name: "lambda_basic" },
-    ExampleSpec { dir_name: "040_std_function",           bin_name: "std_function" },
-    ExampleSpec { dir_name: "041_functional_bind",        bin_name: "functional_bind" },
-    ExampleSpec { dir_name: "042_exception_basic",        bin_name: "exception_basic" },
-    ExampleSpec { dir_name: "043_namespace_nested",       bin_name: "namespace_nested" },
-    ExampleSpec { dir_name: "044_enum_class",             bin_name: "enum_class" },
-    ExampleSpec { dir_name: "045_union_basic",            bin_name: "union_basic" },
-    ExampleSpec { dir_name: "046_constexpr_basic",        bin_name: "constexpr_basic" },
-    ExampleSpec { dir_name: "047_noexcept_basic",         bin_name: "noexcept_basic" },
-    ExampleSpec { dir_name: "048_summary",                bin_name: "summary" },
+    ExampleSpec {
+        dir_name: "001_hello_world",
+        bin_name: "hello_world",
+    },
+    ExampleSpec {
+        dir_name: "002_function_overload",
+        bin_name: "function_overload",
+    },
+    ExampleSpec {
+        dir_name: "003_default_args",
+        bin_name: "default_args",
+    },
+    ExampleSpec {
+        dir_name: "004_inline_functions",
+        bin_name: "inline_functions",
+    },
+    ExampleSpec {
+        dir_name: "005_variadic_functions",
+        bin_name: "variadic_functions",
+    },
+    ExampleSpec {
+        dir_name: "006_class_basic",
+        bin_name: "class_basic",
+    },
+    ExampleSpec {
+        dir_name: "007_class_constructor",
+        bin_name: "class_constructor",
+    },
+    ExampleSpec {
+        dir_name: "008_class_copy",
+        bin_name: "class_copy",
+    },
+    ExampleSpec {
+        dir_name: "009_class_move",
+        bin_name: "class_move",
+    },
+    ExampleSpec {
+        dir_name: "010_class_static",
+        bin_name: "class_static",
+    },
+    ExampleSpec {
+        dir_name: "011_class_const",
+        bin_name: "class_const",
+    },
+    ExampleSpec {
+        dir_name: "012_class_volatile",
+        bin_name: "class_volatile",
+    },
+    ExampleSpec {
+        dir_name: "013_inheritance_single",
+        bin_name: "inheritance_single",
+    },
+    ExampleSpec {
+        dir_name: "014_inheritance_multiple",
+        bin_name: "inheritance_multiple",
+    },
+    ExampleSpec {
+        dir_name: "015_virtual_basic",
+        bin_name: "virtual_basic",
+    },
+    ExampleSpec {
+        dir_name: "016_virtual_pure",
+        bin_name: "virtual_pure",
+    },
+    ExampleSpec {
+        dir_name: "017_virtual_override",
+        bin_name: "virtual_override",
+    },
+    ExampleSpec {
+        dir_name: "018_virtual_diamond",
+        bin_name: "virtual_diamond",
+    },
+    ExampleSpec {
+        dir_name: "019_operator_overload",
+        bin_name: "operator_overload",
+    },
+    ExampleSpec {
+        dir_name: "020_friend_function",
+        bin_name: "friend_function",
+    },
+    ExampleSpec {
+        dir_name: "021_explicit_ctor",
+        bin_name: "explicit_ctor",
+    },
+    ExampleSpec {
+        dir_name: "022_mutable_member",
+        bin_name: "mutable_member",
+    },
+    ExampleSpec {
+        dir_name: "023_typeid_rtti",
+        bin_name: "typeid_rtti",
+    },
+    ExampleSpec {
+        dir_name: "024_template_function",
+        bin_name: "template_function",
+    },
+    ExampleSpec {
+        dir_name: "025_template_class",
+        bin_name: "template_class",
+    },
+    ExampleSpec {
+        dir_name: "026_template_specialization",
+        bin_name: "template_specialization",
+    },
+    ExampleSpec {
+        dir_name: "027_template_instantiation",
+        bin_name: "template_instantiation",
+    },
+    ExampleSpec {
+        dir_name: "028_variadic_template",
+        bin_name: "variadic_template",
+    },
+    ExampleSpec {
+        dir_name: "029_unique_ptr",
+        bin_name: "unique_ptr",
+    },
+    ExampleSpec {
+        dir_name: "030_shared_ptr",
+        bin_name: "shared_ptr",
+    },
+    ExampleSpec {
+        dir_name: "031_custom_deleter",
+        bin_name: "custom_deleter",
+    },
+    ExampleSpec {
+        dir_name: "032_placement_new",
+        bin_name: "placement_new",
+    },
+    ExampleSpec {
+        dir_name: "033_raii_pattern",
+        bin_name: "raii_pattern",
+    },
+    ExampleSpec {
+        dir_name: "034_vector_basic",
+        bin_name: "vector_basic",
+    },
+    ExampleSpec {
+        dir_name: "035_map_basic",
+        bin_name: "map_basic",
+    },
+    ExampleSpec {
+        dir_name: "036_string_basic",
+        bin_name: "string_basic",
+    },
+    ExampleSpec {
+        dir_name: "037_array_basic",
+        bin_name: "array_basic",
+    },
+    ExampleSpec {
+        dir_name: "038_tuple_basic",
+        bin_name: "tuple_basic",
+    },
+    ExampleSpec {
+        dir_name: "039_lambda_basic",
+        bin_name: "lambda_basic",
+    },
+    ExampleSpec {
+        dir_name: "040_std_function",
+        bin_name: "std_function",
+    },
+    ExampleSpec {
+        dir_name: "041_functional_bind",
+        bin_name: "functional_bind",
+    },
+    ExampleSpec {
+        dir_name: "042_exception_basic",
+        bin_name: "exception_basic",
+    },
+    ExampleSpec {
+        dir_name: "043_namespace_nested",
+        bin_name: "namespace_nested",
+    },
+    ExampleSpec {
+        dir_name: "044_enum_class",
+        bin_name: "enum_class",
+    },
+    ExampleSpec {
+        dir_name: "045_union_basic",
+        bin_name: "union_basic",
+    },
+    ExampleSpec {
+        dir_name: "046_constexpr_basic",
+        bin_name: "constexpr_basic",
+    },
+    ExampleSpec {
+        dir_name: "047_noexcept_basic",
+        bin_name: "noexcept_basic",
+    },
+    ExampleSpec {
+        dir_name: "048_summary",
+        bin_name: "summary",
+    },
 ];
 
 /// Validate one example: compile its C++ sources, build its Rust crate,
@@ -145,10 +289,7 @@ fn validate_example(spec: &ExampleSpec) {
     // ── Step 4: cargo build Rust crate ───────────────────────────────────────
     // This also triggers build.rs which compiles the C++ sources into a static
     // archive via cc::Build::compile().
-    let rust_dir = example_dir
-        .join("rust_hicc")
-        .to_string_lossy()
-        .into_owned();
+    let rust_dir = example_dir.join("rust_hicc").to_string_lossy().into_owned();
     let _bin = cargo_build_example(&rust_dir, spec.bin_name).unwrap_or_else(|| {
         panic!(
             "[L5-nm] {}: cargo build failed or binary '{}' not found",
@@ -185,54 +326,54 @@ macro_rules! example_test {
     };
 }
 
-example_test!(nm_001_hello_world,            0);
-example_test!(nm_002_function_overload,      1);
-example_test!(nm_003_default_args,           2);
-example_test!(nm_004_inline_functions,       3);
-example_test!(nm_005_variadic_functions,     4);
-example_test!(nm_006_class_basic,            5);
-example_test!(nm_007_class_constructor,      6);
-example_test!(nm_008_class_copy,             7);
-example_test!(nm_009_class_move,             8);
-example_test!(nm_010_class_static,           9);
-example_test!(nm_011_class_const,           10);
-example_test!(nm_012_class_volatile,        11);
-example_test!(nm_013_inheritance_single,    12);
-example_test!(nm_014_inheritance_multiple,  13);
-example_test!(nm_015_virtual_basic,         14);
-example_test!(nm_016_virtual_pure,          15);
-example_test!(nm_017_virtual_override,      16);
-example_test!(nm_018_virtual_diamond,       17);
-example_test!(nm_019_operator_overload,     18);
-example_test!(nm_020_friend_function,       19);
-example_test!(nm_021_explicit_ctor,         20);
-example_test!(nm_022_mutable_member,        21);
-example_test!(nm_023_typeid_rtti,           22);
-example_test!(nm_024_template_function,     23);
-example_test!(nm_025_template_class,        24);
+example_test!(nm_001_hello_world, 0);
+example_test!(nm_002_function_overload, 1);
+example_test!(nm_003_default_args, 2);
+example_test!(nm_004_inline_functions, 3);
+example_test!(nm_005_variadic_functions, 4);
+example_test!(nm_006_class_basic, 5);
+example_test!(nm_007_class_constructor, 6);
+example_test!(nm_008_class_copy, 7);
+example_test!(nm_009_class_move, 8);
+example_test!(nm_010_class_static, 9);
+example_test!(nm_011_class_const, 10);
+example_test!(nm_012_class_volatile, 11);
+example_test!(nm_013_inheritance_single, 12);
+example_test!(nm_014_inheritance_multiple, 13);
+example_test!(nm_015_virtual_basic, 14);
+example_test!(nm_016_virtual_pure, 15);
+example_test!(nm_017_virtual_override, 16);
+example_test!(nm_018_virtual_diamond, 17);
+example_test!(nm_019_operator_overload, 18);
+example_test!(nm_020_friend_function, 19);
+example_test!(nm_021_explicit_ctor, 20);
+example_test!(nm_022_mutable_member, 21);
+example_test!(nm_023_typeid_rtti, 22);
+example_test!(nm_024_template_function, 23);
+example_test!(nm_025_template_class, 24);
 example_test!(nm_026_template_specialization, 25);
 example_test!(nm_027_template_instantiation, 26);
-example_test!(nm_028_variadic_template,     27);
-example_test!(nm_029_unique_ptr,            28);
-example_test!(nm_030_shared_ptr,            29);
-example_test!(nm_031_custom_deleter,        30);
-example_test!(nm_032_placement_new,         31);
-example_test!(nm_033_raii_pattern,          32);
-example_test!(nm_034_vector_basic,          33);
-example_test!(nm_035_map_basic,             34);
-example_test!(nm_036_string_basic,          35);
-example_test!(nm_037_array_basic,           36);
-example_test!(nm_038_tuple_basic,           37);
-example_test!(nm_039_lambda_basic,          38);
-example_test!(nm_040_std_function,          39);
-example_test!(nm_041_functional_bind,       40);
-example_test!(nm_042_exception_basic,       41);
-example_test!(nm_043_namespace_nested,      42);
-example_test!(nm_044_enum_class,            43);
-example_test!(nm_045_union_basic,           44);
-example_test!(nm_046_constexpr_basic,       45);
-example_test!(nm_047_noexcept_basic,        46);
-example_test!(nm_048_summary,               47);
+example_test!(nm_028_variadic_template, 27);
+example_test!(nm_029_unique_ptr, 28);
+example_test!(nm_030_shared_ptr, 29);
+example_test!(nm_031_custom_deleter, 30);
+example_test!(nm_032_placement_new, 31);
+example_test!(nm_033_raii_pattern, 32);
+example_test!(nm_034_vector_basic, 33);
+example_test!(nm_035_map_basic, 34);
+example_test!(nm_036_string_basic, 35);
+example_test!(nm_037_array_basic, 36);
+example_test!(nm_038_tuple_basic, 37);
+example_test!(nm_039_lambda_basic, 38);
+example_test!(nm_040_std_function, 39);
+example_test!(nm_041_functional_bind, 40);
+example_test!(nm_042_exception_basic, 41);
+example_test!(nm_043_namespace_nested, 42);
+example_test!(nm_044_enum_class, 43);
+example_test!(nm_045_union_basic, 44);
+example_test!(nm_046_constexpr_basic, 45);
+example_test!(nm_047_noexcept_basic, 46);
+example_test!(nm_048_summary, 47);
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Part 2 – rapidjson shim bidirectional nm validation
@@ -248,12 +389,9 @@ example_test!(nm_048_summary,               47);
 #[ignore]
 fn nm_rapidjson_shim_validation() {
     let root = repo_root();
-    let shim_dir = root
-        .join("references/rapidjson-refactoring/rapidjson_sys/shim");
-    let include_dir = root
-        .join("references/rapidjson-refactoring/rapidjson_legacy/include");
-    let rapidjson_sys_dir = root
-        .join("references/rapidjson-refactoring/rapidjson_sys");
+    let shim_dir = root.join("references/rapidjson-refactoring/rapidjson_sys/shim");
+    let include_dir = root.join("references/rapidjson-refactoring/rapidjson_legacy/include");
+    let rapidjson_sys_dir = root.join("references/rapidjson-refactoring/rapidjson_sys");
 
     // ── Step 1: collect all shim .cpp files ──────────────────────────────────
     let shim_cpps: Vec<std::path::PathBuf> = std::fs::read_dir(&shim_dir)
@@ -271,8 +409,7 @@ fn nm_rapidjson_shim_validation() {
 
     // ── Step 2: compile all shims to a combined .o ───────────────────────────
     let tmp_dir = std::env::temp_dir().join("l5_nm_rapidjson_shim");
-    std::fs::create_dir_all(&tmp_dir)
-        .expect("[L5-nm] rapidjson_shim: create tmp dir failed");
+    std::fs::create_dir_all(&tmp_dir).expect("[L5-nm] rapidjson_shim: create tmp dir failed");
 
     let out_obj = tmp_dir.join("rapidjson_shim.o");
     let include_str = include_dir.to_string_lossy().into_owned();

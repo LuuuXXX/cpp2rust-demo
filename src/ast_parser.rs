@@ -151,8 +151,13 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     // 扫描预处理文件中的行号标记，确定哪些字节范围属于 shim cpp 文件自身
     // （而非 include 进来的头文件）。libclang 对预处理文件始终返回物理文件路径，
     // 所以必须通过字节偏移量来区分来源。
-    let file_content = std::fs::read_to_string(file)
-        .map_err(|e| anyhow!("failed to read {} for line marker scan: {}", file.display(), e))?;
+    let file_content = std::fs::read_to_string(file).map_err(|e| {
+        anyhow!(
+            "failed to read {} for line marker scan: {}",
+            file.display(),
+            e
+        )
+    })?;
     let cpp_ranges = cpp_byte_ranges(&file_content);
 
     let mut ast = CppAst {
@@ -210,11 +215,9 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::FunctionTemplate => {}
-            EntityKind::EnumDecl => {
-                if entity_is_from_current_file(&entity, &cpp_ranges) {
-                    if let Some(ei) = extract_enum(&entity) {
-                        ast.enums.push(ei);
-                    }
+            EntityKind::EnumDecl if entity_is_from_current_file(&entity, &cpp_ranges) => {
+                if let Some(ei) = extract_enum(&entity) {
+                    ast.enums.push(ei);
                 }
             }
             EntityKind::Namespace => {
@@ -255,14 +258,16 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                     .get_arguments()
                     .unwrap_or_default()
                     .iter()
-                    .map(|a| a.get_type().map(|t| t.get_display_name()).unwrap_or_default())
+                    .map(|a| {
+                        a.get_type()
+                            .map(|t| t.get_display_name())
+                            .unwrap_or_default()
+                    })
                     .collect();
                 let param_count = def_param_types.len();
                 if let Some(parent) = entity.get_semantic_parent() {
                     if let Some(class_name) = parent.get_name() {
-                        if let Some(class) =
-                            ast.classes.iter_mut().find(|c| c.name == class_name)
-                        {
+                        if let Some(class) = ast.classes.iter_mut().find(|c| c.name == class_name) {
                             // 先按名称+参数类型精确匹配，再按名称+参数数量匹配，最后仅按名称匹配
                             let idx = class
                                 .methods
@@ -270,13 +275,15 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                                 .position(|m| {
                                     m.name == method_name
                                         && m.params.len() == param_count
-                                        && m.params.iter().zip(def_param_types.iter()).all(|(p, t)| p.type_name == *t)
+                                        && m.params
+                                            .iter()
+                                            .zip(def_param_types.iter())
+                                            .all(|(p, t)| p.type_name == *t)
                                 })
                                 .or_else(|| {
-                                    class
-                                        .methods
-                                        .iter()
-                                        .position(|m| m.name == method_name && m.params.len() == param_count)
+                                    class.methods.iter().position(|m| {
+                                        m.name == method_name && m.params.len() == param_count
+                                    })
                                 })
                                 .or_else(|| {
                                     class.methods.iter().position(|m| m.name == method_name)
@@ -349,11 +356,9 @@ fn collect_namespace(
                     ast.functions.push(fi);
                 }
             }
-            EntityKind::EnumDecl => {
-                if entity_is_from_current_file(&entity, cpp_ranges) {
-                    if let Some(ei) = extract_enum(&entity) {
-                        ast.enums.push(ei);
-                    }
+            EntityKind::EnumDecl if entity_is_from_current_file(&entity, cpp_ranges) => {
+                if let Some(ei) = extract_enum(&entity) {
+                    ast.enums.push(ei);
                 }
             }
             EntityKind::TypedefDecl => {
@@ -387,11 +392,9 @@ fn collect_linkage_spec(
                     ast.functions.push(fi);
                 }
             }
-            EntityKind::EnumDecl => {
-                if entity_is_from_current_file(&entity, cpp_ranges) {
-                    if let Some(ei) = extract_enum(&entity) {
-                        ast.enums.push(ei);
-                    }
+            EntityKind::EnumDecl if entity_is_from_current_file(&entity, cpp_ranges) => {
+                if let Some(ei) = extract_enum(&entity) {
+                    ast.enums.push(ei);
                 }
             }
             EntityKind::TypedefDecl => {
@@ -419,8 +422,12 @@ fn collect_typedef(
     if !entity_is_from_current_file(entity, cpp_ranges) {
         return;
     }
-    let Some(name) = entity.get_name() else { return };
-    let Some(range) = entity.get_range() else { return };
+    let Some(name) = entity.get_name() else {
+        return;
+    };
+    let Some(range) = entity.get_range() else {
+        return;
+    };
     let start = range.get_start().get_file_location().offset;
     let end = range.get_end().get_file_location().offset;
     ast.typedefs.push((name, start, end));
@@ -591,7 +598,10 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
         is_inline: entity.is_inline_function(),
         accessibility,
         body_offset,
-        is_override: !entity.get_overridden_methods().unwrap_or_default().is_empty(),
+        is_override: !entity
+            .get_overridden_methods()
+            .unwrap_or_default()
+            .is_empty(),
         is_default: entity.is_defaulted(),
     })
 }
@@ -614,10 +624,7 @@ fn extract_function(
 
     let params = extract_params(entity);
 
-    let is_variadic = entity
-        .get_type()
-        .map(|t| t.is_variadic())
-        .unwrap_or(false);
+    let is_variadic = entity.get_type().map(|t| t.is_variadic()).unwrap_or(false);
 
     let body_offset = if entity.is_definition() {
         entity.get_range().map(|r| {
@@ -747,7 +754,11 @@ impl CppAst {
         println!("File: {}", self.file.display());
 
         for class in &self.classes {
-            let kind = if class.is_struct { "StructDecl" } else { "ClassDecl" };
+            let kind = if class.is_struct {
+                "StructDecl"
+            } else {
+                "ClassDecl"
+            };
             let abstract_tag = if class.is_abstract { " [abstract]" } else { "" };
             println!("- {}: {}{}", kind, class.name, abstract_tag);
             for base in &class.bases {
@@ -759,12 +770,18 @@ impl CppAst {
                 println!("  - {}: {}{}", method_kind_str(method), method.name, tags);
                 for param in &method.params {
                     let def = if param.has_default { " [default]" } else { "" };
-                    println!("    - ParmDecl: {} : {}{}", param.name, param.type_name, def);
+                    println!(
+                        "    - ParmDecl: {} : {}{}",
+                        param.name, param.type_name, def
+                    );
                 }
             }
             for field in &class.fields {
                 let tags = field_tags(field);
-                println!("  - FieldDecl: {} : {}{}", field.name, field.type_name, tags);
+                println!(
+                    "  - FieldDecl: {} : {}{}",
+                    field.name, field.type_name, tags
+                );
             }
         }
 
@@ -799,11 +816,21 @@ fn method_kind_str(m: &MethodInfo) -> &'static str {
 
 fn method_tags(m: &MethodInfo) -> String {
     let mut tags = Vec::new();
-    if m.is_const { tags.push("const"); }
-    if m.is_virtual { tags.push("virtual"); }
-    if m.is_pure_virtual { tags.push("pure_virtual"); }
-    if m.is_static { tags.push("static"); }
-    if m.is_inline { tags.push("inline"); }
+    if m.is_const {
+        tags.push("const");
+    }
+    if m.is_virtual {
+        tags.push("virtual");
+    }
+    if m.is_pure_virtual {
+        tags.push("pure_virtual");
+    }
+    if m.is_static {
+        tags.push("static");
+    }
+    if m.is_inline {
+        tags.push("inline");
+    }
     if tags.is_empty() {
         String::new()
     } else {
@@ -813,8 +840,12 @@ fn method_tags(m: &MethodInfo) -> String {
 
 fn field_tags(f: &FieldInfo) -> String {
     let mut tags = Vec::new();
-    if f.is_mutable { tags.push("mutable"); }
-    if f.is_static { tags.push("static"); }
+    if f.is_mutable {
+        tags.push("mutable");
+    }
+    if f.is_static {
+        tags.push("static");
+    }
     if tags.is_empty() {
         String::new()
     } else {
@@ -824,9 +855,15 @@ fn field_tags(f: &FieldInfo) -> String {
 
 fn func_tags(f: &FunctionInfo) -> String {
     let mut tags = Vec::new();
-    if f.is_extern_c { tags.push("extern_c"); }
-    if f.is_inline { tags.push("inline"); }
-    if f.is_variadic { tags.push("variadic"); }
+    if f.is_extern_c {
+        tags.push("extern_c");
+    }
+    if f.is_inline {
+        tags.push("inline");
+    }
+    if f.is_variadic {
+        tags.push("variadic");
+    }
     if let Some(ref cls) = f.friend_of {
         tags.push(cls.as_str());
     }

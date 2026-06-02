@@ -121,7 +121,8 @@ fn apply_class(
 
     // 从 ClassSpec 中删除菱形基类方法（按 rust_name 即 snake_case 匹配）
     if let Some(cs) = spec.class_specs.iter_mut().find(|cs| cs.name == ci.name) {
-        cs.methods.retain(|mb| !diamond_snake_names.contains(&mb.rust_name));
+        cs.methods
+            .retain(|mb| !diamond_snake_names.contains(&mb.rust_name));
     }
 }
 
@@ -192,8 +193,7 @@ fn find_ctor_line_pos(cpp_block_lines: &[String], class_name: &str, cn_lower: &s
 
     for (i, line) in cpp_block_lines.iter().enumerate() {
         let t = line.trim();
-        if (t.starts_with(&ctor_prefix1) || t.starts_with(&ctor_prefix2))
-            && t.contains(&ctor_name)
+        if (t.starts_with(&ctor_prefix1) || t.starts_with(&ctor_prefix2)) && t.contains(&ctor_name)
         {
             return i;
         }

@@ -227,9 +227,7 @@ fn normalize_hex_addresses(s: &str) -> String {
         if i + 1 < bytes.len() && bytes[i] == b'0' && bytes[i + 1] == b'x' {
             let start = i;
             i += 2;
-            while i < bytes.len()
-                && (bytes[i].is_ascii_hexdigit())
-            {
+            while i < bytes.len() && (bytes[i].is_ascii_hexdigit()) {
                 i += 1;
             }
             if i > start + 2 {

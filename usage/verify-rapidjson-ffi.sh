@@ -16,6 +16,13 @@
 #
 # 另见文末 "§ SKILL 工作流" 一节：如何通过 GitHub Copilot Agent Skill 完成同样流程。
 #
+# 本脚本覆盖的 cpp2rust-demo 特性：
+#   ① hpp/hxx 头文件探测 —— read_source_includes 按 .h → .hpp → .hxx 顺序探测
+#   ② link_name 一致性    —— 只取路径末段文件名，避免子目录路径污染链接名
+#   ③ struct/class 前缀清理 —— shim 函数签名中的 C++ 关键字前缀自动去除
+#   ④ __restrict__ 处理  —— 类型末尾的 restrict 限定符自动剥离
+#   ⑤ 命名空间 typedef  —— 命名空间内的 typedef 定义写入 cpp! 块
+#
 # 系统要求（Ubuntu/Debian）：
 #   sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev cmake \
 #                           libgtest-dev binutils git curl
@@ -177,8 +184,9 @@ info "工作目录：${RAPIDJSON_DIR}"
 info "feature 名称：${FEATURE}"
 info "构建命令：cmake --build ${BUILD_DIR} -- -j${NPROC}"
 
-# 非交互模式：自动全选所有被拦截的 .cpp 文件（等同于对"选择参与转换的文件"对话框全部回车确认）
-export CPP2RUST_NON_INTERACTIVE=1
+# 非交互模式：cpp2rust-demo 通过检测 stdin 是否为 TTY 自动判断交互性。
+# 在脚本（非终端）环境中，stdin 不是 TTY，工具会自动全选所有被拦截的 .cpp 文件，
+# 无需任何环境变量干预。
 
 cd "${RAPIDJSON_DIR}"
 cpp2rust-demo init \
@@ -255,6 +263,45 @@ if [ -d "${RUST_SRC}" ]; then
 
     echo "──── import_class! 类（前 20 条）────"
     grep -rn "class " "${RUST_SRC}" 2>/dev/null | grep -v "//\|#\[" | head -20 || true
+
+    # ── 特性验证 ① link_name 一致性 ─────────────────────────────────────────
+    # link_name 应为纯文件名（无路径分隔符），由提取器取 unit_name 路径末段生成。
+    echo ""
+    echo "──── link_name 一致性检查（不应含路径分隔符 /）────"
+    LINK_NAMES=$(grep -roh '#!\[link_name = "[^"]*"\]' "${RUST_SRC}" 2>/dev/null \
+        | grep -oP '"[^"]*"' | tr -d '"' | sort -u)
+    if [ -n "${LINK_NAMES}" ]; then
+        BAD_LINKS=0
+        while IFS= read -r ln; do
+            if echo "${ln}" | grep -q '/'; then
+                echo -e "  ${RED}✗ link_name 含路径分隔符：${ln}${NC}"
+                BAD_LINKS=$((BAD_LINKS + 1))
+            else
+                echo -e "  ${GREEN}✓ ${ln}${NC}"
+            fi
+        done < <(echo "${LINK_NAMES}")
+        if [ "${BAD_LINKS}" -eq 0 ]; then
+            ok "所有 link_name 均为纯文件名（特性② link_name 一致性 通过）"
+        else
+            warn "${BAD_LINKS} 个 link_name 含路径分隔符，请检查提取器输出"
+        fi
+    else
+        info "未找到 #![link_name = ...] 声明（可能无 import_lib! 块）"
+    fi
+
+    # ── 特性验证 ① hpp/hxx 头文件探测 ───────────────────────────────────────
+    # read_source_includes 按 .h → .hpp → .hxx 顺序探测对应头文件。
+    # rapidjson 使用 .h 扩展名，此处确认 cpp! 块中已出现 #include 指令。
+    echo ""
+    echo "──── hpp/hxx 头文件探测（特性① cpp! 块 include 检查）────"
+    HDR_INCLUDES=$(grep -rh '#include' "${RUST_SRC}" 2>/dev/null | grep -v '//' | wc -l)
+    info "生成代码中 #include 指令数：${HDR_INCLUDES}"
+    if [ "${HDR_INCLUDES}" -gt 0 ]; then
+        ok "cpp! 块包含头文件 include（hpp/hxx 探测路径已生效）"
+        grep -rh '#include' "${RUST_SRC}" 2>/dev/null | grep -v '//' | sort -u | head -10 || true
+    else
+        warn "cpp! 块无 #include 指令（可能未探测到对应头文件）"
+    fi
 else
     warn "Rust 源码目录不存在：${RUST_SRC}"
 fi
@@ -299,6 +346,37 @@ if [ -d "${C_DIR}" ]; then
     echo "──── 各 .cpp2rust 文件大小（前 15 条）────"
     find "${C_DIR}" -name "*.cpp2rust" -exec wc -l {} \; 2>/dev/null \
         | sort -rn | head -15
+fi
+
+# ── 6e. 特性验证：struct/class 前缀清理 & restrict 剥离 ──────────────────────
+# 提取器在生成 shim 函数签名时会自动去除 "struct "/"class " 前缀和 __restrict__ 限定符。
+# 此处检查生成的 Rust 代码中不应出现这些 C++ 构型修饰。
+echo -e "\n${BOLD}6e. struct/class 前缀 & restrict 清理验证（特性③④）${NC}"
+if [ -d "${RUST_SRC}" ]; then
+    STRUCT_HITS=$(grep -rn '\bstruct \b' "${RUST_SRC}" 2>/dev/null \
+        | grep -v '^\s*//' | grep -v 'hicc::cpp!' | wc -l || echo 0)
+    CLASS_HITS=$(grep -rn '\bclass \b' "${RUST_SRC}" 2>/dev/null \
+        | grep -v '^\s*//' | grep -v 'hicc::cpp!' | wc -l || echo 0)
+    RESTRICT_HITS=$(grep -rn '__restrict\|[^_]restrict[^_]' "${RUST_SRC}" 2>/dev/null \
+        | grep -v '^\s*//' | wc -l || echo 0)
+
+    if [ "${STRUCT_HITS}" -eq 0 ] && [ "${CLASS_HITS}" -eq 0 ]; then
+        ok "Rust 绑定中无多余的 struct/class 前缀（特性③ 通过）"
+    else
+        warn "Rust 绑定中仍有 struct/class 前缀：struct=${STRUCT_HITS} class=${CLASS_HITS}"
+        grep -rn '\bstruct \b\|\bclass \b' "${RUST_SRC}" 2>/dev/null \
+            | grep -v '^\s*//' | grep -v 'hicc::cpp!' | head -10 || true
+    fi
+
+    if [ "${RESTRICT_HITS}" -eq 0 ]; then
+        ok "Rust 绑定中无 restrict 限定符（特性④ 通过）"
+    else
+        warn "Rust 绑定中仍有 restrict 限定符：${RESTRICT_HITS} 处"
+        grep -rn '__restrict\|[^_]restrict[^_]' "${RUST_SRC}" 2>/dev/null \
+            | grep -v '^\s*//' | head -10 || true
+    fi
+else
+    warn "Rust 源码目录不存在，跳过特性③④验证"
 fi
 
 # =============================================================================

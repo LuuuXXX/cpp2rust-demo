@@ -43,13 +43,20 @@ pub fn extract(
         let mut set = std::collections::HashSet::new();
         let all_cn: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
         let candidate_fns: Vec<&FunctionInfo> = {
-            let extern_c: Vec<&FunctionInfo> = eligible_functions.iter().filter(|f| f.is_extern_c).collect();
-            if extern_c.is_empty() { eligible_functions.iter().collect() } else { extern_c }
+            let extern_c: Vec<&FunctionInfo> = eligible_functions
+                .iter()
+                .filter(|f| f.is_extern_c)
+                .collect();
+            if extern_c.is_empty() {
+                eligible_functions.iter().collect()
+            } else {
+                extern_c
+            }
         };
         for fi in &candidate_fns {
             for cn in &all_cn {
-                if fi.return_type.contains(cn) ||
-                   fi.params.iter().any(|p| p.type_name.contains(cn)) {
+                if fi.return_type.contains(cn) || fi.params.iter().any(|p| p.type_name.contains(cn))
+                {
                     set.insert(cn.to_string());
                 }
             }
@@ -65,13 +72,17 @@ pub fn extract(
     //   044: example::OperationResult* 命名空间类型指针 → 同样压制
     //   028: int/double 原始类型（辅助类）→ 正常生成
     let namespace_class_mode = has_any_classes && used_classes.is_empty() && {
-        eligible_functions.iter().any(|f| f.is_extern_c && {
-            let rt = &f.return_type;
-            rt.contains("::") || rt.contains("void *") || rt.contains("void*") ||
-            f.params.iter().any(|p| {
-                let t = &p.type_name;
-                t.contains("::") || t.contains("void *") || t.contains("void*")
-            })
+        eligible_functions.iter().any(|f| {
+            f.is_extern_c && {
+                let rt = &f.return_type;
+                rt.contains("::")
+                    || rt.contains("void *")
+                    || rt.contains("void*")
+                    || f.params.iter().any(|p| {
+                        let t = &p.type_name;
+                        t.contains("::") || t.contains("void *") || t.contains("void*")
+                    })
+            }
         })
     };
 
@@ -104,14 +115,15 @@ pub fn extract(
             .iter()
             .filter(|c| !c.name.is_empty())
             .filter(|c| used_classes.contains(&c.name))
-            .map(|ci| build_class_spec(ci, &ast.classes)
-                .unwrap_or_else(|| ClassSpec {
+            .map(|ci| {
+                build_class_spec(ci, &ast.classes).unwrap_or_else(|| ClassSpec {
                     name: ci.name.clone(),
                     methods: Vec::new(),
                     associated_fns: Vec::new(),
                     destroy_fn: None,
                     is_interface: false,
-                }))
+                })
+            })
             .collect()
     };
 
@@ -151,7 +163,12 @@ pub fn extract(
     if !spec.class_specs.is_empty() {
         let class_names_owned: Vec<String> = ast.classes.iter().map(|c| c.name.clone()).collect();
         let class_names_ref: Vec<&str> = class_names_owned.iter().map(|s| s.as_str()).collect();
-        assign_associated_fns(&mut spec.class_specs, &mut spec.lib_spec, &functions, &class_names_ref);
+        assign_associated_fns(
+            &mut spec.class_specs,
+            &mut spec.lib_spec,
+            &functions,
+            &class_names_ref,
+        );
     }
 
     spec
@@ -188,10 +205,10 @@ fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
 
 fn score(fi: &FunctionInfo) -> u8 {
     match (fi.body_offset.is_some(), fi.is_extern_c) {
-        (true, false) => 3,  // best: has body, not extern_c
+        (true, false) => 3, // best: has body, not extern_c
         (true, true) => 2,
         (false, false) => 1,
-        (false, true) => 0,  // worst: declaration in extern "C"
+        (false, true) => 0, // worst: declaration in extern "C"
     }
 }
 
@@ -258,9 +275,17 @@ fn build_cpp_block(
 
     // typedef 定义（在类定义之前；typedef 重复声明在 C++11 中合法，始终输出）
     for (_, start, end) in &ast.typedefs {
-        let text = extract_range_text(source_bytes, *start, *end).trim().to_string();
-        if text.is_empty() { continue; }
-        let stmt = if text.ends_with(';') { text } else { format!("{};", text) };
+        let text = extract_range_text(source_bytes, *start, *end)
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            continue;
+        }
+        let stmt = if text.ends_with(';') {
+            text
+        } else {
+            format!("{};", text)
+        };
         lines.push(stmt);
         lines.push(String::new());
     }
@@ -288,7 +313,10 @@ fn build_cpp_block(
     let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
 
     // 判断是否使用分离风格（含虚函数的类）
-    let use_separate_style = ast.classes.iter().any(|c| c.methods.iter().any(|m| m.is_virtual));
+    let use_separate_style = ast
+        .classes
+        .iter()
+        .any(|c| c.methods.iter().any(|m| m.is_virtual));
 
     if use_separate_style {
         // 分离风格：先放所有类的声明，再放方法实现
@@ -299,13 +327,18 @@ fn build_cpp_block(
         // 方法定义（从源文件读取，跳过 = default / = delete 方法）
         for ci in &local_classes {
             for method in &ci.methods {
-                if method.is_default { continue; }
+                if method.is_default {
+                    continue;
+                }
                 if let Some((start, end)) = method.body_offset {
                     let text = extract_range_text(source_bytes, start, end);
                     let text = strip_preprocessor_markers(text.trim());
                     let trimmed = text.trim();
                     // 跳过不含函数体（= default / = delete）的情况
-                    if trimmed.is_empty() || (!trimmed.contains('{') && (trimmed.contains("= default") || trimmed.contains("= delete"))) {
+                    if trimmed.is_empty()
+                        || (!trimmed.contains('{')
+                            && (trimmed.contains("= default") || trimmed.contains("= delete")))
+                    {
                         continue;
                     }
                     for line in trimmed.lines() {
@@ -397,19 +430,34 @@ fn emit_class_inline(ci: &ClassInfo, source_bytes: &[u8], lines: &mut Vec<String
         .filter(|m| m.accessibility == "public")
         .collect();
 
-    let mut seen_keys: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    let mut seen_keys: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
     let mut pub_methods: Vec<&MethodInfo> = Vec::new();
     for m in &all_pub {
-        let param_types: String = m.params.iter().map(|p| p.type_name.as_str()).collect::<Vec<_>>().join(",");
+        let param_types: String = m
+            .params
+            .iter()
+            .map(|p| p.type_name.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
         let key = (m.name.clone(), param_types.clone());
         if seen_keys.insert(key) {
             // 若存在同签名的有-body 版本，则用它替代第一次出现的无-body 版本
             let best = all_pub
                 .iter()
-                .find(|x| x.name == m.name && {
-                    let xt: String = x.params.iter().map(|p| p.type_name.as_str()).collect::<Vec<_>>().join(",");
-                    xt == param_types
-                } && x.body_offset.is_some())
+                .find(|x| {
+                    x.name == m.name
+                        && {
+                            let xt: String = x
+                                .params
+                                .iter()
+                                .map(|p| p.type_name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(",");
+                            xt == param_types
+                        }
+                        && x.body_offset.is_some()
+                })
                 .copied()
                 .unwrap_or(m);
             pub_methods.push(best);
@@ -417,8 +465,8 @@ fn emit_class_inline(ci: &ClassInfo, source_bytes: &[u8], lines: &mut Vec<String
     }
 
     if !pub_methods.is_empty() {
-        let has_non_pub = !ci.fields.is_empty()
-            && ci.fields.iter().any(|f| f.accessibility != "public");
+        let has_non_pub =
+            !ci.fields.is_empty() && ci.fields.iter().any(|f| f.accessibility != "public");
         if has_non_pub || !ci.is_struct {
             lines.push("public:".to_string());
         }
@@ -450,7 +498,11 @@ fn format_bases(bases: &[crate::ast_parser::BaseInfo]) -> String {
 fn emit_fields_by_access(ci: &ClassInfo, source_bytes: &[u8], lines: &mut Vec<String>) {
     let accesses = ["private", "protected", "public"];
     for acc in accesses {
-        let group: Vec<&FieldInfo> = ci.fields.iter().filter(|f| f.accessibility == acc).collect();
+        let group: Vec<&FieldInfo> = ci
+            .fields
+            .iter()
+            .filter(|f| f.accessibility == acc)
+            .collect();
         if group.is_empty() {
             continue;
         }
@@ -483,8 +535,11 @@ fn emit_field_line(field: &FieldInfo, source_bytes: &[u8]) -> String {
 
 /// 输出方法声明（分离风格，无方法体）
 fn emit_method_decls(ci: &ClassInfo, lines: &mut Vec<String>) {
-    let pub_methods: Vec<&MethodInfo> =
-        ci.methods.iter().filter(|m| m.accessibility == "public").collect();
+    let pub_methods: Vec<&MethodInfo> = ci
+        .methods
+        .iter()
+        .filter(|m| m.accessibility == "public")
+        .collect();
     if pub_methods.is_empty() {
         return;
     }
@@ -530,10 +585,17 @@ fn build_method_decl(m: &MethodInfo) -> String {
     let const_sfx = if m.is_const { " const" } else { "" };
     let volatile_sfx = if m.is_volatile { " volatile" } else { "" };
     let override_sfx = if m.is_override { " override" } else { "" };
-    let pure_sfx = if m.is_pure_virtual && !m.is_override { " = 0" } else { "" };
+    let pure_sfx = if m.is_pure_virtual && !m.is_override {
+        " = 0"
+    } else {
+        ""
+    };
     let default_sfx = if m.is_default { " = default" } else { "" };
 
-    format!("{}{}{}({}){}{}{}{}{}", qualifier, ret, name, params, const_sfx, volatile_sfx, override_sfx, pure_sfx, default_sfx)
+    format!(
+        "{}{}{}({}){}{}{}{}{}",
+        qualifier, ret, name, params, const_sfx, volatile_sfx, override_sfx, pure_sfx, default_sfx
+    )
 }
 
 /// 构建单行内联方法（内联风格）
@@ -610,7 +672,9 @@ fn strip_preprocessor_markers(text: &str) -> String {
     text.lines()
         .filter(|line| {
             let t = line.trim();
-            if !t.starts_with('#') { return true; }
+            if !t.starts_with('#') {
+                return true;
+            }
             let rest = t[1..].trim_start();
             // 丢弃 `# <数字> "file"` 形式的行号标记
             !rest.starts_with(|c: char| c.is_ascii_digit())
@@ -635,11 +699,8 @@ fn clean_shim_keyword(text: &str, keyword: &str) -> String {
     let kw_len = keyword.len();
     while let Some(pos) = rest.find(keyword) {
         result.push_str(&rest[..pos]);
-        let prev_ok = pos == 0
-            || matches!(
-                rest.as_bytes()[pos - 1],
-                b' ' | b'\n' | b'\t' | b'(' | b','
-            );
+        let prev_ok =
+            pos == 0 || matches!(rest.as_bytes()[pos - 1], b' ' | b'\n' | b'\t' | b'(' | b',');
         // 无论是否跳过，都推进指针以防止死循环
         rest = &rest[pos + kw_len..];
         if !prev_ok {
@@ -659,7 +720,9 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
     let own_methods: Vec<&MethodInfo> = ci
         .methods
         .iter()
-        .filter(|m| !m.is_constructor && !m.is_destructor && m.accessibility == "public" && !m.is_static)
+        .filter(|m| {
+            !m.is_constructor && !m.is_destructor && m.accessibility == "public" && !m.is_static
+        })
         .filter(|m| !m.name.starts_with("operator") && !is_rust_keyword(&to_snake_case(&m.name)))
         .collect();
 
@@ -701,11 +764,20 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
         && own_methods.iter().all(|m| m.is_pure_virtual)
         && inherited.iter().all(|m| m.is_pure_virtual);
 
-    Some(ClassSpec { name: ci.name.clone(), methods, associated_fns: Vec::new(), destroy_fn: None, is_interface })
+    Some(ClassSpec {
+        name: ci.name.clone(),
+        methods,
+        associated_fns: Vec::new(),
+        destroy_fn: None,
+        is_interface,
+    })
 }
 
 /// 递归收集所有基类的 public 非 ctor/dtor 方法（不含静态方法）
-fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -> Vec<&'a MethodInfo> {
+fn collect_inherited_methods<'a>(
+    ci: &ClassInfo,
+    all_classes: &'a [ClassInfo],
+) -> Vec<&'a MethodInfo> {
     let mut result: Vec<&'a MethodInfo> = Vec::new();
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
@@ -721,10 +793,7 @@ fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -
             }
             // 再收集本基类的方法
             for m in base_ci.methods.iter().filter(|m| {
-                !m.is_constructor
-                    && !m.is_destructor
-                    && m.accessibility == "public"
-                    && !m.is_static
+                !m.is_constructor && !m.is_destructor && m.accessibility == "public" && !m.is_static
             }) {
                 if seen.insert(m.name.as_str()) {
                     result.push(m);
@@ -741,7 +810,11 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         return None;
     }
     let rust_name = sanitize_fn_name(&m.name);
-    let self_kind = if m.is_const { SelfKind::Ref } else { SelfKind::RefMut };
+    let self_kind = if m.is_const {
+        SelfKind::Ref
+    } else {
+        SelfKind::RefMut
+    };
 
     let params: Vec<(String, String)> = m
         .params
@@ -768,18 +841,30 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         .collect();
     let ret_clean = normalize_ptr_spacing(strip_volatile(clean_type(&m.return_type)));
     let cv_suffix = match (m.is_const, m.is_volatile) {
-        (true, true)   => " const volatile",
-        (true, false)  => " const",
-        (false, true)  => " volatile",
+        (true, true) => " const volatile",
+        (true, false) => " const",
+        (false, true) => " volatile",
         (false, false) => "",
     };
     let cpp_sig = if m.return_type.is_empty() || m.return_type == "void" {
         format!("void {}({}){}", m.name, param_types.join(", "), cv_suffix)
     } else {
-        format!("{} {}({}){}", ret_clean, m.name, param_types.join(", "), cv_suffix)
+        format!(
+            "{} {}({}){}",
+            ret_clean,
+            m.name,
+            param_types.join(", "),
+            cv_suffix
+        )
     };
 
-    Some(MethodBinding { cpp_sig, rust_name, self_kind, params, ret_type })
+    Some(MethodBinding {
+        cpp_sig,
+        rust_name,
+        self_kind,
+        params,
+        ret_type,
+    })
 }
 
 // ─────────────────────────────────────────────
@@ -798,17 +883,23 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         .collect();
 
     // 前向声明：只包含在函数签名中实际引用的类（按原始顺序）
-    let used_classes: std::collections::HashSet<&str> = fn_bindings.iter()
+    let used_classes: std::collections::HashSet<&str> = fn_bindings
+        .iter()
         .flat_map(|fb| {
             class_names.iter().filter(move |cn| {
                 fb.cpp_sig.contains(*cn)
                     || fb.params.iter().any(|(_, t)| t.contains(*cn))
-                    || fb.ret_type.as_ref().map(|r| r.contains(*cn)).unwrap_or(false)
+                    || fb
+                        .ret_type
+                        .as_ref()
+                        .map(|r| r.contains(*cn))
+                        .unwrap_or(false)
             })
         })
         .copied()
         .collect();
-    let fwd_decls: Vec<String> = class_names.iter()
+    let fwd_decls: Vec<String> = class_names
+        .iter()
         .filter(|cn| used_classes.contains(**cn))
         .map(|n| format!("class {};", n))
         .collect();
@@ -822,7 +913,11 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         .unwrap_or(unit_name)
         .to_string();
 
-    LibSpec { link_name, fwd_decls, fn_bindings }
+    LibSpec {
+        link_name,
+        fwd_decls,
+        fn_bindings,
+    }
 }
 
 fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
@@ -838,22 +933,46 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
     // 例外：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）
     //        且参数不含 volatile 限定 → NOT unsafe
-    let primitive_ret = ret_type.as_deref().map(|r| {
-        matches!(r, "i8"|"u8"|"i16"|"u16"|"i32"|"u32"|"i64"|"u64"|"f32"|"f64"|"bool"|"isize"|"usize")
-    }).unwrap_or(false);
-    let has_volatile_param = fi.params.iter().any(|p| {
-        p.type_name.split_whitespace().any(|w| w == "volatile")
-    });
+    let primitive_ret = ret_type
+        .as_deref()
+        .map(|r| {
+            matches!(
+                r,
+                "i8" | "u8"
+                    | "i16"
+                    | "u16"
+                    | "i32"
+                    | "u32"
+                    | "i64"
+                    | "u64"
+                    | "f32"
+                    | "f64"
+                    | "bool"
+                    | "isize"
+                    | "usize"
+            )
+        })
+        .unwrap_or(false);
+    let has_volatile_param = fi
+        .params
+        .iter()
+        .any(|p| p.type_name.split_whitespace().any(|w| w == "volatile"));
     let is_unsafe = params.iter().any(|(_, t)| {
-        if t == "*const i8" { return true; }
+        if t == "*const i8" {
+            return true;
+        }
         if let Some(inner) = t.strip_prefix("*mut ") {
             let is_class = class_names.contains(&inner);
             // volatile 限定的类指针参数不能享受 primitive_ret 豁免：仍标记为 unsafe
-            if is_class && primitive_ret && !has_volatile_param { return false; }
+            if is_class && primitive_ret && !has_volatile_param {
+                return false;
+            }
             return true;
         }
         false
-    }) || ret_type.as_deref().is_some_and(|r| r == "*const i8" || r == "*mut i8");
+    }) || ret_type
+        .as_deref()
+        .is_some_and(|r| r == "*const i8" || r == "*mut i8");
 
     // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名，
     // 但 self/this/thiz 等接收者惯用名除外（这些参数在 C 签名中通常省略参数名）
@@ -880,14 +999,24 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
 
     // 无参数时：extern_c → "(void)"，否则 "()"
     let params_str = if param_parts.is_empty() {
-        if fi.is_extern_c { "void".to_string() } else { String::new() }
+        if fi.is_extern_c {
+            "void".to_string()
+        } else {
+            String::new()
+        }
     } else {
         param_parts.join(", ")
     };
 
     let cpp_sig = format!("{} {}({})", ret_clean, fi.name, params_str);
 
-    FnBinding { cpp_sig, rust_name, params, ret_type, is_unsafe }
+    FnBinding {
+        cpp_sig,
+        rust_name,
+        params,
+        ret_type,
+        is_unsafe,
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -907,7 +1036,10 @@ fn classify_functions<'a>(
     functions: &[&'a FunctionInfo],
     class_names: &[&str],
 ) -> Vec<(&'a FunctionInfo, ShimKind)> {
-    functions.iter().map(|fi| (*fi, classify_fn(fi, class_names))).collect()
+    functions
+        .iter()
+        .map(|fi| (*fi, classify_fn(fi, class_names)))
+        .collect()
 }
 
 fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
@@ -920,14 +1052,18 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
             || r.contains(&format!("{} &", cn))
     });
 
-    let first_param_is_class_ptr = fi.params.first().map(|p| {
-        class_names.iter().any(|cn| {
-            let ty = &p.type_name;
-            ty.contains(&format!("{} *", cn))
-                || ty.contains(&format!("{}*", cn))
-                || ty.contains(&format!("{} &", cn))
+    let first_param_is_class_ptr = fi
+        .params
+        .first()
+        .map(|p| {
+            class_names.iter().any(|cn| {
+                let ty = &p.type_name;
+                ty.contains(&format!("{} *", cn))
+                    || ty.contains(&format!("{}*", cn))
+                    || ty.contains(&format!("{} &", cn))
+            })
         })
-    }).unwrap_or(false);
+        .unwrap_or(false);
 
     if ret_is_class_ptr && (name_lower.contains("_new") || name_lower.ends_with("new")) {
         return ShimKind::Ctor;
@@ -968,7 +1104,11 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         name_lower.starts_with(&prefix)
     }) && !first_param_is_class_ptr;
 
-    if is_static_accessor { ShimKind::StaticAccessor } else { ShimKind::Standalone }
+    if is_static_accessor {
+        ShimKind::StaticAccessor
+    } else {
+        ShimKind::Standalone
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -985,14 +1125,20 @@ fn ret_type_from_cpp(s: &str) -> Option<String> {
     }
     // cpp_to_rust_ffi == cpp_to_rust（见 type_mapper.rs），两处上下文行为相同
     let rt = cpp_to_rust(s);
-    if rt.is_empty() { None } else { Some(rt) }
+    if rt.is_empty() {
+        None
+    } else {
+        Some(rt)
+    }
 }
 
 /// 从源文件字节数组中读取范围文本
 pub(crate) fn extract_range_text(source_bytes: &[u8], start: u32, end: u32) -> String {
     let s = start as usize;
     let e = (end as usize).min(source_bytes.len());
-    if s >= e { return String::new(); }
+    if s >= e {
+        return String::new();
+    }
     String::from_utf8_lossy(&source_bytes[s..e]).to_string()
 }
 
@@ -1138,12 +1284,17 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
     let mut project: Option<String> = None;
 
     // 收集头文件中的系统 include（保序）
-    let h_includes: Vec<String> = h_content.lines()
+    let h_includes: Vec<String> = h_content
+        .lines()
         .filter_map(|line| {
             let t = line.trim();
             let rest = t.strip_prefix("#include ")?;
             let rest = rest.trim();
-            if rest.starts_with('<') { Some(format!("#include {}", rest)) } else { None }
+            if rest.starts_with('<') {
+                Some(format!("#include {}", rest))
+            } else {
+                None
+            }
         })
         .collect();
     // 收集 .cpp 中的系统 include（保序）
@@ -1235,14 +1386,16 @@ fn assign_associated_fns(
             let owning: Option<&str> = matching_function.and_then(|fi| {
                 if matches!(kind, Some(ShimKind::Ctor)) {
                     // Ctor：返回类型中含类名（优先最长匹配，避免子串误匹配）
-                    class_names.iter()
+                    class_names
+                        .iter()
                         .filter(|cn| fi.return_type.contains(*cn))
                         .max_by_key(|cn| cn.len())
                         .copied()
                 } else if matches!(kind, Some(ShimKind::Dtor)) {
                     // Dtor：第一个参数类型含类名（优先最长匹配，避免子串误匹配）
                     fi.params.first().and_then(|p| {
-                        class_names.iter()
+                        class_names
+                            .iter()
                             .filter(|cn| p.type_name.contains(*cn))
                             .max_by_key(|cn| cn.len())
                             .copied()
@@ -1294,13 +1447,19 @@ mod tests {
     #[test]
     fn clean_shim_text_removes_struct_prefix() {
         assert_eq!(clean_shim_text("struct Foo* foo_new()"), "Foo* foo_new()");
-        assert_eq!(clean_shim_text("void foo_delete(struct Foo* self)"), "void foo_delete(Foo* self)");
+        assert_eq!(
+            clean_shim_text("void foo_delete(struct Foo* self)"),
+            "void foo_delete(Foo* self)"
+        );
     }
 
     #[test]
     fn clean_shim_text_removes_class_prefix() {
         assert_eq!(clean_shim_text("class Bar* bar_new()"), "Bar* bar_new()");
-        assert_eq!(clean_shim_text("void bar_free(class Bar* self)"), "void bar_free(Bar* self)");
+        assert_eq!(
+            clean_shim_text("void bar_free(class Bar* self)"),
+            "void bar_free(Bar* self)"
+        );
     }
 
     #[test]

@@ -13,9 +13,9 @@
 
 pub mod block_parser;
 
+use crate::error::Result;
 use anyhow::anyhow;
 use block_parser::{parse_unit_rs, ParsedFnBinding, ParsedUnit};
-use crate::error::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -69,10 +69,7 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
         let src = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!(
-                    "  Warning: cannot read {}: {}",
-                    path.display(), e
-                );
+                eprintln!("  Warning: cannot read {}: {}", path.display(), e);
                 continue;
             }
         };
@@ -86,11 +83,7 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
     spec
 }
 
-fn merge_cpp_lines(
-    spec: &mut MergedSpec,
-    unit: &ParsedUnit,
-    seen: &mut HashSet<String>,
-) {
+fn merge_cpp_lines(spec: &mut MergedSpec, unit: &ParsedUnit, seen: &mut HashSet<String>) {
     for line in &unit.cpp_lines {
         // include 行去重；shim 函数行保留全部（可能有相同内容，但简单起见也去重）
         if !seen.contains(line) {
@@ -111,7 +104,8 @@ fn merge_classes(
             spec.classes.insert(cb.class_name.clone(), Vec::new());
             // 首次遇到时记录完整属性行
             if !cb.class_attr.is_empty() {
-                spec.class_attrs.insert(cb.class_name.clone(), cb.class_attr.clone());
+                spec.class_attrs
+                    .insert(cb.class_name.clone(), cb.class_attr.clone());
             }
         }
         let methods = spec.classes.get_mut(&cb.class_name).unwrap();
@@ -177,7 +171,9 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
     let mut out = String::new();
 
     // ── hicc::cpp! ──────────────────────────────
-    out.push_str(&crate::generator::hicc_codegen::emit_cpp_block(&spec.cpp_lines));
+    out.push_str(&crate::generator::hicc_codegen::emit_cpp_block(
+        &spec.cpp_lines,
+    ));
 
     // ── hicc::import_class! (每类一个块) ────────
     for class_name in &spec.class_order {
@@ -271,11 +267,8 @@ fn collect_unit_rs_recursive(dir: &Path, result: &mut Vec<std::path::PathBuf>) {
 
 /// 递归复制目录 `src` 的全部内容到 `dst`（`dst` 不必预先存在）。
 pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)
-        .map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
-    for entry in std::fs::read_dir(src)
-        .map_err(|e| anyhow!("read dir {}: {}", src.display(), e))?
-    {
+    std::fs::create_dir_all(dst).map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
+    for entry in std::fs::read_dir(src).map_err(|e| anyhow!("read dir {}: {}", src.display(), e))? {
         let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
         let from = entry.path();
         let to = dst.join(entry.file_name());
@@ -296,7 +289,7 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 ///
 /// 目录结构始终维持与 C++ 项目一致的子目录层级。
 pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
-    let src  = rust_dir.join("src");
+    let src = rust_dir.join("src");
     let src1 = rust_dir.join("src.1");
     let src2 = rust_dir.join("src.2");
 
@@ -316,8 +309,7 @@ pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
 
     // ── 清理旧的 src.2（重复运行时覆写）──
     if src2.exists() || src2.is_symlink() {
-        std::fs::remove_dir_all(&src2)
-            .map_err(|e| anyhow!("remove {}: {}", src2.display(), e))?;
+        std::fs::remove_dir_all(&src2).map_err(|e| anyhow!("remove {}: {}", src2.display(), e))?;
     }
 
     // ── 复制 canonical → src.2（维持目录结构）──
@@ -340,8 +332,7 @@ pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
 
     // ── 建 symlink src → src.2（相对路径）──
     #[cfg(unix)]
-    std::os::unix::fs::symlink("src.2", &src)
-        .map_err(|e| anyhow!("symlink src → src.2: {}", e))?;
+    std::os::unix::fs::symlink("src.2", &src).map_err(|e| anyhow!("symlink src → src.2: {}", e))?;
     #[cfg(not(unix))]
     return Err(anyhow!(
         "merge_in_place requires symlink support, which is only available on Unix-like systems \
@@ -350,7 +341,6 @@ pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -376,7 +366,11 @@ mod tests {
 
         let spec = merge_units(&[p1, p2]);
         // foo.h 应只出现一次
-        let foo_count = spec.cpp_lines.iter().filter(|l| l.contains("foo.h")).count();
+        let foo_count = spec
+            .cpp_lines
+            .iter()
+            .filter(|l| l.contains("foo.h"))
+            .count();
         assert_eq!(foo_count, 1);
         // bar.h 和 baz.h 各出现一次
         assert!(spec.cpp_lines.iter().any(|l| l.contains("bar.h")));
@@ -431,8 +425,16 @@ hicc::import_lib! {
         std::fs::write(&p2, src).unwrap();
 
         let spec = merge_units(&[p1, p2]);
-        assert_eq!(spec.fn_bindings.len(), 1, "duplicate fn binding should be deduped");
-        assert_eq!(spec.fwd_decls.len(), 1, "duplicate fwd_decl should be deduped");
+        assert_eq!(
+            spec.fn_bindings.len(),
+            1,
+            "duplicate fn binding should be deduped"
+        );
+        assert_eq!(
+            spec.fwd_decls.len(),
+            1,
+            "duplicate fwd_decl should be deduped"
+        );
     }
 
     // ── collect_unit_rs_files ──────────────────
@@ -507,8 +509,14 @@ hicc::import_lib! {
 
         copy_dir_all(&src, &dst).unwrap();
 
-        assert_eq!(std::fs::read_to_string(dst.join("lib.rs")).unwrap(), "// lib");
-        assert_eq!(std::fs::read_to_string(dst.join("foo.rs")).unwrap(), "// foo");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("lib.rs")).unwrap(),
+            "// lib"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("foo.rs")).unwrap(),
+            "// foo"
+        );
     }
 
     #[test]
@@ -525,7 +533,10 @@ hicc::import_lib! {
 
         assert!(dst.join("lib.rs").exists());
         assert!(dst.join("utils").is_dir());
-        assert_eq!(std::fs::read_to_string(dst.join("utils/foo.rs")).unwrap(), "// foo");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("utils/foo.rs")).unwrap(),
+            "// foo"
+        );
     }
 
     // ── merge_in_place ─────────────────────────
@@ -541,10 +552,16 @@ hicc::import_lib! {
         merge_in_place(&rust_dir).unwrap();
 
         // src.1 是 init 输出的备份
-        assert!(rust_dir.join("src.1").is_dir(), "src.1 should be backup dir");
+        assert!(
+            rust_dir.join("src.1").is_dir(),
+            "src.1 should be backup dir"
+        );
         assert!(rust_dir.join("src.1/lib.rs").exists());
         // src.2 是 merge 输出
-        assert!(rust_dir.join("src.2").is_dir(), "src.2 should be merge output");
+        assert!(
+            rust_dir.join("src.2").is_dir(),
+            "src.2 should be merge output"
+        );
         assert!(rust_dir.join("src.2/lib.rs").exists());
         // src 是 symlink
         assert!(rust_dir.join("src").is_symlink(), "src should be a symlink");
@@ -565,7 +582,10 @@ hicc::import_lib! {
         merge_in_place(&rust_dir).unwrap();
 
         // 子目录结构在 src.2 中保留
-        assert!(rust_dir.join("src.2/utils/foo.rs").exists(), "subdirectory structure preserved");
+        assert!(
+            rust_dir.join("src.2/utils/foo.rs").exists(),
+            "subdirectory structure preserved"
+        );
         // 通过 symlink 可正常访问
         assert!(rust_dir.join("src/utils/foo.rs").exists());
     }
@@ -585,7 +605,10 @@ hicc::import_lib! {
 
         // src.1 仍保留 init 原始内容
         let content = std::fs::read_to_string(rust_dir.join("src.1/lib.rs")).unwrap();
-        assert_eq!(content, "// original", "src.1 should retain original init output");
+        assert_eq!(
+            content, "// original",
+            "src.1 should retain original init output"
+        );
         // src.2 正常存在
         assert!(rust_dir.join("src.2/lib.rs").exists());
         // src 仍是 symlink

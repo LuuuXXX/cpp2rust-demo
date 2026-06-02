@@ -87,10 +87,7 @@ pub fn generate(spec: &FfiSpec) -> String {
         } else {
             out.push_str(&format!("    class {} {{\n", cs.name));
             for mb in &cs.methods {
-                out.push_str(&format!(
-                    "        #[cpp(method = \"{}\")]\n",
-                    mb.cpp_sig
-                ));
+                out.push_str(&format!("        #[cpp(method = \"{}\")]\n", mb.cpp_sig));
                 let self_ref = match mb.self_kind {
                     SelfKind::Ref => "&self",
                     SelfKind::RefMut => "&mut self",
@@ -127,7 +124,10 @@ pub fn generate(spec: &FfiSpec) -> String {
 
     // ── hicc::import_lib! ─────────────────────
     // 当没有任何绑定内容时（void* opaque 模式等），跳过整个块
-    let has_associated_fns = spec.class_specs.iter().any(|cs| !cs.associated_fns.is_empty());
+    let has_associated_fns = spec
+        .class_specs
+        .iter()
+        .any(|cs| !cs.associated_fns.is_empty());
     if spec.lib_spec.fn_bindings.is_empty()
         && spec.lib_spec.fwd_decls.is_empty()
         && !has_associated_fns
@@ -136,7 +136,10 @@ pub fn generate(spec: &FfiSpec) -> String {
     }
     out.push('\n');
     out.push_str("hicc::import_lib! {\n");
-    out.push_str(&format!("    #![link_name = \"{}\"]\n", spec.lib_spec.link_name));
+    out.push_str(&format!(
+        "    #![link_name = \"{}\"]\n",
+        spec.lib_spec.link_name
+    ));
 
     if !spec.lib_spec.fwd_decls.is_empty() {
         out.push('\n');
