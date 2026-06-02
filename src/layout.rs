@@ -240,6 +240,16 @@ impl FeatureLayout {
     }
 
     /// Write `meta/merge-report.md` with a summary of a cross-feature merge.
+    ///
+    /// 将多个 source feature 的编译单元聚合为统一 Rust 项目后，将摘要写入
+    /// `meta/merge-report.md`。报告内容包括：
+    /// - 来源 feature 列表（按传入顺序）
+    /// - 合并后目录名（各 feature 名以下划线拼接）
+    /// - 合并的编译单元文件数
+    /// - 冲突列表（若有；相同 class 方法或函数绑定在不同 feature 中签名不一致）
+    /// - 输出目录结构示意
+    ///
+    /// 输出文件路径：`.cpp2rust/<merged_name>/meta/merge-report.md`
     pub fn save_cross_merge_report(&self, data: &CrossMergeReportData<'_>) -> Result<()> {
         let mut out = String::new();
 

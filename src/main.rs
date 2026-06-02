@@ -201,15 +201,15 @@ fn run_merge_cross(project_root: std::path::PathBuf, features: &[String]) -> Res
     let out_lo = FeatureLayout::new(project_root.clone(), &merged_name);
     out_lo.create_dirs()?;
 
-    // 将每个 unit 的合并代码写出——由于 merge_units 聚合了所有 unit，
-    // 需要按 unit_path 分别取各 unit 的原始文件写出
-    // 这里直接从各 source unit 文件复制，并以目标 feature 的 layout 为基础。
+    // lib_name：Rust 标识符形式（将 `-` 替换为 `_`），用于 build.rs 中的 compile() 调用
+    let lib_name = merged_name.replace('-', "_");
+
     // 生成合并后的单一 ffi.rs（所有 symbol 合并到一个文件）
-    let ffi_code = merger::emit_merged_rs(&spec, &merged_name);
+    let ffi_code = merger::emit_merged_rs(&spec, &lib_name);
     let unit_paths = vec!["ffi".to_string()];
     project_generator::write_unit_rs(&out_lo.rust_dir, "ffi", &ffi_code)?;
     project_generator::write_cargo_toml(&out_lo.rust_dir, &merged_name)?;
-    project_generator::write_build_rs(&out_lo.rust_dir, &merged_name.replace('-', "_"))?;
+    project_generator::write_build_rs(&out_lo.rust_dir, &lib_name)?;
     project_generator::write_lib_rs(&out_lo.rust_dir, &unit_paths)?;
 
     // 生成 meta/merge-report.md
