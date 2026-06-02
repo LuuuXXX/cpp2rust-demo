@@ -809,6 +809,15 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
     if m.is_volatile {
         return None;
     }
+    // 参数或返回类型含函数指针/成员函数指针语法，无法映射为有效 Rust 类型，跳过
+    if m.params
+        .iter()
+        .any(|p| p.type_name.contains("(*)") || p.type_name.contains("::*)"))
+        || m.return_type.contains("(*)")
+        || m.return_type.contains("::*)")
+    {
+        return None;
+    }
     let rust_name = sanitize_fn_name(&m.name);
     let self_kind = if m.is_const {
         SelfKind::Ref
@@ -882,6 +891,9 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("(*)")))
         // C++ 成员函数指针（如 `int (Cls::*)() const`）无法映射为有效 Rust FFI 类型，跳过整个函数
         .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("::*)")))
+        // 返回类型含函数指针/成员函数指针语法，同样无法映射为有效 Rust FFI 类型，跳过整个函数
+        .filter(|(fi, _)| !fi.return_type.contains("(*)"))
+        .filter(|(fi, _)| !fi.return_type.contains("::*)"))
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
 
@@ -1447,6 +1459,7 @@ fn assign_associated_fns(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast_parser::{FunctionInfo, MethodInfo, ParamInfo};
 
     #[test]
     fn clean_shim_text_removes_struct_prefix() {
@@ -1472,5 +1485,134 @@ mod tests {
         assert_eq!(clean_shim_text("restructure()"), "restructure()");
         // "class" 出现在单词中间时不应被去掉
         assert_eq!(clean_shim_text("declassify()"), "declassify()");
+    }
+
+    // ── 函数指针过滤回归测试 ──────────────────────────────────────
+
+    fn make_fn(name: &str, return_type: &str, param_types: &[&str]) -> FunctionInfo {
+        FunctionInfo {
+            name: name.to_string(),
+            return_type: return_type.to_string(),
+            params: param_types
+                .iter()
+                .enumerate()
+                .map(|(i, t)| ParamInfo {
+                    name: format!("arg{}", i),
+                    type_name: t.to_string(),
+                    has_default: false,
+                })
+                .collect(),
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_method(name: &str, return_type: &str, param_types: &[&str]) -> MethodInfo {
+        MethodInfo {
+            name: name.to_string(),
+            return_type: return_type.to_string(),
+            params: param_types
+                .iter()
+                .enumerate()
+                .map(|(i, t)| ParamInfo {
+                    name: format!("arg{}", i),
+                    type_name: t.to_string(),
+                    has_default: false,
+                })
+                .collect(),
+            is_const: false,
+            is_volatile: false,
+            is_virtual: false,
+            is_pure_virtual: false,
+            is_static: false,
+            is_constructor: false,
+            is_destructor: false,
+            is_inline: true,
+            accessibility: "public".to_string(),
+            body_offset: None,
+            is_override: false,
+            is_default: false,
+        }
+    }
+
+    /// 返回类型为 C 函数指针的函数不应出现在 import_lib! 中
+    #[test]
+    fn build_lib_spec_filters_fn_ptr_return_type() {
+        let fi = make_fn("get_callback", "int (*)(int)", &[]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert!(
+            spec.fn_bindings.is_empty(),
+            "返回 C 函数指针的函数应被过滤，但仍出现在 fn_bindings 中"
+        );
+    }
+
+    /// 返回类型为 C++ 成员函数指针的函数不应出现在 import_lib! 中
+    #[test]
+    fn build_lib_spec_filters_member_fn_ptr_return_type() {
+        let fi = make_fn("get_method_ptr", "int (Cls::*)(int) const", &[]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert!(
+            spec.fn_bindings.is_empty(),
+            "返回 C++ 成员函数指针的函数应被过滤，但仍出现在 fn_bindings 中"
+        );
+    }
+
+    /// 参数含 C 函数指针的方法不应出现在 import_class! 中
+    #[test]
+    fn build_method_binding_filters_fn_ptr_param() {
+        let m = make_method("set_handler", "void", &["int (*)(int)"]);
+        assert!(
+            build_method_binding(&m).is_none(),
+            "含 C 函数指针参数的方法应返回 None，但未被过滤"
+        );
+    }
+
+    /// 返回类型为 C 函数指针的方法不应出现在 import_class! 中
+    #[test]
+    fn build_method_binding_filters_fn_ptr_return_type() {
+        let m = make_method("get_handler", "int (*)(int)", &[]);
+        assert!(
+            build_method_binding(&m).is_none(),
+            "返回 C 函数指针的方法应返回 None，但未被过滤"
+        );
+    }
+
+    /// 返回类型为 C++ 成员函数指针的方法不应出现在 import_class! 中
+    #[test]
+    fn build_method_binding_filters_member_fn_ptr_return_type() {
+        let m = make_method("get_method_ptr", "int (Cls::*)()", &[]);
+        assert!(
+            build_method_binding(&m).is_none(),
+            "返回 C++ 成员函数指针的方法应返回 None，但未被过滤"
+        );
+    }
+
+    /// 普通函数（无函数指针）不应被过滤
+    #[test]
+    fn build_lib_spec_keeps_normal_fn() {
+        let fi = make_fn("get_value", "int", &["int"]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert_eq!(
+            spec.fn_bindings.len(),
+            1,
+            "普通函数不应被过滤，但从 fn_bindings 中消失"
+        );
+    }
+
+    /// 普通方法（无函数指针）不应被过滤
+    #[test]
+    fn build_method_binding_keeps_normal_method() {
+        let m = make_method("get_value", "int", &["int"]);
+        assert!(
+            build_method_binding(&m).is_some(),
+            "普通方法不应被过滤，但返回了 None"
+        );
     }
 }
