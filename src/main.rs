@@ -11,7 +11,116 @@ use cpp2rust_demo::layout::{self, FeatureLayout, InitReportData, InitUnitStat, M
 use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
 use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+// ─── post-merge FFI 统计 ───────────────────────────────────────────────────
+
+struct RustSrcMetrics {
+    rs_files: Vec<PathBuf>,
+    import_lib_files: usize,
+    import_class_files: usize,
+    fn_binding_count: usize,
+    /// link_name 值中含路径分隔符 '/' 的列表
+    bad_link_names: Vec<String>,
+    /// `#include` 指令总数
+    include_count: usize,
+    /// cpp2rust-todo 降级标记总数
+    todo_count: usize,
+    /// (tag, total_count) 降级标记按 tag 汇总
+    degraded_tags: Vec<(String, usize)>,
+}
+
+/// 递归收集 `dir` 下所有 `.rs` 文件。
+fn walk_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_rs_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// 统计文件行数（逐行读取，内存高效）。
+fn count_file_lines(path: &Path) -> usize {
+    std::fs::File::open(path)
+        .map(|f| BufReader::new(f).lines().count())
+        .unwrap_or(0)
+}
+
+/// 扫描 `rust_src` 目录下所有 `.rs` 文件，统计 FFI 绑定指标。
+fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
+    let mut rs_files = Vec::new();
+    walk_rs_files(rust_src, &mut rs_files);
+    rs_files.sort();
+
+    let mut import_lib_files = 0usize;
+    let mut import_class_files = 0usize;
+    let mut fn_binding_count = 0usize;
+    let mut bad_link_names: Vec<String> = Vec::new();
+    let mut include_count = 0usize;
+    let mut todo_tags: HashMap<String, usize> = HashMap::new();
+
+    for path in &rs_files {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        if content.contains("hicc::import_lib!") {
+            import_lib_files += 1;
+        }
+        if content.contains("hicc::import_class!") {
+            import_class_files += 1;
+        }
+        fn_binding_count += content.matches("#[cpp(func =").count();
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            // 仅统计行首 #include（trimmed 以 "#include" 开头即不是注释行）
+            if trimmed.starts_with("#include") {
+                include_count += 1;
+            }
+            // link_name = "..." 提取
+            if let Some(pos) = trimmed.find("link_name = \"") {
+                let rest = &trimmed[pos + "link_name = \"".len()..];
+                if let Some(end) = rest.find('"') {
+                    let name = &rest[..end];
+                    if name.contains('/') {
+                        bad_link_names.push(name.to_string());
+                    }
+                }
+            }
+            // cpp2rust-todo[TAG] 统计
+            if let Some(start) = line.find("cpp2rust-todo[") {
+                let rest = &line[start + "cpp2rust-todo[".len()..];
+                if let Some(end) = rest.find(']') {
+                    let tag = rest[..end].to_string();
+                    *todo_tags.entry(tag).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    let mut degraded_tags: Vec<(String, usize)> = todo_tags.into_iter().collect();
+    degraded_tags.sort_by(|a, b| a.0.cmp(&b.0));
+    let todo_count: usize = degraded_tags.iter().map(|(_, c)| c).sum();
+
+    RustSrcMetrics {
+        rs_files,
+        import_lib_files,
+        import_class_files,
+        fn_binding_count,
+        bad_link_names,
+        include_count,
+        todo_count,
+        degraded_tags,
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "cpp2rust-demo")]
@@ -117,11 +226,26 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
 
     merger::merge_in_place(&lo.rust_dir)?;
 
+    // ── post-merge FFI 统计 ────────────────────────────────────────────────
+    let final_src = lo.rust_dir.join("src.2");
+    let rust_src = if final_src.is_dir() {
+        final_src
+    } else {
+        lo.rust_dir.join("src")
+    };
+    let m = collect_rust_src_metrics(&rust_src);
+
     // 生成 meta/merge-report.md
     let report_data = MergeReportData {
         feature,
         unit_count: unit_files.len(),
         conflicts: &[],
+        rs_file_count: m.rs_files.len(),
+        import_lib_files: m.import_lib_files,
+        import_class_files: m.import_class_files,
+        fn_binding_count: m.fn_binding_count,
+        todo_count: m.todo_count,
+        bad_link_name_count: m.bad_link_names.len(),
     };
     lo.save_merge_report(&report_data)?;
 
@@ -137,6 +261,78 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     );
     println!("        └── src     （符号链接 → src.2）");
 
+    // ── §5 生成的 .rs 文件列表 ──────────────────────────────────────────────
+    println!();
+    println!("── 生成的 .rs 文件（共 {}，前 20 条）──", m.rs_files.len());
+    for f in m.rs_files.iter().take(20) {
+        // 显示相对于 rust_src 的路径（更简洁）
+        let display = f
+            .strip_prefix(&rust_src)
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| f.display().to_string());
+        println!("  {}", display);
+    }
+    if m.rs_files.len() > 20 {
+        println!("  ...（共 {} 个文件，仅显示前 20 条）", m.rs_files.len());
+    }
+
+    // ── §6b FFI 绑定统计 ────────────────────────────────────────────────────
+    println!();
+    println!("── FFI 绑定统计 ──");
+    println!("  import_lib!  绑定文件数：{}", m.import_lib_files);
+    println!("  import_class! 绑定文件数：{}", m.import_class_files);
+    println!("  FFI 函数绑定总数（#[cpp(func=...)]）：{}", m.fn_binding_count);
+
+    // link_name 一致性
+    if m.bad_link_names.is_empty() {
+        println!("  link_name 一致性：✓ 全部通过（无路径分隔符）");
+    } else {
+        println!("  link_name 一致性：⚠ {} 处含路径分隔符：", m.bad_link_names.len());
+        for name in &m.bad_link_names {
+            println!("    ✗ {}", name);
+        }
+    }
+
+    // #include 探测
+    if m.include_count > 0 {
+        println!("  cpp! 块 #include 指令数：{} （头文件探测已生效）", m.include_count);
+    } else {
+        println!("  cpp! 块 #include 指令数：0 （可能未探测到对应头文件）");
+    }
+
+    // ── §5 降级标记统计 ─────────────────────────────────────────────────────
+    println!();
+    if m.degraded_tags.is_empty() {
+        println!("── 降级标记：✓ 无（所有特性均已完整映射）");
+    } else {
+        println!("── 降级标记（需人工处理，搜索 'cpp2rust-todo'）：");
+        for (tag, count) in &m.degraded_tags {
+            println!("  [{}] × {} 次", tag, count);
+        }
+    }
+
+    // ── §7 汇总表 ────────────────────────────────────────────────────────────
+    println!();
+    println!("┌─────────────────────────────────────────────────────────┐");
+    println!("│             cpp2rust-demo Merge 汇总                    │");
+    println!("└─────────────────────────────────────────────────────────┘");
+    println!("  feature          : {}", feature);
+    println!("  合并单元文件数   : {}", unit_files.len());
+    println!("  生成 .rs 文件数  : {}", m.rs_files.len());
+    println!("  import_lib! 文件 : {}", m.import_lib_files);
+    println!("  FFI 函数绑定数   : {}", m.fn_binding_count);
+    if m.bad_link_names.is_empty() {
+        println!("  link_name 检查   : ✓ 通过");
+    } else {
+        println!("  link_name 检查   : ⚠ {} 处异常", m.bad_link_names.len());
+    }
+    if m.todo_count == 0 {
+        println!("  降级标记         : ✓ 无");
+    } else {
+        println!("  降级标记         : ⚠ {} 处（需人工完善）", m.todo_count);
+    }
+    println!("  报告             : .cpp2rust/{}/meta/merge-report.md", feature);
+
     Ok(())
 }
 
@@ -150,7 +346,7 @@ fn run_multi_feature_merge(features: &[String]) -> Result<()> {
     println!();
 
     // 验证每个 feature 存在，并确定其 canonical src 目录
-    let mut feature_srcs: Vec<(&str, std::path::PathBuf)> = Vec::new();
+    let mut feature_srcs: Vec<(&str, PathBuf)> = Vec::new();
     for feature in features {
         let lo = FeatureLayout::new(project_root.clone(), feature);
         if !lo.feature_root.exists() {
@@ -259,6 +455,26 @@ fn run_init(args: InitArgs) -> Result<()> {
         return Ok(());
     }
 
+    // ── §6d 预处理文件行数统计 ─────────────────────────────────────────────────
+    {
+        let mut sizes: Vec<(&PathBuf, usize)> = captured
+            .iter()
+            .map(|p| (p, count_file_lines(p)))
+            .collect();
+        sizes.sort_by(|a, b| b.1.cmp(&a.1));
+        let total: usize = sizes.iter().map(|(_, n)| n).sum();
+        println!("\n── 捕获的 .cpp2rust 文件（行数，降序）──");
+        for (path, lines) in sizes.iter().take(15) {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            println!("  {:>8} 行  {}", lines, name);
+        }
+        if sizes.len() > 15 {
+            println!("  ...（共 {} 个文件，仅显示前 15 条）", sizes.len());
+        }
+        println!("  ────────────────────────────────────────");
+        println!("  {:>8} 行  合计", total);
+    }
+
     let sel = InteractiveSelector;
     let selected = sel.select(&captured)?;
     println!("已为本 feature 选择 {} 个文件", selected.len());
@@ -275,7 +491,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     // 降级特性统计：tag → (unit_path → 出现次数)
     let mut degraded_tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
     // unit_path → 首次注册该路径的源文件（用于冲突诊断）
-    let mut seen_unit_paths: HashMap<String, std::path::PathBuf> = HashMap::new();
+    let mut seen_unit_paths: HashMap<String, PathBuf> = HashMap::new();
 
     // ── 第一趟：解析所有文件，收集 (unit_path, spec, stats) ──────────────────
     struct UnitData {
@@ -459,6 +675,7 @@ fn run_init(args: InitArgs) -> Result<()> {
     if unit_paths.iter().any(|p| p.contains('/')) {
         println!("  （目录结构与 C++ 项目一致）");
     }
+    println!("  → 运行 'cpp2rust-demo merge --feature {}' 整理输出结构。", feature);
 
     Ok(())
 }
