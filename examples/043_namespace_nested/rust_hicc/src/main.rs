@@ -69,7 +69,7 @@ fn main() {
     println!("1. C++ 嵌套命名空间：foo::bar::config");
     println!("2. 命名空间影响符号名称");
     println!("3. FFI 声明使用完全限定名称");
-    println!("4. Rust 端使用 opaque pointer 模式（*mut u8）");
-    println!("5. hicc import_lib! 支持 void* opaque pointer 模式");
+    println!("4. Rust 端使用 opaque pointer 模式");
+    println!("5. hicc import_class! 不支持嵌套命名空间，使用 raw extern \"C\"");
 }
 
