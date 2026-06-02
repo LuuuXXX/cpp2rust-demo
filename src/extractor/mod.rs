@@ -950,7 +950,12 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         .params
         .iter()
         .enumerate()
-        .map(|(i, p)| (sanitize_param_name(&p.name, i), cpp_to_rust_ffi(&p.type_name)))
+        .map(|(i, p)| {
+            (
+                sanitize_param_name(&p.name, i),
+                cpp_to_rust_ffi(&p.type_name),
+            )
+        })
         .collect();
 
     let ret_type = ret_type_from_cpp(&fi.return_type);
@@ -1686,7 +1691,9 @@ mod tests {
 
     #[test]
     fn is_mappable_rust_type_primitives() {
-        for ty in &["i8", "u8", "i32", "u32", "i64", "f64", "bool", "isize", "usize"] {
+        for ty in &[
+            "i8", "u8", "i32", "u32", "i64", "f64", "bool", "isize", "usize",
+        ] {
             assert!(is_mappable_rust_type(ty, &[]), "原始类型 {} 应合法", ty);
         }
     }
@@ -1700,7 +1707,10 @@ mod tests {
     fn is_mappable_rust_type_c_string_ptrs() {
         assert!(is_mappable_rust_type("*const i8", &[]), "*const i8 应合法");
         assert!(is_mappable_rust_type("*mut i8", &[]), "*mut i8 应合法");
-        assert!(is_mappable_rust_type("*mut u8", &[]), "*mut u8（void*）应合法");
+        assert!(
+            is_mappable_rust_type("*mut u8", &[]),
+            "*mut u8（void*）应合法"
+        );
         assert!(is_mappable_rust_type("*const u8", &[]), "*const u8 应合法");
     }
 
@@ -1723,7 +1733,10 @@ mod tests {
 
     #[test]
     fn is_mappable_rust_type_unknown_type_is_invalid() {
-        assert!(!is_mappable_rust_type("FILE", &[]), "未知裸类型 FILE 应非法");
+        assert!(
+            !is_mappable_rust_type("FILE", &[]),
+            "未知裸类型 FILE 应非法"
+        );
         assert!(
             !is_mappable_rust_type("*mut FILE", &[]),
             "*mut FILE（未知类）应非法"
@@ -1789,10 +1802,6 @@ mod tests {
         let fi = make_fn("process", "int", &["MyClass &"]);
         let funcs = vec![&fi];
         let spec = build_lib_spec(&funcs, "test", &["MyClass"]);
-        assert_eq!(
-            spec.fn_bindings.len(),
-            1,
-            "参数为已知类引用的函数应保留"
-        );
+        assert_eq!(spec.fn_bindings.len(), 1, "参数为已知类引用的函数应保留");
     }
 }

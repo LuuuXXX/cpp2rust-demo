@@ -6,7 +6,7 @@ use cpp2rust_demo::error::Result;
 use cpp2rust_demo::extractor;
 use cpp2rust_demo::generator::hicc_codegen;
 use cpp2rust_demo::generator::project_generator;
-use cpp2rust_demo::layout::{self, FeatureLayout};
+use cpp2rust_demo::layout::{self, FeatureLayout, InitReportData, InitUnitStat, MergeReportData};
 use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
 use std::time::Instant;
@@ -103,12 +103,25 @@ fn run_merge(args: MergeArgs) -> Result<()> {
 
     merger::merge_in_place(&lo.rust_dir)?;
 
-    println!("\n✓ cpp2rust-demo merge completed.");
+    // 生成 meta/merge-report.md
+    let report_data = MergeReportData {
+        feature,
+        unit_count: unit_files.len(),
+        conflicts: &[],
+    };
+    lo.save_merge_report(&report_data)?;
+
+    println!("\n\u{2713} cpp2rust-demo merge completed.");
     println!("\nOutput:");
-    println!("  .cpp2rust/{}/rust/", feature);
-    println!("    ├── src.1/  (init 输出备份)");
-    println!("    ├── src.2/  (merge 输出，目录结构与 C++ 项目一致)");
-    println!("    └── src     (symlink → src.2)");
+    println!("  .cpp2rust/{}/", feature);
+    println!("    \u{251c}\u{2500}\u{2500} meta/");
+    println!("    \u{2502}   \u{2514}\u{2500}\u{2500} merge-report.md  (merge summary)");
+    println!("    \u{2514}\u{2500}\u{2500} rust/");
+    println!("        \u{251c}\u{2500}\u{2500} src.1/  (init \u{8f93}\u{51fa}\u{5907}\u{4efd})");
+    println!(
+        "        \u{251c}\u{2500}\u{2500} src.2/  (merge \u{8f93}\u{51fa}\u{ff0c}\u{76ee}\u{5f55}\u{7ed3}\u{6784}\u{4e0e} C++ \u{9879}\u{76ee}\u{4e00}\u{81f4})"
+    );
+    println!("        \u{2514}\u{2500}\u{2500} src     (symlink \u{2192} src.2)");
 
     Ok(())
 }
@@ -155,6 +168,7 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     println!("\nRunning AST parser and code generation on selected files...");
     let mut unit_paths: Vec<String> = Vec::new();
+    let mut unit_stats: Vec<InitUnitStat> = Vec::new();
     // 降级特性统计：tag → 出现次数
     let mut degraded_tags: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
@@ -219,6 +233,15 @@ fn run_init(args: InitArgs) -> Result<()> {
                     elapsed_ms,
                 );
 
+                unit_stats.push(InitUnitStat {
+                    cpp2rust_path: path.display().to_string(),
+                    unit_path: unit_path.clone(),
+                    class_count: ast.classes.len(),
+                    fn_count: ast.functions.len(),
+                    enum_count: ast.enums.len(),
+                    elapsed_ms,
+                });
+
                 project_generator::write_unit_rs(&lo.rust_dir, &unit_path, &code)?;
                 unit_paths.push(unit_path);
             }
@@ -235,11 +258,11 @@ fn run_init(args: InitArgs) -> Result<()> {
     }
 
     // 降级特性汇总
-    if !degraded_tags.is_empty() {
+    let mut sorted_tags: Vec<(String, usize)> = degraded_tags.into_iter().collect();
+    sorted_tags.sort_by(|a, b| a.0.cmp(&b.0));
+    if !sorted_tags.is_empty() {
         println!("\n\u{26a0} Degraded features (require manual attention):");
-        let mut tags: Vec<_> = degraded_tags.iter().collect();
-        tags.sort_by_key(|(tag, _)| tag.as_str());
-        for (tag, count) in &tags {
+        for (tag, count) in &sorted_tags {
             println!("  [{}] \u{d7} {}", tag, count);
         }
         println!(
@@ -253,12 +276,29 @@ fn run_init(args: InitArgs) -> Result<()> {
     project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
+    // 生成 meta/init-report.md
+    let report_data = InitReportData {
+        feature,
+        build_cmd: &build_cmd.join(" "),
+        captured_count: captured.len(),
+        selected_count: selected.len(),
+        units: &unit_stats,
+        degraded_tags: &sorted_tags,
+    };
+    lo.save_init_report(&report_data)?;
+
     println!("\n\u{2713} cpp2rust-demo init completed.");
     println!("\nOutput structure:");
     println!("  .cpp2rust/{}/", feature);
-    println!("    \u{251c}\u{2500}\u{2500} c/          (captured .cpp2rust files, mirrors C project layout)");
-    println!("    \u{251c}\u{2500}\u{2500} meta/       (build_cmd.txt, selected_files.json)");
-    println!("    \u{2514}\u{2500}\u{2500} rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/**/*.rs)");
+    println!(
+        "    \u{251c}\u{2500}\u{2500} c/          (captured .cpp2rust files, mirrors C++ project layout)"
+    );
+    println!(
+        "    \u{251c}\u{2500}\u{2500} meta/       (build_cmd.txt, selected_files.json, init-report.md)"
+    );
+    println!(
+        "    \u{2514}\u{2500}\u{2500} rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/**/*.rs)"
+    );
     println!();
     println!(
         "Generated {} unit file(s) in .cpp2rust/{}/rust/src/",
