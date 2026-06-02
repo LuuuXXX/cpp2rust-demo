@@ -3,7 +3,7 @@ mod common;
 macro_rules! golden_test {
     ($name:ident, $example:literal) => {
         #[test]
-        #[ignore = "Phase 1+ not yet implemented"]
+        #[ignore = "requires libclang; run explicitly with --include-ignored --test-threads=1"]
         fn $name() {
             let example_dir = concat!("examples/", $example);
             let generated = common::run_tool_on(example_dir);

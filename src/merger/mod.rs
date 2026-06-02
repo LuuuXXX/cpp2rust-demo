@@ -30,6 +30,8 @@ pub struct MergedSpec {
     pub cpp_lines: Vec<String>,
     /// 每个类名对应的合并后方法列表
     pub classes: HashMap<String, Vec<ParsedMethod>>,
+    /// 每个类名对应的完整属性行（如 `#[cpp(class = "Foo")]` / `#[interface]`）
+    pub class_attrs: HashMap<String, String>,
     /// 类名出现顺序（保持稳定输出）
     pub class_order: Vec<String>,
     /// import_lib! 中的前向声明（已去重）
@@ -54,11 +56,7 @@ pub struct ParsedMethod {
 // ─────────────────────────────────────────────
 
 /// 合并多个 unit `.rs` 文件到一个 `MergedSpec`。
-/// `merge_link_name`：合并后 `import_lib!` 中的 `#![link_name = "..."]` 值。
-pub fn merge_units(
-    unit_rs_paths: &[std::path::PathBuf],
-    merge_link_name: &str,
-) -> MergedSpec {
+pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
     let mut spec = MergedSpec::default();
     let mut cpp_line_seen: HashSet<String> = HashSet::new();
     // (cpp_sig → rust fn line)：冲突检测
@@ -84,9 +82,6 @@ pub fn merge_units(
         merge_classes(&mut spec, &unit, &mut method_seen);
         merge_lib(&mut spec, &unit, &mut fn_attr_to_sig, &mut fwd_decl_seen);
     }
-
-    // merge_link_name 通过 emit_merged_rs 的参数传递，无需存储在 MergedSpec 中
-    let _ = merge_link_name;
 
     spec
 }
@@ -114,6 +109,10 @@ fn merge_classes(
         if !spec.classes.contains_key(&cb.class_name) {
             spec.class_order.push(cb.class_name.clone());
             spec.classes.insert(cb.class_name.clone(), Vec::new());
+            // 首次遇到时记录完整属性行
+            if !cb.class_attr.is_empty() {
+                spec.class_attrs.insert(cb.class_name.clone(), cb.class_attr.clone());
+            }
         }
         let methods = spec.classes.get_mut(&cb.class_name).unwrap();
         for method in &cb.methods {
@@ -178,17 +177,7 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
     let mut out = String::new();
 
     // ── hicc::cpp! ──────────────────────────────
-    out.push_str("hicc::cpp! {\n");
-    for line in &spec.cpp_lines {
-        if line.is_empty() {
-            out.push('\n');
-        } else {
-            out.push_str("    ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    out.push_str("}\n");
+    out.push_str(&crate::generator::hicc_codegen::emit_cpp_block(&spec.cpp_lines));
 
     // ── hicc::import_class! (每类一个块) ────────
     for class_name in &spec.class_order {
@@ -199,9 +188,16 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
         if methods.is_empty() {
             continue;
         }
+        // 使用解析时记录的完整属性行，正确保留 destroy= 和 #[interface]
+        let default_attr = format!("#[cpp(class = \"{}\")]", class_name);
+        let attr_line = spec
+            .class_attrs
+            .get(class_name)
+            .map(|s| s.as_str())
+            .unwrap_or(&default_attr);
         out.push('\n');
         out.push_str("hicc::import_class! {\n");
-        out.push_str(&format!("    #[cpp(class = \"{}\")]\n", class_name));
+        out.push_str(&format!("    {}\n", attr_line));
         out.push_str(&format!("    class {} {{\n", class_name));
         for m in methods {
             out.push_str(&format!("        {}\n", m.attr));
@@ -378,7 +374,7 @@ mod tests {
         std::fs::write(&p1, src1).unwrap();
         std::fs::write(&p2, src2).unwrap();
 
-        let spec = merge_units(&[p1, p2], "merged");
+        let spec = merge_units(&[p1, p2]);
         // foo.h 应只出现一次
         let foo_count = spec.cpp_lines.iter().filter(|l| l.contains("foo.h")).count();
         assert_eq!(foo_count, 1);
@@ -408,7 +404,7 @@ hicc::import_class! {
         std::fs::write(&p1, src).unwrap();
         std::fs::write(&p2, src).unwrap();
 
-        let spec = merge_units(&[p1, p2], "merged");
+        let spec = merge_units(&[p1, p2]);
         let foo_methods = spec.classes.get("Foo").unwrap();
         assert_eq!(foo_methods.len(), 1, "duplicate method should be deduped");
     }
@@ -434,7 +430,7 @@ hicc::import_lib! {
         std::fs::write(&p1, src).unwrap();
         std::fs::write(&p2, src).unwrap();
 
-        let spec = merge_units(&[p1, p2], "merged");
+        let spec = merge_units(&[p1, p2]);
         assert_eq!(spec.fn_bindings.len(), 1, "duplicate fn binding should be deduped");
         assert_eq!(spec.fwd_decls.len(), 1, "duplicate fwd_decl should be deduped");
     }

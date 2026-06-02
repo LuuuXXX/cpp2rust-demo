@@ -27,16 +27,24 @@ pub fn extract(
     let has_classes = ast.classes.iter().any(|c| !c.is_in_namespace);
 
     // 去重：对于同名函数，只保留一个（有 body_offset 的优先；否则 is_extern_c=false 优先）
-    let functions = dedup_functions(&ast.functions);
+    // 只纳入来自当前 .cpp 文件本身或显式 extern "C" 声明的函数，
+    // 过滤掉通过 #include 引入的头文件内部函数（它们不应被导出为 FFI）。
+    let eligible_functions: Vec<FunctionInfo> = ast
+        .functions
+        .iter()
+        .filter(|f| f.is_from_current_file || f.is_extern_c)
+        .cloned()
+        .collect();
+    let functions = dedup_functions(&eligible_functions);
 
     // ── 计算函数签名中引用的类名集合 ─────────────
-    // 先检查 extern-C 函数，若无则检查所有函数（有些 header 不用 extern "C" 包裹）
+    // 先检查 extern-C 函数，若无则检查所有符合条件的函数（有些 header 不用 extern "C" 包裹）
     let used_classes: std::collections::HashSet<String> = {
         let mut set = std::collections::HashSet::new();
         let all_cn: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
         let candidate_fns: Vec<&FunctionInfo> = {
-            let extern_c: Vec<&FunctionInfo> = ast.functions.iter().filter(|f| f.is_extern_c).collect();
-            if extern_c.is_empty() { ast.functions.iter().collect() } else { extern_c }
+            let extern_c: Vec<&FunctionInfo> = eligible_functions.iter().filter(|f| f.is_extern_c).collect();
+            if extern_c.is_empty() { eligible_functions.iter().collect() } else { extern_c }
         };
         for fi in &candidate_fns {
             for cn in &all_cn {
@@ -57,7 +65,7 @@ pub fn extract(
     //   044: example::OperationResult* 命名空间类型指针 → 同样压制
     //   028: int/double 原始类型（辅助类）→ 正常生成
     let namespace_class_mode = has_any_classes && used_classes.is_empty() && {
-        ast.functions.iter().any(|f| f.is_extern_c && {
+        eligible_functions.iter().any(|f| f.is_extern_c && {
             let rt = &f.return_type;
             rt.contains("::") || rt.contains("void *") || rt.contains("void*") ||
             f.params.iter().any(|p| {
@@ -383,13 +391,12 @@ fn emit_class_inline(ci: &ClassInfo, source_bytes: &[u8], lines: &mut Vec<String
         .filter(|m| m.accessibility == "public")
         .collect();
 
-    let mut seen_keys: Vec<(String, String)> = Vec::new();
+    let mut seen_keys: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     let mut pub_methods: Vec<&MethodInfo> = Vec::new();
     for m in &all_pub {
         let param_types: String = m.params.iter().map(|p| p.type_name.as_str()).collect::<Vec<_>>().join(",");
         let key = (m.name.clone(), param_types.clone());
-        if !seen_keys.contains(&key) {
-            seen_keys.push(key);
+        if seen_keys.insert(key) {
             // 若存在同签名的有-body 版本，则用它替代第一次出现的无-body 版本
             let best = all_pub
                 .iter()
@@ -609,25 +616,22 @@ fn strip_preprocessor_markers(text: &str) -> String {
 /// 清理 shim 函数文本：去除 `struct ClassName*` → `ClassName*`
 fn clean_shim_text(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
-    let bytes = text.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        // 去除 `struct ` 前缀（仅出现在行首/空格/换行/括号/逗号之后）
-        if i + 7 <= bytes.len() && &bytes[i..i + 7] == b"struct " {
-            let prev_ok = i == 0
-                || bytes[i - 1] == b' '
-                || bytes[i - 1] == b'\n'
-                || bytes[i - 1] == b'\t'
-                || bytes[i - 1] == b'('
-                || bytes[i - 1] == b',';
-            if prev_ok {
-                i += 7;
-                continue;
-            }
+    let mut rest = text;
+    // 用 str::find 逐段查找 "struct "，避免 byte-level 迭代在 UTF-8 多字节字符时出错
+    while let Some(pos) = rest.find("struct ") {
+        result.push_str(&rest[..pos]);
+        let prev_ok = pos == 0
+            || matches!(
+                rest.as_bytes()[pos - 1],
+                b' ' | b'\n' | b'\t' | b'(' | b','
+            );
+        // 无论是否跳过，都要跳过 "struct " 的字节位置，防止死循环
+        rest = &rest[pos + 7..];
+        if !prev_ok {
+            result.push_str("struct ");
         }
-        result.push(bytes[i] as char);
-        i += 1;
     }
+    result.push_str(rest);
     result
 }
 
@@ -688,7 +692,7 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
 /// 递归收集所有基类的 public 非 ctor/dtor 方法（不含静态方法）
 fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -> Vec<&'a MethodInfo> {
     let mut result: Vec<&'a MethodInfo> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     for base in &ci.bases {
         let base_name = clean_type(&base.name).to_string();
@@ -696,8 +700,7 @@ fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -
             // 先递归收集基类的基类
             let grand_inherited = collect_inherited_methods(base_ci, all_classes);
             for m in grand_inherited {
-                if !seen.contains(&m.name) {
-                    seen.insert(m.name.clone());
+                if seen.insert(m.name.as_str()) {
                     result.push(m);
                 }
             }
@@ -708,8 +711,7 @@ fn collect_inherited_methods<'a>(ci: &ClassInfo, all_classes: &'a [ClassInfo]) -
                     && m.accessibility == "public"
                     && !m.is_static
             }) {
-                if !seen.contains(&m.name) {
-                    seen.insert(m.name.clone());
+                if seen.insert(m.name.as_str()) {
                     result.push(m);
                 }
             }
@@ -732,11 +734,7 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         .map(|p| (sanitize_param_name(&p.name), cpp_to_rust(&p.type_name)))
         .collect();
 
-    let ret_type = if m.return_type.is_empty() || m.return_type == "void" {
-        None
-    } else {
-        Some(cpp_to_rust(&m.return_type))
-    };
+    let ret_type = ret_type_from_cpp(&m.return_type);
 
     // C++ 方法签名：含参数名（若 AST 有）、剥除参数 volatile、指针紧贴类型
     // 返回类型 volatile 和方法 this-volatile 均需保留，供 hicc 编译时方法指针类型检查
@@ -811,12 +809,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         .map(|p| (sanitize_param_name(&p.name), cpp_to_rust_ffi(&p.type_name)))
         .collect();
 
-    let ret_type = if fi.return_type.is_empty() || fi.return_type == "void" {
-        None
-    } else {
-        let rt = cpp_to_rust_ffi(&fi.return_type);
-        if rt.is_empty() { None } else { Some(rt) }
-    };
+    let ret_type = ret_type_from_cpp(&fi.return_type);
 
     // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
     // 例外：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）
@@ -850,7 +843,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
             if is_class_ptr && !p.name.is_empty() && p.name != "_" && !is_self_name {
                 format!("{} {}", ty, p.name)
             } else {
-                ty.to_string()
+                ty
             }
         })
         .collect();
@@ -858,7 +851,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let ret_clean = if fi.return_type.is_empty() || fi.return_type == "void" {
         "void".to_string()
     } else {
-        normalize_ptr_spacing(clean_type(&fi.return_type)).to_string()
+        normalize_ptr_spacing(clean_type(&fi.return_type))
     };
 
     // 无参数时：extern_c → "(void)"，否则 "()"
@@ -958,6 +951,19 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
 //  辅助工具
 // ─────────────────────────────────────────────
 
+/// 将 C++ 返回类型字符串转换为 Rust `Option<String>`（`None` 表示 void 或空）。
+///
+/// 统一用于 `build_method_binding` 和 `build_fn_binding`，消除重复判断逻辑。
+/// 注：`cpp_to_rust_ffi` 是 `cpp_to_rust` 的等价别名，两处调用行为一致。
+fn ret_type_from_cpp(s: &str) -> Option<String> {
+    if s.is_empty() || s == "void" {
+        return None;
+    }
+    // cpp_to_rust_ffi == cpp_to_rust（见 type_mapper.rs），两处上下文行为相同
+    let rt = cpp_to_rust(s);
+    if rt.is_empty() { None } else { Some(rt) }
+}
+
 /// 从源文件字节数组中读取范围文本
 pub(crate) fn extract_range_text(source_bytes: &[u8], start: u32, end: u32) -> String {
     let s = start as usize;
@@ -1050,15 +1056,13 @@ fn find_static_init(source_bytes: &[u8], class_name: &str, field_name: &str) -> 
 /// 规范化 C++ 类型中的指针空格：`T *` → `T*`，`const T *` → `const T*`
 pub fn normalize_ptr_spacing(ty: &str) -> String {
     let mut result = String::with_capacity(ty.len());
-    let bytes = ty.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b' ' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-            i += 1;
+    let mut chars = ty.chars().peekable();
+    while let Some(c) = chars.next() {
+        // 跳过 '*' 前的空格，避免 byte-level 迭代在 UTF-8 多字节字符时出错
+        if c == ' ' && chars.peek() == Some(&'*') {
             continue;
         }
-        result.push(bytes[i] as char);
-        i += 1;
+        result.push(c);
     }
     result
 }
@@ -1112,8 +1116,6 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
             if rest.starts_with('<') { Some(format!("#include {}", rest)) } else { None }
         })
         .collect();
-    let h_set: std::collections::HashSet<String> = h_includes.iter().cloned().collect();
-
     // 收集 .cpp 中的系统 include（保序）
     let mut cpp_includes: Vec<String> = Vec::new();
     let mut cpp_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1134,27 +1136,24 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
             }
         }
     }
-    let cpp_set: std::collections::HashSet<String> = cpp_includes.iter().cloned().collect();
-
     // 合并：header-only 优先（按 .h 顺序），然后 cpp 中的按顺序
     let mut system: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     // 1. header-only includes
     for inc in &h_includes {
-        if !cpp_set.contains(inc) && seen.insert(inc.clone()) {
+        if !cpp_seen.contains(inc) && seen.insert(inc.as_str()) {
             system.push(inc.clone());
         }
     }
 
     // 2. cpp includes（按 cpp 文件顺序，含同时出现在 header 中的）
     for inc in &cpp_includes {
-        if seen.insert(inc.clone()) {
+        if seen.insert(inc.as_str()) {
             system.push(inc.clone());
         }
     }
 
-    let _ = h_set; // suppress unused warning
     (system, project)
 }
 

@@ -111,6 +111,9 @@ pub struct FunctionInfo {
     pub friend_of: Option<String>,
     /// 函数定义的字节范围（在 .cpp2rust 文件中）：(start, end)
     pub body_offset: Option<(u32, u32)>,
+    /// 函数声明/定义是否位于当前编译单元（.cpp 文件自身），而非被 include 的头文件。
+    /// 与 `ClassInfo::is_from_current_file` 语义一致，通过 `cpp_byte_ranges` 判断。
+    pub is_from_current_file: bool,
 }
 
 /// 顶层 AST 结果
@@ -202,7 +205,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::FunctionDecl => {
-                if let Some(fi) = extract_function(&entity, None) {
+                if let Some(fi) = extract_function(&entity, None, &cpp_ranges) {
                     ast.functions.push(fi);
                 }
             }
@@ -340,7 +343,7 @@ fn collect_namespace(
                 }
             }
             EntityKind::FunctionDecl => {
-                if let Some(fi) = extract_function(&entity, None) {
+                if let Some(fi) = extract_function(&entity, None, cpp_ranges) {
                     ast.functions.push(fi);
                 }
             }
@@ -372,7 +375,7 @@ fn collect_linkage_spec(
         }
         match entity.get_kind() {
             EntityKind::FunctionDecl => {
-                if let Some(mut fi) = extract_function(&entity, None) {
+                if let Some(mut fi) = extract_function(&entity, None, cpp_ranges) {
                     fi.is_extern_c = true;
                     ast.functions.push(fi);
                 }
@@ -420,13 +423,7 @@ fn extract_class(
     // 因此不能用文件路径比较，而必须用字节偏移量与 `cpp_byte_ranges` 扫描结果对比：
     // 只有落在 shim cpp 内容区间（即 `.cpp` 行号标记之后、`.h` 标记之前的区域）
     // 的实体才认为来自当前文件。
-    let is_from_current_file = entity
-        .get_range()
-        .map(|r| {
-            let offset = r.get_start().get_file_location().offset;
-            cpp_ranges.iter().any(|range| range.contains(&offset))
-        })
-        .unwrap_or(false);
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
 
     let mut template_args = Vec::new();
     if let Some(args) = entity.get_template_arguments() {
@@ -581,7 +578,11 @@ fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
     })
 }
 
-fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Option<FunctionInfo> {
+fn extract_function(
+    entity: &clang::Entity<'_>,
+    friend_of: Option<&str>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> Option<FunctionInfo> {
     let name = entity.get_name()?;
     // 跳过所有 C++ 操作符命名的自由函数（含 UDL operator""h 等），
     // 这类函数在 C 链接层无法直接表示，且生成的 Rust 名称不合法。
@@ -610,6 +611,9 @@ fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Opti
         None
     };
 
+    // 判断函数声明/定义是否来自当前 .cpp 文件（而非被 include 的头文件）。
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
+
     Some(FunctionInfo {
         name,
         return_type,
@@ -619,6 +623,7 @@ fn extract_function(entity: &clang::Entity<'_>, friend_of: Option<&str>) -> Opti
         is_extern_c: false,
         friend_of: friend_of.map(String::from),
         body_offset,
+        is_from_current_file,
     })
 }
 
@@ -817,6 +822,21 @@ fn func_tags(f: &FunctionInfo) -> String {
 // ─────────────────────────────────────────────
 //  行号标记扫描（用于 is_from_current_file 判断）
 // ─────────────────────────────────────────────
+
+/// 判断 clang 实体的起始偏移量是否落在 `cpp_ranges` 范围内，
+/// 即实体是否来自当前 `.cpp` 文件本身（而非 `#include` 引入的头文件）。
+fn entity_is_from_current_file(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> bool {
+    entity
+        .get_range()
+        .map(|r| {
+            let offset = r.get_start().get_file_location().offset;
+            cpp_ranges.iter().any(|range| range.contains(&offset))
+        })
+        .unwrap_or(false)
+}
 
 /// 扫描 `g++ -E` 生成的预处理文件内容，返回属于 `.cpp`/`.c` 文件（而非 `.h`/`.hpp` 头文件）
 /// 内容的字节偏移量区间列表。

@@ -27,7 +27,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
         let prefix = format!("{}_", cn_lower);
 
         // 收集该类的所有 MethodAccessors（第一个参数是该类的指针且参数名为 self/this/thiz）
-        let accessors: Vec<&FunctionInfo> = functions
+        let mut accessors: Vec<&FunctionInfo> = functions
             .iter()
             .filter(|fi| is_class_accessor(&fi.name, &prefix, fi, &ci.name, &class_names))
             .copied()
@@ -66,19 +66,26 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
         let mut cpp_shims: Vec<String> = Vec::new();
         let mut new_bindings: Vec<FnBinding> = Vec::new();
 
-        // 1. Getter（0 个额外参数，基础类型返回值）
+        // 按类别排序 accessors：Getter(0) → 二元运算符(1) → 一元运算符(2) → 比较方法(3)
+        // 保证生成顺序与逻辑分类一致，不受头文件声明顺序影响
+        accessors.sort_by_key(|fi| {
+            accessor_category(fi, &prefix, &ci.name)
+        });
+
+        // 单次遍历 accessors，依次匹配 Getter / 二元运算符 / 一元运算符 / 比较方法
         for fi in &accessors {
             let stripped = match fi.name.strip_prefix(&prefix) {
                 Some(s) => s,
                 None => continue,
             };
             let extra_params = &fi.params[1..];
-            let ret_cpp = clean_type(&fi.return_type).to_string();
             let ret_is_class = fi.return_type.contains(&ci.name);
             let ret_is_void = fi.return_type.is_empty() || fi.return_type == "void";
+            let shim_fn_name = to_snake_case(&fi.name);
 
+            // 1. Getter（0 个额外参数，基础类型返回值）
             if extra_params.is_empty() && !ret_is_class && !ret_is_void {
-                let shim_fn_name = to_snake_case(&fi.name);
+                let ret_cpp = clean_type(&fi.return_type).to_string();
                 let ret_rust = cpp_to_rust_ffi(&fi.return_type);
 
                 cpp_shims.push(format!(
@@ -91,27 +98,17 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
 
                 new_bindings.push(FnBinding {
                     cpp_sig: format!("{} {}(const {}*)", ret_cpp, shim_fn_name, ci.name),
-                    rust_name: fi.name.clone(), // 保留原始名（可能含 camelCase）
+                    rust_name: fi.name.clone(),
                     params: vec![("self_".to_string(), format!("*const {}", ci.name))],
                     ret_type: Some(ret_rust),
                     is_unsafe: false,
                 });
+                continue;
             }
-        }
 
-        // 2. 二元运算符（1 个额外参数，返回该类指针）
-        for fi in &accessors {
-            let stripped = match fi.name.strip_prefix(&prefix) {
-                Some(s) => s,
-                None => continue,
-            };
-            let extra_params = &fi.params[1..];
-            let ret_is_class = fi.return_type.contains(&ci.name);
-
+            // 2. 二元运算符（1 个额外参数，返回该类指针）
             if extra_params.len() == 1 && ret_is_class {
                 if let Some((_, op_sym)) = BINARY_OPS.iter().find(|(n, _)| *n == stripped) {
-                    let shim_fn_name = to_snake_case(&fi.name);
-
                     cpp_shims.push(format!(
                         "{}* {}(const {}* a, const {}* b) {{",
                         ci.name, shim_fn_name, ci.name, ci.name
@@ -137,20 +134,11 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                         is_unsafe: false,
                     });
                 }
+                continue;
             }
-        }
 
-        // 3. 一元运算符（0 个额外参数，返回该类指针，名称在 UNARY_OPS 中）
-        for fi in &accessors {
-            let stripped = match fi.name.strip_prefix(&prefix) {
-                Some(s) => s,
-                None => continue,
-            };
-            let extra_params = &fi.params[1..];
-            let ret_is_class = fi.return_type.contains(&ci.name);
-
+            // 3. 一元运算符（0 个额外参数，返回该类指针，名称在 UNARY_OPS 中）
             if extra_params.is_empty() && ret_is_class && UNARY_OPS.contains(&stripped) {
-                let shim_fn_name = to_snake_case(&fi.name);
                 let body = match stripped {
                     "negate" => format!("return new {}(-*a);", ci.name),
                     _ => continue,
@@ -171,26 +159,16 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                     ret_type: Some(format!("*mut {}", ci.name)),
                     is_unsafe: false,
                 });
+                continue;
             }
-        }
 
-        // 4. 比较类方法（1 个额外类类型参数，返回基础类型）
-        for fi in &accessors {
-            let stripped = match fi.name.strip_prefix(&prefix) {
-                Some(s) => s,
-                None => continue,
-            };
-            let extra_params = &fi.params[1..];
-            let ret_is_class = fi.return_type.contains(&ci.name);
-            let ret_is_void = fi.return_type.is_empty() || fi.return_type == "void";
-
+            // 4. 比较类方法（1 个额外类类型参数，返回基础类型）
             if extra_params.len() == 1
                 && !ret_is_class
                 && !ret_is_void
                 && !BINARY_OPS.iter().any(|(n, _)| *n == stripped)
                 && is_compare_accessor(fi, &ci.name)
             {
-                let shim_fn_name = to_snake_case(&fi.name);
                 let ret_cpp = clean_type(&fi.return_type).to_string();
                 let ret_rust = cpp_to_rust_ffi(&fi.return_type);
 
@@ -277,4 +255,34 @@ fn is_compare_accessor(fi: &FunctionInfo, class_name: &str) -> bool {
         .iter()
         .skip(1)
         .any(|p| p.type_name.contains(class_name))
+}
+
+/// 返回 accessor 的类别优先级，用于排序：
+/// 0 = Getter, 1 = 二元运算符, 2 = 一元运算符, 3 = 比较方法, 4 = 其他
+fn accessor_category(fi: &FunctionInfo, prefix: &str, class_name: &str) -> u8 {
+    let stripped = match fi.name.strip_prefix(prefix) {
+        Some(s) => s,
+        None => return 4,
+    };
+    let extra_params = &fi.params[1..];
+    let ret_is_class = fi.return_type.contains(class_name);
+    let ret_is_void = fi.return_type.is_empty() || fi.return_type == "void";
+
+    // Getter：0 个额外参数，基础类型返回值
+    if extra_params.is_empty() && !ret_is_class && !ret_is_void {
+        return 0;
+    }
+    // 二元运算符：名称在 BINARY_OPS 中 + 1 个额外参数 + 返回类类型
+    if BINARY_OPS.iter().any(|(n, _)| *n == stripped) && extra_params.len() == 1 && ret_is_class {
+        return 1;
+    }
+    // 一元运算符：名称在 UNARY_OPS 中 + 0 个额外参数 + 返回类类型
+    if UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class {
+        return 2;
+    }
+    // 比较方法：1 个额外类类型参数 + 返回基础类型
+    if extra_params.len() == 1 && !ret_is_class && !ret_is_void {
+        return 3;
+    }
+    4
 }
