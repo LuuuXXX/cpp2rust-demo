@@ -123,7 +123,7 @@ pub fn generate(spec: &FfiSpec) -> String {
     }
 
     // ── hicc::import_lib! ─────────────────────
-    // 当没有任何绑定内容时（void* opaque 模式等），跳过整个块
+    // 当没有任何绑定内容时（无可映射函数），跳过整个块
     let has_associated_fns = spec
         .class_specs
         .iter()

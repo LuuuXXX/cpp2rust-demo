@@ -67,10 +67,11 @@ pub fn extract(
     // ── 检测命名空间/opaque 类模式 ───────────────
     // 当且仅当：有类存在 AND 无类名出现在函数签名 AND 至少一个 extern-C 函数的参数/返回类型
     // 包含 `::` 或 `void*`（说明类通过命名空间限定类型或 opaque 指针暴露，hicc 无法处理）
-    // 这区分了：
-    //   043: void* opaque 指针（命名空间类）→ 压制所有块，只生成空 cpp!
-    //   044: example::OperationResult* 命名空间类型指针 → 同样压制
-    //   028: int/double 原始类型（辅助类）→ 正常生成
+    // 这影响 cpp! 块内容与 import_class! 生成：
+    //   043: void* opaque 指针（命名空间类）→ cpp! 只 include 头文件，不生成 import_class!
+    //   044: example::OperationResult* 命名空间类型指针 → 同样只 include 头文件
+    //   028: int/double 原始类型（辅助类）→ cpp! 内联类定义，正常生成 import_class!
+    // 注意：import_lib! 的生成不受此模式影响，始终由 build_lib_spec 决定（内部有类型过滤）
     let namespace_class_mode = has_any_classes && used_classes.is_empty() && {
         eligible_functions.iter().any(|f| {
             f.is_extern_c && {
@@ -128,20 +129,10 @@ pub fn extract(
     };
 
     // ── import_lib! 块 ────────────────────────
-    let lib_spec = if namespace_class_mode {
-        // 命名空间类模式：不生成 import_lib!（fn_bindings 为空时 codegen 会跳过该块）
-        // link_name 同样只取路径末段，与 build_lib_spec 保持一致。
-        let link_name = std::path::Path::new(unit_name)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or(unit_name)
-            .to_string();
-        crate::ffi_model::LibSpec {
-            link_name,
-            fwd_decls: Vec::new(),
-            fn_bindings: Vec::new(),
-        }
-    } else {
+    // 始终调用 build_lib_spec：其内部的 is_mappable_rust_type 过滤器会自动排除
+    // 含 `::` 的命名空间类型（如 std::string*、example::OperationResult*），
+    // 而 void* → *mut u8 等可映射类型则正常生成绑定。
+    let lib_spec = {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
         build_lib_spec(&functions, unit_name, &class_names)
     };

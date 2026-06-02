@@ -2,6 +2,16 @@ hicc::cpp! {
     #include "enum_class.h"
 }
 
+hicc::import_lib! {
+    #![link_name = "enum_class"]
+
+    #[cpp(func = "unsigned int combine_flags(unsigned int, unsigned int)")]
+    fn combine_flags(f1: u32, f2: u32) -> u32;
+
+    #[cpp(func = "int has_flag(unsigned int, unsigned int)")]
+    fn has_flag(flags: u32, flag: u32) -> i32;
+}
+
 const ERROR_INVALID_INPUT: i32 = 1;
 const ERROR_NOT_FOUND: i32 = 3;
 const STATE_RUNNING: u8 = 1;
@@ -20,8 +30,6 @@ extern "C" {
     fn operation_result_get_state(p: *mut OperationResult) -> u8;
     fn operation_result_set_flags(p: *mut OperationResult, flags: u32);
     fn operation_result_get_flags(p: *mut OperationResult) -> u32;
-    fn combine_flags(f1: u32, f2: u32) -> u32;
-    fn has_flag(flags: u32, flag: u32) -> i32;
 }
 
 fn error_code_name(code: i32) -> &'static str {
