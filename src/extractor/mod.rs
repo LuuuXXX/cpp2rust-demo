@@ -621,15 +621,17 @@ fn strip_preprocessor_markers(text: &str) -> String {
 
 /// 清理 shim 函数文本：去除类型前的 `struct ` / `class ` 关键字前缀。
 /// 例：`struct Foo*` → `Foo*`，`class Bar*` → `Bar*`。
+/// 先清理 `struct`，再清理 `class`，顺序不影响结果但保持确定性。
 fn clean_shim_text(text: &str) -> String {
-    clean_shim_keyword(clean_shim_keyword(text.to_string(), "struct "), "class ")
+    let after_struct = clean_shim_keyword(text, "struct ");
+    clean_shim_keyword(&after_struct, "class ")
 }
 
 /// 从文本中去除独立出现的 C++ 关键字前缀（`struct ` 或 `class `），
 /// 只去除出现在行首、空白符、括号或逗号之后的实例，保留标识符中间的情况。
-fn clean_shim_keyword(text: String, keyword: &str) -> String {
+fn clean_shim_keyword(text: &str, keyword: &str) -> String {
     let mut result = String::with_capacity(text.len());
-    let mut rest = text.as_str();
+    let mut rest = text;
     let kw_len = keyword.len();
     while let Some(pos) = rest.find(keyword) {
         result.push_str(&rest[..pos]);

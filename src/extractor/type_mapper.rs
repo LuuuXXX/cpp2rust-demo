@@ -22,18 +22,15 @@ pub fn cpp_to_rust(cpp: &str) -> String {
 
     // 去掉 `__restrict__` / `__restrict` / `restrict` 后缀形式
     // 这些限定符可出现在指针类型末尾（如 `wchar_t *__restrict`），在 Rust 中没有对应语义
-    let cpp = if let Some(rest) = cpp
+    let cpp_no_restrict = cpp
         .strip_suffix(" __restrict__")
         .or_else(|| cpp.strip_suffix(" __restrict"))
         .or_else(|| cpp.strip_suffix(" restrict"))
-    {
-        rest.trim()
-    } else {
-        cpp
-    };
+        .map(str::trim)
+        .unwrap_or(cpp);
 
     // 原始类型精确映射
-    match cpp {
+    match cpp_no_restrict {
         "void" => return String::new(), // void → ()，调用方处理
         "bool" | "_Bool" => return "bool".to_string(),
         "char" => return "i8".to_string(),
@@ -66,16 +63,16 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // `const char *` 系列 → *const i8（C char 为 signed，对应 Rust i8）
-    if cpp == "const char *" || cpp == "const char*" || cpp == "char const *" {
+    if cpp_no_restrict == "const char *" || cpp_no_restrict == "const char*" || cpp_no_restrict == "char const *" {
         return "*const i8".to_string();
     }
     // `char *` → *mut i8
-    if cpp == "char *" || cpp == "char*" {
+    if cpp_no_restrict == "char *" || cpp_no_restrict == "char*" {
         return "*mut i8".to_string();
     }
 
     // `const T *` → `*const T_rust`
-    if let Some(rest) = cpp.strip_suffix(" *").or_else(|| cpp.strip_suffix("*")) {
+    if let Some(rest) = cpp_no_restrict.strip_suffix(" *").or_else(|| cpp_no_restrict.strip_suffix("*")) {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
@@ -96,7 +93,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // 引用类型：T& → &mut T，const T& → &T
-    if let Some(rest) = cpp.strip_suffix(" &").or_else(|| cpp.strip_suffix("&")) {
+    if let Some(rest) = cpp_no_restrict.strip_suffix(" &").or_else(|| cpp_no_restrict.strip_suffix("&")) {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
@@ -114,12 +111,12 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // 剥除 struct/class 前缀
-    if let Some(rest) = cpp.strip_prefix("struct ").or_else(|| cpp.strip_prefix("class ")) {
+    if let Some(rest) = cpp_no_restrict.strip_prefix("struct ").or_else(|| cpp_no_restrict.strip_prefix("class ")) {
         return cpp_to_rust(rest);
     }
 
     // 未知：原样返回
-    cpp.to_string()
+    cpp_no_restrict.to_string()
 }
 
 /// `cpp_to_rust` 的 FFI 函数版本（现与 `cpp_to_rust` 行为一致，均使用 i8 表示 char*）。
