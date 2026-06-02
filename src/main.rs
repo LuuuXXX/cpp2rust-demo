@@ -10,7 +10,7 @@ use cpp2rust_demo::generator::project_generator;
 use cpp2rust_demo::layout::{self, FeatureLayout, InitReportData, InitUnitStat, MergeReportData};
 use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 #[derive(Parser)]
@@ -365,13 +365,22 @@ fn run_init(args: InitArgs) -> Result<()> {
 /// 生成对应的 `use crate::...::TypeName;` 语句。
 /// 若类型未在任何模块定义（如 C typedef struct），则在本模块生成 opaque 类型声明，
 /// 以便 `import_lib!` 宏展开时可以找到该类型。
+/// 为无任何模块定义的 C typedef struct 生成 `hicc::import_class!` opaque 声明块，
+/// 使该类型自动实现 `AbiClass`，满足 `import_lib!` 中 `class TypeName;` 的 trait 约束。
+fn opaque_import_class_block(type_name: &str) -> String {
+    format!(
+        "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n",
+        n = type_name
+    )
+}
+
 fn build_cross_module_preamble(
     spec: &FfiSpec,
     current_unit_path: &str,
     class_to_module: &HashMap<String, String>,
 ) -> String {
     // 只计入实际生成了 import_class! 块的类（与 hicc_codegen::generate 的跳过条件一致）
-    let local_class_names: std::collections::HashSet<&str> = spec
+    let local_class_names: HashSet<&str> = spec
         .class_specs
         .iter()
         .filter(|cs| {
@@ -384,7 +393,8 @@ fn build_cross_module_preamble(
     let mut opaque_decls = String::new();
 
     for fwd_decl in &spec.lib_spec.fwd_decls {
-        // fwd_decl 格式：`"class TypeName;"`
+        // fwd_decl 的格式固定为 `"class TypeName;"` ——由 extractor::build_lib_spec 的
+        // `format!("class {};", name)` 生成，不含命名空间限定或 struct 前缀。
         let type_name = fwd_decl
             .strip_prefix("class ")
             .and_then(|s| s.strip_suffix(';'))
@@ -405,10 +415,7 @@ fn build_cross_module_preamble(
         } else {
             // 无任何模块拥有该类型（如 C typedef struct）→ 用 import_class! 声明为 opaque 类型，
             // 使其自动实现 AbiClass，满足 import_lib! 中 class TypeName; 的 trait 约束。
-            opaque_decls.push_str(&format!(
-                "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n",
-                n = type_name
-            ));
+            opaque_decls.push_str(&opaque_import_class_block(type_name));
         }
     }
 
