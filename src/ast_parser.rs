@@ -356,6 +356,9 @@ fn collect_namespace(
                     }
                 }
             }
+            EntityKind::TypedefDecl => {
+                collect_typedef(&entity, ast, cpp_ranges);
+            }
             EntityKind::Namespace => {
                 collect_namespace(&entity, ast, cpp_ranges);
             }

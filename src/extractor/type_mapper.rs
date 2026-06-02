@@ -15,7 +15,12 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         return cpp_to_rust(rest.trim());
     }
 
-    // 去掉 `__restrict__` / `__restrict` / `restrict` 限定符
+    // 去掉 `__restrict__` / `__restrict` 前缀形式（MSVC 风格，如 `__restrict int *`）
+    if let Some(rest) = cpp.strip_prefix("__restrict__ ").or_else(|| cpp.strip_prefix("__restrict ")) {
+        return cpp_to_rust(rest.trim());
+    }
+
+    // 去掉 `__restrict__` / `__restrict` / `restrict` 后缀形式
     // 这些限定符可出现在指针类型末尾（如 `wchar_t *__restrict`），在 Rust 中没有对应语义
     let cpp = if let Some(rest) = cpp
         .strip_suffix(" __restrict__")
@@ -201,10 +206,13 @@ mod tests {
 
     #[test]
     fn test_restrict_qualifier_stripped() {
-        // __restrict / __restrict__ 出现在指针末尾时应被去掉，生成合法 Rust 类型
+        // 后缀形式：__restrict / __restrict__ 出现在指针末尾时应被去掉，生成合法 Rust 类型
         assert_eq!(cpp_to_rust("wchar_t * __restrict"), "*mut wchar_t");
         assert_eq!(cpp_to_rust("const wchar_t * __restrict"), "*const wchar_t");
         assert_eq!(cpp_to_rust("wchar_t * __restrict__"), "*mut wchar_t");
         assert_eq!(cpp_to_rust("char * restrict"), "*mut i8");
+        // 前缀形式：MSVC 风格 `__restrict int *` / `__restrict__ char *`
+        assert_eq!(cpp_to_rust("__restrict int *"), "*mut i32");
+        assert_eq!(cpp_to_rust("__restrict__ char *"), "*mut i8");
     }
 }

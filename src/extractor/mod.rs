@@ -118,8 +118,14 @@ pub fn extract(
     // ── import_lib! 块 ────────────────────────
     let lib_spec = if namespace_class_mode {
         // 命名空间类模式：不生成 import_lib!（fn_bindings 为空时 codegen 会跳过该块）
+        // link_name 同样只取路径末段，与 build_lib_spec 保持一致。
+        let link_name = std::path::Path::new(unit_name)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(unit_name)
+            .to_string();
         crate::ffi_model::LibSpec {
-            link_name: unit_name.to_string(),
+            link_name,
             fwd_decls: Vec::new(),
             fn_bindings: Vec::new(),
         }
@@ -613,22 +619,29 @@ fn strip_preprocessor_markers(text: &str) -> String {
         .join("\n")
 }
 
-/// 清理 shim 函数文本：去除 `struct ClassName*` → `ClassName*`
+/// 清理 shim 函数文本：去除类型前的 `struct ` / `class ` 关键字前缀。
+/// 例：`struct Foo*` → `Foo*`，`class Bar*` → `Bar*`。
 fn clean_shim_text(text: &str) -> String {
+    clean_shim_keyword(clean_shim_keyword(text.to_string(), "struct "), "class ")
+}
+
+/// 从文本中去除独立出现的 C++ 关键字前缀（`struct ` 或 `class `），
+/// 只去除出现在行首、空白符、括号或逗号之后的实例，保留标识符中间的情况。
+fn clean_shim_keyword(text: String, keyword: &str) -> String {
     let mut result = String::with_capacity(text.len());
-    let mut rest = text;
-    // 用 str::find 逐段查找 "struct "，避免 byte-level 迭代在 UTF-8 多字节字符时出错
-    while let Some(pos) = rest.find("struct ") {
+    let mut rest = text.as_str();
+    let kw_len = keyword.len();
+    while let Some(pos) = rest.find(keyword) {
         result.push_str(&rest[..pos]);
         let prev_ok = pos == 0
             || matches!(
                 rest.as_bytes()[pos - 1],
                 b' ' | b'\n' | b'\t' | b'(' | b','
             );
-        // 无论是否跳过，都要跳过 "struct " 的字节位置，防止死循环
-        rest = &rest[pos + 7..];
+        // 无论是否跳过，都推进指针以防止死循环
+        rest = &rest[pos + kw_len..];
         if !prev_ok {
-            result.push_str("struct ");
+            result.push_str(keyword);
         }
     }
     result.push_str(rest);
@@ -1105,18 +1118,24 @@ fn strip_method_volatile_qualifier(text: &str) -> String {
 ///
 /// 返回 (system_includes, project_header)
 /// 顺序规则：
-///   1. header-only includes（只在 .h 中出现、不在 .cpp 中出现）按 .h 顺序排前
+///   1. header-only includes（只在头文件中出现、不在 .cpp 中出现）按头文件顺序排前
 ///   2. cpp includes（.cpp 中出现的系统 include）按 .cpp 文件中出现的顺序排后
+///
+/// 头文件扩展名按 `.h` → `.hpp` → `.hxx` 顺序探测，取第一个存在的文件，
+/// 以便兼容同时使用 `.hpp`（如 rapidjson、Eigen）的项目。
 pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<String>) {
     let cpp_content = fs::read_to_string(cpp_path).unwrap_or_default();
 
-    // 尝试找到对应的 .h 文件
-    let h_path = cpp_path.with_extension("h");
-    let h_content = fs::read_to_string(&h_path).unwrap_or_default();
+    // 按优先级探测对应头文件（.h → .hpp → .hxx）
+    let h_content = ["h", "hpp", "hxx"]
+        .iter()
+        .map(|ext| cpp_path.with_extension(ext))
+        .find_map(|p| fs::read_to_string(&p).ok())
+        .unwrap_or_default();
 
     let mut project: Option<String> = None;
 
-    // 收集 .h 中的系统 include（保序）
+    // 收集头文件中的系统 include（保序）
     let h_includes: Vec<String> = h_content.lines()
         .filter_map(|line| {
             let t = line.trim();
@@ -1145,7 +1164,7 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
             }
         }
     }
-    // 合并：header-only 优先（按 .h 顺序），然后 cpp 中的按顺序
+    // 合并：header-only 优先（按头文件顺序），然后 cpp 中的按顺序
     let mut system: Vec<String> = Vec::new();
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
@@ -1156,7 +1175,7 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
         }
     }
 
-    // 2. cpp includes（按 cpp 文件顺序，含同时出现在 header 中的）
+    // 2. cpp includes（按 cpp 文件顺序，含同时出现在头文件中的）
     for inc in &cpp_includes {
         if seen.insert(inc.as_str()) {
             system.push(inc.clone());
@@ -1263,5 +1282,30 @@ fn assign_associated_fns(
                 lib_spec.fwd_decls.push(decl);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_shim_text_removes_struct_prefix() {
+        assert_eq!(clean_shim_text("struct Foo* foo_new()"), "Foo* foo_new()");
+        assert_eq!(clean_shim_text("void foo_delete(struct Foo* self)"), "void foo_delete(Foo* self)");
+    }
+
+    #[test]
+    fn clean_shim_text_removes_class_prefix() {
+        assert_eq!(clean_shim_text("class Bar* bar_new()"), "Bar* bar_new()");
+        assert_eq!(clean_shim_text("void bar_free(class Bar* self)"), "void bar_free(Bar* self)");
+    }
+
+    #[test]
+    fn clean_shim_text_preserves_embedded_keywords() {
+        // "struct" 出现在单词中间时不应被去掉
+        assert_eq!(clean_shim_text("restructure()"), "restructure()");
+        // "class" 出现在单词中间时不应被去掉
+        assert_eq!(clean_shim_text("declassify()"), "declassify()");
     }
 }
