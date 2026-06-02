@@ -215,9 +215,10 @@ impl FeatureLayout {
             data.unit_count
         ));
         out.push_str(&format!(
-            "- **生成 `.rs` 文件总数：** {}\n\n",
+            "- **生成 `.rs` 文件总数：** {}\n",
             data.rs_file_count
         ));
+        out.push_str("\n");
 
         // 冲突
         out.push_str("## 冲突\n\n");

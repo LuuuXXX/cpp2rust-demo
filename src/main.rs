@@ -81,7 +81,8 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
 
         for line in content.lines() {
             let trimmed = line.trim();
-            if trimmed.starts_with("#include") && !trimmed.starts_with("//") {
+            // 仅统计行首 #include（trimmed 以 "#include" 开头即不是注释行）
+            if trimmed.starts_with("#include") {
                 include_count += 1;
             }
             // link_name = "..." 提取
