@@ -249,7 +249,8 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
     project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
-    project_generator::write_build_rs(&lo.rust_dir)?;
+    let lib_name = feature.replace('-', "_");
+    project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
     println!("\n\u{2713} cpp2rust-demo init completed.");

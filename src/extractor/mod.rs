@@ -819,7 +819,8 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
     let params: Vec<(String, String)> = m
         .params
         .iter()
-        .map(|p| (sanitize_param_name(&p.name), cpp_to_rust(&p.type_name)))
+        .enumerate()
+        .map(|(i, p)| (sanitize_param_name(&p.name, i), cpp_to_rust(&p.type_name)))
         .collect();
 
     let ret_type = ret_type_from_cpp(&m.return_type);
@@ -831,9 +832,9 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         .iter()
         .map(|p| {
             let ty = normalize_ptr_spacing(strip_volatile(clean_type(&p.type_name)));
-            let name = sanitize_param_name(&p.name);
-            if !name.is_empty() && name != "_" {
-                format!("{} {}", ty, name)
+            // C++ 签名中：有名字则 "type name"，无名则仅 "type"
+            if !p.name.is_empty() && p.name != "_" {
+                format!("{} {}", ty, p.name)
             } else {
                 ty.to_string()
             }
@@ -925,7 +926,8 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let params: Vec<(String, String)> = fi
         .params
         .iter()
-        .map(|p| (sanitize_param_name(&p.name), cpp_to_rust_ffi(&p.type_name)))
+        .enumerate()
+        .map(|(i, p)| (sanitize_param_name(&p.name, i), cpp_to_rust_ffi(&p.type_name)))
         .collect();
 
     let ret_type = ret_type_from_cpp(&fi.return_type);
@@ -1173,9 +1175,9 @@ fn is_rust_keyword(s: &str) -> bool {
 }
 
 /// 参数名称清理（避免 Rust 关键字）
-fn sanitize_param_name(name: &str) -> String {
+fn sanitize_param_name(name: &str, idx: usize) -> String {
     match name {
-        "" | "_" => "arg".to_string(),
+        "" | "_" => format!("arg{}", idx),
         _ if is_rust_keyword(name) => format!("{}_", name),
         _ => name.to_string(),
     }

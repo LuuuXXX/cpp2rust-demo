@@ -211,11 +211,11 @@ cpp2rust-demo merge --feature "${FEATURE}"
 ok "merge 完成"
 
 RUST_SRC="${CPP2RUST_OUTPUT}/rust/src"
-RS_FILES=$(find "${RUST_SRC}" -name "*.rs" 2>/dev/null | wc -l)
+RS_FILES=$(find -L "${RUST_SRC}" -name "*.rs" 2>/dev/null | wc -l)
 info "生成 Rust 文件数：${RS_FILES}"
 if [ "${RS_FILES}" -gt 0 ]; then
     echo "──── 生成的 .rs 文件（前 20 条）────"
-    find "${RUST_SRC}" -name "*.rs" | sort | head -20
+    find -L "${RUST_SRC}" -name "*.rs" | sort | head -20
 fi
 
 # 统计降级标记
@@ -224,6 +224,23 @@ info "降级标记统计（cpp2rust-todo）："
 grep -r "cpp2rust-todo" "${RUST_SRC}" 2>/dev/null \
     | grep -oP '\[.*?\]' | sort | uniq -c | sort -rn \
     || echo "  （无降级标记）"
+
+# =============================================================================
+# § 5b. cargo check — 验证生成的 Rust 项目可编译
+# =============================================================================
+step "§ 5b. cargo check（验证生成的 Rust 项目语法与类型正确）"
+
+RUST_PROJECT="${CPP2RUST_OUTPUT}/rust"
+if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
+    info "在 ${RUST_PROJECT} 中运行 cargo check ..."
+    if (cd "${RUST_PROJECT}" && cargo check 2>&1); then
+        ok "cargo check 通过 ✓"
+    else
+        warn "cargo check 失败 — 生成的 FFI 代码存在编译错误，需要手动修复"
+    fi
+else
+    warn "未找到 ${RUST_PROJECT}/Cargo.toml，跳过 cargo check"
+fi
 
 # =============================================================================
 # § 6. 符号验证
@@ -395,6 +412,16 @@ echo -e "  ${BOLD}输出目录：${NC}  ${CPP2RUST_OUTPUT}"
 echo ""
 echo -e "  ${BOLD}捕获预处理文件数：${NC}  ${CAPTURED}"
 echo -e "  ${BOLD}生成 Rust 文件数：${NC}  ${RS_FILES}"
+echo ""
+
+# cargo check 结果
+if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
+    if (cd "${RUST_PROJECT}" && cargo check 2>/dev/null); then
+        echo -e "  ${GREEN}✓ cargo check 通过${NC}"
+    else
+        echo -e "  ${YELLOW}⚠ cargo check 失败（生成的 FFI 代码存在编译错误）${NC}"
+    fi
+fi
 echo ""
 
 # 是否存在 todo 标记

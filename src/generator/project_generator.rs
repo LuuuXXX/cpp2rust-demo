@@ -229,16 +229,18 @@ pub fn write_unit_rs(rust_dir: &Path, unit_path: &str, code: &str) -> Result<()>
     std::fs::write(&file_path, code).map_err(|e| anyhow!("write {}: {}", file_path.display(), e))
 }
 
-/// 写出 `build.rs`，调用 `hicc_build::build()` 完成 C++ shim 编译。
+/// 写出 `build.rs`，调用 `hicc_build::Build::new()` 完成 C++ shim 编译。
 ///
 /// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，
 /// 必须有对应的 `build.rs` 才能触发构建脚本。
-pub fn write_build_rs(rust_dir: &Path) -> Result<()> {
-    let content = "\
-fn main() {
-    hicc_build::build();
-}
-";
+pub fn write_build_rs(rust_dir: &Path, lib_name: &str) -> Result<()> {
+    let content = format!(
+        "\
+fn main() {{
+    hicc_build::Build::new().rust_file(\"src/lib.rs\").compile(\"{lib_name}\");
+}}
+"
+    );
     let path = rust_dir.join("build.rs");
     std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
 }
@@ -437,9 +439,11 @@ mod tests {
     #[test]
     fn write_build_rs_creates_file() {
         let tmp = TempDir::new().unwrap();
-        write_build_rs(tmp.path()).unwrap();
+        write_build_rs(tmp.path(), "my_lib").unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
-        assert!(content.contains("hicc_build::build()"));
+        assert!(content.contains("hicc_build::Build::new()"));
+        assert!(content.contains(".rust_file(\"src/lib.rs\")"));
+        assert!(content.contains(".compile(\"my_lib\")"));
         assert!(content.contains("fn main()"));
     }
 }
