@@ -273,7 +273,6 @@ static void preprocess_cppfile(const char* cc, int argc, char* argv[], const cha
             new_argv.push_back(const_cast<char*>(cppfile));
             new_argv.push_back(const_cast<char*>("-o"));
             new_argv.push_back(full_path);
-            new_argv.push_back(const_cast<char*>("-P"));
             for (int i = 0; i < argc; ++i) {
                     new_argv.push_back(argv[i]);
             }

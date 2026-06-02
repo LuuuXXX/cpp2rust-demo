@@ -159,6 +159,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         )
     })?;
     let cpp_ranges = cpp_byte_ranges(&file_content);
+    let user_ranges = user_content_byte_ranges(&file_content);
 
     let mut ast = CppAst {
         file: file.to_path_buf(),
@@ -224,7 +225,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 collect_namespace(&entity, &mut ast, &cpp_ranges);
             }
             EntityKind::LinkageSpec => {
-                collect_linkage_spec(&entity, &mut ast, &cpp_ranges);
+                collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges);
             }
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, &mut ast, &cpp_ranges);
@@ -376,13 +377,28 @@ fn collect_linkage_spec(
     spec: &clang::Entity<'_>,
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
+    user_ranges: &[std::ops::Range<u32>],
 ) {
     for entity in spec.get_children() {
+        // 一级过滤：libclang 系统头标记（依赖行号标记中的 flag 3，去掉 -P 后生效）
         if entity
             .get_location()
             .map(|l| l.is_in_system_header())
             .unwrap_or(true)
         {
+            continue;
+        }
+        // 防御性二级过滤：基于行号标记字节区间判断是否属于用户代码内容。
+        // 若预处理文件含行号标记（正常情况），只接受落在用户区间内的实体；
+        // 若文件不含行号标记（如历史使用了 -P 生成），user_ranges 覆盖全文，退化为无额外过滤。
+        let in_user = entity
+            .get_range()
+            .map(|r| {
+                let offset = r.get_start().get_file_location().offset;
+                user_ranges.iter().any(|range| range.contains(&offset))
+            })
+            .unwrap_or(false);
+        if !in_user {
             continue;
         }
         match entity.get_kind() {
@@ -911,7 +927,7 @@ pub fn cpp_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
 
         let trimmed = line.trim_start();
         if trimmed.starts_with("# ") {
-            if let Some(file_path) = parse_line_marker_file(trimmed) {
+            if let Some((file_path, _flags)) = parse_line_marker(trimmed) {
                 // 过滤系统虚拟路径（<built-in>、<command-line> 等）
                 let is_virtual = file_path.starts_with('<') || file_path.is_empty();
                 // 头文件后缀
@@ -941,15 +957,16 @@ pub fn cpp_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
     }
 
     if in_cpp && section_start < byte_pos {
-        ranges.push(section_start..byte_pos);
+        let content_end = content.len() as u32;
+        ranges.push(section_start..content_end);
     }
 
     ranges
 }
-
-/// 从行号标记中提取文件路径。
-/// 格式：`# <数字> "<路径>" [标志]`，返回引号中的路径部分。
-fn parse_line_marker_file(line: &str) -> Option<&str> {
+/// 格式：`# <数字> "<路径>" [标志...]`
+/// 返回 `(路径, 标志列表)`，其中常见标志含义：
+///   1 = 进入新文件，2 = 返回调用文件，3 = 系统头文件，4 = 隐式 extern "C"
+fn parse_line_marker(line: &str) -> Option<(&str, Vec<u32>)> {
     // 跳过 "# " 前缀
     let rest = line[2..].trim_start();
     // 跳过数字
@@ -962,5 +979,147 @@ fn parse_line_marker_file(line: &str) -> Option<&str> {
     }
     let inner = &after_num[1..];
     let end = inner.find('"')?;
-    Some(&inner[..end])
+    let path = &inner[..end];
+    // 解析路径后的标志（可选）
+    let flags_str = inner[end + 1..].trim();
+    let flags: Vec<u32> = flags_str
+        .split_whitespace()
+        .filter_map(|s| s.parse::<u32>().ok())
+        .collect();
+    Some((path, flags))
+}
+
+/// 扫描 `g++ -E`（不带 `-P`）生成的预处理文件，返回属于**用户代码**（非系统头）的字节区间。
+///
+/// GCC linemarker 格式：`# <行号> "<文件路径>" [标志...]`
+/// 标志 `3` 表示该段内容来自系统头文件；不含标志 `3` 的区间属于用户代码。
+///
+/// **降级行为**：若文件不含任何行号标记（例如以 `-P` 生成），则返回覆盖全文的单一区间，
+/// 使调用方的字节偏移过滤退化为"全部接受"，不引入额外过滤。
+pub fn user_content_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
+    let mut ranges: Vec<std::ops::Range<u32>> = Vec::new();
+    let mut in_user = false;
+    let mut section_start: u32 = 0;
+    let mut byte_pos: u32 = 0;
+    let mut found_any_marker = false;
+
+    for line in content.split('\n') {
+        let line_byte_len = line.len() as u32 + 1; // +1 表示 '\n'
+
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("# ") {
+            if let Some((file_path, flags)) = parse_line_marker(trimmed) {
+                found_any_marker = true;
+                let is_virtual = file_path.starts_with('<') || file_path.is_empty();
+                // 含标志 3 → 系统头；虚拟路径也视为非用户内容
+                let is_system = flags.contains(&3) || is_virtual;
+                let is_user = !is_system;
+
+                match (in_user, is_user) {
+                    (true, false) => {
+                        ranges.push(section_start..byte_pos);
+                        in_user = false;
+                    }
+                    (false, true) => {
+                        in_user = true;
+                        section_start = byte_pos + line_byte_len;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        byte_pos += line_byte_len;
+    }
+
+    if in_user && section_start < byte_pos {
+        let content_end = content.len() as u32;
+        ranges.push(section_start..content_end);
+    }
+
+    // 没有行号标记（如 -P 生成）→ 覆盖全文，使字节过滤退化为无过滤
+    if !found_any_marker {
+        return vec![0..content.len() as u32];
+    }
+
+    ranges
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_line_marker ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_line_marker_basic() {
+        let (path, flags) = parse_line_marker("# 1 \"myfile.cpp\"").unwrap();
+        assert_eq!(path, "myfile.cpp");
+        assert!(flags.is_empty());
+    }
+
+    #[test]
+    fn test_parse_line_marker_with_flags() {
+        let (path, flags) = parse_line_marker("# 47 \"/usr/include/wchar.h\" 3 4").unwrap();
+        assert_eq!(path, "/usr/include/wchar.h");
+        assert_eq!(flags, vec![3, 4]);
+    }
+
+    #[test]
+    fn test_parse_line_marker_system_flag() {
+        let (_, flags) = parse_line_marker("# 1 \"/usr/include/stdio.h\" 3").unwrap();
+        assert!(flags.contains(&3));
+    }
+
+    #[test]
+    fn test_parse_line_marker_virtual_path() {
+        let (path, _) = parse_line_marker("# 1 \"<built-in>\" 1").unwrap();
+        assert_eq!(path, "<built-in>");
+    }
+
+    #[test]
+    fn test_parse_line_marker_not_a_marker() {
+        assert!(parse_line_marker("int foo();").is_none());
+        assert!(parse_line_marker("# pragma once").is_none());
+    }
+
+    // ── user_content_byte_ranges ───────────────────────────────────────────
+
+    #[test]
+    fn test_user_ranges_excludes_system_header() {
+        // 简单预处理片段：用户代码 → 系统头（flag 3）→ 返回用户代码
+        let content = "# 1 \"myfile.cpp\"\nint a;\n# 1 \"/usr/include/stdio.h\" 3\nvoid sys();\n# 2 \"myfile.cpp\" 2\nint b;\n";
+        let ranges = user_content_byte_ranges(content);
+        // "int a;\n" 和 "int b;\n" 属于用户代码，"void sys();\n" 不属于
+        let user_text: String = ranges
+            .iter()
+            .map(|r| &content[r.start as usize..r.end as usize])
+            .collect();
+        assert!(user_text.contains("int a;"), "应包含用户代码 'int a;'");
+        assert!(user_text.contains("int b;"), "应包含用户代码 'int b;'");
+        assert!(!user_text.contains("void sys();"), "不应包含系统头函数 'void sys();'");
+    }
+
+    #[test]
+    fn test_user_ranges_no_markers_fallback() {
+        // 无行号标记（-P 生成）→ 返回覆盖全文的单一区间（0..content.len()）
+        let content = "int foo();\nvoid bar();\n";
+        let ranges = user_content_byte_ranges(content);
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0].start, 0);
+        assert_eq!(ranges[0].end, content.len() as u32);
+    }
+
+    #[test]
+    fn test_user_ranges_virtual_path_excluded() {
+        // <built-in> / <command-line> 不属于用户代码
+        let content = "# 1 \"<built-in>\"\n__builtin_stuff;\n# 1 \"myfile.cpp\"\nint user;\n";
+        let ranges = user_content_byte_ranges(content);
+        let user_text: String = ranges
+            .iter()
+            .map(|r| &content[r.start as usize..r.end as usize])
+            .collect();
+        assert!(user_text.contains("int user;"));
+        assert!(!user_text.contains("__builtin_stuff;"));
+    }
 }
