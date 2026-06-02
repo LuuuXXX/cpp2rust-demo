@@ -73,8 +73,8 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     let project_root = layout::find_project_root(&cwd);
 
     println!("=== cpp2rust-demo merge ===");
-    println!("Project root : {}", project_root.display());
-    println!("Feature      : {}", feature);
+    println!("项目根目录 : {}", project_root.display());
+    println!("Feature    : {}", feature);
     println!();
 
     let lo = FeatureLayout::new(project_root.clone(), feature);
@@ -102,18 +102,18 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
 
     let unit_files = merger::collect_unit_rs_files(&canonical_src);
     println!(
-        "  Feature '{}': {} unit file(s) in {}",
+        "  feature '{}': {} 个单元文件，位于 {}",
         feature,
         unit_files.len(),
         canonical_src.display()
     );
 
     if unit_files.is_empty() {
-        println!("\nNo unit .rs files found. Run 'init' first.");
+        println!("\n未找到任何单元 .rs 文件，请先运行 'init'。");
         return Ok(());
     }
 
-    println!("\nMerging {} unit file(s)...", unit_files.len());
+    println!("\n正在合并 {} 个单元文件...", unit_files.len());
 
     merger::merge_in_place(&lo.rust_dir)?;
 
@@ -125,17 +125,17 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     };
     lo.save_merge_report(&report_data)?;
 
-    println!("\n\u{2713} cpp2rust-demo merge completed.");
-    println!("\nOutput:");
+    println!("\n✓ cpp2rust-demo merge 完成。");
+    println!("\n输出：");
     println!("  .cpp2rust/{}/", feature);
-    println!("    \u{251c}\u{2500}\u{2500} meta/");
-    println!("    \u{2502}   \u{2514}\u{2500}\u{2500} merge-report.md  (merge summary)");
-    println!("    \u{2514}\u{2500}\u{2500} rust/");
-    println!("        \u{251c}\u{2500}\u{2500} src.1/  (init \u{8f93}\u{51fa}\u{5907}\u{4efd})");
+    println!("    ├── meta/");
+    println!("    │   └── merge-report.md  （merge 摘要）");
+    println!("    └── rust/");
+    println!("        ├── src.1/  (init 输出备份)");
     println!(
-        "        \u{251c}\u{2500}\u{2500} src.2/  (merge \u{8f93}\u{51fa}\u{ff0c}\u{76ee}\u{5f55}\u{7ed3}\u{6784}\u{4e0e} C++ \u{9879}\u{76ee}\u{4e00}\u{81f4})"
+        "        ├── src.2/  （merge 输出，目录结构与 C++ 项目一致）"
     );
-    println!("        \u{2514}\u{2500}\u{2500} src     (symlink \u{2192} src.2)");
+    println!("        └── src     （符号链接 → src.2）");
 
     Ok(())
 }
@@ -144,9 +144,9 @@ fn run_multi_feature_merge(features: &[String]) -> Result<()> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
 
-    println!("=== cpp2rust-demo merge (multi-feature) ===");
-    println!("Project root : {}", project_root.display());
-    println!("Features     : {}", features.join(", "));
+    println!("=== cpp2rust-demo merge（多 feature）===");
+    println!("项目根目录 : {}", project_root.display());
+    println!("Features   : {}", features.join(", "));
     println!();
 
     // 验证每个 feature 存在，并确定其 canonical src 目录
@@ -174,7 +174,7 @@ fn run_multi_feature_merge(features: &[String]) -> Result<()> {
         }
         let unit_count = merger::collect_unit_rs_files(&canonical_src).len();
         println!(
-            "  Feature '{}': {} unit file(s) in {}",
+            "  feature '{}': {} 个单元文件，位于 {}",
             feature,
             unit_count,
             canonical_src.display()
@@ -208,23 +208,23 @@ fn run_multi_feature_merge(features: &[String]) -> Result<()> {
         project_generator::copy_feature_src_to_module(canonical_src, &feature_dest, feature)?;
     }
 
-    println!("\n\u{2713} cpp2rust-demo merge completed.");
-    println!("\nOutput:");
+    println!("\n✓ cpp2rust-demo merge 完成。");
+    println!("\n输出：");
     println!("  .cpp2rust/{}/rust/", combined_name);
     println!(
-        "    \u{251c}\u{2500}\u{2500} Cargo.toml  (package name: {}; features: {})",
+        "    ├── Cargo.toml  （package: {}；features: {}）",
         combined_name,
         features.join(", ")
     );
-    println!("    \u{251c}\u{2500}\u{2500} build.rs");
-    println!("    \u{2514}\u{2500}\u{2500} src/");
-    println!("        \u{251c}\u{2500}\u{2500} lib.rs      (#[cfg(feature = \"...\")] pub mod ...;)");
+    println!("    ├── build.rs");
+    println!("    └── src/");
+    println!("        ├── lib.rs      （#[cfg(feature = \"...\")] pub mod ...;）");
     for feature in features {
-        println!("        \u{251c}\u{2500}\u{2500} {}/", feature);
+        println!("        ├── {}/", feature);
     }
     println!();
     println!(
-        "Build a specific feature with:  cargo build --features <feature>"
+        "单独构建某个 feature：  cargo build --features <feature>"
     );
 
     Ok(())
@@ -238,9 +238,9 @@ fn run_init(args: InitArgs) -> Result<()> {
     let project_root = layout::find_project_root(&cwd);
 
     println!("=== cpp2rust-demo init ===");
-    println!("Project root : {}", project_root.display());
-    println!("Feature      : {}", feature);
-    println!("Build command: {}", build_cmd.join(" "));
+    println!("项目根目录 : {}", project_root.display());
+    println!("Feature    : {}", feature);
+    println!("构建命令   : {}", build_cmd.join(" "));
     println!();
 
     let lo = FeatureLayout::new(project_root.clone(), feature);
@@ -251,26 +251,26 @@ fn run_init(args: InitArgs) -> Result<()> {
     capture::run_with_hook(&cwd, build_cmd, &project_root, &lo.feature_root, &hook_so)?;
 
     let captured = layout::scan_cpp2rust_files(&lo.c_dir)?;
-    println!("\nCaptured {} .cpp2rust file(s)", captured.len());
+    println!("\n已捕获 {} 个 .cpp2rust 文件", captured.len());
 
     if captured.is_empty() {
-        println!("Warning: no .cpp2rust files were generated.");
-        println!("Make sure your build command compiles C++ files.");
+        println!("警告：未生成任何 .cpp2rust 文件。");
+        println!("请确认构建命令确实编译了 C++ 文件。");
         return Ok(());
     }
 
     let sel = InteractiveSelector;
     let selected = sel.select(&captured)?;
-    println!("{} file(s) selected for this feature", selected.len());
+    println!("已为本 feature 选择 {} 个文件", selected.len());
 
     lo.save_selected_files(&selected)?;
 
     if selected.is_empty() {
-        println!("No files selected – skipping code generation.");
+        println!("未选择任何文件，跳过代码生成。");
         return Ok(());
     }
 
-    println!("\nRunning AST parser and code generation on selected files...");
+    println!("\n正在对选定文件运行 AST 解析与代码生成...");
     let mut unit_stats: Vec<InitUnitStat> = Vec::new();
     // 降级特性统计：tag → (unit_path → 出现次数)
     let mut degraded_tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
@@ -307,7 +307,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         // 冲突检测：两个不同源文件映射到同一 unit_path，显示两个文件路径便于排查
         if let Some(first) = seen_unit_paths.get(&unit_path) {
             eprintln!(
-                "  Warning: unit path conflict '{}': first claimed by {}, now skipping {}",
+                "  警告：单元路径冲突 '{}'：首次声明来自 {}，跳过 {}",
                 unit_path,
                 first.display(),
                 path.display()
@@ -329,7 +329,7 @@ fn run_init(args: InitArgs) -> Result<()> {
 
                 let elapsed_ms = file_start.elapsed().as_millis();
                 println!(
-                    "  {} \u{2192} {} class(es), {} fn(s), {} enum(s)  [{} ms]",
+                    "  {} → {} 个类、{} 个函数、{} 个枚举  [{} ms]",
                     path.display(),
                     ast.classes.len(),
                     ast.functions.len(),
@@ -373,8 +373,8 @@ fn run_init(args: InitArgs) -> Result<()> {
         }) {
             if let Some(existing) = class_to_module.get(&cs.name) {
                 eprintln!(
-                    "  Warning: class '{}' defined in both '{}' and '{}'; \
-cross-module references will use the first definition",
+                    "  警告：类 '{}' 同时定义于 '{}' 和 '{}'；\
+跨模块引用将使用第一个定义",
                     cs.name, existing, ud.unit_path
                 );
             } else {
@@ -408,16 +408,16 @@ cross-module references will use the first definition",
         .collect();
     sorted_tags.sort_by(|a, b| a.0.cmp(&b.0));
     if !sorted_tags.is_empty() {
-        println!("\n\u{26a0} 降级特性（需要人工处理）：");
+        println!("\n⚠ 降级特性（需要人工处理）：");
         for (tag, units) in &sorted_tags {
             let total: usize = units.iter().map(|(_, c)| c).sum();
-            println!("  [{}] \u{d7} {} 次", tag, total);
+            println!("  [{}] × {} 次", tag, total);
             for (unit_path, count) in units {
                 println!("      {} （{} 次）", unit_path, count);
             }
         }
         println!(
-            "  \u{2192} 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。"
+            "  → 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。"
         );
     }
 
@@ -438,26 +438,26 @@ cross-module references will use the first definition",
     };
     lo.save_init_report(&report_data)?;
 
-    println!("\n\u{2713} cpp2rust-demo init completed.");
-    println!("\nOutput structure:");
+    println!("\n✓ cpp2rust-demo init 完成。");
+    println!("\n输出目录结构:");
     println!("  .cpp2rust/{}/", feature);
     println!(
-        "    \u{251c}\u{2500}\u{2500} c/          (captured .cpp2rust files, mirrors C++ project layout)"
+        "    ├── c/          （捕获的 .cpp2rust 文件，目录结构与 C++ 项目一致）"
     );
     println!(
-        "    \u{251c}\u{2500}\u{2500} meta/       (build_cmd.txt, selected_files.json, init-report.md)"
+        "    ├── meta/       （build_cmd.txt、selected_files.json、init-report.md）"
     );
     println!(
-        "    \u{2514}\u{2500}\u{2500} rust/       (generated Rust project: Cargo.toml, src/lib.rs, src/**/*.rs)"
+        "    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）"
     );
     println!();
     println!(
-        "Generated {} unit file(s) in .cpp2rust/{}/rust/src/",
-        unit_paths.len(),
-        feature
+        "已在 .cpp2rust/{}/rust/src/ 生成 {} 个单元文件",
+        feature,
+        unit_paths.len()
     );
     if unit_paths.iter().any(|p| p.contains('/')) {
-        println!("  (directory structure mirrors the C++ project layout)");
+        println!("  （目录结构与 C++ 项目一致）");
     }
 
     Ok(())
@@ -591,7 +591,7 @@ fn main() {
         Commands::Merge(args) => run_merge(args),
     };
     if let Err(e) = result {
-        eprintln!("Error: {:#}", e);
+        eprintln!("错误：{:#}", e);
         std::process::exit(1);
     }
 }

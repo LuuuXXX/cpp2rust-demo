@@ -4,7 +4,7 @@
 //! 并将有类类型参数的方法从 `import_class!` 中移除。
 
 use crate::ast_parser::{CppAst, FunctionInfo};
-use crate::extractor::type_mapper::{clean_type, cpp_to_rust_ffi, to_snake_case};
+use crate::extractor::type_mapper::{clean_type, cpp_to_rust, to_snake_case};
 use crate::ffi_model::{FfiSpec, FnBinding};
 
 /// 支持的二元运算符名称及其 C++ 符号
@@ -78,7 +78,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
             // 1. Getter（0 个额外参数，基础类型返回值）
             if extra_params.is_empty() && !ret_is_class && !ret_is_void {
                 let ret_cpp = clean_type(&fi.return_type).to_string();
-                let ret_rust = cpp_to_rust_ffi(&fi.return_type);
+                let ret_rust = cpp_to_rust(&fi.return_type);
 
                 cpp_shims.push(format!(
                     "{} {}(const {}* self) {{",
@@ -159,7 +159,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                 && is_compare_accessor(fi, &ci.name)
             {
                 let ret_cpp = clean_type(&fi.return_type).to_string();
-                let ret_rust = cpp_to_rust_ffi(&fi.return_type);
+                let ret_rust = cpp_to_rust(&fi.return_type);
 
                 cpp_shims.push(format!(
                     "{} {}(const {}* a, const {}* b) {{",

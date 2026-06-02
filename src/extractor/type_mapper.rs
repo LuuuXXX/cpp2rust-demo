@@ -193,12 +193,6 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     cpp_no_restrict.to_string()
 }
 
-/// `cpp_to_rust` 的 FFI 函数版本（现与 `cpp_to_rust` 行为一致，均使用 i8 表示 char*）。
-/// 保留此函数供已有调用方使用。
-pub fn cpp_to_rust_ffi(cpp: &str) -> String {
-    cpp_to_rust(cpp)
-}
-
 /// 构造 C++ 函数签名字符串（用于 #[cpp(func = "...")]）
 ///
 /// 例：`counter_new() -> Counter*` → `Counter* counter_new()`
@@ -223,7 +217,7 @@ pub fn clean_type(ty: &str) -> &str {
         .trim()
 }
 
-/// C++ camelCase / PascalCase → snake_case
+/// C++ camelCase / PascalCase 命名 → Rust snake_case 命名
 pub fn to_snake_case(s: &str) -> String {
     let mut result = String::with_capacity(s.len() + 4);
     let mut prev_upper = false;

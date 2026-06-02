@@ -42,8 +42,8 @@ pub struct MergeReportData<'a> {
     pub conflicts: &'a [String],
 }
 
-/// Locate the project root by searching for `.cpp2rust/` upward from `start`.
-/// Falls back to `start` itself if not found.
+/// 从 `start` 向上逐级查找 `.cpp2rust/` 目录，返回项目根目录。
+/// 若未找到则回退到 `start` 本身。
 pub fn find_project_root(start: &Path) -> PathBuf {
     let mut cur = start.to_path_buf();
     loop {
@@ -57,7 +57,7 @@ pub fn find_project_root(start: &Path) -> PathBuf {
     }
 }
 
-/// Layout of a single feature directory under `.cpp2rust/<feature>/`.
+/// `.cpp2rust/<feature>/` 目录结构描述。
 pub struct FeatureLayout {
     #[allow(dead_code)]
     pub project_root: PathBuf,
@@ -83,7 +83,7 @@ impl FeatureLayout {
         }
     }
 
-    /// Create all required directories.
+    /// 创建所有必要的子目录。
     pub fn create_dirs(&self) -> Result<()> {
         for dir in [&self.c_dir, &self.rust_dir, &self.meta_dir] {
             std::fs::create_dir_all(dir)
@@ -92,13 +92,13 @@ impl FeatureLayout {
         Ok(())
     }
 
-    /// Write `meta/build_cmd.txt`.
+    /// 写入 `meta/build_cmd.txt`。
     pub fn save_build_cmd(&self, cmd: &[String]) -> Result<()> {
         let path = self.meta_dir.join("build_cmd.txt");
         std::fs::write(&path, cmd.join(" ")).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
-    /// Write `meta/selected_files.json`.
+    /// 写入 `meta/selected_files.json`。
     pub fn save_selected_files(&self, files: &[PathBuf]) -> Result<()> {
         let list: Vec<String> = files.iter().map(|p| p.display().to_string()).collect();
         let json = serde_json::to_string_pretty(&list)
@@ -107,7 +107,7 @@ impl FeatureLayout {
         std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
-    /// Write `meta/init-report.md` with a summary of the init phase.
+    /// 写入 `meta/init-report.md`，包含 init 阶段的摘要报告。
     pub fn save_init_report(&self, data: &InitReportData<'_>) -> Result<()> {
         let mut out = String::new();
 
@@ -186,7 +186,7 @@ impl FeatureLayout {
         std::fs::write(&path, out).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
-    /// Write `meta/merge-report.md` with a summary of the merge phase.
+    /// 写入 `meta/merge-report.md`，包含 merge 阶段的摘要报告。
     pub fn save_merge_report(&self, data: &MergeReportData<'_>) -> Result<()> {
         let mut out = String::new();
 
@@ -228,7 +228,7 @@ impl FeatureLayout {
     }
 }
 
-/// Scan `.cpp2rust/<feature>/c/` for all `*.cpp2rust` files.
+/// 扫描 `.cpp2rust/<feature>/c/` 目录下所有 `*.cpp2rust` 文件。
 pub fn scan_cpp2rust_files(c_dir: &Path) -> Result<Vec<PathBuf>> {
     if !c_dir.exists() {
         return Ok(vec![]);

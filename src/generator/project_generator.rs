@@ -79,7 +79,7 @@ fn insert_path(tree: &mut BTreeMap<String, ModuleNode>, parts: &[&str]) {
         } else {
             // 节点已是 Leaf 但又需作为目录（极端冲突），发出警告
             eprintln!(
-                "Warning: module path conflict at '{}': used as both a file and a directory",
+                "警告：模块路径冲突 '{}'：该节点既是文件也被当作目录使用",
                 parts[0]
             );
         }
@@ -93,7 +93,7 @@ fn generate_mod_declarations(tree: &BTreeMap<String, ModuleNode>) -> String {
         content.push_str(&format!("pub mod {};\n", name));
     }
     if content.is_empty() {
-        content.push_str("// No units selected.\n");
+        content.push_str("// 未选择任何单元。\n");
     }
     content
 }
@@ -323,7 +323,7 @@ pub fn write_multi_feature_lib_rs(rust_dir: &Path, feature_names: &[&str]) -> Re
         ));
     }
     if content.is_empty() {
-        content.push_str("// No features selected.\n");
+        content.push_str("// 未选择任何 feature。\n");
     }
 
     let lib_rs_path = src_dir.join("lib.rs");
@@ -507,7 +507,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         write_lib_rs(tmp.path(), &[]).unwrap();
         let lib = std::fs::read_to_string(tmp.path().join("src/lib.rs")).unwrap();
-        assert!(lib.contains("// No units selected."));
+        assert!(lib.contains("// 未选择任何单元。"));
     }
 
     #[test]
