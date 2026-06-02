@@ -222,13 +222,13 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, &mut ast, &cpp_ranges);
+                collect_namespace(&entity, &mut ast, &cpp_ranges, &user_ranges);
             }
             EntityKind::LinkageSpec => {
                 collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges);
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, &mut ast, &cpp_ranges);
+                collect_typedef(&entity, &mut ast, &user_ranges);
             }
             _ => {}
         }
@@ -322,6 +322,7 @@ fn collect_namespace(
     ns: &clang::Entity<'_>,
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
+    user_ranges: &[std::ops::Range<u32>],
 ) {
     let ns_name = ns.get_name().unwrap_or_default();
     for entity in ns.get_children() {
@@ -363,10 +364,10 @@ fn collect_namespace(
                 }
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, ast, cpp_ranges);
+                collect_typedef(&entity, ast, user_ranges);
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, ast, cpp_ranges);
+                collect_namespace(&entity, ast, cpp_ranges, user_ranges);
             }
             _ => {}
         }
@@ -414,7 +415,7 @@ fn collect_linkage_spec(
                 }
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, ast, cpp_ranges);
+                collect_typedef(&entity, ast, user_ranges);
             }
             // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
             EntityKind::StructDecl if entity.is_definition() => {
@@ -431,11 +432,11 @@ fn collect_linkage_spec(
 fn collect_typedef(
     entity: &clang::Entity<'_>,
     ast: &mut CppAst,
-    cpp_ranges: &[std::ops::Range<u32>],
+    user_ranges: &[std::ops::Range<u32>],
 ) {
-    // 只收集来自当前编译单元（.cpp 文件本身）的 typedef，
-    // 排除通过 #include 引入的头文件中的 typedef（避免系统类型污染）。
-    if !entity_is_from_current_file(entity, cpp_ranges) {
+    // 收集来自用户代码区间（.cpp 文件本身及用户头文件）的 typedef，
+    // 排除通过 #include 引入的系统/第三方头文件中的 typedef（避免系统类型污染）。
+    if !entity_is_from_current_file(entity, user_ranges) {
         return;
     }
     let Some(name) = entity.get_name() else {

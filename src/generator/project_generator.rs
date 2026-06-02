@@ -174,7 +174,7 @@ pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
         r#"[package]
 name = "{feature_name}"
 version = "0.1.0"
-edition = "2021"
+edition = "2018"
 
 [lib]
 name = "{lib_name}"

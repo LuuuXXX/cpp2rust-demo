@@ -426,4 +426,26 @@ fn rapidjson_merge_phase() {
         unit_paths.len(),
         merged_files.len()
     );
+
+    // ── cargo check：验证生成的 Rust 项目可编译 ────────────────────
+    let cargo_check_output = Command::new("cargo")
+        .args(["check", "--quiet"])
+        .current_dir(&rust_dir)
+        .output();
+    match cargo_check_output {
+        Ok(output) => {
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                panic!(
+                    "cargo check 失败（init + merge 生成的 Rust 项目不可编译）:\n{}",
+                    stderr
+                );
+            }
+            println!("cargo check 通过");
+        }
+        Err(e) => {
+            // cargo 未安装或不可用时，跳过检查并打印警告
+            println!("cargo check 跳过（cargo 不可用: {}）", e);
+        }
+    }
 }
