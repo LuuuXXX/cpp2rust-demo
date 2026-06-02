@@ -10,7 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "IntVector", destroy = "int_vector_delete")]
-    class IntVector {
+    pub class IntVector {
         #[cpp(method = "void push_back(int val)")]
         fn push_back(&mut self, val: i32);
 
@@ -39,7 +39,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "StringVector", destroy = "string_vector_delete")]
-    class StringVector {
+    pub class StringVector {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
     }

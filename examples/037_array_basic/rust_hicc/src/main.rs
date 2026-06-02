@@ -10,7 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "IntArray5", destroy = "int_array5_delete")]
-    class IntArray5 {
+    pub class IntArray5 {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
 
@@ -33,7 +33,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "DoubleArray3", destroy = "double_array3_delete")]
-    class DoubleArray3 {
+    pub class DoubleArray3 {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
     }
@@ -41,7 +41,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "StringArray4", destroy = "string_array4_delete")]
-    class StringArray4 {
+    pub class StringArray4 {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
     }

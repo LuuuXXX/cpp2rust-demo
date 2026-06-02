@@ -11,12 +11,12 @@ use hicc::AbiClass;
 
 hicc::import_class! {
     #[cpp(class = "IntFloatUnion", destroy = "union_delete")]
-    class IntFloatUnion {}
+    pub class IntFloatUnion {}
 }
 
 hicc::import_class! {
     #[cpp(class = "Variant", destroy = "variant_delete")]
-    class Variant {
+    pub class Variant {
         #[cpp(method = "int get_type() const")]
         fn get_type(&self) -> i32;
 

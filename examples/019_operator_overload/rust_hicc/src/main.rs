@@ -34,7 +34,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Number", destroy = "number_delete")]
-    class Number {
+    pub class Number {
         #[cpp(method = "int getValue() const")]
         fn get_value(&self) -> i32;
     }

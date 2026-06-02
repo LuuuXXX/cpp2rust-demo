@@ -7,7 +7,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Buffer", destroy = "buffer_delete")]
-    class Buffer {
+    pub class Buffer {
         #[cpp(method = "void set(int index, int value)")]
         fn set(&mut self, index: i32, value: i32);
 

@@ -10,7 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Tuple2", destroy = "tuple2_delete")]
-    class Tuple2 {
+    pub class Tuple2 {
         #[cpp(method = "int get_first() const")]
         fn get_first(&self) -> i32;
 
@@ -21,7 +21,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Tuple3", destroy = "tuple3_delete")]
-    class Tuple3 {
+    pub class Tuple3 {
         #[cpp(method = "int get_first() const")]
         fn get_first(&self) -> i32;
 
@@ -35,7 +35,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Tuple4", destroy = "tuple4_delete")]
-    class Tuple4 {
+    pub class Tuple4 {
         #[cpp(method = "int get_first() const")]
         fn get_first(&self) -> i32;
 

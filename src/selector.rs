@@ -1,17 +1,16 @@
 use crate::error::Result;
 use std::path::PathBuf;
 
-/// Abstraction over file-selection so tests can inject a fake implementation.
+/// 文件选择的抽象接口，便于测试时注入假实现。
 pub trait FileSelector {
-    /// Given a slice of candidate `.cpp2rust` file paths, return the subset the
-    /// user wants to include in this feature.
+    /// 给定候选 `.cpp2rust` 文件路径切片，返回用户希望包含在本特性中的子集。
     fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>>;
 }
 
-/// Interactive multi-select backed by `dialoguer`.
+/// 基于 `dialoguer` 的交互式多选。
 ///
-/// When stdin is not a terminal (CI, pipes, tests) this automatically selects
-/// all candidates so the workflow is never blocked waiting for user input.
+/// 当 stdin 不是终端（CI、管道、测试等）时，自动选择全部候选文件，
+/// 避免工作流因等待用户输入而阻塞。
 pub struct InteractiveSelector;
 
 impl FileSelector for InteractiveSelector {
@@ -57,7 +56,7 @@ fn is_non_interactive() -> bool {
     !std::io::stdin().is_terminal()
 }
 
-/// Selector that selects all candidates without user interaction. Used in tests.
+/// 无需用户交互、直接选择全部候选文件的选择器。用于测试。
 #[allow(dead_code)]
 pub struct SelectAll;
 
@@ -67,7 +66,7 @@ impl FileSelector for SelectAll {
     }
 }
 
-/// Selector that selects no candidates. Used in tests.
+/// 不选择任何候选文件的选择器。用于测试。
 #[allow(dead_code)]
 pub struct SelectNone;
 
@@ -77,7 +76,7 @@ impl FileSelector for SelectNone {
     }
 }
 
-/// Selector backed by a predicate closure. Used in tests.
+/// 基于谓词闭包的选择器。用于测试。
 #[allow(dead_code)]
 pub struct PredicateSelector<F>(pub F)
 where

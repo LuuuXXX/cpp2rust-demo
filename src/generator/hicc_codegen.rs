@@ -83,9 +83,9 @@ pub fn generate(spec: &FfiSpec) -> String {
         }
 
         if cs.methods.is_empty() {
-            out.push_str(&format!("    class {} {{}}\n", cs.name));
+            out.push_str(&format!("    pub class {} {{}}\n", cs.name));
         } else {
-            out.push_str(&format!("    class {} {{\n", cs.name));
+            out.push_str(&format!("    pub class {} {{\n", cs.name));
             for mb in &cs.methods {
                 out.push_str(&format!("        #[cpp(method = \"{}\")]\n", mb.cpp_sig));
                 let self_ref = match mb.self_kind {

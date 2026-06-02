@@ -10,7 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "AbstractShape", destroy = "abstract_shape_delete")]
-    class AbstractShape {
+    pub class AbstractShape {
         #[cpp(method = "double area() const")]
         fn area(&self) -> f64;
 

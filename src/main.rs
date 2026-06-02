@@ -4,11 +4,13 @@ use cpp2rust_demo::ast_parser;
 use cpp2rust_demo::capture;
 use cpp2rust_demo::error::Result;
 use cpp2rust_demo::extractor;
+use cpp2rust_demo::ffi_model::FfiSpec;
 use cpp2rust_demo::generator::hicc_codegen;
 use cpp2rust_demo::generator::project_generator;
 use cpp2rust_demo::layout::{self, FeatureLayout, InitReportData, InitUnitStat, MergeReportData};
 use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 #[derive(Parser)]
@@ -22,20 +24,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Capture a C++ build and prepare Rust scaffolding inputs
+    /// 捕获 C++ 构建过程并准备 Rust 脚手架输入
     Init(InitArgs),
-    /// Merge generated per-symbol outputs into module-level files
+    /// 将每个符号生成的输出合并到模块级文件
     Merge(MergeArgs),
 }
 
 #[derive(Args)]
 struct InitArgs {
-    /// Feature name (default: "default")
+    /// 特性名称（默认："default"）
     #[arg(long, default_value = "default")]
     feature: String,
 
-    /// Build command to execute (use after '--')
-    /// Example: cpp2rust-demo init -- make -j4
+    /// 要执行的构建命令（置于 '--' 之后）
+    /// 示例：cpp2rust-demo init -- make -j4
     #[arg(
         trailing_var_arg = true,
         allow_hyphen_values = true,
@@ -47,7 +49,7 @@ struct InitArgs {
 
 #[derive(Args)]
 struct MergeArgs {
-    /// Feature name to merge (default: "default")
+    /// 要合并的特性名称（默认："default"）
     #[arg(long, default_value = "default")]
     feature: String,
 }
@@ -167,16 +169,18 @@ fn run_init(args: InitArgs) -> Result<()> {
     }
 
     println!("\nRunning AST parser and code generation on selected files...");
-    let mut unit_paths: Vec<String> = Vec::new();
     let mut unit_stats: Vec<InitUnitStat> = Vec::new();
     // 降级特性统计：tag → (unit_path → 出现次数)
-    let mut degraded_tags: std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, usize>,
-    > = std::collections::HashMap::new();
+    let mut degraded_tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
     // unit_path → 首次注册该路径的源文件（用于冲突诊断）
-    let mut seen_unit_paths: std::collections::HashMap<String, std::path::PathBuf> =
-        std::collections::HashMap::new();
+    let mut seen_unit_paths: HashMap<String, std::path::PathBuf> = HashMap::new();
+
+    // ── 第一趟：解析所有文件，收集 (unit_path, spec, stats) ──────────────────
+    struct UnitData {
+        unit_path: String,
+        spec: FfiSpec,
+    }
+    let mut all_units: Vec<UnitData> = Vec::new();
 
     for path in &selected {
         let file_start = Instant::now();
@@ -220,10 +224,6 @@ fn run_init(args: InitArgs) -> Result<()> {
                     &system_includes,
                     project_header.as_deref(),
                 );
-                let code = hicc_codegen::generate(&spec);
-
-                // 统计降级特性（扫描生成代码中的 cpp2rust-todo 标签）
-                count_degraded_tags(&code, &unit_path, &mut degraded_tags);
 
                 let elapsed_ms = file_start.elapsed().as_millis();
                 println!(
@@ -244,8 +244,10 @@ fn run_init(args: InitArgs) -> Result<()> {
                     elapsed_ms,
                 });
 
-                project_generator::write_unit_rs(&lo.rust_dir, &unit_path, &code)?;
-                unit_paths.push(unit_path);
+                all_units.push(UnitData {
+                    unit_path,
+                    spec,
+                });
             }
             Err(err) => {
                 let elapsed_ms = file_start.elapsed().as_millis();
@@ -257,6 +259,40 @@ fn run_init(args: InitArgs) -> Result<()> {
                 ));
             }
         }
+    }
+
+    // ── 跨模块类型映射：class_name → 定义该类型的 unit_path ──────────────────
+    // 只有实际生成了 import_class! 块的类（即不被 hicc_codegen 跳过的 ClassSpec）才加入映射。
+    // 与 hicc_codegen::generate 的跳过条件保持一致：methods/associated_fns/destroy_fn 全空则跳过。
+    let mut class_to_module: HashMap<String, String> = HashMap::new();
+    for ud in &all_units {
+        for cs in ud.spec.class_specs.iter().filter(|cs| {
+            !(cs.methods.is_empty() && cs.associated_fns.is_empty() && cs.destroy_fn.is_none())
+        }) {
+            if let Some(existing) = class_to_module.get(&cs.name) {
+                eprintln!(
+                    "  Warning: class '{}' defined in both '{}' and '{}'; \
+cross-module references will use the first definition",
+                    cs.name, existing, ud.unit_path
+                );
+            } else {
+                class_to_module.insert(cs.name.clone(), ud.unit_path.clone());
+            }
+        }
+    }
+
+    // ── 第二趟：生成代码（附加跨模块 use / opaque 声明）并写入文件 ──────────
+    let mut unit_paths: Vec<String> = Vec::new();
+
+    for ud in &all_units {
+        let preamble = build_cross_module_preamble(&ud.spec, &ud.unit_path, &class_to_module);
+        let code = format!("{}{}", preamble, hicc_codegen::generate(&ud.spec));
+
+        // 统计降级特性（扫描生成代码中的 cpp2rust-todo 标签）
+        count_degraded_tags(&code, &ud.unit_path, &mut degraded_tags);
+
+        project_generator::write_unit_rs(&lo.rust_dir, &ud.unit_path, &code)?;
+        unit_paths.push(ud.unit_path.clone());
     }
 
     // 降级特性汇总
@@ -323,6 +359,106 @@ fn run_init(args: InitArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// 为每个编译单元生成跨模块类型引用前缀。
+///
+/// 当 `import_lib!` 块引用的类型在其他模块由 `import_class!` 定义时，
+/// 生成对应的 `use crate::...::TypeName;` 语句。
+/// 若类型未在任何模块定义（如 C typedef struct），则在本模块生成 opaque 类型声明，
+/// 以便 `import_lib!` 宏展开时可以找到该类型。
+/// 为无任何模块定义的 C typedef struct 生成 `hicc::import_class!` opaque 声明块，
+/// 使该类型自动实现 `AbiClass`，满足 `import_lib!` 中 `class TypeName;` 的 trait 约束。
+fn opaque_import_class_block(type_name: &str) -> String {
+    format!(
+        "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n",
+        n = type_name
+    )
+}
+
+/// 返回 `true` 当且仅当 `s` 是合法的 C++/Rust 标识符（ASCII 字母、数字、下划线，首字符非数字）。
+fn is_valid_identifier(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// 若 `fwd_decl` 为 `"class TypeName;"` 形式，则返回 `TypeName`。
+/// 若格式不合法或标识符无效，则输出警告并返回 `None`。
+fn parse_fwd_decl<'a>(fwd_decl: &'a str, unit_path: &str) -> Option<&'a str> {
+    let type_name = fwd_decl
+        .strip_prefix("class ")
+        .and_then(|s| s.strip_suffix(';'))
+        .map(str::trim)
+        .unwrap_or("");
+
+    if type_name.is_empty() {
+        eprintln!(
+            "  Warning: malformed fwd_decl {:?} in unit '{}'; expected format 'class TypeName;'",
+            fwd_decl, unit_path
+        );
+        return None;
+    }
+    if !is_valid_identifier(type_name) {
+        eprintln!(
+            "  Warning: fwd_decl {:?} in unit '{}' contains an invalid identifier '{}'; skipping",
+            fwd_decl, unit_path, type_name
+        );
+        return None;
+    }
+    Some(type_name)
+}
+
+fn build_cross_module_preamble(
+    spec: &FfiSpec,
+    current_unit_path: &str,
+    class_to_module: &HashMap<String, String>,
+) -> String {
+    // 只计入实际生成了 import_class! 块的类（与 hicc_codegen::generate 的跳过条件一致）
+    let local_class_names: HashSet<&str> = spec
+        .class_specs
+        .iter()
+        .filter(|cs| {
+            !(cs.methods.is_empty() && cs.associated_fns.is_empty() && cs.destroy_fn.is_none())
+        })
+        .map(|cs| cs.name.as_str())
+        .collect();
+
+    let mut use_imports = String::new();
+    let mut opaque_decls = String::new();
+
+    for fwd_decl in &spec.lib_spec.fwd_decls {
+        // fwd_decl 的格式固定为 `"class TypeName;"` ——由 extractor::build_lib_spec 的
+        // `format!("class {};", name)` 生成，不含命名空间限定或 struct 前缀。
+        // parse_fwd_decl 负责校验格式和标识符合法性，失败时输出警告并返回 None。
+        let type_name = match parse_fwd_decl(fwd_decl, current_unit_path) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        if local_class_names.contains(type_name) {
+            // 本模块已有 import_class! 定义，无需额外引入
+            continue;
+        }
+
+        if let Some(def_module) = class_to_module.get(type_name) {
+            if def_module != current_unit_path {
+                // 类型由其他模块的 import_class! 定义 → 生成 use 导入
+                let module_path = def_module.replace('/', "::");
+                use_imports.push_str(&format!("use crate::{}::{};\n", module_path, type_name));
+            }
+        } else {
+            // 无任何模块拥有该类型（如 C typedef struct）→ 用 import_class! 声明为 opaque 类型，
+            // 使其自动实现 AbiClass，满足 import_lib! 中 class TypeName; 的 trait 约束。
+            opaque_decls.push_str(&opaque_import_class_block(type_name));
+        }
+    }
+
+    if use_imports.is_empty() && opaque_decls.is_empty() {
+        String::new()
+    } else {
+        format!("{}{}\n", use_imports, opaque_decls)
+    }
 }
 
 /// 扫描生成代码中的 `cpp2rust-todo[TAG]` 标签，按编译单元统计各 tag 出现次数。
@@ -401,5 +537,68 @@ mod tests {
     fn init_requires_build_cmd() {
         let result = Cli::try_parse_from(["cpp2rust-demo", "init"]);
         assert!(result.is_err());
+    }
+
+    // ── is_valid_identifier ──────────────────────────────────────────────────
+
+    #[test]
+    fn valid_identifier_simple() {
+        assert!(is_valid_identifier("Foo"));
+        assert!(is_valid_identifier("_bar"));
+        assert!(is_valid_identifier("Vec2"));
+        assert!(is_valid_identifier("my_type_123"));
+    }
+
+    #[test]
+    fn invalid_identifier_empty() {
+        assert!(!is_valid_identifier(""));
+    }
+
+    #[test]
+    fn invalid_identifier_starts_with_digit() {
+        assert!(!is_valid_identifier("1Foo"));
+    }
+
+    #[test]
+    fn invalid_identifier_contains_namespace() {
+        assert!(!is_valid_identifier("std::vector"));
+    }
+
+    #[test]
+    fn invalid_identifier_contains_space() {
+        assert!(!is_valid_identifier("Foo Bar"));
+    }
+
+    // ── build_cross_module_preamble: malformed fwd_decl ─────────────────────
+
+    #[test]
+    fn preamble_skips_malformed_fwd_decl() {
+        use cpp2rust_demo::ffi_model::{FfiSpec, LibSpec};
+        let spec = FfiSpec {
+            lib_spec: LibSpec {
+                fwd_decls: vec!["struct Foo;".to_string()],  // not "class ..." format
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let map = HashMap::new();
+        // malformed fwd_decl → preamble should be empty (no panic, no generated code)
+        let preamble = build_cross_module_preamble(&spec, "mymod", &map);
+        assert!(preamble.is_empty(), "expected empty preamble, got: {preamble:?}");
+    }
+
+    #[test]
+    fn preamble_skips_invalid_identifier_in_fwd_decl() {
+        use cpp2rust_demo::ffi_model::{FfiSpec, LibSpec};
+        let spec = FfiSpec {
+            lib_spec: LibSpec {
+                fwd_decls: vec!["class std::vector;".to_string()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let map = HashMap::new();
+        let preamble = build_cross_module_preamble(&spec, "mymod", &map);
+        assert!(preamble.is_empty(), "expected empty preamble, got: {preamble:?}");
     }
 }

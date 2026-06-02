@@ -8,7 +8,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "IntMatrix", destroy = "intmatrix_delete")]
-    class IntMatrix {
+    pub class IntMatrix {
         #[cpp(method = "int rows() const")]
         fn rows(&self) -> i32;
 
@@ -28,7 +28,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "DoubleMatrix", destroy = "doublematrix_delete")]
-    class DoubleMatrix {
+    pub class DoubleMatrix {
         #[cpp(method = "int rows() const")]
         fn rows(&self) -> i32;
 

@@ -99,7 +99,7 @@ hicc::cpp! {
 // 段 2：类方法的 Rust 声明
 hicc::import_class! {
     #[cpp(class = "Counter")]
-    class Counter {
+    pub class Counter {
         #[cpp(method = "int get() const")]
         fn get(&self) -> i32;
         #[cpp(method = "void increment()")]

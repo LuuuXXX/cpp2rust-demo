@@ -8,7 +8,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Animal", destroy = "animal_delete")]
-    class Animal {
+    pub class Animal {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
 
@@ -19,7 +19,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Dog", destroy = "dog_delete")]
-    class Dog {
+    pub class Dog {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
 

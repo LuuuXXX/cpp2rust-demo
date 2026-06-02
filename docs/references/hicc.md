@@ -87,7 +87,7 @@ hicc::import_lib! {
 ```rust
 hicc::import_class! {
     #[cpp(class = "Foo")]
-    class Foo {
+    pub class Foo {
         #[cpp(method = "int foo(int)")]
         fn foo_mut(&mut self, v: i32) -> i32;
 
@@ -165,19 +165,19 @@ fn main() {
 ```rust
 hicc::import_class! {
     #[interface]
-    class Foo {
+    pub class Foo {
         #[cpp(method = "void foo() const")]
         fn foo(&self);
     }
 
     #[interface]
-    class Bar: Foo {
+    pub class Bar: Foo {
         #[cpp(method = "void bar() const")]
         fn bar(&self);
     }
 
     #[cpp(class = "Baz", ctor = "Baz()")]
-    class Baz: Bar {
+    pub class Baz: Bar {
         #[cpp(method = "void baz() const")]
         fn baz(&self);
     }
@@ -362,7 +362,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Foo")]
-    class Foo {
+    pub class Foo {
         #[cpp(method = "int foo(int)")]
         fn foo_mut(&mut self, v: i32) -> i32;
         #[cpp(method = "int foo(int) const")]
@@ -454,7 +454,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Foo", destroy = "Foo::free_instance")]
-    class Foo {
+    pub class Foo {
         fn new() -> Self { foo_new() }
     }
 }
@@ -561,7 +561,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "RapidJsonBigIntegerHandle", destroy = "rapidjson_biginteger_free")]
-    class RapidJsonBigIntegerHandle {
+    pub class RapidJsonBigIntegerHandle {
         #[cpp(method = "int rapidjson_biginteger_from_decimal_literal(const char*)")]
         fn from_decimal_literal(&mut self, lit: *const i8) -> i32;
 

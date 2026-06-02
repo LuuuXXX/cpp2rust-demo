@@ -11,7 +11,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "String", destroy = "string_delete")]
-    class String {
+    pub class String {
         #[cpp(method = "const char* c_str() const")]
         fn c_str(&self) -> *const i8;
 

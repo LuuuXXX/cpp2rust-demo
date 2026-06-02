@@ -6,7 +6,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Derived", destroy = "derived_delete")]
-    class Derived {
+    pub class Derived {
         #[cpp(method = "int getValue1() const")]
         fn get_value1(&self) -> i32;
 

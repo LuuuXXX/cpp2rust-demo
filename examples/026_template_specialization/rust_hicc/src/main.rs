@@ -9,7 +9,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "IntHolder", destroy = "intholder_delete")]
-    class IntHolder {
+    pub class IntHolder {
         #[cpp(method = "int get() const")]
         fn get(&self) -> i32;
 
@@ -20,7 +20,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "DoubleHolder", destroy = "doubleholder_delete")]
-    class DoubleHolder {
+    pub class DoubleHolder {
         #[cpp(method = "double get() const")]
         fn get(&self) -> f64;
 
@@ -31,7 +31,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "StringHolder", destroy = "stringholder_delete")]
-    class StringHolder {
+    pub class StringHolder {
         #[cpp(method = "const char* get() const")]
         fn get(&self) -> *const i8;
 

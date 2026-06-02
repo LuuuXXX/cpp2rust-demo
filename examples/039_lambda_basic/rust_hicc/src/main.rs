@@ -11,7 +11,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "LambdaWrapper", destroy = "lambda_wrapper_delete")]
-    class LambdaWrapper {
+    pub class LambdaWrapper {
         #[cpp(method = "int invoke(int a, int b)")]
         fn invoke(&mut self, a: i32, b: i32) -> i32;
     }
@@ -19,7 +19,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "StateLambda", destroy = "state_lambda_delete")]
-    class StateLambda {
+    pub class StateLambda {
         #[cpp(method = "int get_value() const")]
         fn get_value(&self) -> i32;
 
@@ -30,7 +30,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "Comparator", destroy = "comparator_delete")]
-    class Comparator {
+    pub class Comparator {
         #[cpp(method = "int compare(int a, int b) const")]
         fn compare(&self, a: i32, b: i32) -> i32;
     }

@@ -7,7 +7,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "HardwareDevice", destroy = "hardware_device_delete")]
-    class HardwareDevice {
+    pub class HardwareDevice {
         #[cpp(method = "void init()")]
         fn init(&mut self);
 

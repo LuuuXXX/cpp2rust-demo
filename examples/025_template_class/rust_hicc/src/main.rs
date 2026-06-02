@@ -7,7 +7,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "IntStack", destroy = "intstack_delete")]
-    class IntStack {
+    pub class IntStack {
         #[cpp(method = "int size() const")]
         fn size(&self) -> i32;
 
@@ -27,7 +27,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "DoubleStack", destroy = "doublestack_delete")]
-    class DoubleStack {
+    pub class DoubleStack {
         #[cpp(method = "int size() const")]
         fn size(&self) -> i32;
 

@@ -331,7 +331,7 @@ hicc::cpp! {
 // ========== 2. 类方法绑定（hicc::import_class! 块） ==========
 hicc::import_class! {
     #[cpp(class = "Foo")]
-    class Foo {
+    pub class Foo {
         #[cpp(method = "int getValue() const")]
         fn getValue(&self) -> i32;
     }

@@ -10,7 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "StringIntMap", destroy = "string_int_map_delete")]
-    class StringIntMap {
+    pub class StringIntMap {
         #[cpp(method = "bool insert(const char* key, int val)")]
         fn insert(&mut self, key: *const i8, val: i32) -> bool;
 
@@ -36,7 +36,7 @@ hicc::import_class! {
 
 hicc::import_class! {
     #[cpp(class = "IntStringMap", destroy = "int_string_map_delete")]
-    class IntStringMap {
+    pub class IntStringMap {
         #[cpp(method = "size_t size() const")]
         fn size(&self) -> usize;
     }
