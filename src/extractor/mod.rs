@@ -880,7 +880,7 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         .filter(|(fi, _)| !fi.is_variadic)
         .filter(|(fi, _)| !fi.name.starts_with("operator"))
         .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("(*)")))
-        // C++ 成员函数指针（如 `int (Cls::*)() const`）无法映射为 Rust FFI 类型，跳过
+        // C++ 成员函数指针（如 `int (Cls::*)() const`）无法映射为有效 Rust FFI 类型，跳过整个函数
         .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("::*)")))
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();

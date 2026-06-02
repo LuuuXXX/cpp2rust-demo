@@ -169,6 +169,10 @@ pub fn derive_unit_path(c_dir: &Path, cpp2rust_file: &Path) -> String {
 }
 
 /// 在 `rust_dir` 下写出 Cargo.toml，`package.name = feature_name`。
+///
+/// 注：使用 edition 2018 而非 2021，以避免 Rust 2021 对 `L'\0'`（C++ 宽字符字面量）
+/// 保留前缀的 lex 错误。在 hicc::cpp! 中 C++ 代码以 token stream 传入，Rust 2021
+/// 会在 proc macro 执行前就报 lex error；2018 则将其 tokenize 为标识符 `L` + 字符字面量。
 pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
     let content = format!(
         r#"[package]
