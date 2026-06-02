@@ -254,6 +254,169 @@ fn main() {{
 }
 
 // ─────────────────────────────────────────────
+//  多 feature 合并项目生成
+// ─────────────────────────────────────────────
+
+/// 为多 feature 合并项目写出 Cargo.toml。
+///
+/// 生成的项目在 `[features]` 中列出每个 feature，
+/// 支持 `cargo build --features <feature>` 按需构建对应代码。
+pub fn write_multi_feature_cargo_toml(rust_dir: &Path, feature_names: &[&str]) -> Result<()> {
+    let features_section = feature_names
+        .iter()
+        .map(|f| format!("{} = []", f))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let content = format!(
+        r#"[package]
+name = "cpp2rust-merged"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+name = "cpp2rust_merged"
+path = "src/lib.rs"
+
+[features]
+{features_section}
+
+[dependencies]
+hicc = {{ version = "0.2" }}
+hicc-std = {{ version = "0.2" }}
+
+[build-dependencies]
+hicc-build = {{ version = "0.2" }}
+cc = "1.0"
+"#,
+        features_section = features_section,
+    );
+    let path = rust_dir.join("Cargo.toml");
+    std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+}
+
+/// 为多 feature 合并项目写出 `src/lib.rs`。
+///
+/// 每个 feature 对应一个条件编译的顶层模块：
+/// ```rust
+/// #[cfg(feature = "feat")]
+/// pub mod feat;
+/// ```
+pub fn write_multi_feature_lib_rs(rust_dir: &Path, feature_names: &[&str]) -> Result<()> {
+    let src_dir = rust_dir.join("src");
+    std::fs::create_dir_all(&src_dir)
+        .map_err(|e| anyhow!("create src dir {}: {}", src_dir.display(), e))?;
+
+    let mut content = String::new();
+    for feature in feature_names {
+        content.push_str(&format!(
+            "#[cfg(feature = \"{feature}\")]\npub mod {feature};\n"
+        ));
+    }
+    if content.is_empty() {
+        content.push_str("// No features selected.\n");
+    }
+
+    let lib_rs_path = src_dir.join("lib.rs");
+    std::fs::write(&lib_rs_path, &content)
+        .map_err(|e| anyhow!("write {}: {}", lib_rs_path.display(), e))
+}
+
+/// 为多 feature 合并项目写出 `build.rs`。
+///
+/// 每个 feature 对应一个条件编译的 `hicc_build` 调用：
+/// ```rust
+/// if cfg!(feature = "feat") {
+///     hicc_build::Build::new().rust_file("src/feat/mod.rs").compile("feat");
+/// }
+/// ```
+pub fn write_multi_feature_build_rs(rust_dir: &Path, feature_names: &[&str]) -> Result<()> {
+    let mut body = String::new();
+    for feature in feature_names {
+        let lib_name = feature.replace('-', "_");
+        body.push_str(&format!(
+            "    if cfg!(feature = \"{feature}\") {{\n\
+             \x20       hicc_build::Build::new().rust_file(\"src/{feature}/mod.rs\").compile(\"{lib_name}\");\n\
+             \x20   }}\n"
+        ));
+    }
+    let content = format!("fn main() {{\n{body}}}\n", body = body);
+    let path = rust_dir.join("build.rs");
+    std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+}
+
+/// 将单个 feature 的源文件复制到多 feature 合并项目的子模块目录下。
+///
+/// - `feature_src_dir`：feature 的 `rust/src/` 目录（初始化输出）
+/// - `dest_dir`：目标 `src/<feature>/` 目录
+/// - `feature_name`：feature 名称，用于将 `use crate::` 重写为 `use crate::<feature>::`
+///
+/// `lib.rs` 将被复制为 `mod.rs`；其余文件保持原名不变。
+/// 所有 `.rs` 文件中的 `use crate::` 将被替换为 `use crate::<feature>::`，
+/// 以适应嵌套在 feature 模块下的新路径结构。
+pub fn copy_feature_src_to_module(
+    feature_src_dir: &Path,
+    dest_dir: &Path,
+    feature_name: &str,
+) -> Result<()> {
+    copy_feature_src_recursive(feature_src_dir, dest_dir, feature_name)
+}
+
+fn copy_feature_src_recursive(src: &Path, dst: &Path, feature_name: &str) -> Result<()> {
+    std::fs::create_dir_all(dst).map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
+    for entry in
+        std::fs::read_dir(src).map_err(|e| anyhow!("read dir {}: {}", src.display(), e))?
+    {
+        let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
+        let from = entry.path();
+        let file_name = entry.file_name();
+        let file_name_str = file_name.to_string_lossy();
+
+        if from.is_dir() {
+            let to = dst.join(&*file_name_str);
+            copy_feature_src_recursive(&from, &to, feature_name)?;
+        } else if from.extension().and_then(|e| e.to_str()) == Some("rs") {
+            // lib.rs → mod.rs（成为 feature 子模块的入口）
+            let dest_name = if file_name_str == "lib.rs" {
+                "mod.rs".to_string()
+            } else {
+                file_name_str.into_owned()
+            };
+            let to = dst.join(&dest_name);
+            let content = std::fs::read_to_string(&from)
+                .map_err(|e| anyhow!("read {}: {}", from.display(), e))?;
+            // 逐行处理：仅对以 `use crate::` 开头的实际 use 语句重写路径，
+            // 避免误替换注释或字符串字面量中的 `use crate::` 文本。
+            let rewritten: String = content
+                .lines()
+                .map(|line| {
+                    let trimmed = line.trim_start();
+                    if trimmed.starts_with("use crate::") {
+                        line.replacen(
+                            "use crate::",
+                            &format!("use crate::{}::", feature_name),
+                            1,
+                        )
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            // 保留原文件末尾换行符
+            let rewritten = if content.ends_with('\n') {
+                format!("{}\n", rewritten)
+            } else {
+                rewritten
+            };
+            std::fs::write(&to, rewritten)
+                .map_err(|e| anyhow!("write {}: {}", to.display(), e))?;
+        }
+    }
+    Ok(())
+}
+
+// ─────────────────────────────────────────────
 //  单元测试
 // ─────────────────────────────────────────────
 
@@ -453,5 +616,109 @@ mod tests {
         assert!(content.contains(".rust_file(\"src/lib.rs\")"));
         assert!(content.contains(".compile(\"my_lib\")"));
         assert!(content.contains("fn main()"));
+    }
+
+    // ── 多 feature 生成 ────────────────────────
+
+    #[test]
+    fn write_multi_feature_cargo_toml_contains_features() {
+        let tmp = TempDir::new().unwrap();
+        write_multi_feature_cargo_toml(tmp.path(), &["feat1", "feat2"]).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        assert!(content.contains("[features]"));
+        assert!(content.contains("feat1 = []"));
+        assert!(content.contains("feat2 = []"));
+        assert!(content.contains("name = \"cpp2rust-merged\""));
+    }
+
+    #[test]
+    fn write_multi_feature_lib_rs_conditional_mods() {
+        let tmp = TempDir::new().unwrap();
+        write_multi_feature_lib_rs(tmp.path(), &["feat1", "feat2"]).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("src/lib.rs")).unwrap();
+        assert!(content.contains("#[cfg(feature = \"feat1\")]"));
+        assert!(content.contains("pub mod feat1;"));
+        assert!(content.contains("#[cfg(feature = \"feat2\")]"));
+        assert!(content.contains("pub mod feat2;"));
+    }
+
+    #[test]
+    fn write_multi_feature_build_rs_per_feature_blocks() {
+        let tmp = TempDir::new().unwrap();
+        write_multi_feature_build_rs(tmp.path(), &["feat1", "feat2"]).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
+        assert!(content.contains("cfg!(feature = \"feat1\")"));
+        assert!(content.contains("src/feat1/mod.rs"));
+        assert!(content.contains("cfg!(feature = \"feat2\")"));
+        assert!(content.contains("src/feat2/mod.rs"));
+        assert!(content.contains("fn main()"));
+    }
+
+    #[test]
+    fn write_multi_feature_build_rs_hyphen_to_underscore() {
+        let tmp = TempDir::new().unwrap();
+        write_multi_feature_build_rs(tmp.path(), &["my-feat"]).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
+        assert!(content.contains(".compile(\"my_feat\")"));
+    }
+
+    #[test]
+    fn copy_feature_src_to_module_lib_becomes_mod() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "pub mod foo;\n").unwrap();
+        std::fs::write(src.join("foo.rs"), "// foo\n").unwrap();
+
+        let dest = tmp.path().join("out/feat1");
+        copy_feature_src_to_module(&src, &dest, "feat1").unwrap();
+
+        assert!(dest.join("mod.rs").exists(), "lib.rs should become mod.rs");
+        assert!(!dest.join("lib.rs").exists());
+        assert!(dest.join("foo.rs").exists());
+    }
+
+    #[test]
+    fn copy_feature_src_to_module_rewrites_use_crate() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        // use 语句应被重写；注释行不应被修改
+        std::fs::write(
+            src.join("lib.rs"),
+            "use crate::utils::Foo;\n// use crate::old_code\n",
+        )
+        .unwrap();
+
+        let dest = tmp.path().join("out/feat1");
+        copy_feature_src_to_module(&src, &dest, "feat1").unwrap();
+
+        let content = std::fs::read_to_string(dest.join("mod.rs")).unwrap();
+        assert!(
+            content.contains("use crate::feat1::utils::Foo;"),
+            "use crate:: should be rewritten to use crate::feat1::"
+        );
+        assert!(
+            content.contains("// use crate::old_code"),
+            "comment lines should not be rewritten"
+        );
+    }
+
+    #[test]
+    fn copy_feature_src_to_module_preserves_subdirs() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        let sub = src.join("utils");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(src.join("lib.rs"), "pub mod utils;\n").unwrap();
+        std::fs::write(sub.join("mod.rs"), "pub mod bar;\n").unwrap();
+        std::fs::write(sub.join("bar.rs"), "// bar\n").unwrap();
+
+        let dest = tmp.path().join("out/feat1");
+        copy_feature_src_to_module(&src, &dest, "feat1").unwrap();
+
+        assert!(dest.join("mod.rs").exists());
+        assert!(dest.join("utils/mod.rs").exists());
+        assert!(dest.join("utils/bar.rs").exists());
     }
 }
