@@ -241,7 +241,7 @@ RS_FILES=$(find -L "${RUST_SRC}" -name "*.rs" 2>/dev/null | wc -l)
 info "生成 Rust 文件数：${RS_FILES}"
 if [ "${RS_FILES}" -gt 0 ]; then
     echo "──── 生成的 .rs 文件（前 20 条）────"
-    find -L "${RUST_SRC}" -name "*.rs" | sort | head -20
+    find -L "${RUST_SRC}" -name "*.rs" | sort | head -20 || true
 fi
 
 # 统计降级标记
@@ -294,7 +294,7 @@ info "shim 目标文件中 T 段定义符号数：${EXTERN_C_COUNT}"
 
 if [ "${EXTERN_C_COUNT}" -gt 0 ]; then
     echo "──── 部分 extern-C 符号（前 20 条，T 段）────"
-    awk '$2 == "T" { print $1 }' "${NM_CACHE}" | head -20
+    awk '$2 == "T" { print $1 }' "${NM_CACHE}" | head -20 || true
     ok "shim 文件包含 extern-C 导出符号"
 else
     warn "未找到 T 段符号（shim 文件是否编译成功？）"
@@ -378,7 +378,7 @@ if [ -n "${GENERATED_FUNS}" ]; then
         else
             echo -e "${YELLOW}? 未在目标文件中直接找到（可能在 hicc cpp! 宏展开后才出现）${NC}"
         fi
-    done
+    done || true
 else
     info "未在生成代码中找到 #[cpp(func=...)] 标注（可能全部通过 import_class! 绑定）"
 fi
@@ -397,7 +397,7 @@ if [ -d "${C_DIR}" ]; then
 
     echo "──── 各 .cpp2rust 文件大小（前 15 条）────"
     find "${C_DIR}" -name "*.cpp2rust" -exec wc -l {} \; 2>/dev/null \
-        | sort -rn | head -15
+        | sort -rn | head -15 || true
 fi
 
 # ── 6e. 特性验证：struct/class 前缀清理 & restrict 剥离 ──────────────────────
