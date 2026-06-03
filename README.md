@@ -490,6 +490,95 @@ hicc::import_lib! {
 
 ### 降级特性代码示例
 
+#### `[OP]` — 运算符重载
+
+**根本原因**：C ABI 没有运算符符号的概念，FFI 边界只能传递命名函数，无法直接映射 `operator+` 等语法。
+
+```cpp
+// C++ 运算符重载 —— 无法直接 FFI 导出
+class Number {
+public:
+    Number operator+(const Number& other) const;
+    Number operator-(const Number& other) const;
+    Number operator*(const Number& other) const;
+    Number& operator+=(const Number& other);
+    bool operator==(const Number& other) const;
+};
+
+// 工具自动生成的命名 shim（写入 hicc::cpp! + import_lib!）
+Number number_add(const Number* self, const Number* other);
+Number number_sub(const Number* self, const Number* other);
+Number number_mul(const Number* self, const Number* other);
+Number* number_add_assign(Number* self, const Number* other);
+bool number_eq(const Number* self, const Number* other);
+```
+
+生成结果：所有 `operator*` 从 `import_class!` 中移除；对应命名 shim 进入 `import_lib!`，可直接在 Rust 侧调用 `number_add(a, b)` 等。
+
+**用户操作**：可选在 Rust 侧手动实现 `impl std::ops::Add<Number> for Number` 等 trait，内部调用自动生成的 `number_add`，恢复 `+` 运算符语法。
+
+---
+
+#### `[VA]` — 可变参数模板
+
+**根本原因**：C++ `...Args` 是编译期展开，FFI 无法在运行时表达"任意数量、任意类型参数"的函数签名。
+
+```cpp
+// 可变参数模板 —— 无法直接 FFI 导出
+template<typename... Args>
+int sum(Args... args);   // ← 模板，编译期展开，跳过
+
+// 工具生成 wrapper 类，按参数数量分别封装为静态方法
+class SumWrapper {
+public:
+    static int sum_1(int a);
+    static int sum_2(int a, int b);
+    static int sum_3(int a, int b, int c);
+    static int sum_4(int a, int b, int c, int d);
+    static int sum_5(int a, int b, int c, int d, int e);
+};
+```
+
+生成结果：原始 `sum<Args...>` 不出现；`sum_1` / `sum_2` / … / `sum_5` 作为静态方法进入 `import_class!`（或对应的 `import_lib!` 自由函数）。
+
+**用户操作**：若需要新的参数数量或类型组合（如 `sum_6` 或 `float` 版本），在 `hicc::cpp!` 中手动添加对应 wrapper 方法，重新运行 `cpp2rust-demo init`。
+
+---
+
+#### `[LM]` — 有状态 Lambda / std::function
+
+**根本原因**：Lambda 是匿名闭包类型，捕获列表信息在 FFI 边界无法表达；`std::function` 对捕获状态做了类型擦除，同样无法直接传递。
+
+```cpp
+// 无状态 lambda → 可转为函数指针，工具正常绑定
+auto add = [](int a, int b) { return a + b; };     // ← 无捕获，映射为 fn(i32, i32) -> i32
+
+// 有状态 lambda —— 工具生成 class wrapper + opaque pointer [LM]
+int offset = 10;
+auto add_offset = [offset](int a) { return a + offset; };  // ← 捕获 offset，跳过直接绑定
+
+// 工具自动生成 opaque class wrapper（写入 hicc::cpp!）
+class LambdaWrapper {
+    std::function<int(int, int)> fn;
+public:
+    LambdaWrapper(int (*fn_ptr)(int, int));
+    int call(int a, int b);
+};
+
+// std::function 参数 —— 同样通过 class wrapper 处理
+struct Processor {
+    std::function<int(int)> callback;
+    // 工具生成：processor_set_callback(self, fn_ptr)
+    // 工具生成：processor_process(self, value)
+};
+```
+
+生成结果：无状态 lambda 对应的函数指针参数直接出现在 `import_lib!`；有状态 lambda 和 `std::function` 通过 `LambdaWrapper` / `Processor` 等 opaque class 暴露，在 `import_class!` 中提供 `new`、`call`、`set_callback`、`process` 等命名方法。
+
+**用户操作**：若需要将 Rust 闭包传入 C++ 回调，手动编写 trampoline（将 Rust `fn` 指针 + 用户数据包装为 `extern "C"` 函数），再通过 `set_callback` 注入；或将捕获状态改为全局/线程局部变量，降级为无状态 lambda。
+
+---
+
 #### `[CV]` — C 可变参数函数
 
 **根本原因**：Rust 的 FFI 接口要求每个参数都有精确的静态类型，而 C 的 `...` 只在运行时通过 `va_list` 访问参数，无法在编译期表达参数数量与类型。
