@@ -89,7 +89,7 @@ const UNITTEST_SOURCES: &[&str] = &[
 /// - Windows：依次尝试 `clang-cl /P /C /w /I<dir>... /Fi<out> <src>`、
 ///             `cl /P /C /w /I<dir>... /Fi<out> <src>`、`g++ -E -C -w ...`
 ///
-/// 注意：不使用 `/EP`，保留行号标记以确保系统头过滤正常工作。
+/// 注意：不使用 `/EP`，以保留行号标记（linemarker），使 libclang 能正确识别系统头文件并过滤掉系统 typedef 和内置函数声明。
 fn preprocess(
     src: &Path,
     include_dirs: &[&str],

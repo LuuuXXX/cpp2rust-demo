@@ -365,13 +365,12 @@ fn preprocess_file(
 
     match style {
         CompilerStyle::Msvc => {
-            // cl.exe /P /EP /C /Fi<output> <flags> <source>
+            // cl.exe /P /C /Fi<output> <flags> <source>
             // /P: 输出预处理结果到文件
-            // /EP: 不包含 #line 标记
+            // 注意：不使用 /EP，以保留行号标记（#line），使 libclang 能正确识别系统头文件。
             // /C: 保留注释
             // /Fi<output>: 指定输出文件路径
             cmd.arg("/P");
-            cmd.arg("/EP");
             cmd.arg("/C");
             cmd.arg(format!("/Fi{}", out_path.display()));
             cmd.args(preprocess_flags);
