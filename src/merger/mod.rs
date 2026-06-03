@@ -296,14 +296,11 @@ fn make_dir_link(target: &str, link: &Path, working_dir: &Path) -> Result<()> {
 
     // 方案 2：mklink /J（目录 junction，无需特殊权限）
     // mklink 是 cmd.exe 内置命令，必须通过 cmd /c 调用
+    let link_str = link
+        .to_str()
+        .ok_or_else(|| anyhow!("mklink /J: link path contains non-UTF-8 characters: {}", link.display()))?;
     let status = std::process::Command::new("cmd")
-        .args([
-            "/c",
-            "mklink",
-            "/J",
-            link.to_str().unwrap_or(""),
-            target,
-        ])
+        .args(["/c", "mklink", "/J", link_str, target])
         .current_dir(working_dir)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

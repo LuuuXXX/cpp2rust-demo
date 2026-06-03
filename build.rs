@@ -35,9 +35,15 @@ fn build_hook_wrapper() {
             "build",
             "--release",
             "--manifest-path",
-            wrapper_manifest.to_str().expect("non-UTF8 path"),
+            wrapper_manifest.to_str().expect(
+                "hook-wrapper path contains non-UTF-8 characters. \
+                 Please place the project in a directory with an ASCII-compatible path."
+            ),
             "--target-dir",
-            wrapper_target_dir.to_str().expect("non-UTF8 path"),
+            wrapper_target_dir.to_str().expect(
+                "OUT_DIR contains non-UTF-8 characters. \
+                 Please use a build directory with an ASCII-compatible path."
+            ),
         ])
         .status()
         .expect("failed to invoke cargo to build hook-wrapper");

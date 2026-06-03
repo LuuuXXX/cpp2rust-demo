@@ -175,9 +175,9 @@ fn ensure_hook_wrapper_exe() -> Result<PathBuf> {
     if needs_write {
         std::fs::write(&exe_path, HOOK_WRAPPER_EXE)
             .map_err(|e| anyhow!("write {}: {}", exe_path.display(), e))?;
-        println!("Hook wrapper updated: {}", exe_path.display());
+        eprintln!("Hook wrapper updated: {}", exe_path.display());
     } else {
-        println!("Hook wrapper up-to-date: {}", exe_path.display());
+        eprintln!("Hook wrapper up-to-date: {}", exe_path.display());
     }
 
     Ok(exe_path)
@@ -236,7 +236,6 @@ fn run_with_hook_windows(
         "c++.exe",
         "g++",
         "clang++",
-        "c++",
     ];
     for name in &compiler_names {
         let dest = temp_dir.path().join(name);

@@ -83,7 +83,7 @@ fn is_known_compiler(name: &str) -> bool {
         }
         // 支持带版本后缀：g++-13 等（若 known 是前缀，后面跟 '-' + 数字）
         if let Some(rest) = name.strip_prefix(known) {
-            if rest.starts_with('-') && rest[1..].chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+            if rest.len() > 1 && rest.starts_with('-') && rest[1..].chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
                 return true;
             }
         }
@@ -324,18 +324,7 @@ fn preprocess_file(
         }
     };
 
-    // 构建输出路径：<feature_root>/c/<rel>.cpp2rust
-    let out_path = feature_root.join("c").join(rel).with_extension(
-        format!(
-            "{}.cpp2rust",
-            abs_cpp
-                .extension()
-                .and_then(OsStr::to_str)
-                .unwrap_or("")
-        ),
-    );
-    // 实际上我们想要的是将扩展名附加到原文件名后，而不是替换
-    // 例如：foo.cpp → foo.cpp.cpp2rust
+    // 构建输出路径：<feature_root>/c/<rel>/<filename>.cpp2rust
     let out_path = {
         let file_name = abs_cpp
             .file_name()
@@ -563,7 +552,7 @@ fn run() -> i32 {
 
 fn main() -> ExitCode {
     let code = run();
-    ExitCode::from(code as u8)
+    ExitCode::from(code.clamp(0, 255) as u8)
 }
 
 #[cfg(test)]
