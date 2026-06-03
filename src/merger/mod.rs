@@ -282,6 +282,19 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Windows 上检测路径是否为目录符号链接或 junction（均需用 remove_dir 删除）。
+///
+/// - 真正的目录符号链接：`is_symlink()` 已返回 true，本函数主要处理 junction。
+/// - junction（`mklink /J`）：`is_symlink()` 返回 false，但有 FILE_ATTRIBUTE_REPARSE_POINT。
+#[cfg(windows)]
+fn is_dir_reparse_point(path: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    // FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+    std::fs::symlink_metadata(path)
+        .map(|m| m.file_attributes() & 0x0000_0400 != 0)
+        .unwrap_or(false)
+}
+
 /// Windows 版目录链接：优先 symlink_dir，失败时降级为 junction，再失败则目录拷贝。
 ///
 /// `target` 是相对于 `working_dir` 的目标路径，`link` 是链接/junction/拷贝的完整路径。
@@ -363,16 +376,39 @@ pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
     // ── 处理 src ──
     if src.is_symlink() {
         // 重复运行：删除旧 symlink
+        // Windows 上目录符号链接必须用 remove_dir；Unix 用 remove_file
+        #[cfg(windows)]
+        std::fs::remove_dir(&src)
+            .map_err(|e| anyhow!("remove symlink {}: {}", src.display(), e))?;
+        #[cfg(not(windows))]
         std::fs::remove_file(&src)
             .map_err(|e| anyhow!("remove symlink {}: {}", src.display(), e))?;
     } else if src.is_dir() {
-        // 首次运行：备份 src → src.1
-        if src1.exists() {
-            std::fs::remove_dir_all(&src1)
-                .map_err(|e| anyhow!("remove {}: {}", src1.display(), e))?;
+        // Windows junction（mklink /J）：is_symlink() 返回 false 但有 reparse point 属性
+        // 需要识别为"重复运行"并删除，而非当作首次运行的真实目录备份
+        #[cfg(windows)]
+        if is_dir_reparse_point(&src) {
+            std::fs::remove_dir(&src)
+                .map_err(|e| anyhow!("remove junction {}: {}", src.display(), e))?;
+        } else {
+            // 首次运行：备份 src → src.1
+            if src1.exists() {
+                std::fs::remove_dir_all(&src1)
+                    .map_err(|e| anyhow!("remove {}: {}", src1.display(), e))?;
+            }
+            std::fs::rename(&src, &src1)
+                .map_err(|e| anyhow!("rename {} → {}: {}", src.display(), src1.display(), e))?;
         }
-        std::fs::rename(&src, &src1)
-            .map_err(|e| anyhow!("rename {} → {}: {}", src.display(), src1.display(), e))?;
+        #[cfg(not(windows))]
+        {
+            // 首次运行：备份 src → src.1
+            if src1.exists() {
+                std::fs::remove_dir_all(&src1)
+                    .map_err(|e| anyhow!("remove {}: {}", src1.display(), e))?;
+            }
+            std::fs::rename(&src, &src1)
+                .map_err(|e| anyhow!("rename {} → {}: {}", src.display(), src1.display(), e))?;
+        }
     }
 
     // ── 建 symlink src → src.2（相对路径）──
