@@ -1,0 +1,9 @@
+[package]
+name = "hook-wrapper"
+version = "0.1.0"
+edition = "2021"
+description = "Windows compiler interceptor for cpp2rust-demo (PATH-injection based hook)"
+
+[[bin]]
+name = "hook-wrapper"
+path = "src/main.rs"

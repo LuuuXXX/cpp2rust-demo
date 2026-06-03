@@ -27,18 +27,30 @@
 ```
 cpp2rust-demo (bin)
 │
-├── hook/                        # LD_PRELOAD 拦截器源码（内嵌进 binary）
+├── hook/                        # Unix LD_PRELOAD 拦截器源码（内嵌进 binary）
 │   ├── hook.cpp                 # 拦截 g++/clang++ 调用，产出 .cpp2rust 预处理文件
 │   └── Makefile
 │
+├── hook-wrapper/                # Windows PATH wrapper（独立 binary crate）
+│   ├── Cargo.toml
+│   └── src/main.rs              # 拦截 cl.exe/clang-cl.exe/g++.exe，产出 .cpp2rust
+│
+├── build.rs                     # 构建脚本（Windows 目标时构建 hook-wrapper，嵌入 binary）
+│
 └── src/
     ├── main.rs                  # CLI 入口：init / merge
-    ├── capture.rs               # hook 编译 + LD_PRELOAD 注入执行
-    │                            #   - hook.cpp/Makefile 通过 include_str! 内嵌进 binary
-    │                            #   - ensure_hook_data_dir() 首次运行时解压到用户数据目录
-    │                            #     Linux: ~/.local/share/cpp2rust-demo/hook/
-    │                            #     macOS: ~/Library/Application Support/cpp2rust-demo/hook/
-    │                            #   - build_hook() mtime 快路径：.so 比 hook.cpp 新则跳过 make
+    ├── capture.rs               # hook 编译 + 平台拦截机制执行
+    │                            #   [Unix]  hook.cpp/Makefile 通过 include_str! 内嵌进 binary
+    │                            #           ensure_hook_data_dir() 首次运行时解压到用户数据目录
+    │                            #             Linux: ~/.local/share/cpp2rust-demo/hook/
+    │                            #             macOS: ~/Library/Application Support/cpp2rust-demo/hook/
+    │                            #           build_hook() mtime 快路径：.so 比 hook.cpp 新则跳过 make
+    │                            #           run_with_hook_unix() 通过 LD_PRELOAD 注入子进程
+    │                            #   [Windows] hook-wrapper.exe 通过 include_bytes! 内嵌进 binary
+    │                            #           ensure_hook_wrapper_exe() 解压到
+    │                            #             %LOCALAPPDATA%\cpp2rust-demo\hook\
+    │                            #           run_with_hook_windows() 在 tempdir 中为每个目标编译器
+    │                            #             创建同名文件，将 tempdir 注入 PATH 首位（仅子进程）
     ├── layout.rs                # 目录布局（.cpp2rust/<feature>/c|meta|rust）
     ├── selector.rs              # 交互式文件选择
     ├── ffi_model.rs             # FFI 中间表示（FfiSpec / ClassSpec / FnBinding 等）
@@ -60,9 +72,10 @@ cpp2rust-demo (bin)
 ### 2.1 三阶段处理流程
 
 ```
-编译拦截 (hook.cpp)                    AST 提取 (ast_parser + extractor)        代码生成 (generator)
-LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust              FfiSpec → hicc 三段式 Rust
-→ .cpp2rust 预处理文件         →      → CppAst（类/函数/枚举/模板）     →      → lib.rs + <unit>.rs
+编译拦截 (Unix: hook.cpp / Windows: hook-wrapper.exe)
+Unix:    LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust         FfiSpec → hicc 三段式 Rust
+Windows: PATH wrapper → cl/clang-cl/g++ -E  → → CppAst（类/函数/枚举/模板）  → → lib.rs + <unit>.rs
+→ .cpp2rust 预处理文件
 ```
 
 ### 2.2 输出目录结构
@@ -176,6 +189,7 @@ hicc::import_lib! {
 | **Phase 9** | L3 运行测试修复（`compare_run_output`、030 SIGSEGV、14 个 README 对齐） | ✅ 完成 |
 | **Phase 10** | 路径生成修复（`derive_unit_path` 消除双重 `src/` 前缀） | ✅ 完成 |
 | **Phase 11** | Codegen 精确度修复（Dtor/Ctor 归属、接口类检测、`namespace_class_mode` cpp! 块、枚举重复定义、volatile 方法跳过、`is_from_current_file` 来源追踪） | ✅ 完成 |
+| **Phase W** | Windows 支持（PATH wrapper 替代 LD_PRELOAD，支持 cl.exe/clang-cl/MinGW，用户接口不变） | ✅ 完成（L3/L4/L5 待 Windows CI 验证） |
 
 ### 5.2 测试通过率
 

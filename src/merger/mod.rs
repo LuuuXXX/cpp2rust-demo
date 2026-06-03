@@ -282,6 +282,54 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Windows 版目录链接：优先 symlink_dir，失败时降级为 junction，再失败则目录拷贝。
+///
+/// `target` 是相对于 `working_dir` 的目标路径，`link` 是链接/junction/拷贝的完整路径。
+#[cfg(windows)]
+fn make_dir_link(target: &str, link: &Path, working_dir: &Path) -> Result<()> {
+    use std::os::windows::fs::symlink_dir;
+
+    // 方案 1：symlink_dir（需要开发者模式或管理员权限，Win10 1803+）
+    if symlink_dir(target, link).is_ok() {
+        return Ok(());
+    }
+
+    // 方案 2：mklink /J（目录 junction，无需特殊权限）
+    // mklink 是 cmd.exe 内置命令，必须通过 cmd /c 调用
+    let status = std::process::Command::new("cmd")
+        .args([
+            "/c",
+            "mklink",
+            "/J",
+            link.to_str().unwrap_or(""),
+            target,
+        ])
+        .current_dir(working_dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    if status.map(|s| s.success()).unwrap_or(false) {
+        return Ok(());
+    }
+
+    // 方案 3：复制目录内容（最后的兜底方案）
+    let target_path = working_dir.join(target);
+    if target_path.is_dir() {
+        copy_dir_all(&target_path, link)?;
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "failed to create directory link {} → {}: \
+         symlink_dir failed (try enabling Developer Mode in Windows Settings), \
+         mklink /J also failed, and target directory {} does not exist for fallback copy",
+        link.display(),
+        target,
+        target_path.display()
+    ))
+}
+
 /// 将 `rust_dir/src`（init 输出）整理为带备份的 merge 输出：
 ///
 /// - 首次运行：`src/` → rename → `src.1/`；复制 `src.1/` → `src.2/`；建 symlink `src → src.2`
@@ -333,11 +381,9 @@ pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
     // ── 建 symlink src → src.2（相对路径）──
     #[cfg(unix)]
     std::os::unix::fs::symlink("src.2", &src).map_err(|e| anyhow!("symlink src → src.2: {}", e))?;
-    #[cfg(not(unix))]
-    return Err(anyhow!(
-        "merge_in_place requires symlink support, which is only available on Unix-like systems \
-         (Linux, macOS); Windows is not supported"
-    ));
+
+    #[cfg(windows)]
+    make_dir_link("src.2", &src, rust_dir)?;
 
     Ok(())
 }

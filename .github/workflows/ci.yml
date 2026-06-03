@@ -281,3 +281,46 @@ jobs:
             --ignored \
             --nocapture \
             --test-threads=4
+
+  # ── Windows: 构建 + 单元测试 ──────────────────────────────────────
+  windows-build:
+    name: Windows Build & Unit Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM/Clang (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18"
+
+      - name: Install Rust toolchain (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: windows-cargo-
+
+      - name: Build (all targets)
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+        run: cargo build --all-targets
+
+      - name: Run unit tests (lib)
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+        run: cargo test --lib
+
+      - name: Run L0 Windows capture tests
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+        run: cargo test --test l0_windows_capture_test
+

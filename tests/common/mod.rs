@@ -4,7 +4,52 @@ use cpp2rust_demo::ast_parser;
 use cpp2rust_demo::extractor;
 use cpp2rust_demo::generator::hicc_codegen;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, ExitStatus};
+
+/// 平台感知的 C++ 预处理：
+///   - Unix：`g++ -E -C <src> -o <dst>`
+///   - Windows：依次尝试 `clang-cl /P /EP /C /Fi<dst> <src>`、
+///              `cl /P /EP /C /Fi<dst> <src>`、`g++ -E -C <src> -o <dst>`
+fn preprocess_cpp_file(src: &Path, dst: &Path) -> std::io::Result<ExitStatus> {
+    #[cfg(not(windows))]
+    {
+        Command::new("g++")
+            .args(["-E", "-C", src.to_str().unwrap(), "-o", dst.to_str().unwrap()])
+            .status()
+    }
+    #[cfg(windows)]
+    {
+        // Windows：优先 clang-cl（通常随 LLVM 安装），次选 cl.exe（需 MSVC），最后 g++（MinGW）
+        let dst_str = dst.to_str().unwrap();
+        let src_str = src.to_str().unwrap();
+
+        // clang-cl
+        let fi_arg = format!("/Fi{}", dst_str);
+        if let Ok(s) = Command::new("clang-cl")
+            .args(["/P", "/EP", "/C", &fi_arg, src_str])
+            .status()
+        {
+            if s.success() {
+                return Ok(s);
+            }
+        }
+
+        // cl.exe (MSVC)
+        if let Ok(s) = Command::new("cl")
+            .args(["/P", "/EP", "/C", &fi_arg, src_str])
+            .status()
+        {
+            if s.success() {
+                return Ok(s);
+            }
+        }
+
+        // g++ (MinGW)
+        Command::new("g++")
+            .args(["-E", "-C", src_str, "-o", dst_str])
+            .status()
+    }
+}
 
 /// Run the cpp2rust-demo tool on an example directory.
 /// Returns the generated FFI scaffold content (hicc blocks only).
@@ -27,26 +72,18 @@ pub fn run_tool_on(example_dir: &str) -> String {
         .unwrap_or("unit")
         .to_string();
 
-    // 3. g++ -E -C file.cpp → 临时 .cpp2rust 文件
+    // 3. 预处理 file.cpp → 临时 .cpp2rust 文件（平台感知）
     let tmp_dir = std::env::temp_dir().join(format!("cpp2rust_{}", unit_name));
     std::fs::create_dir_all(&tmp_dir).ok();
     let preprocessed = tmp_dir.join(format!("{}.cpp2rust", unit_name));
 
-    let status = Command::new("g++")
-        .args([
-            "-E",
-            "-C",
-            cpp_file.to_str().unwrap(),
-            "-o",
-            preprocessed.to_str().unwrap(),
-        ])
-        .status();
+    let status = preprocess_cpp_file(&cpp_file, &preprocessed);
 
     match status {
         Ok(s) if s.success() => {}
         _ => {
             eprintln!(
-                "run_tool_on: g++ preprocessing failed for {}",
+                "run_tool_on: preprocessing failed for {}",
                 cpp_file.display()
             );
             return String::new();
