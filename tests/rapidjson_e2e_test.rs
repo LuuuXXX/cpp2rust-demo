@@ -82,8 +82,12 @@ const UNITTEST_SOURCES: &[&str] = &[
 //  辅助函数
 // ─────────────────────────────────────────────────────────────────
 
-/// 使用 g++ -E -C 预处理 C++ 文件，返回 .cpp2rust 文件路径。
+/// 平台感知的 C++ 预处理（含 include 目录），返回 .cpp2rust 文件路径。
 /// 失败时返回 None（非致命错误，由调用方决定是否跳过）。
+///
+/// - Unix：`g++ -E -C -w -I<dir>... <src> -o <out>`
+/// - Windows：依次尝试 `clang-cl /P /EP /C /w /I<dir>... /Fi<out> <src>`、
+///             `cl /P /EP /C /w /I<dir>... /Fi<out> <src>`、`g++ -E -C -w ...`
 fn preprocess(
     src: &Path,
     include_dirs: &[&str],
@@ -91,18 +95,68 @@ fn preprocess(
     unit_name: &str,
 ) -> Option<PathBuf> {
     let out = out_dir.join(format!("{}.cpp2rust", unit_name));
+    if run_preprocessor(src, include_dirs, &out) {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// Unix 实现：g++ -E -C -w
+#[cfg(not(windows))]
+fn run_preprocessor(src: &Path, include_dirs: &[&str], out: &Path) -> bool {
     let mut cmd = Command::new("g++");
     cmd.args(["-E", "-C", "-w"]);
     for inc in include_dirs {
         cmd.arg(format!("-I{}", inc));
     }
-    cmd.arg(src).arg("-o").arg(&out);
-    let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
-    if ok {
-        Some(out)
-    } else {
-        None
+    cmd.arg(src).arg("-o").arg(out);
+    cmd.status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Windows 实现：优先 clang-cl，次选 cl.exe（MSVC），最后 g++（MinGW）。
+#[cfg(windows)]
+fn run_preprocessor(src: &Path, include_dirs: &[&str], out: &Path) -> bool {
+    let out_str = match out.to_str() {
+        Some(s) => s,
+        None => return false,
+    };
+    let src_str = match src.to_str() {
+        Some(s) => s,
+        None => return false,
+    };
+    let fi_arg = format!("/Fi{}", out_str);
+
+    // 方案 1：clang-cl（通常随 LLVM 安装）
+    let mut cmd = Command::new("clang-cl");
+    cmd.args(["/P", "/EP", "/C", "/w"]);
+    for inc in include_dirs {
+        cmd.arg(format!("/I{}", inc));
     }
+    cmd.arg(&fi_arg).arg(src_str);
+    if cmd.status().map(|s| s.success()).unwrap_or(false) {
+        return true;
+    }
+
+    // 方案 2：cl.exe（MSVC）
+    let mut cmd = Command::new("cl");
+    cmd.args(["/P", "/EP", "/C", "/w"]);
+    for inc in include_dirs {
+        cmd.arg(format!("/I{}", inc));
+    }
+    cmd.arg(&fi_arg).arg(src_str);
+    if cmd.status().map(|s| s.success()).unwrap_or(false) {
+        return true;
+    }
+
+    // 方案 3：g++（MinGW 回退）
+    let mut cmd = Command::new("g++");
+    cmd.args(["-E", "-C", "-w"]);
+    for inc in include_dirs {
+        cmd.arg(format!("-I{}", inc));
+    }
+    cmd.arg(src).arg("-o").arg(out);
+    cmd.status().map(|s| s.success()).unwrap_or(false)
 }
 
 /// 验证生成的 hicc 代码符合三段式格式约束（"最初计划的内容"）：
@@ -391,19 +445,22 @@ fn rapidjson_merge_phase() {
         src2.is_dir(),
         "merge: src.2/ 目录不存在（merge 输出未生成）"
     );
+    // Unix: src 是符号链接；Windows: 可能是 symlink、junction 或目录拷贝，均以 is_dir() 可访问
     assert!(
-        src_link.is_symlink(),
-        "merge: src 不是符号链接（应指向 src.2/）"
+        src_link.is_symlink() || src_link.is_dir(),
+        "merge: src 不可访问（应为符号链接、junction 或目录）"
     );
 
-    // symlink 目标必须是 src.2
-    let link_target = std::fs::read_link(&src_link).expect("read_link(src) 失败");
-    assert_eq!(
-        link_target.to_str().unwrap_or(""),
-        "src.2",
-        "merge: src 符号链接目标错误，期望 src.2，实际 {}",
-        link_target.display()
-    );
+    // Unix 上验证 symlink 目标为 src.2；Windows junction/拷贝回退跳过此检查
+    if src_link.is_symlink() {
+        let link_target = std::fs::read_link(&src_link).expect("read_link(src) 失败");
+        assert_eq!(
+            link_target.to_str().unwrap_or(""),
+            "src.2",
+            "merge: src 符号链接目标错误，期望 src.2，实际 {}",
+            link_target.display()
+        );
+    }
 
     // ── 验证 src.2/ 中的 .rs 文件内容符合 hicc 格式 ────────────────
     let merged_files = merger::collect_unit_rs_files(&src2);
