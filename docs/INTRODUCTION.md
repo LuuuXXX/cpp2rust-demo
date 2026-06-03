@@ -193,7 +193,689 @@ cpp2rust-demo merge --feature <name>
 
 ---
 
-## Part 3：约束与限制
+## Part 3：降级特性详解
+
+**降级特性**是指 C++ 中无法直接映射到 C ABI 的特性，工具会自动生成命名 shim 函数 + 内联 TODO 标记，让生成的代码仍能通过 `cargo check`，同时标注出需要手工完善的位置。
+
+共 4 类降级特性，分别对应 TAG `[OP]`、`[VA]`、`[LM]`。
+
+---
+
+### 4.1 `[OP]` 运算符重载（019_operator_overload）
+
+**根本原因**：C ABI 没有 `operator+` 等符号名，FFI 边界只能传命名函数。
+
+**降级策略**：为每个运算符生成命名 shim 函数（如 `number_add`），写入 `hicc::cpp!` 包装层，同时在 `import_lib!` 中声明对应的 Rust 绑定。追加内联 TODO，提示可实现 `std::ops` trait。
+
+#### C++ 项目代码
+
+**operator_overload.h**（头文件中的 C ABI 声明部分）
+
+```cpp
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct Number;
+
+struct Number* number_new(int value);
+void number_delete(struct Number* self);
+
+int number_getValue(struct Number* self);
+
+struct Number* number_add(struct Number* self, struct Number* other);
+struct Number* number_sub(struct Number* self, struct Number* other);
+struct Number* number_mul(struct Number* self, struct Number* other);
+struct Number* number_div(struct Number* self, struct Number* other);
+
+int number_compare(struct Number* self, struct Number* other);
+
+struct Number* number_negate(struct Number* self);
+struct Number* number_increment(struct Number* self);
+struct Number* number_decrement(struct Number* self);
+
+void number_add_assign(struct Number* self, struct Number* other);
+void number_sub_assign(struct Number* self, struct Number* other);
+
+#ifdef __cplusplus
+}
+
+// C++ 类定义（含运算符重载）
+class Number {
+    int value;
+public:
+    Number(int v);
+    ~Number();
+    int getValue() const;
+    Number operator+(const Number& other) const;
+    Number operator-(const Number& other) const;
+    Number operator*(const Number& other) const;
+    Number operator/(const Number& other) const;
+    int compare(const Number& other) const;
+    Number operator-() const;
+    Number& operator++();
+    Number& operator--();
+    Number& operator+=(const Number& other);
+    Number& operator-=(const Number& other);
+};
+
+#endif
+```
+
+**operator_overload.cpp**（shim 包装 + 类实现）
+
+```cpp
+#include "operator_overload.h"
+
+// shim 包装函数：把运算符重载暴露为命名 C 函数
+struct Number* number_add(struct Number* self, struct Number* other) {
+    return new Number(self->operator+(*other));
+}
+struct Number* number_sub(struct Number* self, struct Number* other) {
+    return new Number(self->operator-(*other));
+}
+struct Number* number_mul(struct Number* self, struct Number* other) {
+    return new Number(self->operator*(*other));
+}
+struct Number* number_div(struct Number* self, struct Number* other) {
+    return new Number(self->operator/(*other));
+}
+int number_compare(struct Number* self, struct Number* other) {
+    return self->compare(*other);
+}
+struct Number* number_negate(struct Number* self) {
+    return new Number(self->operator-());
+}
+struct Number* number_increment(struct Number* self) {
+    return &self->operator++();
+}
+void number_add_assign(struct Number* self, struct Number* other) {
+    self->operator+=(*other);
+}
+
+// Number 类实现
+Number::Number(int v) : value(v) {}
+Number::~Number() {}
+int Number::getValue() const { return value; }
+Number Number::operator+(const Number& other) const { return Number(value + other.value); }
+Number Number::operator-(const Number& other) const { return Number(value - other.value); }
+Number Number::operator*(const Number& other) const { return Number(value * other.value); }
+Number Number::operator/(const Number& other) const { return Number(value / other.value); }
+int Number::compare(const Number& other) const { return value - other.value; }
+Number Number::operator-() const { return Number(-value); }
+Number& Number::operator++() { ++value; return *this; }
+Number& Number::operator--() { --value; return *this; }
+Number& Number::operator+=(const Number& other) { value += other.value; return *this; }
+Number& Number::operator-=(const Number& other) { value -= other.value; return *this; }
+```
+
+#### 生成的 Rust FFI 代码（lib.rs）
+
+```rust
+// 段 1：C++ shim 层（运算符 → 命名函数）
+hicc::cpp! {
+    #include <iostream>
+    #include "operator_overload.h"
+
+    int number_get_value(const Number* self) {
+        return self->getValue();
+    }
+    Number* number_add(const Number* a, const Number* b) {
+        return new Number(*a + *b);
+    }
+    Number* number_sub(const Number* a, const Number* b) {
+        return new Number(*a - *b);
+    }
+    Number* number_mul(const Number* a, const Number* b) {
+        return new Number(*a * *b);
+    }
+    Number* number_div(const Number* a, const Number* b) {
+        return new Number(*a / *b);
+    }
+    Number* number_negate(const Number* a) {
+        return new Number(-*a);
+    }
+    int number_compare(const Number* a, const Number* b) {
+        return a->compare(*b);
+    }
+}
+
+// 段 2：类方法绑定
+hicc::import_class! {
+    #[cpp(class = "Number", destroy = "number_delete")]
+    pub class Number {
+        #[cpp(method = "int getValue() const")]
+        fn get_value(&self) -> i32;
+    }
+}
+
+// 段 3：全局函数 + 运算符 shim 绑定
+hicc::import_lib! {
+    #![link_name = "operator_overload"]
+
+    class Number;
+
+    #[cpp(func = "Number* number_new(int)")]
+    fn number_new(value: i32) -> Number;
+
+    #[cpp(func = "Number* number_add(const Number*, const Number*)")]
+    fn number_add(a: *const Number, b: *const Number) -> *mut Number;
+    // cpp2rust-todo[OP]: 可实现 impl std::ops::Add<Number> for Number
+
+    #[cpp(func = "Number* number_sub(const Number*, const Number*)")]
+    fn number_sub(a: *const Number, b: *const Number) -> *mut Number;
+    // cpp2rust-todo[OP]: 可实现 impl std::ops::Sub<Number> for Number
+
+    #[cpp(func = "Number* number_mul(const Number*, const Number*)")]
+    fn number_mul(a: *const Number, b: *const Number) -> *mut Number;
+    // cpp2rust-todo[OP]: 可实现 impl std::ops::Mul<Number> for Number
+
+    #[cpp(func = "Number* number_div(const Number*, const Number*)")]
+    fn number_div(a: *const Number, b: *const Number) -> *mut Number;
+    // cpp2rust-todo[OP]: 可实现 impl std::ops::Div<Number> for Number
+
+    #[cpp(func = "Number* number_negate(const Number*)")]
+    fn number_negate(a: *const Number) -> *mut Number;
+    // cpp2rust-todo[OP]: 可实现 impl std::ops::Neg for Number
+
+    #[cpp(func = "int number_compare(const Number*, const Number*)")]
+    fn number_compare(a: *const Number, b: *const Number) -> i32;
+    // cpp2rust-todo[OP]: 可实现 impl std::cmp::Ord for Number
+}
+```
+
+**用户剩余工作（可选）**：手动实现 `impl std::ops::Add<Number> for Number` 等 Rust trait，使 Rust 侧可以用 `a + b` 语法代替 `number_add(&a, &b)`。
+
+---
+
+### 4.2 `[VA]` 可变参数模板（028_variadic_template）
+
+**根本原因**：C++ 可变参数模板（`template<typename... Args>`）是编译期展开，FFI 运行期无法表达"任意数量参数"。
+
+**降级策略**：在 `hicc::cpp!` 中生成 wrapper 类（`SumCalculator`），按参数数量和类型组合分别封装为静态方法（`calculate_1`/`calculate_2` 等），再生成 C 兼容命名包装函数（`sum_1`/`sum_2` 等）；`import_lib!` 绑定各包装函数，追加内联 TODO。
+
+#### C++ 项目代码
+
+**variadic_template.h**
+
+```cpp
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// FFI 无法直接表达可变参数，导出固定参数版本
+int sum_zero(void);
+int sum_1(int a);
+int sum_2(int a, int b);
+int sum_3(int a, int b, int c);
+int sum_4(int a, int b, int c, int d);
+int sum_5(int a, int b, int c, int d, int e);
+
+double sum_double_2(double a, double b);
+double sum_double_3(double a, double b, double c);
+double sum_double_4(double a, double b, double c, double d);
+
+const char* sum_getFormat(int count);
+
+#ifdef __cplusplus
+}
+
+// C++ wrapper 类（封装模板实例化结果）
+class SumCalculator {
+public:
+    static int calculate_zero();
+    static int calculate_1(int a);
+    static int calculate_2(int a, int b);
+    static int calculate_3(int a, int b, int c);
+    static int calculate_4(int a, int b, int c, int d);
+    static int calculate_5(int a, int b, int c, int d, int e);
+    static double calculate_double_2(double a, double b);
+    static double calculate_double_3(double a, double b, double c);
+    static double calculate_double_4(double a, double b, double c, double d);
+    static const char* get_format(int count);
+};
+
+#endif
+```
+
+**variadic_template.cpp**（C ABI 包装函数 + 类实现）
+
+```cpp
+#include "variadic_template.h"
+
+// C ABI 包装函数委托给 SumCalculator 静态方法
+int sum_zero(void)                    { return SumCalculator::calculate_zero(); }
+int sum_1(int a)                      { return SumCalculator::calculate_1(a); }
+int sum_2(int a, int b)               { return SumCalculator::calculate_2(a, b); }
+int sum_3(int a, int b, int c)        { return SumCalculator::calculate_3(a, b, c); }
+int sum_4(int a, int b, int c, int d) { return SumCalculator::calculate_4(a, b, c, d); }
+int sum_5(int a, int b, int c, int d, int e) { return SumCalculator::calculate_5(a, b, c, d, e); }
+double sum_double_2(double a, double b) { return SumCalculator::calculate_double_2(a, b); }
+double sum_double_3(double a, double b, double c) { return SumCalculator::calculate_double_3(a, b, c); }
+double sum_double_4(double a, double b, double c, double d) { return SumCalculator::calculate_double_4(a, b, c, d); }
+const char* sum_getFormat(int count) { return SumCalculator::get_format(count); }
+
+// SumCalculator 类实现（对应模板实例化结果）
+int SumCalculator::calculate_zero() { return 0; }
+int SumCalculator::calculate_1(int a) { return a; }
+int SumCalculator::calculate_2(int a, int b) { return a + b; }
+int SumCalculator::calculate_3(int a, int b, int c) { return a + b + c; }
+int SumCalculator::calculate_4(int a, int b, int c, int d) { return a + b + c + d; }
+int SumCalculator::calculate_5(int a, int b, int c, int d, int e) { return a + b + c + d + e; }
+double SumCalculator::calculate_double_2(double a, double b) { return a + b; }
+double SumCalculator::calculate_double_3(double a, double b, double c) { return a + b + c; }
+double SumCalculator::calculate_double_4(double a, double b, double c, double d) { return a + b + c + d; }
+const char* SumCalculator::get_format(int count) {
+    switch (count) {
+        case 0: return "sum()";
+        case 1: return "sum(%d)";
+        case 2: return "sum(%d, %d)";
+        case 3: return "sum(%d, %d, %d)";
+        default: return "unknown";
+    }
+}
+```
+
+#### 生成的 Rust FFI 代码（lib.rs）
+
+```rust
+// 段 1：C++ 头文件内联（wrapper 类已在 .h 中定义）
+hicc::cpp! {
+    #include <iostream>
+    #include <cstdarg>
+    #include "variadic_template.h"
+}
+
+// 段 2：无 import_class!（SumCalculator 所有方法均为静态，暴露为全局函数）
+
+// 段 3：固定参数版本函数绑定
+hicc::import_lib! {
+    #![link_name = "variadic_template"]
+
+    #[cpp(func = "int sum_zero()")]
+    fn sum_zero() -> i32;
+
+    #[cpp(func = "int sum_1(int)")]
+    fn sum_1(a: i32) -> i32;
+
+    #[cpp(func = "int sum_2(int, int)")]
+    fn sum_2(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int sum_3(int, int, int)")]
+    fn sum_3(a: i32, b: i32, c: i32) -> i32;
+
+    #[cpp(func = "int sum_4(int, int, int, int)")]
+    fn sum_4(a: i32, b: i32, c: i32, d: i32) -> i32;
+
+    #[cpp(func = "int sum_5(int, int, int, int, int)")]
+    fn sum_5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32;
+    // cpp2rust-todo[VA]: 可变参数模板，已按调用点展开 5 个版本
+    //                    新增参数组合时需手动在 hicc::cpp! 中添加对应版本
+
+    #[cpp(func = "double sum_double_2(double, double)")]
+    fn sum_double_2(a: f64, b: f64) -> f64;
+
+    #[cpp(func = "double sum_double_3(double, double, double)")]
+    fn sum_double_3(a: f64, b: f64, c: f64) -> f64;
+
+    #[cpp(func = "double sum_double_4(double, double, double, double)")]
+    fn sum_double_4(a: f64, b: f64, c: f64, d: f64) -> f64;
+
+    #[cpp(func = "const char* sum_getFormat(int)")]
+    unsafe fn sum_get_format(count: i32) -> *const i8;
+}
+```
+
+**用户剩余工作**：若需要新的参数数量或类型组合（如 `sum_6` / `sum_double_5`），手动在 `hicc::cpp!` 中为 `SumCalculator` 添加对应静态方法和 C 包装函数，并在 `import_lib!` 中声明。
+
+---
+
+### 4.3 `[LM]` 有状态 Lambda（039_lambda_basic）
+
+**根本原因**：有状态 lambda（含捕获列表）是匿名闭包类型，FFI 无法表达捕获列表，无法自动推断 `operator()` 的真实签名。
+
+**降级策略（双策略）**：
+- **无状态 lambda**（空捕获 `[]`）→ 退化为普通函数，直接在 `import_lib!` 中声明为函数绑定，无需 shim。
+- **有状态 lambda**（含捕获）→ `hicc::cpp!` 中生成 class wrapper（如 `LambdaWrapper`/`StateLambda`），通过 ctor/call/dtor shim 暴露；Rust 侧通过 `import_class!` 调用 `invoke()`/`add()` 等方法。
+
+#### C++ 项目代码
+
+**lambda_basic.h**（关键部分）
+
+```cpp
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef int (*IntBinaryOp)(int, int);
+
+// 无状态 lambda 退化为普通函数——直接导出
+int add_impl(int a, int b);
+int multiply_impl(int a, int b);
+int max_impl(int a, int b);
+
+// 有状态 lambda wrapper
+struct LambdaWrapper;
+struct LambdaWrapper* lambda_wrapper_new(int (*fn)(int, int));
+void lambda_wrapper_delete(struct LambdaWrapper* self);
+struct LambdaWrapper* make_add_lambda(void);
+struct LambdaWrapper* make_multiply_lambda(void);
+
+// 捕获外部状态的 lambda
+struct StateLambda;
+struct StateLambda* state_lambda_new(int initial_value);
+void state_lambda_delete(struct StateLambda* self);
+int state_lambda_get_value(const struct StateLambda* self);
+
+#ifdef __cplusplus
+}
+
+// C++ class wrapper 定义（封装有状态 lambda）
+#include <functional>
+
+struct LambdaWrapper {
+    LambdaWrapperImpl* impl;
+    explicit LambdaWrapper(int (*fn)(int, int));
+    ~LambdaWrapper();
+    int invoke(int a, int b) { return impl->fn(a, b); }
+};
+
+struct StateLambda {
+    StateLambdaImpl* impl;
+    explicit StateLambda(int initial_value);
+    ~StateLambda();
+    int get_value() const { return impl->value; }
+    int add(int delta) { return impl->adder(delta); }
+    // StateLambdaImpl::adder 是捕获 this 的 lambda：
+    // adder = [this](int delta) { return value += delta; }
+};
+
+#endif
+```
+
+**lambda_basic.cpp**（无状态函数 + 有状态 wrapper 实现）
+
+```cpp
+#include "lambda_basic.h"
+#include <functional>
+#include <algorithm>
+
+// 无状态 lambda 的等价普通函数（可直接做函数指针）
+int add_impl(int a, int b)      { return a + b; }
+int multiply_impl(int a, int b) { return a * b; }
+int max_impl(int a, int b)      { return std::max(a, b); }
+
+// make_*_lambda：把无状态函数包装进 LambdaWrapper（工厂函数）
+struct LambdaWrapper* make_add_lambda(void)      { return new LambdaWrapper(add_impl); }
+struct LambdaWrapper* make_multiply_lambda(void) { return new LambdaWrapper(multiply_impl); }
+
+// StateLambda：内部持有捕获 this 的有状态 lambda
+struct StateLambda* state_lambda_new(int initial_value) {
+    return new StateLambda(initial_value);
+}
+void state_lambda_delete(struct StateLambda* self) { delete self; }
+int state_lambda_get_value(const struct StateLambda* self) {
+    return self ? self->impl->value : 0;
+}
+```
+
+#### 生成的 Rust FFI 代码（lib.rs）
+
+```rust
+// 段 1：C++ 头文件内联
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <functional>
+    #include <algorithm>
+    #include "lambda_basic.h"
+
+    typedef int (*IntBinaryOp)(int, int);
+}
+
+// 段 2：有状态 lambda wrapper 的类方法绑定
+hicc::import_class! {
+    #[cpp(class = "LambdaWrapper", destroy = "lambda_wrapper_delete")]
+    pub class LambdaWrapper {
+        // cpp2rust-todo[LM]: 有状态 lambda，内部捕获状态不透明，已封装为 class wrapper
+        #[cpp(method = "int invoke(int a, int b)")]
+        fn invoke(&mut self, a: i32, b: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StateLambda", destroy = "state_lambda_delete")]
+    pub class StateLambda {
+        // cpp2rust-todo[LM]: 有状态 lambda，捕获外部 int 状态
+        #[cpp(method = "int get_value() const")]
+        fn get_value(&self) -> i32;
+
+        #[cpp(method = "int add(int delta)")]
+        fn add(&mut self, delta: i32) -> i32;
+    }
+}
+
+// 段 3：工厂函数 + 无状态 lambda 对应的直接函数绑定
+hicc::import_lib! {
+    #![link_name = "lambda_basic"]
+
+    class LambdaWrapper;
+    class StateLambda;
+
+    // 无状态 lambda 退化为普通函数——直接绑定
+    #[cpp(func = "int add_impl(int, int)")]
+    fn add_impl(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int multiply_impl(int, int)")]
+    fn multiply_impl(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int max_impl(int, int)")]
+    fn max_impl(a: i32, b: i32) -> i32;
+
+    // 有状态 lambda 工厂函数
+    #[cpp(func = "LambdaWrapper* make_add_lambda()")]
+    fn make_add_lambda() -> *mut LambdaWrapper;
+
+    #[cpp(func = "LambdaWrapper* make_multiply_lambda()")]
+    fn make_multiply_lambda() -> *mut LambdaWrapper;
+
+    #[cpp(func = "StateLambda* state_lambda_new(int)")]
+    fn state_lambda_new(initial_value: i32) -> StateLambda;
+}
+```
+
+**用户剩余工作**：若需要从 Rust 侧传递 Rust 闭包给 C++ 回调，需手动编写 trampoline 函数（`extern "C" fn`）。
+
+---
+
+### 4.4 `[LM]` std::function（040_std_function）
+
+**根本原因**：`std::function<Sig>` 是类型擦除容器，签名可推断但内部捕获状态不透明，与有状态 lambda 同属一类问题。
+
+**降级策略**：统一使用 class wrapper + opaque pointer 策略。C++ 侧把 `std::function` 封装在 class（如 `CallbackWrapper`/`Processor`）中，通过工厂函数和方法暴露给 FFI；Rust 侧通过 `import_class!` 调用 `invoke()`/`process()` 等方法。
+
+#### C++ 项目代码
+
+**std_function.h**（关键部分）
+
+```cpp
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// std::function<int(int)> 封装为 CallbackWrapper opaque pointer
+struct CallbackWrapper;
+struct CallbackWrapper* callback_wrapper_new(int (*fn)(int));
+struct CallbackWrapper* callback_wrapper_new_double(void); // 预置 x*2 回调
+void callback_wrapper_delete(struct CallbackWrapper* self);
+
+// std::function<int(int)> 封装为 Processor
+struct Processor;
+struct Processor* processor_new(void);
+void processor_set_double(struct Processor* p);
+void processor_delete(struct Processor* self);
+
+// 多回调链
+struct MultiCallback;
+struct MultiCallback* multi_callback_new(void);
+void multi_callback_add_double(struct MultiCallback* mc);
+void multi_callback_add_triple(struct MultiCallback* mc);
+void multi_callback_delete(struct MultiCallback* self);
+
+#ifdef __cplusplus
+}
+
+// C++ class wrapper（持有 std::function）
+#include <functional>
+#include <vector>
+
+struct CallbackWrapper {
+    CallbackWrapperImpl* impl;
+    explicit CallbackWrapper(int (*fn)(int));
+    ~CallbackWrapper();
+    int invoke(int value) { return impl->invoke(value); }
+};
+
+struct Processor {
+    ProcessorImpl* impl;
+    Processor();
+    ~Processor();
+    int process(int value) { return impl->process(value); }
+};
+
+struct MultiCallback {
+    MultiCallbackImpl* impl;
+    MultiCallback();
+    ~MultiCallback();
+    void invoke_all(int value) { impl->invoke_all(value); }
+};
+
+#endif
+```
+
+**std_function.cpp**（工厂函数实现）
+
+```cpp
+#include "std_function.h"
+#include <functional>
+#include <vector>
+
+// CallbackWrapper 持有 std::function<int(int)>
+CallbackWrapperImpl::CallbackWrapperImpl(int (*fn)(int)) : callback(fn) {}
+int CallbackWrapperImpl::invoke(int value) {
+    return callback ? callback(value) : value;
+}
+
+// callback_wrapper_new_double：用 lambda 初始化 std::function
+struct CallbackWrapper* callback_wrapper_new_double(void) {
+    return new CallbackWrapper([](int x) -> int { return x * 2; });
+    // cpp2rust-todo[LM]: std::function，已封装为 class wrapper
+}
+
+// Processor 持有 std::function<int(int)>，支持运行时替换回调
+void processor_set_double(struct Processor* p) {
+    p->impl->set_callback([](int x) -> int { return x * 2; });
+}
+
+// MultiCallback 持有 std::vector<std::function<int(int)>>
+void multi_callback_add_double(struct MultiCallback* mc) {
+    mc->impl->add([](int x) -> int { return x * 2; });
+}
+void multi_callback_add_triple(struct MultiCallback* mc) {
+    mc->impl->add([](int x) -> int { return x * 3; });
+}
+```
+
+#### 生成的 Rust FFI 代码（lib.rs）
+
+```rust
+// 段 1：C++ 头文件内联
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <functional>
+    #include <vector>
+    #include <thread>
+    #include <chrono>
+    #include "std_function.h"
+}
+
+use hicc::AbiClass;
+
+// 段 2：std::function wrapper 类的方法绑定
+hicc::import_class! {
+    // cpp2rust-todo[LM]: std::function，已封装为 class wrapper
+    #[cpp(class = "CallbackWrapper", destroy = "callback_wrapper_delete")]
+    pub class CallbackWrapper {
+        #[cpp(method = "int invoke(int value)")]
+        fn invoke(&mut self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Processor", destroy = "processor_delete")]
+    pub class Processor {
+        #[cpp(method = "int process(int value)")]
+        fn process(&mut self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "MultiCallback", destroy = "multi_callback_delete")]
+    pub class MultiCallback {
+        #[cpp(method = "void invoke_all(int value)")]
+        fn invoke_all(&mut self, value: i32);
+    }
+}
+
+// 段 3：工厂函数绑定
+hicc::import_lib! {
+    #![link_name = "std_function"]
+
+    class CallbackWrapper;
+    class Processor;
+    class MultiCallback;
+
+    // 预置回调的工厂函数（内部用 lambda 初始化 std::function）
+    #[cpp(func = "CallbackWrapper* callback_wrapper_new_double()")]
+    fn callback_wrapper_new_double() -> CallbackWrapper;
+
+    #[cpp(func = "Processor* processor_new()")]
+    fn processor_new() -> Processor;
+
+    #[cpp(func = "MultiCallback* multi_callback_new()")]
+    fn multi_callback_new() -> MultiCallback;
+
+    // 运行时修改回调（C++ 侧用 lambda 赋值 std::function）
+    #[cpp(func = "void processor_set_double(Processor* p)")]
+    unsafe fn processor_set_double(p: *mut Processor);
+
+    #[cpp(func = "void multi_callback_add_double(MultiCallback* mc)")]
+    unsafe fn multi_callback_add_double(mc: *mut MultiCallback);
+
+    #[cpp(func = "void multi_callback_add_triple(MultiCallback* mc)")]
+    unsafe fn multi_callback_add_triple(mc: *mut MultiCallback);
+}
+```
+
+**用户剩余工作（可选）**：手动实现 Rust 闭包 → C++ `std::function` 适配层：在 C++ 侧暴露 `callback_wrapper_new(int (*fn)(int))` 工厂函数，Rust 侧用 `extern "C" fn` 作为函数指针传入。
+
+---
+
+### 4.5 降级特性对比总览
+
+| TAG | 特性 | 示例 | 降级前（C++ 侧） | 降级后（FFI 侧） | Rust 侧剩余工作 |
+|-----|------|------|----------------|----------------|----------------|
+| `[OP]` | 运算符重载 | 019 | `Number::operator+` | `number_add(a, b)` 命名 shim | 可选：实现 `std::ops::Add` trait |
+| `[VA]` | 可变参数模板 | 028 | `sum<Args...>(args...)` | `sum_1`/`sum_2`/`sum_3`... 分版本 | 需新参数组合时手动添加版本 |
+| `[LM]` | 有状态 Lambda | 039 | `[&x](int a){ return a+x; }` | class wrapper + `invoke()` 方法 | 若需传 Rust 闭包，编写 trampoline |
+| `[LM]` | std::function | 040 | `std::function<int(int)>` | class wrapper + `invoke()` 方法 | 可选：实现 Rust 闭包 → C++ 适配层 |
+
+所有降级处均标注 `// cpp2rust-todo[TAG]: ...` 注释，可通过 `grep -r "cpp2rust-todo"` 快速定位待手动完善的位置。
+
+---
+
+## Part 4：约束与限制
 
 ### 核心约束
 
