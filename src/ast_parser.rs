@@ -927,7 +927,7 @@ pub fn cpp_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
         let line_byte_len = line.len() as u32 + 1; // +1 表示 '\n'
 
         let trimmed = line.trim_start();
-        if trimmed.starts_with("# ") {
+        if trimmed.starts_with("# ") || trimmed.starts_with("#line ") {
             if let Some((file_path, _flags)) = parse_line_marker(trimmed) {
                 // 过滤系统虚拟路径（<built-in>、<command-line> 等）
                 let is_virtual = file_path.starts_with('<') || file_path.is_empty();
@@ -964,12 +964,20 @@ pub fn cpp_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
 
     ranges
 }
-/// 格式：`# <数字> "<路径>" [标志...]`
+/// 支持两种行号标记格式：
+///   GCC 格式：`# <数字> "<路径>" [标志...]`（标志 3 = 系统头文件）
+///   MSVC 格式：`#line <数字> "<路径>"`（无标志）
 /// 返回 `(路径, 标志列表)`，其中常见标志含义：
 ///   1 = 进入新文件，2 = 返回调用文件，3 = 系统头文件，4 = 隐式 extern "C"
 fn parse_line_marker(line: &str) -> Option<(&str, Vec<u32>)> {
-    // 跳过 "# " 前缀
-    let rest = line[2..].trim_start();
+    // 跳过前缀：GCC "# " 或 MSVC "#line "
+    let rest = if let Some(r) = line.strip_prefix("# ") {
+        r.trim_start()
+    } else if let Some(r) = line.strip_prefix("#line ") {
+        r.trim_start()
+    } else {
+        return None;
+    };
     // 跳过数字
     let after_num = rest
         .trim_start_matches(|c: char| c.is_ascii_digit())
@@ -990,12 +998,17 @@ fn parse_line_marker(line: &str) -> Option<(&str, Vec<u32>)> {
     Some((path, flags))
 }
 
-/// 扫描 `g++ -E`（不带 `-P`）生成的预处理文件，返回属于**用户代码**（非系统头）的字节区间。
+/// 扫描预处理文件，返回属于**用户代码**（非系统头）的字节区间。
 ///
-/// GCC linemarker 格式：`# <行号> "<文件路径>" [标志...]`
-/// 标志 `3` 表示该段内容来自系统头文件；不含标志 `3` 的区间属于用户代码。
+/// 支持两种行号标记格式：
+///   GCC 格式：`# <行号> "<文件路径>" [标志...]`，标志 `3` = 系统头文件
+///   MSVC 格式：`#line <行号> "<文件路径>"`，无标志（无系统头标记）
 ///
-/// **降级行为**：若文件不含任何行号标记（例如以 `-P` 生成），则返回覆盖全文的单一区间，
+/// MSVC 格式无标志 3，故所有非虚拟路径均视为用户内容；
+/// 真正的系统头实体由 libclang 的 `is_in_system_header()` 在 AST 遍历时过滤（主过滤器），
+/// 本函数作为辅助过滤器——在 GCC 格式时可通过标志 3 排除系统头，在 MSVC 格式时退化为宽松模式。
+///
+/// **降级行为**：若文件不含任何行号标记，则返回覆盖全文的单一区间，
 /// 使调用方的字节偏移过滤退化为"全部接受"，不引入额外过滤。
 pub fn user_content_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
     let mut ranges: Vec<std::ops::Range<u32>> = Vec::new();
@@ -1008,11 +1021,12 @@ pub fn user_content_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
         let line_byte_len = line.len() as u32 + 1; // +1 表示 '\n'
 
         let trimmed = line.trim_start();
-        if trimmed.starts_with("# ") {
+        if trimmed.starts_with("# ") || trimmed.starts_with("#line ") {
             if let Some((file_path, flags)) = parse_line_marker(trimmed) {
                 found_any_marker = true;
                 let is_virtual = file_path.starts_with('<') || file_path.is_empty();
-                // 含标志 3 → 系统头；虚拟路径也视为非用户内容
+                // 含标志 3 → GCC 格式系统头；虚拟路径也视为非用户内容；
+                // MSVC 格式无标志 3，所有非虚拟路径视为用户内容
                 let is_system = flags.contains(&3) || is_virtual;
                 let is_user = !is_system;
 
@@ -1126,5 +1140,39 @@ mod tests {
             .collect();
         assert!(user_text.contains("int user;"));
         assert!(!user_text.contains("__builtin_stuff;"));
+    }
+
+    #[test]
+    fn test_parse_line_marker_msvc_format() {
+        // MSVC #line 格式：无标志
+        let (path, flags) = parse_line_marker("#line 42 \"myfile.cpp\"").unwrap();
+        assert_eq!(path, "myfile.cpp");
+        assert!(flags.is_empty(), "MSVC #line 格式不包含标志");
+    }
+
+    #[test]
+    fn test_user_ranges_msvc_format() {
+        // MSVC #line 格式：无标志 3，所有非虚拟路径均视为用户内容
+        let content = "#line 1 \"<built-in>\"\nbuiltin;\n#line 1 \"myfile.cpp\"\nint user;\n#line 1 \"C:\\\\MSVC\\\\include\\\\string\"\nvoid sys();\n#line 5 \"myfile.cpp\"\nint user2;\n";
+        let ranges = user_content_byte_ranges(content);
+        let user_text: String = ranges
+            .iter()
+            .map(|r| &content[r.start as usize..r.end as usize])
+            .collect();
+        assert!(user_text.contains("int user;"), "应包含用户代码");
+        assert!(!user_text.contains("builtin;"), "虚拟路径内容应排除");
+    }
+
+    #[test]
+    fn test_cpp_ranges_msvc_format() {
+        // MSVC #line 格式：.cpp 后缀识别仍生效
+        let content = "#line 1 \"myfile.h\"\nvoid header();\n#line 1 \"myfile.cpp\"\nint cpp_code;\n";
+        let ranges = cpp_byte_ranges(content);
+        let cpp_text: String = ranges
+            .iter()
+            .map(|r| &content[r.start as usize..r.end as usize])
+            .collect();
+        assert!(cpp_text.contains("int cpp_code;"));
+        assert!(!cpp_text.contains("void header();"));
     }
 }

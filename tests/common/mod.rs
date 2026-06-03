@@ -8,8 +8,11 @@ use std::process::{Command, ExitStatus};
 
 /// 平台感知的 C++ 预处理：
 ///   - Unix：`g++ -E -C <src> -o <dst>`
-///   - Windows：依次尝试 `clang-cl /P /EP /C /Fi<dst> <src>`、
-///              `cl /P /EP /C /Fi<dst> <src>`、`g++ -E -C <src> -o <dst>`
+///   - Windows：依次尝试 `clang-cl /P /C /Fi<dst> <src>`、
+///              `cl /P /C /Fi<dst> <src>`、`g++ -E -C <src> -o <dst>`
+///
+/// 注意：**不使用 `/EP`**，以保留行号标记（linemarker），使 libclang
+/// 能正确识别系统头文件（`is_in_system_header()`），避免 MSVC 内置类型定义污染输出。
 fn preprocess_cpp_file(src: &Path, dst: &Path) -> std::io::Result<ExitStatus> {
     #[cfg(not(windows))]
     {
@@ -23,10 +26,10 @@ fn preprocess_cpp_file(src: &Path, dst: &Path) -> std::io::Result<ExitStatus> {
         let dst_str = dst.to_str().unwrap();
         let src_str = src.to_str().unwrap();
 
-        // clang-cl
+        // clang-cl（不加 /EP，保留行号标记）
         let fi_arg = format!("/Fi{}", dst_str);
         if let Ok(s) = Command::new("clang-cl")
-            .args(["/P", "/EP", "/C", &fi_arg, src_str])
+            .args(["/P", "/C", &fi_arg, src_str])
             .status()
         {
             if s.success() {
@@ -34,9 +37,9 @@ fn preprocess_cpp_file(src: &Path, dst: &Path) -> std::io::Result<ExitStatus> {
             }
         }
 
-        // cl.exe (MSVC)
+        // cl.exe (MSVC)（不加 /EP，保留行号标记）
         if let Ok(s) = Command::new("cl")
-            .args(["/P", "/EP", "/C", &fi_arg, src_str])
+            .args(["/P", "/C", &fi_arg, src_str])
             .status()
         {
             if s.success() {

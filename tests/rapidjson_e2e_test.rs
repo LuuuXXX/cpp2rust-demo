@@ -86,8 +86,10 @@ const UNITTEST_SOURCES: &[&str] = &[
 /// 失败时返回 None（非致命错误，由调用方决定是否跳过）。
 ///
 /// - Unix：`g++ -E -C -w -I<dir>... <src> -o <out>`
-/// - Windows：依次尝试 `clang-cl /P /EP /C /w /I<dir>... /Fi<out> <src>`、
-///             `cl /P /EP /C /w /I<dir>... /Fi<out> <src>`、`g++ -E -C -w ...`
+/// - Windows：依次尝试 `clang-cl /P /C /w /I<dir>... /Fi<out> <src>`、
+///             `cl /P /C /w /I<dir>... /Fi<out> <src>`、`g++ -E -C -w ...`
+///
+/// 注意：不使用 `/EP`，保留行号标记以确保系统头过滤正常工作。
 fn preprocess(
     src: &Path,
     include_dirs: &[&str],
@@ -115,6 +117,8 @@ fn run_preprocessor(src: &Path, include_dirs: &[&str], out: &Path) -> bool {
 }
 
 /// Windows 实现：优先 clang-cl，次选 cl.exe（MSVC），最后 g++（MinGW）。
+///
+/// 注意：**不使用 `/EP`**，以保留行号标记，使 libclang 能正确识别系统头文件。
 #[cfg(windows)]
 fn run_preprocessor(src: &Path, include_dirs: &[&str], out: &Path) -> bool {
     let out_str = match out.to_str() {
@@ -127,9 +131,9 @@ fn run_preprocessor(src: &Path, include_dirs: &[&str], out: &Path) -> bool {
     };
     let fi_arg = format!("/Fi{}", out_str);
 
-    // 方案 1：clang-cl（通常随 LLVM 安装）
+    // 方案 1：clang-cl（不加 /EP，保留行号标记）
     let mut cmd = Command::new("clang-cl");
-    cmd.args(["/P", "/EP", "/C", "/w"]);
+    cmd.args(["/P", "/C", "/w"]);
     for inc in include_dirs {
         cmd.arg(format!("/I{}", inc));
     }
@@ -138,9 +142,9 @@ fn run_preprocessor(src: &Path, include_dirs: &[&str], out: &Path) -> bool {
         return true;
     }
 
-    // 方案 2：cl.exe（MSVC）
+    // 方案 2：cl.exe（MSVC，不加 /EP）
     let mut cmd = Command::new("cl");
-    cmd.args(["/P", "/EP", "/C", "/w"]);
+    cmd.args(["/P", "/C", "/w"]);
     for inc in include_dirs {
         cmd.arg(format!("/I{}", inc));
     }
