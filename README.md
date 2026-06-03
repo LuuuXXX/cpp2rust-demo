@@ -1,12 +1,17 @@
 # cpp2rust-demo
 
-**C++ → Rust Safe FFI 自动化脚手架生成工具**。给定任意 C++ 项目，执行一条命令即可生成基于 [hicc](https://crates.io/crates/hicc) 的 Rust FFI 绑定层（`hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三段式）。
+**C++ → Rust Safe FFI 自动化脚手架生成工具**。给定任意 C++ 项目，执行两条命令即可生成基于 [hicc](https://crates.io/crates/hicc) 的 Rust FFI 绑定层（`hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三段式），并整理为可直接使用的 Rust 项目结构。
+
+```bash
+cpp2rust-demo init -- make -j4   # 捕获构建 + 生成 FFI 脚手架
+cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
+```
 
 > **工具定位**：cpp2rust-demo 负责生成 FFI **脚手架**（绑定声明 + 必要 C 桥接 shim），不处理业务逻辑、不重写 C++ 代码。生成产物开箱即可 `cargo check`，部分降级特性需人工补全后才能完整编译运行。
 
 仓库同时包含 **48 个循序渐进的 C++ 特性示例**，每个示例都有对应的 C++ 源码和可运行的 Rust FFI 参考实现，覆盖从基础函数到模板、STL、虚继承等复杂场景。
 
-**导航**：[工作原理](#工作原理) · [快速开始](#快速开始) · [生成代码格式](#生成代码格式三段式) · [特性矩阵](#c-特性支持矩阵) · [降级特性](#降级特性详解6-项) · [测试体系](#测试体系) · [局限性](#局限性) · [学习路径](#学习路径示例索引)
+**导航**：[工作原理](#工作原理) · [命令参考](#命令参考) · [快速开始](#快速开始) · [生成代码格式](#生成代码格式三段式) · [特性矩阵](#c-特性支持矩阵) · [降级特性](#降级特性详解6-项) · [测试体系](#测试体系) · [局限性](#局限性) · [未来计划](#未来开发计划) · [学习路径](#学习路径示例索引)
 
 ---
 
@@ -146,6 +151,87 @@ FfiSpec
 **引用类型**（`T&` / `const T&`）目前不做自动映射，由 hicc 的 `import_class!` 宏在方法签名中通过 `&self` / `&mut self` 处理。
 
 **关键理念**：C++ 模板的价值在于**实例化结果**，不在于模板声明。工具只处理实际被实例化的具体类型（如 `std::vector<int>`），跳过未实例化的模板。
+
+---
+
+## 命令参考
+
+工具提供两个子命令，覆盖"捕获 → 生成 → 整理"的完整工作流：
+
+| 子命令 | 作用 | 典型用法 |
+|--------|------|---------|
+| `init` | 通过 LD_PRELOAD 拦截构建命令，捕获 C++ 预处理文件，解析 AST，生成 hicc 三段式 FFI 脚手架 | `cpp2rust-demo init -- make -j4` |
+| `merge` | 将 `init` 生成的编译单元文件整理为按 C++ 目录结构组织的 Rust 项目，备份原始输出；支持多 feature 合并为带 `[features]` 的统一项目 | `cpp2rust-demo merge --feature default` |
+
+### `init` — 捕获构建 + 生成 FFI 脚手架
+
+```bash
+# 单文件项目
+cpp2rust-demo init -- g++ -shared -fPIC mylib.cpp -o libmylib.so
+
+# Make 项目
+cpp2rust-demo init -- make -j4
+
+# 指定 feature 名称（多平台/多配置场景）
+cpp2rust-demo init --feature linux_x86   -- make -j4
+cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC mylib.cpp -o libmylib.so
+```
+
+`init` 自动完成以下步骤：
+
+1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（后续调用自动跳过）
+2. 通过 LD_PRELOAD 注入构建过程，捕获 `.cpp2rust` 预处理文件
+3. 交互式选择参与转换的文件（非交互/CI 环境自动全选）
+4. libclang 解析 AST，提取类 / 函数 / 枚举 / 模板实例化
+5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
+
+**参数说明：**
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `-- <BUILD_CMD>...` | ✅ | `--` 后面的所有参数作为构建命令传入 |
+| `--feature <name>` | ❌ | 构建目标名称（默认 `default`）；多平台构建使用不同名称，结果落在各自独立目录互不干扰 |
+
+### `merge` — 整理输出结构（可选）
+
+```bash
+# 整理单个 feature 的输出（维持 C++ 目录结构）
+cpp2rust-demo merge
+cpp2rust-demo merge --feature linux_x86
+
+# 多 feature 合并为支持 cargo build --features 的统一 Rust 项目
+cpp2rust-demo merge --feature linux_x86 --feature arm_embedded
+```
+
+`merge` 将 `init` 的扁平输出整理为按 C++ 目录结构组织的 Rust 项目，并提供备份机制：
+
+```
+.cpp2rust/<feature>/rust/
+    ├── src.1/   ← init 输出原始备份（首次运行时 rename from src）
+    ├── src.2/   ← merge 输出（每次运行重写，维持子目录结构）
+    └── src      ← symlink → src.2
+```
+
+多 feature 合并时，输出到 `.cpp2rust/<feat1>_<feat2>/rust/`，生成含 `[features]` 段的 `Cargo.toml` 和按 feature 条件编译的 `src/lib.rs`、`build.rs`：
+
+```bash
+cd .cpp2rust/linux_x86_arm_embedded/rust
+cargo build --features linux_x86
+cargo build --features arm_embedded
+```
+
+**参数说明：**
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`）；**可重复指定**，≥2 个时进入多 feature 合并模式 |
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `CPP2RUST_CXX` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++，支持带版本后缀如 g++-13） |
+| `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
 
 ---
 
@@ -313,27 +399,7 @@ cargo build --features linux_x86,arm_embedded
 | `[FP]` | 函数指针参数（`void (*)(...)` 类型，工具整体跳过含此参数的函数） | 手动编写 C wrapper class 将函数指针封装为 opaque 对象，通过 `import_class!` 暴露 |
 | `[VM]` | volatile this 成员函数（方法整体从 `import_class!` 移除） | 检查 `import_lib!` 中是否已有对应的 `volatile T*` C shim；如无则手动添加 |
 
-### CLI 参数参考
-
-#### `cpp2rust-demo init`
-
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `-- <BUILD_CMD>...` | ✅ | `--` 后面的所有参数作为构建命令传入 |
-| `--feature <name>` | ❌ | 构建目标名称（对应 Rust feature）；不同平台或构建配置使用不同名称，构建命令的差异即是 target 的差异（默认 `default`） |
-
-#### `cpp2rust-demo merge`
-
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`）；**可重复指定**，传入 2 个及以上时进入多 feature 合并模式，输出到 `.cpp2rust/<feat1>_<feat2>/rust/` |
-
-#### 环境变量
-
-| 变量 | 说明 |
-|------|------|
-| `CPP2RUST_CXX` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++，支持带版本后缀如 g++-13） |
-| `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
+> **完整命令参数说明**见 [命令参考](#命令参考) 章节。
 
 ### 进阶：对纯 C++ 库使用 shim 工作流
 
@@ -473,100 +539,58 @@ hicc::import_lib! {
 
 > 图例：✅ 完全自动生成可编译代码　⚠️ 降级生成 + 内联 TODO（代码仍可 `cargo check`）
 
-### 基础类型与函数（001–005）
+| 示例 | 类别 | C++ 特性 | 状态 | FFI 策略 |
+|------|------|---------|------|---------|
+| [001_hello_world](examples/001_hello_world) | 基础函数 | extern "C" 函数 | ✅ | AST 直接提取 → `import_lib!` |
+| [002_function_overload](examples/002_function_overload) | 基础函数 | 函数重载 | ✅ | 各重载名称加类型后缀区分（`_i32`/`_f64`）→ `import_lib!` |
+| [003_default_args](examples/003_default_args) | 基础函数 | 默认参数 | ✅ | C++ 侧展开为多个固定参数重载，写入 `hicc::cpp!` |
+| [004_inline_functions](examples/004_inline_functions) | 基础函数 | inline 函数 | ✅ | 函数体从 `.cpp2rust` 提取，内联写入 `hicc::cpp!` |
+| [005_variadic_functions](examples/005_variadic_functions) | 基础函数 | C 可变参数（`...`） | ⚠️ `[CV]` | `...` 参数函数整体跳过；头文件中的固定参数 wrapper 直接 `extern "C"` 绑定 |
+| [006_class_basic](examples/006_class_basic) | 类与对象 | 基础类 | ✅ | opaque pointer + `import_class!` + ctor/dtor shim |
+| [007_class_constructor](examples/007_class_constructor) | 类与对象 | 构造/析构 | ✅ | `*_new()` / `*_delete()` 必要 shim |
+| [008_class_copy](examples/008_class_copy) | 类与对象 | 拷贝构造 | ✅ | `*_copy(const Foo*)` 必要 shim |
+| [009_class_move](examples/009_class_move) | 类与对象 | 移动构造 | ✅ | `*_move(Foo*)` shim（内部 `std::move()`） |
+| [010_class_static](examples/010_class_static) | 类与对象 | 静态成员 | ✅ | `{class}_get_{field}` / `{class}_set_{field}` 必要 shim |
+| [011_class_const](examples/011_class_const) | 类与对象 | const 成员函数 | ✅ | 直接 `import_class!`，映射为 `fn method(&self)` |
+| [012_class_volatile](examples/012_class_volatile) | 类与对象 | volatile 成员函数 | ⚠️ `[VM]` | `volatile this` 方法从 `import_class!` 中整体移除；`extern "C"` shim（接收 `volatile T*`）仍进入 `import_lib!` |
+| [013_inheritance_single](examples/013_inheritance_single) | 面向对象 | 单继承 | ✅ | 基类方法在子类 `import_class!` 中一并提升，无 shim |
+| [014_inheritance_multiple](examples/014_inheritance_multiple) | 面向对象 | 多继承 | ✅ | 多条继承链展开，所有方法通过 `import_class!` 直接绑定 |
+| [015_virtual_basic](examples/015_virtual_basic) | 面向对象 | 虚函数 | ✅ | opaque pointer 调用，hicc 宏负责虚表 dispatch |
+| [016_virtual_pure](examples/016_virtual_pure) | 面向对象 | 纯虚/抽象类 | ✅ | 抽象类只生成前向声明；子类通过 `import_class!` 绑定 |
+| [017_virtual_override](examples/017_virtual_override) | 面向对象 | override | ✅ | override 语义透传，与普通虚函数相同 |
+| [018_virtual_diamond](examples/018_virtual_diamond) | 面向对象 | 菱形继承（virtual 继承） | ✅ | 为每条继承方法生成命名 shim（`d_getAValue(D*)`），避免指针调整 |
+| [019_operator_overload](examples/019_operator_overload) | 运算符/类型 | 运算符重载 | ⚠️ `[OP]` | 自动生成命名 shim（`{class}_add` 等）写入 `hicc::cpp!` + `import_lib!`；Rust `ops::*` trait 需手动实现 |
+| [020_friend_function](examples/020_friend_function) | 运算符/类型 | 友元函数 | ✅ | 友元函数提取为普通函数写入 `import_lib!` |
+| [021_explicit_ctor](examples/021_explicit_ctor) | 运算符/类型 | explicit 构造函数 | ✅ | `explicit` 对 FFI 透明，与普通构造相同 |
+| [022_mutable_member](examples/022_mutable_member) | 运算符/类型 | mutable 成员 | ✅ | `mutable` 对 FFI 透明，直接 `import_class!` |
+| [023_typeid_rtti](examples/023_typeid_rtti) | 运算符/类型 | typeid/RTTI/dynamic_cast | ✅ | 注入整数枚举 + 虚函数 `getType()`，完全绕过 `typeid` |
+| [024_template_function](examples/024_template_function) | 模板实例化 | 函数模板 | ✅ | 忽略模板声明，为每个实例化版本生成命名 C 包装函数 |
+| [025_template_class](examples/025_template_class) | 模板实例化 | 类模板 | ✅ | 只处理实际实例化的具体类型，按普通类生成 |
+| [026_template_specialization](examples/026_template_specialization) | 模板实例化 | 模板偏特化 | ✅ | 偏特化视为实例化路径之一，收集通过该路径实例化的类型 |
+| [027_template_instantiation](examples/027_template_instantiation) | 模板实例化 | 显式模板实例化 | ✅ | 显式实例化在 AST 中直接可见，按普通类处理 |
+| [028_variadic_template](examples/028_variadic_template) | 模板实例化 | 可变参数模板 | ⚠️ `[VA]` | 生成 wrapper 类 + 按参数数量展开的静态方法；超出范围的组合需手动添加 |
+| [029_unique_ptr](examples/029_unique_ptr) | 智能指针/内存 | std::unique_ptr | ✅ | opaque pointer；`*_new()` 返回裸指针，调用方 `*_delete()` 释放 |
+| [030_shared_ptr](examples/030_shared_ptr) | 智能指针/内存 | std::shared_ptr | ✅ | `*_clone()` shim 增加引用计数，`*_delete()` 减少；其余方法直接绑定 |
+| [031_custom_deleter](examples/031_custom_deleter) | 智能指针/内存 | 自定义删除器 | ✅ | 删除器函数注入 `hicc::cpp!`，`*_delete()` shim 内部调用自定义删除器 |
+| [032_placement_new](examples/032_placement_new) | 智能指针/内存 | placement new | ✅ | 生成 `*_placement_new(ptr, ...)` 必要 shim |
+| [033_raii_pattern](examples/033_raii_pattern) | 智能指针/内存 | RAII 模式 | ✅ | 析构函数生成 `*_delete()` shim，Rust 侧可实现 `Drop` trait |
+| [034_vector_basic](examples/034_vector_basic) | STL 容器 | std::vector\<T\> | ✅ | 薄 wrapper 类 `IntVector`（`VectorImpl<int>` 封装）→ `import_class!` |
+| [035_map_basic](examples/035_map_basic) | STL 容器 | std::map\<K,V\> | ✅ | 薄 wrapper 类 `StringIntMap`（`MapImpl<string,int>` 封装）→ `import_class!` |
+| [036_string_basic](examples/036_string_basic) | STL 容器 | std::string | ✅ | string wrapper，`c_str()`/`length()` 等通过 `import_class!` 绑定 |
+| [037_array_basic](examples/037_array_basic) | STL 容器 | std::array\<T,N\> | ✅ | 数组 wrapper（N 在实例化时已知）→ `import_class!` |
+| [038_tuple_basic](examples/038_tuple_basic) | STL 容器 | std::tuple\<T...\> | ✅ | tuple wrapper，按位置 `get<N>()` 通过 `import_class!` 绑定 |
+| [039_lambda_basic](examples/039_lambda_basic) | 函数对象 | Lambda 表达式 | ⚠️ `[LM][FP]` | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + `call()` 方法；含函数指针参数的函数整体跳过（`[FP]`） |
+| [040_std_function](examples/040_std_function) | 函数对象 | std::function\<Sig\> | ⚠️ `[LM][FP]` | 类型擦除容器，统一用 class wrapper + opaque pointer；含函数指针参数的工厂函数整体跳过（`[FP]`） |
+| [041_functional_bind](examples/041_functional_bind) | 函数对象 | std::bind | ✅ | 产物本质是函数对象，同有状态 lambda 策略，`import_class!` 完全覆盖 |
+| [042_exception_basic](examples/042_exception_basic) | 函数对象 | C++ 异常处理 | ✅ | shim 层 `try/catch` 捕获异常，转为错误码 + 错误消息字符串返回 |
+| [043_namespace_nested](examples/043_namespace_nested) | 高级特性 | 嵌套命名空间 | ✅ | `void*` opaque pointer + raw `extern "C"` 绑定，函数名前缀扁平化（`foo::bar::Baz` → `foo_bar_baz_*`） |
+| [044_enum_class](examples/044_enum_class) | 高级特性 | 强类型枚举（enum class） | ✅ | 枚举值导出为 Rust `const`，建议手动实现 `enum` + `TryFrom<i32>` |
+| [045_union_basic](examples/045_union_basic) | 高级特性 | union | ✅ | opaque pointer + 按字段名 getter/setter shim；Rust 侧用 `#[repr(C)] union` |
+| [046_constexpr_basic](examples/046_constexpr_basic) | 高级特性 | constexpr 常量/函数 | ✅ | 编译期常量读取 AST `IntegerLiteral` 值，生成 Rust `const`；constexpr 函数按普通函数处理 |
+| [047_noexcept_basic](examples/047_noexcept_basic) | 高级特性 | noexcept | ✅ | `noexcept` 语义对 FFI 透明，直接处理 |
+| [048_summary](examples/048_summary) | 高级特性 | 综合 FFI 模式 | ✅ | 以上所有策略的组合应用 |
 
-| 示例 | C++ 特性 | 状态 | FFI 策略 |
-|------|---------|------|---------|
-| [001_hello_world](examples/001_hello_world) | extern "C" 函数 | ✅ | AST 直接提取 → `import_lib!` |
-| [002_function_overload](examples/002_function_overload) | 函数重载 | ✅ | 各重载名称加类型后缀区分（`_i32`/`_f64`）→ `import_lib!` |
-| [003_default_args](examples/003_default_args) | 默认参数 | ✅ | C++ 侧展开为多个固定参数重载，写入 `hicc::cpp!` |
-| [004_inline_functions](examples/004_inline_functions) | inline 函数 | ✅ | 函数体从 `.cpp2rust` 提取，内联写入 `hicc::cpp!` |
-| [005_variadic_functions](examples/005_variadic_functions) | C 可变参数（`...`） | ⚠️ `[CV]` | C 的 `...` 参数函数整体跳过；头文件中预先提供的固定参数 wrapper（如 `sum_3`/`sum_5`）直接 `extern "C"` 绑定 |
-
-### 类与对象（006–012）
-
-| 示例 | C++ 特性 | 状态 | FFI 策略 |
-|------|---------|------|---------|
-| [006_class_basic](examples/006_class_basic) | 基础类 | ✅ | opaque pointer + `import_class!` + ctor/dtor shim |
-| [007_class_constructor](examples/007_class_constructor) | 构造/析构 | ✅ | `*_new()` / `*_delete()` 必要 shim |
-| [008_class_copy](examples/008_class_copy) | 拷贝构造 | ✅ | `*_copy(const Foo*)` 必要 shim |
-| [009_class_move](examples/009_class_move) | 移动构造 | ✅ | `*_move(Foo*)` shim（内部 `std::move()`） |
-| [010_class_static](examples/010_class_static) | 静态成员 | ✅ | `{class}_get_{field}` / `{class}_set_{field}` 必要 shim |
-| [011_class_const](examples/011_class_const) | const 成员函数 | ✅ | 直接 `import_class!`，映射为 `fn method(&self)` |
-| [012_class_volatile](examples/012_class_volatile) | volatile 成员函数 | ⚠️ `[VM]` | `volatile this` 限定的方法从 `import_class!` 中整体移除；`extern "C"` shim（接收 `volatile T*`）仍进入 `import_lib!` |
-
-### 面向对象（013–018）
-
-| 示例 | C++ 特性 | 状态 | FFI 策略 |
-|------|---------|------|---------|
-| [013_inheritance_single](examples/013_inheritance_single) | 单继承 | ✅ | 基类方法在子类 `import_class!` 中一并提升，无 shim |
-| [014_inheritance_multiple](examples/014_inheritance_multiple) | 多继承 | ✅ | 多条继承链展开，所有方法通过 `import_class!` 直接绑定 |
-| [015_virtual_basic](examples/015_virtual_basic) | 虚函数 | ✅ | opaque pointer 调用，hicc 宏负责虚表 dispatch |
-| [016_virtual_pure](examples/016_virtual_pure) | 纯虚/抽象类 | ✅ | 抽象类只生成前向声明；子类通过 `import_class!` 绑定 |
-| [017_virtual_override](examples/017_virtual_override) | override | ✅ | override 语义透传，与普通虚函数相同 |
-| [018_virtual_diamond](examples/018_virtual_diamond) | 菱形继承（virtual 继承） | ✅ | 为每个需要从 Rust 侧调用的继承方法生成命名 shim（`d_getAValue(D*)`），避免指针调整 |
-
-### 运算符与类型（019–023）
-
-| 示例 | C++ 特性 | 状态 | FFI 策略 |
-|------|---------|------|---------|
-| [019_operator_overload](examples/019_operator_overload) | 运算符重载 | ⚠️ `[OP]` | 自动为每个运算符生成命名 shim（`{class}_add` 等）并写入 `hicc::cpp!` + `import_lib!`；Rust `ops::*` trait 需手动实现 |
-| [020_friend_function](examples/020_friend_function) | 友元函数 | ✅ | 友元函数提取为普通函数写入 `import_lib!` |
-| [021_explicit_ctor](examples/021_explicit_ctor) | explicit 构造函数 | ✅ | `explicit` 对 FFI 透明，与普通构造相同 |
-| [022_mutable_member](examples/022_mutable_member) | mutable 成员 | ✅ | `mutable` 对 FFI 透明，直接 `import_class!` |
-| [023_typeid_rtti](examples/023_typeid_rtti) | typeid/RTTI/dynamic_cast | ✅ | 注入整数枚举 + 虚函数 `getType()`，完全绕过 `typeid` |
-
-### 模板实例化（024–028）
-
-| 示例 | C++ 特性 | 状态 | FFI 策略 |
-|------|---------|------|---------|
-| [024_template_function](examples/024_template_function) | 函数模板 | ✅ | 忽略模板声明，为每个实例化版本生成命名 C 包装函数 |
-| [025_template_class](examples/025_template_class) | 类模板 | ✅ | 只处理实际实例化的具体类型，按普通类生成 |
-| [026_template_specialization](examples/026_template_specialization) | 模板偏特化 | ✅ | 偏特化视为实例化路径之一，收集通过该路径实例化的类型 |
-| [027_template_instantiation](examples/027_template_instantiation) | 显式模板实例化 | ✅ | 显式实例化在 AST 中直接可见，按普通类处理 |
-| [028_variadic_template](examples/028_variadic_template) | 可变参数模板 | ⚠️ `[VA]` | 生成 wrapper 类 + 按参数数量展开的静态方法；超出范围的组合需手动添加 |
-
-### 智能指针与内存（029–033）
-
-| 示例 | C++ 特性 | 状态 | FFI 策略 |
-|------|---------|------|---------|
-| [029_unique_ptr](examples/029_unique_ptr) | std::unique_ptr | ✅ | opaque pointer；`*_new()` 返回裸指针，调用方 `*_delete()` 释放 |
-| [030_shared_ptr](examples/030_shared_ptr) | std::shared_ptr | ✅ | `*_clone()` shim 增加引用计数，`*_delete()` 减少；其余方法直接绑定 |
-| [031_custom_deleter](examples/031_custom_deleter) | 自定义删除器 | ✅ | 删除器函数注入 `hicc::cpp!`，`*_delete()` shim 内部调用自定义删除器 |
-| [032_placement_new](examples/032_placement_new) | placement new | ✅ | 生成 `*_placement_new(ptr, ...)` 必要 shim |
-| [033_raii_pattern](examples/033_raii_pattern) | RAII 模式 | ✅ | 析构函数生成 `*_delete()` shim，Rust 侧可实现 `Drop` trait |
-
-### STL 容器（034–038）
-
-> **核心策略**：STL 容器模板方法签名复杂，先在 `hicc::cpp!` 中生成**薄 wrapper 类**（如 `IntVector` 封装 `std::vector<int>`），再对 wrapper 类做 `import_class!` 绑定。
-
-| 示例 | C++ 特性 | 状态 | wrapper 类 |
-|------|---------|------|-----------|
-| [034_vector_basic](examples/034_vector_basic) | std::vector\<T\> | ✅ | `IntVector`（`VectorImpl<int>` 封装）|
-| [035_map_basic](examples/035_map_basic) | std::map\<K,V\> | ✅ | `StringIntMap`（`MapImpl<string,int>` 封装）|
-| [036_string_basic](examples/036_string_basic) | std::string | ✅ | string wrapper，`c_str()`/`length()` 等通过 `import_class!` 绑定 |
-| [037_array_basic](examples/037_array_basic) | std::array\<T,N\> | ✅ | 数组 wrapper（N 在实例化时已知） |
-| [038_tuple_basic](examples/038_tuple_basic) | std::tuple\<T...\> | ✅ | tuple wrapper，按位置 `get<N>()` 通过 `import_class!` 绑定 |
-
-### 函数对象（039–042）
-
-| 示例 | C++ 特性 | 状态 | FFI 策略 |
-|------|---------|------|---------|
-| [039_lambda_basic](examples/039_lambda_basic) | Lambda 表达式 | ⚠️ `[LM][FP]` | 无状态 lambda → 函数指针；有状态 lambda → class wrapper（`LambdaWrapper`）+ `call()` 方法；含函数指针参数的函数（如 `apply_operation`、`lambda_wrapper_new`）整体跳过（`[FP]`） |
-| [040_std_function](examples/040_std_function) | std::function\<Sig\> | ⚠️ `[LM][FP]` | 类型擦除容器，统一用 class wrapper + opaque pointer；`call()` 方法通过 `import_class!` 绑定；含函数指针参数的工厂函数（如 `callback_wrapper_new`）整体跳过（`[FP]`） |
-| [041_functional_bind](examples/041_functional_bind) | std::bind | ✅ | 产物本质是函数对象，同有状态 lambda 策略，`import_class!` 完全覆盖 |
-| [042_exception_basic](examples/042_exception_basic) | C++ 异常处理 | ✅ | shim 层 `try/catch` 捕获异常，转为错误码 + 错误消息字符串返回；FFI 边界不跨越异常 |
-
-### 其他高级特性（043–048）
-
-| 示例 | C++ 特性 | 状态 | FFI 策略 |
-|------|---------|------|---------|
-| [043_namespace_nested](examples/043_namespace_nested) | 嵌套命名空间 | ✅ | `import_class!` 不支持嵌套命名空间类；改用 `void*` opaque pointer + raw `extern "C"` 绑定，函数名前缀扁平化（`foo::bar::Baz` → `foo_bar_baz_*`） |
-| [044_enum_class](examples/044_enum_class) | 强类型枚举（enum class） | ✅ | 枚举值导出为 Rust `const`，建议手动实现 `enum` + `TryFrom<i32>` |
-| [045_union_basic](examples/045_union_basic) | union | ✅ | opaque pointer + 按字段名 getter/setter shim；Rust 侧用 `#[repr(C)] union` |
-| [046_constexpr_basic](examples/046_constexpr_basic) | constexpr 常量/函数 | ✅ | 编译期常量读取 AST `IntegerLiteral` 值，生成 Rust `const`；constexpr 函数按普通函数处理 |
-| [047_noexcept_basic](examples/047_noexcept_basic) | noexcept | ✅ | `noexcept` 语义对 FFI 透明，直接处理 |
-| [048_summary](examples/048_summary) | 综合 FFI 模式 | ✅ | 以上所有策略的组合应用 |
+> **STL 容器核心策略**：先在 `hicc::cpp!` 中生成薄 wrapper 类（如 `IntVector` 封装 `std::vector<int>`），再对 wrapper 类做 `import_class!` 绑定，规避模板方法签名复杂度。
 
 ---
 
@@ -786,6 +810,20 @@ cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 | **可变参数模板** | 按调用点展开有限版本，超出范围的参数组合需手动添加 |
 | **业务逻辑** | 工具只生成 FFI 绑定层（`lib.rs`），`fn main()` 和业务代码需手动编写 |
 | **跨翻译单元模板** | 每个 `.cpp2rust` 独立解析，跨文件模板实例化可能遗漏（`merge` 阶段部分缓解） |
+
+---
+
+## 未来开发计划
+
+以下按优先级从高到低排列（P1 最高，P3 最低）：
+
+| 优先级 | 方向 | 现状 | 目标 |
+|--------|------|------|------|
+| **P1** | **Windows 支持** | 完全依赖 Linux `LD_PRELOAD`，Windows 不可用 | 评估 CMake compiler launcher（`CMAKE_CXX_COMPILER_LAUNCHER`）或 DLL 注入等替代方案，实现跨平台编译拦截 |
+| **P1** | **函数指针参数自动绑定 `[FP]`** | 含函数指针参数的函数整体跳过，需全人工处理 | 自动生成 opaque callback wrapper，减少手动工作量；或提供安全的 `extern "C"` 函数指针映射 |
+| **P2** | **跨翻译单元模板合并** | 每个 `.cpp2rust` 独立解析，跨文件模板实例化可能遗漏；`merge` 阶段已部分缓解 | 在 `merge` 阶段实现跨文件模板实例化聚合，消除遗漏 |
+| **P2** | **更多真实项目 E2E 验证** | 已有 rapidjson 完整参考（10 个子系统）+ L4 E2E 测试 | 扩展至更多主流 C++ 开源库（如 Eigen、Abseil、{fmt}），验证工具在复杂项目上的覆盖率和鲁棒性 |
+| **P3** | **L3 运行测试本地化** | L3 运行测试主要在 CI 环境验证，本地运行步骤较繁琐 | 补充本地快速运行脚本，降低开发者验证门槛 |
 
 ---
 
