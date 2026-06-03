@@ -116,6 +116,7 @@ grep -r "cpp2rust-todo" .cpp2rust/default/rust/src/ | grep -o '\[.*\]' | sort | 
 | 变量 | 说明 |
 |------|------|
 | `CPP2RUST_CC` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++） |
+| `CPP2RUST_LD` | 覆盖默认链接器（默认自动检测 ld/lld 等） |
 | `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
 
 ---
