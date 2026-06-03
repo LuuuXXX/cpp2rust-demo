@@ -2,24 +2,11 @@
 
 **C++ → Rust Safe FFI 自动化脚手架生成工具**。给定任意 C++ 项目，执行一条命令即可生成基于 [hicc](https://crates.io/crates/hicc) 的 Rust FFI 绑定层（`hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三段式）。
 
+> **工具定位**：cpp2rust-demo 负责生成 FFI **脚手架**（绑定声明 + 必要 C 桥接 shim），不处理业务逻辑、不重写 C++ 代码。生成产物开箱即可 `cargo check`，部分降级特性需人工补全后才能完整编译运行。
+
 仓库同时包含 **48 个循序渐进的 C++ 特性示例**，每个示例都有对应的 C++ 源码和可运行的 Rust FFI 参考实现，覆盖从基础函数到模板、STL、虚继承等复杂场景。
 
----
-
-## 目录结构
-
-```
-cpp2rust-demo/
-├── hook/              # LD_PRELOAD 拦截器（hook.cpp + Makefile）
-├── src/               # 工具源码（Rust）
-├── examples/          # 48 个示例，每个含 cpp/ 和 rust_hicc/ 子目录
-├── tests/             # 三层测试体系（L1/L2/L3）
-├── docs/
-│   ├── plans/v5/      # 完整方案文档（automated-cpp2rust-ffi-v5.md）
-│   └── references/    # hicc、c2rust-demo 等参考文档
-└── references/
-    └── c2rust-demo/   # C 语言版参考实现（同架构）
-```
+**导航**：[工作原理](#工作原理) · [快速开始](#快速开始) · [生成代码格式](#生成代码格式三段式) · [特性矩阵](#c-特性支持矩阵) · [降级特性](#降级特性详解6-项) · [测试体系](#测试体系) · [局限性](#局限性) · [学习路径](#学习路径示例索引)
 
 ---
 
@@ -120,8 +107,6 @@ FfiSpec
 | `hicc::cpp!` | `FfiSpec::cpp_block_lines` | 内联 C++ 代码（#include、必要 shim 函数体） |
 | `hicc::import_class!` | `FfiSpec::class_specs` | 每个类的成员方法绑定（hicc 处理虚表 dispatch）|
 | `hicc::import_lib!` | `FfiSpec::lib_spec` | 全局函数及 ctor/dtor/关联函数绑定 |
-
-**最小 shim 策略**：成员方法优先走 `import_class!`（由 hicc 处理对象布局和 ABI），只有以下场景才在 `hicc::cpp!` 中生成 C shim 并写入 `import_lib!`：构造/析构函数（C 没有 `new`/`delete`）、静态成员变量 getter/setter、运算符重载（C ABI 无运算符符号）、placement new、STL 容器 wrapper 类的 ctor/dtor。
 
 ---
 
@@ -350,15 +335,13 @@ cargo build --features linux_x86,arm_embedded
 | `CPP2RUST_CXX` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++，支持带版本后缀如 g++-13） |
 | `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
 
----
-
-## 对纯 C++ 库使用 shim 工作流
+### 进阶：对纯 C++ 库使用 shim 工作流
 
 `cpp2rust-demo` 通过解析 C++ 预处理后的 AST 来提取 `extern "C"` 函数。对于**纯 C++ 库**（例如 rapidjson、Eigen、Abseil），其头文件和源文件中均无 `extern "C"` 声明，直接运行 `init` 只会生成 `hicc::cpp!` 头文件块，**不会生成 `import_lib!` FFI 绑定**。
 
 这是预期行为，不是 bug。正确的做法是先编写一层 **C++ shim 文件**（`extern "C"` 不透明句柄包装层），再对 shim 文件运行 `cpp2rust-demo init`。
 
-### 推荐工作流
+#### 推荐工作流
 
 ```
 纯 C++ 库（如 rapidjson）
@@ -378,7 +361,7 @@ cargo build --features linux_x86,arm_embedded
   ④ 在生成的 Rust 项目中使用 import_lib! 绑定调用原始 C++ API
 ```
 
-### shim 文件示例
+#### shim 文件示例
 
 ```cpp
 // document_ffi.h — 暴露为 extern "C" 的不透明句柄 API
@@ -410,7 +393,7 @@ int rapid_document_parse(RapidDocument* doc, const char* json) {
 }
 ```
 
-### rapidjson 完整参考实现
+#### rapidjson 完整参考实现
 
 本仓库已包含 rapidjson 的完整 shim 参考实现（10 个子系统），位于：
 
@@ -841,9 +824,7 @@ STL：034_vector_basic → 035_map_basic → 036_string_basic
          → 046_constexpr_basic → 047_noexcept_basic → 048_summary
 ```
 
----
-
-## 运行单个示例
+### 运行单个示例
 
 ```bash
 cd examples/001_hello_world
@@ -864,6 +845,23 @@ cd rust_hicc && cargo run
 - Rust 工具链：rustc / cargo（1.82+）
 - libclang（用于 AST 解析）：`libclang-dev`
 - [`hicc`](https://crates.io/crates/hicc) `0.2` 和 [`hicc-build`](https://crates.io/crates/hicc-build) `0.2`
+
+---
+
+## 仓库结构
+
+```
+cpp2rust-demo/
+├── hook/              # LD_PRELOAD 拦截器（hook.cpp + Makefile）
+├── src/               # 工具源码（Rust）
+├── examples/          # 48 个示例，每个含 cpp/ 和 rust_hicc/ 子目录
+├── tests/             # 三层测试体系（L1/L2/L3）
+├── docs/
+│   ├── plans/v5/      # 完整方案文档（automated-cpp2rust-ffi-v5.md）
+│   └── references/    # hicc、c2rust-demo 等参考文档
+└── references/
+    └── c2rust-demo/   # C 语言版参考实现（同架构）
+```
 
 ---
 
