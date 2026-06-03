@@ -206,13 +206,16 @@ cargo build --features linux_x86,arm_embedded
 
 ### Step 3 — 手动完善降级特性
 
-搜索生成代码中的 `cpp2rust-todo` 注释，按 TAG 说明手动完善：
+工具在 `init` 终端输出中会列出检测到的降级特性 TAG。参考下表按 TAG 说明手动完善，同时可在需要人工处理的位置手动添加 `// cpp2rust-todo[TAG]` 注释，`merge` 命令会汇总这些标记并统计总数：
 
 | TAG | 原因 | 需手动操作 |
 |-----|------|-----------|
 | `[OP]` | 运算符重载（C ABI 无运算符符号） | 为生成的命名 shim（`{class}_add` 等）添加 Rust `std::ops::*` trait 实现 |
 | `[VA]` | 可变参数模板（编译期展开，FFI 无法表达任意参数数） | 检查 wrapper 类展开的版本数量是否满足需求，按需手动添加新版本 |
 | `[LM]` | 有状态 Lambda / std::function（捕获列表不透明） | 若需 Rust 闭包 → C++ 回调，手动编写 trampoline |
+| `[CV]` | C 可变参数函数（`...` 参数，FFI 无法表达任意类型） | 在头文件中为所需参数组合补充固定参数 wrapper，再将其加入 `hicc::cpp!` + `import_lib!` |
+| `[FP]` | 函数指针参数（`void (*)(...)` 类型，工具整体跳过含此参数的函数） | 手动编写 C wrapper class 将函数指针封装为 opaque 对象，通过 `import_class!` 暴露 |
+| `[VM]` | volatile this 成员函数（方法整体从 `import_class!` 移除） | 检查 `import_lib!` 中是否已有对应的 `volatile T*` C shim；如无则手动添加 |
 
 ### CLI 参数参考
 
@@ -384,7 +387,7 @@ hicc::import_lib! {
 | [002_function_overload](examples/002_function_overload) | 函数重载 | ✅ | 各重载名称加类型后缀区分（`_i32`/`_f64`）→ `import_lib!` |
 | [003_default_args](examples/003_default_args) | 默认参数 | ✅ | C++ 侧展开为多个固定参数重载，写入 `hicc::cpp!` |
 | [004_inline_functions](examples/004_inline_functions) | inline 函数 | ✅ | 函数体从 `.cpp2rust` 提取，内联写入 `hicc::cpp!` |
-| [005_variadic_functions](examples/005_variadic_functions) | C 可变参数（va_list） | ✅ | 检测已有固定参数 wrapper，直接 `extern "C"` 绑定 |
+| [005_variadic_functions](examples/005_variadic_functions) | C 可变参数（va_list） | ⚠️ `[CV]` | C 的 `...` 参数函数整体跳过；头文件中预先提供的固定参数 wrapper（如 `sum_3`/`sum_5`）直接 `extern "C"` 绑定 |
 
 ### 类与对象（006–012）
 
@@ -396,7 +399,7 @@ hicc::import_lib! {
 | [009_class_move](examples/009_class_move) | 移动构造 | ✅ | `*_move(Foo*)` shim（内部 `std::move()`） |
 | [010_class_static](examples/010_class_static) | 静态成员 | ✅ | `{class}_get_{field}` / `{class}_set_{field}` 必要 shim |
 | [011_class_const](examples/011_class_const) | const 成员函数 | ✅ | 直接 `import_class!`，映射为 `fn method(&self)` |
-| [012_class_volatile](examples/012_class_volatile) | volatile 成员函数 | ✅ | 直接 `import_class!`，Rust 侧使用 `*mut T` 并加注释 |
+| [012_class_volatile](examples/012_class_volatile) | volatile 成员函数 | ⚠️ `[VM]` | `volatile this` 限定的方法从 `import_class!` 中整体移除；`extern "C"` shim（接收 `volatile T*`）仍进入 `import_lib!` |
 
 ### 面向对象（013–018）
 
@@ -413,7 +416,7 @@ hicc::import_lib! {
 
 | 示例 | C++ 特性 | 状态 | FFI 策略 |
 |------|---------|------|---------|
-| [019_operator_overload](examples/019_operator_overload) | 运算符重载 | ⚠️ `[OP]` | 生成命名 shim（`{class}_add` 等）+ `cpp2rust-todo[OP]`，Rust `ops::*` trait 需手动实现 |
+| [019_operator_overload](examples/019_operator_overload) | 运算符重载 | ⚠️ `[OP]` | 为每个运算符生成命名 shim（`{class}_add` 等），写入 `hicc::cpp!` + `import_lib!`；Rust `ops::*` trait 需手动实现 |
 | [020_friend_function](examples/020_friend_function) | 友元函数 | ✅ | 友元函数提取为普通函数写入 `import_lib!` |
 | [021_explicit_ctor](examples/021_explicit_ctor) | explicit 构造函数 | ✅ | `explicit` 对 FFI 透明，与普通构造相同 |
 | [022_mutable_member](examples/022_mutable_member) | mutable 成员 | ✅ | `mutable` 对 FFI 透明，直接 `import_class!` |
@@ -455,8 +458,8 @@ hicc::import_lib! {
 
 | 示例 | C++ 特性 | 状态 | FFI 策略 |
 |------|---------|------|---------|
-| [039_lambda_basic](examples/039_lambda_basic) | Lambda 表达式 | ⚠️ `[LM]` | 无状态 lambda → 函数指针；有状态 lambda → class wrapper（`LambdaWrapper`）+ `call()` 方法 |
-| [040_std_function](examples/040_std_function) | std::function\<Sig\> | ⚠️ `[LM]` | 类型擦除容器，统一用 class wrapper + opaque pointer；`call()` 方法通过 `import_class!` 绑定 |
+| [039_lambda_basic](examples/039_lambda_basic) | Lambda 表达式 | ⚠️ `[LM][FP]` | 无状态 lambda → 函数指针；有状态 lambda → class wrapper（`LambdaWrapper`）+ `call()` 方法；含函数指针参数的函数（如 `apply_operation`、`lambda_wrapper_new`）整体跳过（`[FP]`） |
+| [040_std_function](examples/040_std_function) | std::function\<Sig\> | ⚠️ `[LM][FP]` | 类型擦除容器，统一用 class wrapper + opaque pointer；`call()` 方法通过 `import_class!` 绑定；含函数指针参数的工厂函数（如 `callback_wrapper_new`）整体跳过（`[FP]`） |
 | [041_functional_bind](examples/041_functional_bind) | std::bind | ✅ | 产物本质是函数对象，同有状态 lambda 策略，`import_class!` 完全覆盖 |
 | [042_exception_basic](examples/042_exception_basic) | C++ 异常处理 | ✅ | shim 层 `try/catch` 捕获异常，转为错误码 + 错误消息字符串返回；FFI 边界不跨越异常 |
 
@@ -473,7 +476,7 @@ hicc::import_lib! {
 
 ---
 
-## 降级特性详解（4 项）
+## 降级特性详解（7 项）
 
 | TAG | 示例 | C++ 特性 | 无法完全自动的根本原因 | 自动降级策略 | 用户剩余工作 |
 |-----|------|---------|---------------------|------------|------------|
@@ -481,6 +484,69 @@ hicc::import_lib! {
 | `[VA]` | 028 | 可变参数模板 | `...Args` 是编译期展开，FFI 无法表达"任意数量参数" | 生成 wrapper 类，按参数数量和类型组合分别封装为静态方法（`sum_1`/`sum_2` 等） | 若需要新的参数数量/类型组合，在 `hicc::cpp!` 中手动添加对应方法和包装函数 |
 | `[LM]` | 039 | 有状态 Lambda | 匿名闭包类型，FFI 无法表达捕获列表 | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + opaque pointer | 若需 Rust 闭包 → C++ 回调，手动编写 trampoline |
 | `[LM]` | 040 | std::function | 类型擦除容器，捕获状态不透明 | 统一使用 class wrapper + opaque pointer | 可选：手动实现 Rust 闭包 → `std::function` 适配层 |
+| `[CV]` | 005 | C 可变参数函数 | C 的 `...` 参数在运行时按 `va_list` 访问，Rust FFI 要求精确的静态类型列表，无法表达可变元 | 含 `...` 的函数（`is_variadic = true`）整体跳过，不生成任何绑定 | 在头文件中为每种实际调用的参数组合提供固定参数 wrapper，工具自动绑定这些 wrapper |
+| `[FP]` | 039, 040 | 函数指针参数 | 函数指针类型（`void (*)(int)` 等）目前无法安全映射为 Rust FFI 类型（生命周期、调用约定等问题） | 含函数指针参数或返回函数指针的函数 / 方法整体跳过，不出现在 `import_lib!` / `import_class!` 中 | 手动在 `hicc::cpp!` 中编写 opaque class wrapper 封装回调；或将函数指针改写为工厂函数（不含指针参数），工具即可自动绑定 |
+| `[VM]` | 012 | volatile 成员函数 | hicc 通过方法指针类型进行检查，`volatile this` 修饰的方法指针（`R (T::*)() volatile`）在 Rust 无对应语义，导致类型不匹配 | `is_volatile = true` 的方法从 `import_class!` 中整体移除；`extern "C"` shim 若以 `volatile T*` 为第一参数，则仍进入 `import_lib!` | 检查 `import_lib!` 中是否已有对应 `volatile T*` C shim；若无，在头文件中手动添加 `void foo_read(volatile Foo* self)` 并重新运行 `init` |
+
+### 降级特性代码示例
+
+#### `[CV]` — C 可变参数函数
+
+**根本原因**：Rust 的 FFI 接口要求每个参数都有精确的静态类型，而 C 的 `...` 只在运行时通过 `va_list` 访问参数，无法在编译期表达参数数量与类型。
+
+```c
+// 头文件中的 C 可变参数函数 —— 工具跳过此函数
+int sum(int count, ...);            // ← is_variadic=true，整体跳过
+
+// 手动提供的固定参数 wrapper —— 工具正常绑定
+int sum_3(int a, int b, int c);
+int sum_5(int a, int b, int c, int d, int e);
+```
+
+生成结果：`sum` 不出现；`sum_3` / `sum_5` 正常进入 `import_lib!`。
+
+**用户操作**：若现有 wrapper 数量不足（例如需要 `sum_4`），在头文件和实现文件中手动添加，重新运行 `cpp2rust-demo init`。
+
+---
+
+#### `[FP]` — 函数指针参数
+
+**根本原因**：函数指针类型（如 `int (*op)(int, int)`）在 Rust FFI 中需要精确匹配调用约定与生命周期。工具目前无法自动推断回调的安全性约束，因此选择整体跳过，避免生成可能 UB 的绑定。
+
+```c
+// 含函数指针参数的函数 —— 工具整体跳过
+int apply_operation(int a, int b, int (*op)(int, int));   // ← 参数含 (*) 跳过
+struct LambdaWrapper* lambda_wrapper_new(int (*fn)(int, int));  // ← 同上
+
+// 不含函数指针参数的函数 —— 工具正常绑定
+int add_impl(int a, int b);
+struct LambdaWrapper* make_add_lambda(void);
+```
+
+生成结果：`apply_operation`、`lambda_wrapper_new` 不出现；`add_impl`、`make_add_lambda` 正常进入 `import_lib!`。
+
+**用户操作**：将回调逻辑封装为 opaque class（参见 039/040 策略），或将需要的回调实现内联到 `hicc::cpp!`，通过 `import_class!` 暴露 `call()` 方法。
+
+---
+
+#### `[VM]` — volatile 成员函数
+
+**根本原因**：hicc 通过方法指针类型（`R (T::*)() volatile`）绑定成员方法，而 Rust 的 `fn` 签名中没有 `volatile this` 的概念，类型不匹配导致编译失败。工具因此将 volatile 方法从 `import_class!` 中整体移除。
+
+```cpp
+class HardwareDevice {
+public:
+    void init();                             // 普通方法 —— 进入 import_class!
+    volatile uint32_t readStatus() volatile; // volatile 方法 —— 从 import_class! 移除 [VM]
+};
+
+// extern "C" shim（接收 volatile T* 作为第一参数）—— 仍进入 import_lib!
+uint32_t hardware_device_read_status(volatile HardwareDevice* self);
+```
+
+生成结果：`HardwareDevice` 的 `import_class!` 中只有 `init`；`readStatus` 被跳过；但 `hardware_device_read_status(volatile HardwareDevice*)` 作为自由函数进入 `import_lib!`（标注 `unsafe`）。
+
+**用户操作**：优先在 `extern "C"` 头文件中提供 `volatile T*` 参数的 C shim，工具即可自动生成 `import_lib!` 绑定。若头文件中无对应 shim，手动在 `hicc::cpp!` 中添加并声明到 `import_lib!`。
 
 ---
 
