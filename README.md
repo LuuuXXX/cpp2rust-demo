@@ -36,7 +36,7 @@ cpp2rust-demo/
                ↓
 ┌──────────────────────────────────┐
 │  阶段 2：AST 提取                 │
-│  clang crate 解析 .cpp2rust      │
+│  libclang 解析 .cpp2rust         │
 │  → CppAst（类/函数/枚举/模板）    │
 │  → FfiSpec IR（extractor/）      │
 └──────────────┬───────────────────┘
@@ -48,6 +48,117 @@ cpp2rust-demo/
 │     lib.rs + <unit>.rs           │
 └──────────────────────────────────┘
 ```
+
+### 阶段 1：编译拦截（hook.cpp / LD_PRELOAD）
+
+**为什么使用 LD_PRELOAD？**  
+C++ 构建系统（Make、CMake 等）启动的 `g++` 进程繁多且命令行各异，`LD_PRELOAD` 是在不修改构建脚本的前提下拦截所有 `g++` 调用的最轻量方式。`hook.cpp` 编译为 `libhook.so`，在进程启动时自动注入，劫持 `execve`/`execvp` 等系统调用。
+
+**`g++ -E -C` 的作用**  
+hook 拦截到 `g++` 编译调用后，将其替换为等价的 **预处理调用**（`g++ -E -C`）：
+- `-E`：只执行预处理，不进行编译、汇编或链接；所有 `#include` 内容被展开写入输出文件；宏调用被展开为实际 C++ 代码。
+- `-C`：保留注释（包括文档注释），使后续 AST 解析能读取到内联函数体内的注释。
+
+输出文件以 `.cpp2rust` 为扩展名（非标准，避免与正常构建产物冲突），内容是**宏完全展开、#include 全部内联**后的单文件 C++ 代码，是阶段 2 的输入。
+
+**关键约束**：依赖 Linux 的 `LD_PRELOAD` 机制，Windows 暂不支持。`hook.cpp` 源码已内嵌进工具 binary（`include_str!`），首次运行时自动解压到用户数据目录并编译，后续自动跳过重编译。
+
+---
+
+### 阶段 2：AST 提取（extractor/）
+
+**libclang 解析预处理文件**  
+`.cpp2rust` 文件本质是合法的 C++ 代码（已展开宏），工具通过 `libclang` crate 以 `-xc++ -std=c++17` 参数解析它，获得完整的 AST。
+
+**行标记扫描（来源区分）**  
+`g++ -E` 输出中每段来自不同文件的内容前都有 `# <line> "<file>"` 行标记，工具扫描这些标记，把哪些字节偏移范围属于**当前 `.cpp` 文件自身**（而非被 `#include` 引入的头文件）记录为 `cpp_byte_ranges`。AST 提取时只纳入来自当前文件（`is_from_current_file`）或显式 `extern "C"` 的函数/类，过滤掉第三方头文件中的符号。
+
+**模板实例化的特殊处理**  
+C++ 模板在 AST 中同时存在模板声明（`ClassTemplate`）和实例化节点（`ClassTemplateSpecialization`）。工具**只处理 `ClassTemplateSpecialization`**，即已经具有具体类型参数的实例化结果（如 `std::vector<int>`），跳过裸模板声明——这是工具能处理 STL 容器等复杂模板的根本原因。模板声明的实际类型参数在实例化后才可知，无法在编译期枚举，因此"实例化优先"是唯一可行的 FFI 提取策略。
+
+**同名函数去重**  
+同一函数可能在头文件和 `.cpp` 中各出现一次，工具对同名函数按以下规则去重：有函数体（`body_offset` 有值）的定义优先；否则非 `extern "C"` 版本优先，避免重复生成绑定。
+
+**提取结果（CppAst）**
+
+| 字段 | 含义 |
+|------|------|
+| `classes` | 类/结构体（含模板特化）|
+| `functions` | 全局函数（含 `extern "C"` 和友元函数）|
+| `enums` | 枚举和 `enum class` |
+| `typedefs` | `typedef` 声明 |
+| `template_class_ranges` | 模板类的源码范围（用于生成 `cpp!` 块内嵌）|
+
+---
+
+### FfiSpec 中间表示（IR）
+
+`CppAst` 经由 `extractor/mod.rs` 转换为 **`FfiSpec`**，这是连接阶段 2 与阶段 3 的核心 IR。`FfiSpec` 不依赖 libclang 数据结构，描述"需要生成哪些 Rust 代码"，而不是"C++ 代码长什么样"：
+
+```
+FfiSpec
+├── cpp_block_lines   ── hicc::cpp! 块内容（include 指令 + 必要 C++ shim）
+├── class_specs[]     ── 每个类对应一个 ClassSpec
+│   ├── methods[]     ──   成员方法（→ import_class! 块）
+│   ├── associated_fns[] ─ 关联函数（ctor/dtor/factory → import_lib! 的 class 段）
+│   └── destroy_fn    ──   析构 shim 名（→ #[cpp(class=..., destroy=...)]）
+└── lib_spec          ── import_lib! 块整体
+    ├── fwd_decls[]   ──   类前向声明
+    └── fn_bindings[] ──   全局/自由函数绑定
+```
+
+每个 `MethodBinding` / `FnBinding` 均携带：C++ 原始签名（写入 `#[cpp(method/func = "...")]` 属性）、Rust 函数名（snake_case）、参数列表、返回类型、是否需要 `unsafe`。
+
+---
+
+### 阶段 3：代码生成（generator/）
+
+**三段式输出**对应 hicc 的三个宏：
+
+| 宏 | 来源 | 作用 |
+|----|------|------|
+| `hicc::cpp!` | `FfiSpec::cpp_block_lines` | 内联 C++ 代码（#include、必要 shim 函数体） |
+| `hicc::import_class!` | `FfiSpec::class_specs` | 每个类的成员方法绑定（hicc 处理虚表 dispatch）|
+| `hicc::import_lib!` | `FfiSpec::lib_spec` | 全局函数及 ctor/dtor/关联函数绑定 |
+
+**最小 shim 策略**：成员方法优先走 `import_class!`（由 hicc 处理对象布局和 ABI），只有以下场景才在 `hicc::cpp!` 中生成 C shim 并写入 `import_lib!`：构造/析构函数（C 没有 `new`/`delete`）、静态成员变量 getter/setter、运算符重载（C ABI 无运算符符号）、placement new、STL 容器 wrapper 类的 ctor/dtor。
+
+---
+
+### 类型映射规则（C++ → Rust）
+
+`extractor/type_mapper.rs` 中的 `cpp_to_rust()` 函数按以下规则将 libclang 返回的 C++ 类型字符串映射为 Rust FFI 类型：
+
+| C++ 类型 | Rust 类型 | 说明 |
+|---------|----------|------|
+| `void` | `()` | 无返回值 |
+| `bool` / `_Bool` | `bool` | |
+| `char` / `signed char` | `i8` | C `char` 在 Rust FFI 中为 `i8` |
+| `unsigned char` | `u8` | |
+| `short` | `i16` | |
+| `unsigned short` | `u16` | |
+| `int` | `i32` | |
+| `unsigned int` | `u32` | |
+| `long` / `long long` | `i64` | Linux x86-64：`long` = 64 位 |
+| `unsigned long` / `unsigned long long` | `u64` | |
+| `float` | `f32` | |
+| `double` / `long double` | `f64` | |
+| `size_t` | `usize` | |
+| `ptrdiff_t` / `intptr_t` | `isize` | |
+| `int8_t` … `int64_t` | `i8` … `i64` | `<stdint.h>` 定长整型 |
+| `uint8_t` … `uint64_t` | `u8` … `u64` | |
+| `const char *` | `*const i8` | C 字符串 |
+| `char *` | `*mut i8` | 可变 C 字符串 |
+| `const T *` | `*const T_rust` | 指向 const 的指针 |
+| `T *` | `*mut T_rust` | 可变指针 |
+| `void *` | `*mut u8` | 不透明指针 |
+| `const void *` | `*const u8` | |
+| `T[N]` / `T[]` | `*mut T_rust` | 数组参数退化为指针 |
+| `volatile T` 前缀 | 去掉 `volatile` 后递归映射 | Rust 无 `volatile` 概念 |
+| `T *const` | `*mut T_rust` | 指针本身 `const` 在 Rust 无对应语义 |
+| 未知 C++ 类类型 `T` | `T`（原样保留） | 由 hicc 宏处理 opaque pointer |
+
+**引用类型**（`T&` / `const T&`）目前不做自动映射，由 hicc 的 `import_class!` 宏在方法签名中通过 `&self` / `&mut self` 处理。
 
 **关键理念**：C++ 模板的价值在于**实例化结果**，不在于模板声明。工具只处理实际被实例化的具体类型（如 `std::vector<int>`），跳过未实例化的模板。
 
