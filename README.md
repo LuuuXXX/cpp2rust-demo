@@ -387,7 +387,7 @@ hicc::import_lib! {
 | [002_function_overload](examples/002_function_overload) | 函数重载 | ✅ | 各重载名称加类型后缀区分（`_i32`/`_f64`）→ `import_lib!` |
 | [003_default_args](examples/003_default_args) | 默认参数 | ✅ | C++ 侧展开为多个固定参数重载，写入 `hicc::cpp!` |
 | [004_inline_functions](examples/004_inline_functions) | inline 函数 | ✅ | 函数体从 `.cpp2rust` 提取，内联写入 `hicc::cpp!` |
-| [005_variadic_functions](examples/005_variadic_functions) | C 可变参数（va_list） | ⚠️ `[CV]` | C 的 `...` 参数函数整体跳过；头文件中预先提供的固定参数 wrapper（如 `sum_3`/`sum_5`）直接 `extern "C"` 绑定 |
+| [005_variadic_functions](examples/005_variadic_functions) | C 可变参数（`...`） | ⚠️ `[CV]` | C 的 `...` 参数函数整体跳过；头文件中预先提供的固定参数 wrapper（如 `sum_3`/`sum_5`）直接 `extern "C"` 绑定 |
 
 ### 类与对象（006–012）
 
@@ -416,7 +416,7 @@ hicc::import_lib! {
 
 | 示例 | C++ 特性 | 状态 | FFI 策略 |
 |------|---------|------|---------|
-| [019_operator_overload](examples/019_operator_overload) | 运算符重载 | ⚠️ `[OP]` | 为每个运算符生成命名 shim（`{class}_add` 等），写入 `hicc::cpp!` + `import_lib!`；Rust `ops::*` trait 需手动实现 |
+| [019_operator_overload](examples/019_operator_overload) | 运算符重载 | ⚠️ `[OP]` | 自动为每个运算符生成命名 shim（`{class}_add` 等）并写入 `hicc::cpp!` + `import_lib!`；Rust `ops::*` trait 需手动实现 |
 | [020_friend_function](examples/020_friend_function) | 友元函数 | ✅ | 友元函数提取为普通函数写入 `import_lib!` |
 | [021_explicit_ctor](examples/021_explicit_ctor) | explicit 构造函数 | ✅ | `explicit` 对 FFI 透明，与普通构造相同 |
 | [022_mutable_member](examples/022_mutable_member) | mutable 成员 | ✅ | `mutable` 对 FFI 透明，直接 `import_class!` |
@@ -476,7 +476,7 @@ hicc::import_lib! {
 
 ---
 
-## 降级特性详解（7 项）
+## 降级特性详解（6 项）
 
 | TAG | 示例 | C++ 特性 | 无法完全自动的根本原因 | 自动降级策略 | 用户剩余工作 |
 |-----|------|---------|---------------------|------------|------------|
@@ -537,7 +537,7 @@ struct LambdaWrapper* make_add_lambda(void);
 class HardwareDevice {
 public:
     void init();                             // 普通方法 —— 进入 import_class!
-    volatile uint32_t readStatus() volatile; // volatile 方法 —— 从 import_class! 移除 [VM]
+    uint32_t readStatus() volatile; // volatile 方法 —— 从 import_class! 移除 [VM]
 };
 
 // extern "C" shim（接收 volatile T* 作为第一参数）—— 仍进入 import_lib!
