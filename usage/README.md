@@ -273,10 +273,12 @@ GTEST_SOURCE_DIR=/path/to/googletest bash usage/verify-rapidjson-ffi.sh
 
 **Q: 如何只转换部分文件（而非全部 rapidjson 测试文件）**
 
-脚本设置了 `CPP2RUST_NON_INTERACTIVE=1`（自动全选）。
-若需交互式选择，删除该环境变量后重新运行：
+脚本在非终端（管道/CI）环境运行，`cpp2rust-demo` 检测到 stdin 不是 TTY 时会自动全选所有文件。
+若需交互式选择，需在**交互式终端**中手动执行以下命令：
 
 ```bash
-unset CPP2RUST_NON_INTERACTIVE
-bash usage/verify-rapidjson-ffi.sh
+cd <RAPIDJSON_DIR>
+cpp2rust-demo init --feature "${FEATURE}" -- cmake --build build -- -j$(nproc)
 ```
+
+在终端中运行时，工具会弹出多选界面，按空格键切换选中状态，回车确认。
