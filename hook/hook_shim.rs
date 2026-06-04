@@ -58,7 +58,21 @@ fn main() {
         // 跳过选项标志及其参数
         if arg.starts_with('-') {
             // 带值的选项（如 -o <file>、-I <dir>）跳过下一个 token
-            if matches!(arg.as_str(), "-o" | "-I" | "-isystem" | "-include" | "-MF" | "-MT") {
+            if matches!(
+                arg.as_str(),
+                "-o" | "-I"
+                    | "-isystem"
+                    | "-include"
+                    | "-MF"
+                    | "-MT"
+                    | "-MQ"
+                    | "-D"
+                    | "-U"
+                    | "-idirafter"
+                    | "-imacros"
+                    | "-L"
+                    | "-l"
+            ) {
                 i += 2;
                 continue;
             }

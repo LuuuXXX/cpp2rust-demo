@@ -175,7 +175,7 @@ fn hook_dir() -> Result<PathBuf> {
         return Ok(cwd_candidate);
     }
 
-    // 最終回退：将嵌入的源文件解压到用户数据目录。
+    // 最终回退：将嵌入的源文件解压到用户数据目录。
     ensure_hook_data_dir()
 }
 
@@ -228,7 +228,7 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
 /// 若 shim 源码无变化则复用已有产物（快速路径）。
 #[cfg(windows)]
 fn build_hook_windows() -> Result<PathBuf> {
-    let base = data_dir().ok_or_else(|| anyhow!("cannot determine APPDATA directory"))?;
+    let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
     let hook_dir = base.join("cpp2rust-demo").join("hook");
     std::fs::create_dir_all(&hook_dir)
         .map_err(|e| anyhow!("create_dir_all {}: {}", hook_dir.display(), e))?;

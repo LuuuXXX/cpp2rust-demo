@@ -337,7 +337,10 @@ pub fn find_archive_files(dir: &Path) -> Vec<PathBuf> {
                 result.extend(find_archive_files(&path));
             } else {
                 let ext = path.extension().and_then(|e| e.to_str());
-                let is_archive = ext == Some("a") || (cfg!(windows) && ext == Some("lib"));
+                #[cfg(windows)]
+                let is_archive = ext == Some("a") || ext == Some("lib");
+                #[cfg(not(windows))]
+                let is_archive = ext == Some("a");
                 if is_archive {
                     result.push(path);
                 }
