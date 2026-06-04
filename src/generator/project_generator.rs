@@ -174,8 +174,8 @@ pub fn derive_unit_path(c_dir: &Path, cpp2rust_file: &Path) -> String {
 /// 保留前缀的 lex 错误。在 hicc::cpp! 中 C++ 代码以 token stream 传入，Rust 2021
 /// 会在 proc macro 执行前就报 lex error；2018 则将其 tokenize 为标识符 `L` + 字符字面量。
 ///
-/// 包含 `hicc-std`：当 C++ API 使用 STL 类型（`std::string`、`std::vector<T>` 等）时，
-/// 生成代码需要 `hicc_std::` 类型别名；始终声明该依赖可确保生成的项目开箱即用。
+/// 默认不声明 `hicc-std`，因为其当前发布版本在 macOS libc++ 上会编译失败。
+/// 生成代码如果实际引用 `hicc_std::`，再由调用方按需添加该依赖。
 pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
     let content = format!(
         r#"[package]
@@ -189,11 +189,12 @@ path = "src/lib.rs"
 
 [dependencies]
 hicc = {{ version = "0.2" }}
-hicc-std = {{ version = "0.2" }}
 
 [build-dependencies]
 hicc-build = {{ version = "0.2" }}
 cc = "1.0"
+
+[workspace]
 "#,
         feature_name = feature_name,
         lib_name = feature_name.replace('-', "_"),
@@ -290,11 +291,12 @@ path = "src/lib.rs"
 
 [dependencies]
 hicc = {{ version = "0.2" }}
-hicc-std = {{ version = "0.2" }}
 
 [build-dependencies]
 hicc-build = {{ version = "0.2" }}
 cc = "1.0"
+
+[workspace]
 "#,
         combined_name = combined_name,
         lib_name = lib_name,

@@ -21,6 +21,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <crt_externs.h>
+#endif
+
 #include <vector>
 
 #define MAX_PATH_LEN 8192
@@ -106,7 +110,30 @@ static inline char* path_from(const char* env) {
         return realpath(path, 0);
 }
 
-static int read_proc_cmdline(char*** out_argv) {
+static int read_current_cmdline(char*** out_argv) {
+#ifdef __APPLE__
+        int argc = *_NSGetArgc();
+        char** argv = *_NSGetArgv();
+        if (argc <= 0 || !argv) return -1;
+
+        char** copied = static_cast<char**>(malloc((size_t)(argc + 1) * sizeof(char*)));
+        if (!copied) {
+                DBG("malloc failed for argv (%d entries)\n", argc);
+                return -1;
+        }
+        for (int i = 0; i < argc; i++) {
+                copied[i] = strdup(argv[i] ? argv[i] : "");
+                if (!copied[i]) {
+                        DBG("strdup failed at arg %d\n", i);
+                        for (int j = 0; j < i; j++) free(copied[j]);
+                        free(copied);
+                        return -1;
+                }
+        }
+        copied[argc] = NULL;
+        *out_argv = copied;
+        return argc;
+#else
         int fd = open("/proc/self/cmdline", O_RDONLY);
         if (fd < 0) {
                 DBG("open /proc/self/cmdline failed: errno=%d\n", errno);
@@ -152,6 +179,7 @@ static int read_proc_cmdline(char*** out_argv) {
 
         *out_argv = argv;
         return idx;
+#endif
 }
 
 static void free_cmdline(char** argv, int argc) {
@@ -442,9 +470,9 @@ __attribute__((constructor)) static void cpp2rust_hook(void) {
                 goto fail;
         }
 
-        argc = read_proc_cmdline(&argv);
+        argc = read_current_cmdline(&argv);
         if (argc < 1) {
-                DBG("failed to read /proc/self/cmdline\n");
+                DBG("failed to read current command line\n");
                 goto fail;
         }
 

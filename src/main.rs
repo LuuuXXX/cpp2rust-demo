@@ -461,7 +461,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             .iter()
             .map(|p| (p, count_file_lines(p)))
             .collect();
-        sizes.sort_by(|a, b| b.1.cmp(&a.1));
+        sizes.sort_by_key(|(_, lines)| std::cmp::Reverse(*lines));
         let total: usize = sizes.iter().map(|(_, n)| n).sum();
         println!("\n── 捕获的 .cpp2rust 文件（行数，降序）──");
         for (path, lines) in sizes.iter().take(15) {
@@ -698,7 +698,10 @@ fn opaque_import_class_block(type_name: &str) -> String {
 /// 返回 `true` 当且仅当 `s` 是合法的 C++/Rust 标识符（ASCII 字母、数字、下划线，首字符非数字）。
 fn is_valid_identifier(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
+        && s
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
@@ -865,7 +868,7 @@ mod tests {
     #[test]
     fn multi_feature_combined_name_uses_underscore_join() {
         // 验证多 feature 合并时目录名由 features.join("_") 生成
-        let features = vec!["linux_x86".to_string(), "arm_embedded".to_string()];
+        let features = ["linux_x86".to_string(), "arm_embedded".to_string()];
         let combined_name = features.join("_");
         assert_eq!(combined_name, "linux_x86_arm_embedded");
     }
