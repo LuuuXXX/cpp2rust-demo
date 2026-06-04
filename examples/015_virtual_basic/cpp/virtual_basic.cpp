@@ -1,6 +1,6 @@
+#define _USE_MATH_DEFINES
 #include "virtual_basic.h"
 #include <iostream>
-#define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstring>
 #include <string>
