@@ -348,7 +348,7 @@ fn run_with_hook_windows(
     // 将临时目录插入 PATH 最前面
     let old_path = std::env::var_os("PATH").unwrap_or_default();
     let new_path = std::env::join_paths(
-        std::iter::once(tmp_dir.path().as_os_str()).chain(std::env::split_paths(&old_path)),
+        std::iter::once(tmp_dir.path().to_path_buf()).chain(std::env::split_paths(&old_path)),
     )
     .map_err(|e| anyhow!("join_paths: {}", e))?;
 
