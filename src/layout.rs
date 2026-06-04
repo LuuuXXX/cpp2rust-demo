@@ -218,7 +218,7 @@ impl FeatureLayout {
             "- **生成 `.rs` 文件总数：** {}\n",
             data.rs_file_count
         ));
-        out.push_str("\n");
+        out.push('\n');
 
         // 冲突
         out.push_str("## 冲突\n\n");

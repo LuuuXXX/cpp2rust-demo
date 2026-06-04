@@ -1,5 +1,6 @@
 use crate::error::Result;
 use anyhow::anyhow;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -7,13 +8,13 @@ use std::process::{Command, Stdio};
 const HOOK_CPP: &str = include_str!("../hook/hook.cpp");
 const HOOK_MAKEFILE: &str = include_str!("../hook/Makefile");
 
-/// 从 `hook/Makefile` 构建 `libhook.so`。
+/// 从 `hook/Makefile` 构建当前平台的 hook 动态库。
 ///
-/// 若 `libhook.so` 已存在且比 `hook.cpp` 更新，则跳过编译（快速路径）。
-/// 返回 `libhook.so` 的路径。
+/// 若 hook 动态库已存在且比 `hook.cpp` 更新，则跳过编译（快速路径）。
+/// 返回 hook 动态库的路径。
 pub fn build_hook() -> Result<PathBuf> {
     let hook_dir = hook_dir()?;
-    let so = hook_dir.join("libhook.so");
+    let so = hook_dir.join(hook_library_name());
     let cpp = hook_dir.join("hook.cpp");
 
     // 快速路径：若 .so 比 hook.cpp 更新，则跳过重新编译。
@@ -45,7 +46,7 @@ pub fn build_hook() -> Result<PathBuf> {
 
     if !so.exists() {
         return Err(anyhow!(
-            "libhook.so not found after build at {}",
+            "hook library not found after build at {}",
             so.display()
         ));
     }
@@ -54,7 +55,7 @@ pub fn build_hook() -> Result<PathBuf> {
     Ok(so)
 }
 
-/// 使用 LD_PRELOAD 设置为 libhook.so，执行用户提供的构建命令。
+/// 注入 hook 动态库并执行用户提供的构建命令。
 pub fn run_with_hook(
     build_dir: &Path,
     cmd: &[String],
@@ -79,17 +80,30 @@ pub fn run_with_hook(
     println!("Running build command: {}", cmd.join(" "));
     println!("  CPP2RUST_PROJECT_ROOT = {}", abs_project_root.display());
     println!("  CPP2RUST_FEATURE_ROOT = {}", abs_feature_root.display());
-    println!("  LD_PRELOAD            = {}", abs_hook.display());
+    println!(
+        "  {}            = {}",
+        hook_injection_env(),
+        abs_hook.display()
+    );
     println!();
 
-    let status = Command::new(&cmd[0])
+    #[cfg(target_os = "macos")]
+    capture_direct_compiler_command(build_dir, cmd, &abs_project_root, &abs_feature_root)?;
+
+    let mut command = Command::new(&cmd[0]);
+    command
         .args(&cmd[1..])
         .current_dir(build_dir)
-        .env("LD_PRELOAD", &abs_hook)
+        .env(hook_injection_env(), &abs_hook)
         .env("CPP2RUST_PROJECT_ROOT", &abs_project_root)
         .env("CPP2RUST_FEATURE_ROOT", &abs_feature_root)
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    #[cfg(target_os = "macos")]
+    command.env("DYLD_FORCE_FLAT_NAMESPACE", "1");
+
+    let status = command
         .status()
         .map_err(|e| anyhow!("failed to spawn '{}': {}", cmd[0], e))?;
 
@@ -100,6 +114,215 @@ pub fn run_with_hook(
         ));
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn capture_direct_compiler_command(
+    build_dir: &Path,
+    cmd: &[String],
+    project_root: &Path,
+    feature_root: &Path,
+) -> Result<()> {
+    if !is_cpp_compiler(&cmd[0]) {
+        return Ok(());
+    }
+
+    let parsed = parse_compiler_command(build_dir, &cmd[1..]);
+    if parsed.cpp_files.is_empty() {
+        return Ok(());
+    }
+
+    for cpp_file in parsed.cpp_files {
+        preprocess_direct_cpp_file(
+            build_dir,
+            &cmd[0],
+            &parsed.preprocess_args,
+            &cpp_file,
+            project_root,
+            feature_root,
+        )?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+struct ParsedCompilerCommand {
+    preprocess_args: Vec<String>,
+    cpp_files: Vec<PathBuf>,
+}
+
+#[cfg(target_os = "macos")]
+fn parse_compiler_command(build_dir: &Path, args: &[String]) -> ParsedCompilerCommand {
+    let mut preprocess_args = Vec::new();
+    let mut cpp_files = Vec::new();
+    let mut i = 0;
+
+    while i < args.len() {
+        let arg = &args[i];
+
+        if arg == "-o" {
+            i += 2;
+            continue;
+        }
+        if arg.starts_with("-o") && arg.len() > 2 {
+            i += 1;
+            continue;
+        }
+
+        if arg == "-include" || arg == "-isystem" || arg == "-iquote" {
+            preprocess_args.push(arg.clone());
+            if let Some(value) = args.get(i + 1) {
+                preprocess_args.push(value.clone());
+            }
+            i += 2;
+            continue;
+        }
+
+        if is_preserved_preprocess_arg(arg) {
+            preprocess_args.push(arg.clone());
+            if (arg == "-I" || arg == "-D" || arg == "-U") && args.get(i + 1).is_some() {
+                i += 1;
+                preprocess_args.push(args[i].clone());
+            }
+            i += 1;
+            continue;
+        }
+
+        if !arg.starts_with('-') && is_cpp_file(arg) {
+            let path = build_dir.join(arg);
+            if path.is_file() {
+                cpp_files.push(path);
+            }
+        }
+
+        i += 1;
+    }
+
+    ParsedCompilerCommand {
+        preprocess_args,
+        cpp_files,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn preprocess_direct_cpp_file(
+    build_dir: &Path,
+    compiler: &str,
+    preprocess_args: &[String],
+    cpp_file: &Path,
+    project_root: &Path,
+    feature_root: &Path,
+) -> Result<()> {
+    let cpp_file = cpp_file
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", cpp_file.display(), e))?;
+    let rel = cpp_file.strip_prefix(project_root).map_err(|_| {
+        anyhow!(
+            "{} is not under {}",
+            cpp_file.display(),
+            project_root.display()
+        )
+    })?;
+    let out = feature_root.join("c").join(rel).with_extension(format!(
+        "{}cpp2rust",
+        rel.extension()
+            .and_then(OsStr::to_str)
+            .map(|ext| format!("{}.", ext))
+            .unwrap_or_default()
+    ));
+
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| anyhow!("create dir {}: {}", parent.display(), e))?;
+    }
+
+    let opts = out.with_extension(format!(
+        "{}opts",
+        out.extension()
+            .and_then(OsStr::to_str)
+            .map(|ext| format!("{}.", ext))
+            .unwrap_or_default()
+    ));
+    std::fs::write(&opts, quote_args(preprocess_args))
+        .map_err(|e| anyhow!("write {}: {}", opts.display(), e))?;
+
+    let status = Command::new(compiler)
+        .arg("-E")
+        .arg("-C")
+        .arg(&cpp_file)
+        .arg("-o")
+        .arg(&out)
+        .args(preprocess_args)
+        .current_dir(build_dir)
+        .status()
+        .map_err(|e| anyhow!("failed to preprocess {}: {}", cpp_file.display(), e))?;
+
+    if !status.success() {
+        return Err(anyhow!(
+            "preprocess failed for {} with exit code {}",
+            cpp_file.display(),
+            status.code().unwrap_or(-1)
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn is_cpp_compiler(command: &str) -> bool {
+    let Some(name) = Path::new(command).file_name().and_then(OsStr::to_str) else {
+        return false;
+    };
+    ["g++", "clang++", "c++"].iter().any(|compiler| {
+        name == *compiler
+            || name
+                .strip_prefix(compiler)
+                .is_some_and(|rest| rest.starts_with('-'))
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn is_cpp_file(path: &str) -> bool {
+    ["cpp", "cc", "cxx", "c++", "C", "cp"]
+        .iter()
+        .any(|ext| path.ends_with(&format!(".{ext}")))
+}
+
+#[cfg(target_os = "macos")]
+fn is_preserved_preprocess_arg(arg: &str) -> bool {
+    arg == "-I"
+        || arg == "-D"
+        || arg == "-U"
+        || arg.starts_with("-I")
+        || arg.starts_with("-D")
+        || arg.starts_with("-U")
+        || arg.starts_with("-std=")
+        || arg == "-fshort-enums"
+}
+
+#[cfg(target_os = "macos")]
+fn quote_args(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| format!("\"{}\"", arg.replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn hook_library_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "libhook.dylib"
+    } else {
+        "libhook.so"
+    }
+}
+
+fn hook_injection_env() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "DYLD_INSERT_LIBRARIES"
+    } else {
+        "LD_PRELOAD"
+    }
 }
 
 /// 从运行中二进制文件所在目录开始向上查找 `hook/` 目录。
@@ -197,8 +420,7 @@ fn data_dir() -> Option<PathBuf> {
 ///
 /// 使用 `HOME` 环境变量，这是标准的 POSIX 机制，
 /// 适用于 Linux、macOS 及大多数类 Unix 系统。
-/// 本工具依赖 LD_PRELOAD 和 ELF 共享库，不支持 Windows，
-/// 因此无需 Windows 专用的回退逻辑。
+/// 本工具依赖 Unix 动态库注入机制，不支持 Windows，因此无需 Windows 专用的回退逻辑。
 fn dirs_home() -> Option<PathBuf> {
     // 优先使用 HOME 环境变量（适用于大多数 POSIX 环境）。
     if let Some(h) = std::env::var_os("HOME") {
