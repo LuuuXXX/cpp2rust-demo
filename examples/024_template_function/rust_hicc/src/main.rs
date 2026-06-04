@@ -11,6 +11,9 @@ hicc::import_lib! {
     #[cpp(func = "void swap_double(double*, double*)")]
     unsafe fn swap_double(a: *mut f64, b: *mut f64);
 
+    #[cpp(func = "void swap_char(char*, char*)")]
+    unsafe fn swap_char(a: *mut i8, b: *mut i8);
+
     #[cpp(func = "void swap_int_array(int*, int, int)")]
     unsafe fn swap_int_array(arr: *mut i32, i: i32, j: i32);
 
@@ -22,7 +25,9 @@ hicc::import_lib! {
 }
 
 extern "C" {
-    fn swap_char(a: *mut i8, b: *mut i8);
+    // Windows MSVC: hicc wrapper for char* has ABI issues; use direct C binding.
+    #[link_name = "swap_char"]
+    fn swap_char_raw(a: *mut i8, b: *mut i8);
 }
 
 fn main() {
@@ -50,7 +55,7 @@ fn main() {
     let mut c1 = b'A' as i8;
     let mut c2 = b'B' as i8;
     println!("Before swap: c1 = {}, c2 = {}", c1 as u8 as char, c2 as u8 as char);
-    unsafe { swap_char(&mut c1, &mut c2); }
+    unsafe { swap_char_raw(&mut c1, &mut c2); }
     println!("After swap: c1 = {}, c2 = {}", c1 as u8 as char, c2 as u8 as char);
 
     println!();
