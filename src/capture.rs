@@ -220,12 +220,16 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
 
 // ─────────────────────────────────────────────────────────────────
 //  Windows 实现（PATH 注入 + hook_shim.exe）
+//  支持 GNU（g++/clang++）和 MSVC（cl.exe）两种编译器
 // ─────────────────────────────────────────────────────────────────
 
 /// 将 `hook_shim.rs` 写入数据目录并使用 `rustc` 编译为 `hook_shim.exe`。
 ///
 /// 产物路径：`%APPDATA%\cpp2rust-demo\hook\hook_shim.exe`
 /// 若 shim 源码无变化则复用已有产物（快速路径）。
+///
+/// 同一个 `hook_shim.exe` 同时支持 GNU 和 MSVC 两种模式：
+/// 运行时通过 `CPP2RUST_COMPILER_KIND` 环境变量（由 `run_with_hook_windows` 设置）区分。
 #[cfg(windows)]
 fn build_hook_windows() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
@@ -276,12 +280,34 @@ fn build_hook_windows() -> Result<PathBuf> {
     Ok(shim_exe)
 }
 
+/// Windows 编译器类型，用于向 hook_shim 传递正确的预处理策略。
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsCompilerKind {
+    /// GCC/Clang（g++.exe / clang++.exe / c++.exe）
+    Gnu,
+    /// MSVC（cl.exe）
+    Msvc,
+}
+
+#[cfg(windows)]
+impl WindowsCompilerKind {
+    /// 对应 `CPP2RUST_COMPILER_KIND` 环境变量的字符串值。
+    fn env_value(self) -> &'static str {
+        match self {
+            WindowsCompilerKind::Gnu => "gnu",
+            WindowsCompilerKind::Msvc => "msvc",
+        }
+    }
+}
+
 /// 通过 PATH 注入将 `hook_shim.exe` 伪装成真实编译器，然后执行用户构建命令。
 ///
 /// 流程：
-///  1. 在临时目录中将 hook_shim.exe 以真实编译器基名（如 `g++.exe`）命名。
+///  1. 在临时目录中将 hook_shim.exe 以真实编译器基名（如 `g++.exe` / `cl.exe`）命名。
 ///  2. 将该临时目录插入 PATH 最前面。
-///  3. 设置 `CPP2RUST_REAL_CC`、`CPP2RUST_PROJECT_ROOT`、`CPP2RUST_FEATURE_ROOT`。
+///  3. 设置 `CPP2RUST_REAL_CC`、`CPP2RUST_COMPILER_KIND`、`CPP2RUST_PROJECT_ROOT`、
+///     `CPP2RUST_FEATURE_ROOT`。
 ///  4. 执行构建命令；shim 拦截编译调用并生成 .cpp2rust 文件。
 #[cfg(windows)]
 fn run_with_hook_windows(
@@ -302,9 +328,10 @@ fn run_with_hook_windows(
         .canonicalize()
         .map_err(|e| anyhow!("canonicalize {}: {}", feature_root.display(), e))?;
 
-    // 找到真实 C++ 编译器（绕过 shim 目录本身）
-    let real_cc = detect_windows_cxx_compiler()
-        .ok_or_else(|| anyhow!("no C++ compiler (g++/clang++) found in PATH"))?;
+    // 找到真实 C++ 编译器（绕过 shim 目录本身），同时获取编译器类型
+    let (real_cc, cc_kind) = detect_windows_cxx_compiler().ok_or_else(|| {
+        anyhow!("no C++ compiler (g++/clang++/cl.exe) found in PATH")
+    })?;
 
     // 将 shim 放入临时目录，以真实编译器基名命名
     let tmp_dir = tempfile::Builder::new()
@@ -326,9 +353,10 @@ fn run_with_hook_windows(
     .map_err(|e| anyhow!("join_paths: {}", e))?;
 
     println!("Running build command: {}", cmd.join(" "));
-    println!("  CPP2RUST_PROJECT_ROOT = {}", abs_project_root.display());
-    println!("  CPP2RUST_FEATURE_ROOT = {}", abs_feature_root.display());
-    println!("  CPP2RUST_REAL_CC      = {}", real_cc.display());
+    println!("  CPP2RUST_PROJECT_ROOT  = {}", abs_project_root.display());
+    println!("  CPP2RUST_FEATURE_ROOT  = {}", abs_feature_root.display());
+    println!("  CPP2RUST_REAL_CC       = {}", real_cc.display());
+    println!("  CPP2RUST_COMPILER_KIND = {}", cc_kind.env_value());
     println!();
 
     let status = Command::new(&cmd[0])
@@ -336,6 +364,7 @@ fn run_with_hook_windows(
         .current_dir(build_dir)
         .env("PATH", new_path)
         .env("CPP2RUST_REAL_CC", &real_cc)
+        .env("CPP2RUST_COMPILER_KIND", cc_kind.env_value())
         .env("CPP2RUST_PROJECT_ROOT", &abs_project_root)
         .env("CPP2RUST_FEATURE_ROOT", &abs_feature_root)
         .stdout(Stdio::inherit())
@@ -352,19 +381,38 @@ fn run_with_hook_windows(
     Ok(())
 }
 
-/// 在当前 PATH 中搜索 g++ / clang++ / c++ 编译器，返回第一个找到的完整路径。
+/// 在当前 PATH 中搜索 C++ 编译器，返回第一个找到的完整路径及其类型。
+///
+/// 搜索顺序（GNU 优先，以便在同时安装 MinGW 和 MSVC 时保持向后兼容）：
+/// 1. g++.exe / clang++.exe / c++.exe（GNU ABI）
+/// 2. cl.exe（MSVC）
+///
+/// 若系统同时存在 GNU 和 MSVC 编译器，GNU 将优先被选择。
+/// 如需强制使用 MSVC，可在调用 `cpp2rust-demo init` 之前将 MSVC 的 bin 目录排列在 PATH 最前面
+/// 并确保 g++/clang++ 不在 PATH 中。
 #[cfg(windows)]
-fn detect_windows_cxx_compiler() -> Option<PathBuf> {
-    let candidates = ["g++.exe", "clang++.exe", "c++.exe"];
+fn detect_windows_cxx_compiler() -> Option<(PathBuf, WindowsCompilerKind)> {
     let path_var = std::env::var_os("PATH")?;
+
+    // 第一轮：优先搜索 GNU 编译器
+    let gnu_candidates = ["g++.exe", "clang++.exe", "c++.exe"];
     for dir in std::env::split_paths(&path_var) {
-        for name in &candidates {
+        for name in &gnu_candidates {
             let full = dir.join(name);
             if full.is_file() {
-                return Some(full);
+                return Some((full, WindowsCompilerKind::Gnu));
             }
         }
     }
+
+    // 第二轮：搜索 MSVC cl.exe
+    for dir in std::env::split_paths(&path_var) {
+        let full = dir.join("cl.exe");
+        if full.is_file() {
+            return Some((full, WindowsCompilerKind::Msvc));
+        }
+    }
+
     None
 }
 
