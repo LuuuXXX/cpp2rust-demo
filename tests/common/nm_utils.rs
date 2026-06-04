@@ -22,6 +22,42 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // ─────────────────────────────────────────────────────────────────
+//  nm / llvm-nm wrapper
+// ─────────────────────────────────────────────────────────────────
+
+/// Run `nm --defined-only -f posix` (or `llvm-nm` on Windows) on the given path.
+///
+/// On Windows, `llvm-nm` produces the same posix-format output as GNU `nm`,
+/// making the existing `parse_nm_output` directly reusable.
+fn run_nm(path: &Path) -> std::io::Result<std::process::Output> {
+    #[cfg(not(windows))]
+    {
+        Command::new("nm")
+            .args(["--defined-only", "-f", "posix"])
+            .arg(path)
+            .output()
+    }
+    #[cfg(windows)]
+    {
+        // Prefer llvm-nm (ships with LLVM for Windows, same posix output format).
+        // Fall back to nm from MinGW/MSYS2.
+        for tool in &["llvm-nm", "nm"] {
+            if let Ok(out) = Command::new(tool)
+                .args(["--defined-only", "--format=posix"])
+                .arg(path)
+                .output()
+            {
+                return Ok(out);
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "neither llvm-nm nor nm found; install LLVM or MinGW/MSYS2",
+        ))
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  nm output parsing
 // ─────────────────────────────────────────────────────────────────
 
@@ -64,7 +100,8 @@ fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
 // ─────────────────────────────────────────────────────────────────
 
 /// Compile one or more C++ source files to a combined object file (partial link
-/// using `g++ -r`) so that a single `.o` can be nm-ed.
+/// using `g++ -r` on Linux/macOS, `llvm-link` or `clang++` on Windows) so that
+/// a single `.o` can be nm-ed.
 ///
 /// Returns the path to the output `.o` file, or `None` on failure.
 pub fn compile_cpp_obj(srcs: &[&Path], includes: &[&str], out_path: &Path) -> Option<PathBuf> {
@@ -82,16 +119,8 @@ pub fn compile_cpp_obj(srcs: &[&Path], includes: &[&str], out_path: &Path) -> Op
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "obj".to_string());
         let obj = out_path.with_file_name(format!("{}.{}.tmp.o", stem, i));
-        let mut cmd = Command::new("g++");
-        cmd.args(["-c", "-fPIC", "-w"]);
-        for inc in includes {
-            cmd.arg(format!("-I{}", inc));
-        }
-        cmd.arg(src);
-        cmd.arg("-o");
-        cmd.arg(&obj);
-        let status = cmd.status().ok()?;
-        if !status.success() {
+        let status = cxx_compile_obj(src, includes, &obj)?;
+        if !status {
             return None;
         }
         obj_paths.push(obj);
@@ -102,14 +131,8 @@ pub fn compile_cpp_obj(srcs: &[&Path], includes: &[&str], out_path: &Path) -> Op
         std::fs::rename(&obj_paths[0], out_path).ok()?;
     } else {
         // Partial link (relocatable) to merge all objects into one.
-        let mut cmd = Command::new("g++");
-        cmd.args(["-r", "-o"]);
-        cmd.arg(out_path);
-        for obj in &obj_paths {
-            cmd.arg(obj);
-        }
-        let status = cmd.status().ok()?;
-        if !status.success() {
+        let status = cxx_partial_link(&obj_paths, out_path)?;
+        if !status {
             return None;
         }
         // Clean up temporaries.
@@ -121,17 +144,74 @@ pub fn compile_cpp_obj(srcs: &[&Path], includes: &[&str], out_path: &Path) -> Op
     Some(out_path.to_path_buf())
 }
 
+/// Compile a single C++ source to a `.o` file. Returns `Some(true)` on success.
+fn cxx_compile_obj(src: &Path, includes: &[&str], obj: &Path) -> Option<bool> {
+    #[cfg(not(windows))]
+    {
+        let mut cmd = Command::new("g++");
+        cmd.args(["-c", "-fPIC", "-w"]);
+        for inc in includes {
+            cmd.arg(format!("-I{}", inc));
+        }
+        cmd.arg(src).arg("-o").arg(obj);
+        Some(cmd.status().ok()?.success())
+    }
+    #[cfg(windows)]
+    {
+        // On Windows: prefer clang++ (compatible output), fall back to g++ (MinGW)
+        for compiler in &["clang++", "g++"] {
+            let mut cmd = Command::new(compiler);
+            cmd.args(["-c", "-fPIC", "-w"]);
+            for inc in includes {
+                cmd.arg(format!("-I{}", inc));
+            }
+            cmd.arg(src).arg("-o").arg(obj);
+            if let Ok(status) = cmd.status() {
+                if status.success() {
+                    return Some(true);
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Partial-link (relocatable) multiple object files into one. Returns `Some(true)` on success.
+fn cxx_partial_link(objs: &[PathBuf], out: &Path) -> Option<bool> {
+    #[cfg(not(windows))]
+    {
+        let mut cmd = Command::new("g++");
+        cmd.args(["-r", "-o"]).arg(out);
+        for obj in objs {
+            cmd.arg(obj);
+        }
+        Some(cmd.status().ok()?.success())
+    }
+    #[cfg(windows)]
+    {
+        for compiler in &["clang++", "g++"] {
+            let mut cmd = Command::new(compiler);
+            cmd.args(["-r", "-o"]).arg(out);
+            for obj in objs {
+                cmd.arg(obj);
+            }
+            if let Ok(status) = cmd.status() {
+                if status.success() {
+                    return Some(true);
+                }
+            }
+        }
+        None
+    }
+}
+
 /// Extract extern-"C" exported symbols from a compiled `.o` file.
 ///
 /// Returns symbols whose nm type is `T` or `W` (text section, including weak)
 /// and whose name does **not** start with `_Z` (C++ mangled). This identifies
 /// functions declared `extern "C"` in the source.
 pub fn nm_c_exports(obj_path: &Path) -> Vec<String> {
-    let output = Command::new("nm")
-        .args(["--defined-only", "-f", "posix"])
-        .arg(obj_path)
-        .output()
-        .expect("Failed to run nm on .o file");
+    let output = run_nm(obj_path).expect("Failed to run nm/llvm-nm on .o file");
 
     let text = String::from_utf8_lossy(&output.stdout);
     let mut syms: Vec<String> = parse_nm_output(&text, &['T', 'W'])
@@ -142,14 +222,10 @@ pub fn nm_c_exports(obj_path: &Path) -> Vec<String> {
     syms
 }
 
-/// Extract all symbols from a static archive (`.a` file) that are of type
+/// Extract all symbols from a static archive (`.a` or `.lib` file) that are of type
 /// `T` or `W` and do not have C++ mangled names.
 pub fn nm_archive_c_exports(archive_path: &Path) -> HashSet<String> {
-    let output = Command::new("nm")
-        .args(["--defined-only", "-f", "posix"])
-        .arg(archive_path)
-        .output()
-        .expect("Failed to run nm on .a file");
+    let output = run_nm(archive_path).expect("Failed to run nm/llvm-nm on archive file");
 
     let text = String::from_utf8_lossy(&output.stdout);
     parse_nm_output(&text, &['T', 'W'])
@@ -166,11 +242,7 @@ pub fn nm_archive_c_exports(archive_path: &Path) -> HashSet<String> {
 /// library). Only symbols that appear in `filter_by` are returned, so the
 /// result represents "C++ exports actually linked into the Rust binary".
 pub fn nm_binary_t_symbols(bin_path: &Path, filter_by: &HashSet<String>) -> HashSet<String> {
-    let output = Command::new("nm")
-        .args(["--defined-only", "-f", "posix"])
-        .arg(bin_path)
-        .output()
-        .expect("Failed to run nm on binary");
+    let output = run_nm(bin_path).expect("Failed to run nm/llvm-nm on binary");
 
     let text = String::from_utf8_lossy(&output.stdout);
     parse_nm_output(&text, &['T', 'W'])
@@ -255,7 +327,7 @@ pub fn cargo_build_example(dir: &str, bin_name: &str) -> Option<PathBuf> {
     }
 }
 
-/// Recursively find all `.a` static-library files under `dir`.
+/// Recursively find all static-library files (`.a` on Unix, `.a` and `.lib` on Windows) under `dir`.
 pub fn find_archive_files(dir: &Path) -> Vec<PathBuf> {
     let mut result = Vec::new();
     if let Ok(rd) = std::fs::read_dir(dir) {
@@ -263,8 +335,12 @@ pub fn find_archive_files(dir: &Path) -> Vec<PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 result.extend(find_archive_files(&path));
-            } else if path.extension().and_then(|e| e.to_str()) == Some("a") {
-                result.push(path);
+            } else {
+                let ext = path.extension().and_then(|e| e.to_str());
+                let is_archive = ext == Some("a") || (cfg!(windows) && ext == Some("lib"));
+                if is_archive {
+                    result.push(path);
+                }
             }
         }
     }

@@ -7,8 +7,7 @@
 //! ```text
 //! .cpp2rust/<feature>/rust/
 //!     ├── src.1/   ← 原始 init 输出的备份
-//!     ├── src.2/   ← merge 输出（目录结构与 init 一致）
-//!     └── src      ← symlink → src.2
+//!     └── src/     ← merge 输出（真实目录，跨平台）
 //! ```
 
 pub mod block_parser;
@@ -284,10 +283,10 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 
 /// 将 `rust_dir/src`（init 输出）整理为带备份的 merge 输出：
 ///
-/// - 首次运行：`src/` → rename → `src.1/`；复制 `src.1/` → `src.2/`；建 symlink `src → src.2`
-/// - 重复运行：删除旧 symlink；重新复制 `src.1/` → `src.2/`；重建 symlink `src → src.2`
+/// - 首次运行：`src/` → rename → `src.1/`；复制 `src.1/` → `src.2/`（暂存）；rename `src.2` → `src`
+/// - 重复运行：删除旧 `src/`；重新复制 `src.1/` → `src.2/`（暂存）；rename `src.2` → `src`
 ///
-/// 目录结构始终维持与 C++ 项目一致的子目录层级。
+/// `src` 始终是真实目录（非 symlink），跨 Linux / macOS / Windows 三平台行为一致。
 pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
     let src = rust_dir.join("src");
     let src1 = rust_dir.join("src.1");
@@ -317,7 +316,7 @@ pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
 
     // ── 处理 src ──
     if src.is_symlink() {
-        // 重复运行：删除旧 symlink
+        // 历史遗留 symlink（从旧版本迁移）：删除
         std::fs::remove_file(&src)
             .map_err(|e| anyhow!("remove symlink {}: {}", src.display(), e))?;
     } else if src.is_dir() {
@@ -330,14 +329,9 @@ pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
             .map_err(|e| anyhow!("rename {} → {}: {}", src.display(), src1.display(), e))?;
     }
 
-    // ── 建 symlink src → src.2（相对路径）──
-    #[cfg(unix)]
-    std::os::unix::fs::symlink("src.2", &src).map_err(|e| anyhow!("symlink src → src.2: {}", e))?;
-    #[cfg(not(unix))]
-    return Err(anyhow!(
-        "merge_in_place requires symlink support, which is only available on Unix-like systems \
-         (Linux, macOS); Windows is not supported"
-    ));
+    // ── 原子性地将暂存目录 src.2 rename 为 src ──
+    std::fs::rename(&src2, &src)
+        .map_err(|e| anyhow!("rename {} → {}: {}", src2.display(), src.display(), e))?;
 
     Ok(())
 }
@@ -542,7 +536,7 @@ hicc::import_lib! {
     // ── merge_in_place ─────────────────────────
 
     #[test]
-    fn merge_in_place_creates_backup_and_symlink() {
+    fn merge_in_place_creates_backup_and_real_dir() {
         let tmp = tempfile::TempDir::new().unwrap();
         let rust_dir = tmp.path().to_path_buf();
         let src = rust_dir.join("src");
@@ -557,15 +551,21 @@ hicc::import_lib! {
             "src.1 should be backup dir"
         );
         assert!(rust_dir.join("src.1/lib.rs").exists());
-        // src.2 是 merge 输出
+        // src 是真实目录（非 symlink）
         assert!(
-            rust_dir.join("src.2").is_dir(),
-            "src.2 should be merge output"
+            rust_dir.join("src").is_dir(),
+            "src should be a real directory"
         );
-        assert!(rust_dir.join("src.2/lib.rs").exists());
-        // src 是 symlink
-        assert!(rust_dir.join("src").is_symlink(), "src should be a symlink");
-        // symlink 可正常访问
+        assert!(
+            !rust_dir.join("src").is_symlink(),
+            "src should not be a symlink"
+        );
+        // src.2 已被 rename 为 src，不再存在
+        assert!(
+            !rust_dir.join("src.2").exists(),
+            "src.2 should have been renamed to src"
+        );
+        // src 可正常访问
         assert!(rust_dir.join("src/lib.rs").exists());
     }
 
@@ -581,17 +581,17 @@ hicc::import_lib! {
 
         merge_in_place(&rust_dir).unwrap();
 
-        // 子目录结构在 src.2 中保留
+        // 子目录结构在 src 中保留（src.2 已被 rename 为 src）
         assert!(
-            rust_dir.join("src.2/utils/foo.rs").exists(),
-            "subdirectory structure preserved"
+            rust_dir.join("src/utils/foo.rs").exists(),
+            "subdirectory structure preserved in src"
         );
-        // 通过 symlink 可正常访问
-        assert!(rust_dir.join("src/utils/foo.rs").exists());
+        // src.1 中也保留
+        assert!(rust_dir.join("src.1/utils/foo.rs").exists());
     }
 
     #[test]
-    fn merge_in_place_rerun_updates_symlink_keeps_src1() {
+    fn merge_in_place_rerun_keeps_src1() {
         let tmp = tempfile::TempDir::new().unwrap();
         let rust_dir = tmp.path().to_path_buf();
         let src = rust_dir.join("src");
@@ -609,10 +609,9 @@ hicc::import_lib! {
             content, "// original",
             "src.1 should retain original init output"
         );
-        // src.2 正常存在
-        assert!(rust_dir.join("src.2/lib.rs").exists());
-        // src 仍是 symlink
-        assert!(rust_dir.join("src").is_symlink());
+        // src 是真实目录，可正常访问
+        assert!(rust_dir.join("src/lib.rs").exists());
+        assert!(!rust_dir.join("src").is_symlink(), "src should not be a symlink");
     }
 
     #[test]

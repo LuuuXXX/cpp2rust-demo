@@ -104,6 +104,52 @@ jobs:
             --include-ignored \
             --test-threads=1
 
+  # ── L1 Windows（MinGW）: 在 windows-latest 上验证代码生成准确性 ──
+  l1-golden-windows:
+    name: L1 Golden tests (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Run L1 golden tests
+        run: |
+          cargo test --test l1_golden_tests -- --include-ignored --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
   # ── L2: 编译测试（所有示例 rust_hicc/ 可 cargo build）───────────
   l2-compile:
     name: L2 Compile tests
@@ -133,6 +179,52 @@ jobs:
 
       - name: Run L2 compile tests
         run: cargo test --test l2_compile_tests
+
+  # ── L2 Windows（MinGW）: 在 windows-latest 上验证所有示例可编译 ──
+  l2-compile-windows:
+    name: L2 Compile tests (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Run L2 compile tests
+        run: cargo test --test l2_compile_tests
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
   # ── L3: 运行测试（cargo run 输出与 README 一致）────────────────
   l3-run:
@@ -174,6 +266,61 @@ jobs:
           cargo test --test l3_run_tests -- \
             --include-ignored \
             --test-threads=1
+
+  # ── L3 Windows（MinGW）: 在 windows-latest 上验证示例运行输出 ───
+  l3-run-windows:
+    name: L3 Run tests (Windows MinGW)
+    runs-on: windows-latest
+    needs: [l2-compile-windows]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Build C++ DLLs for all examples
+        shell: msys2 {0}
+        run: |
+          for dir in examples/*/cpp; do
+            example=$(basename $(dirname "$dir"))
+            echo "Building C++ DLL for $example..."
+            (cd "$dir" && g++ -shared *.cpp -o "${example##*_}.dll") || echo "⚠ Failed to build C++ DLL for $example (skipping)"
+          done
+
+      - name: Run L3 run tests
+        run: |
+          cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
   # ── L4: rapidjson 端到端门禁（init + merge 全流程）──────────────
   l4-rapidjson-e2e:
@@ -281,3 +428,52 @@ jobs:
             --ignored \
             --nocapture \
             --test-threads=4
+
+  # ── L5 Windows（MinGW + llvm-nm）: 符号链接验证 ─────────────────
+  l5-nm-symbols-windows:
+    name: L5 nm symbol validation (Windows MinGW)
+    runs-on: windows-latest
+    needs: [l2-compile-windows]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang + llvm-nm)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Add LLVM bin to PATH (provides llvm-nm)
+        run: echo "${{ env.LLVM_PATH }}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Run L5 nm symbol tests
+        run: |
+          cargo test --test l5_nm_symbol_tests -- --ignored --nocapture --test-threads=4
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
