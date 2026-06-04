@@ -387,6 +387,7 @@ fn run_with_hook_windows(
 /// 1. g++.exe / clang++.exe / c++.exe（GNU ABI）
 /// 2. cl.exe（MSVC）
 ///
+/// 每个 PATH 目录只遍历一次：先检查所有 GNU 候选，再检查 cl.exe。
 /// 若系统同时存在 GNU 和 MSVC 编译器，GNU 将优先被选择。
 /// 如需强制使用 MSVC，可在调用 `cpp2rust-demo init` 之前将 MSVC 的 bin 目录排列在 PATH 最前面
 /// 并确保 g++/clang++ 不在 PATH 中。
@@ -394,26 +395,29 @@ fn run_with_hook_windows(
 fn detect_windows_cxx_compiler() -> Option<(PathBuf, WindowsCompilerKind)> {
     let path_var = std::env::var_os("PATH")?;
 
-    // 第一轮：优先搜索 GNU 编译器
     let gnu_candidates = ["g++.exe", "clang++.exe", "c++.exe"];
+    let mut msvc_candidate: Option<PathBuf> = None;
+
+    // 单次遍历 PATH，同时检查 GNU 和 MSVC 候选
     for dir in std::env::split_paths(&path_var) {
+        // 优先检查 GNU 编译器
         for name in &gnu_candidates {
             let full = dir.join(name);
             if full.is_file() {
                 return Some((full, WindowsCompilerKind::Gnu));
             }
         }
-    }
-
-    // 第二轮：搜索 MSVC cl.exe
-    for dir in std::env::split_paths(&path_var) {
-        let full = dir.join("cl.exe");
-        if full.is_file() {
-            return Some((full, WindowsCompilerKind::Msvc));
+        // 记录第一个找到的 cl.exe（若尚未找到 GNU，则作为后备）
+        if msvc_candidate.is_none() {
+            let cl = dir.join("cl.exe");
+            if cl.is_file() {
+                msvc_candidate = Some(cl);
+            }
         }
     }
 
-    None
+    // 只有在没有找到任何 GNU 编译器时才使用 cl.exe
+    msvc_candidate.map(|p| (p, WindowsCompilerKind::Msvc))
 }
 
 // ─────────────────────────────────────────────────────────────────

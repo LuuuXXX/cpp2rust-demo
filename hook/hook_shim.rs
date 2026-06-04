@@ -141,21 +141,42 @@ fn main() {
 }
 
 /// 判断一个以 '/' 开头的字符串是否更像文件路径而非 MSVC 选项。
-/// 例如 `C:/foo/bar.cpp` 是路径，`/c` `/I` 是选项。
+///
+/// MSVC 已知选项前缀白名单（大小写不敏感）：
+///   /c /C /P /E /EP /TC /TP /Fo /Fe /Fi /Fd /Fp /FA /Fa /FR /Fr
+///   /I /D /U /FI /FU /EH /MD /MT /LD /LDd /MDd /MTd /W0-W4 /WX /GR /GX
+///   /O1 /O2 /Ob /Oi /Os /Ot /Ox /Oy /GL /GS /RTC /Zi /ZI /Z7 /Zo
+///   /std /arch /Zc /permissive /nologo /showIncludes /source-charset /utf-8
+///
+/// 规则：
+/// 1. 形如 `X:/...`（X 为字母）的是 Windows 绝对路径 → true
+/// 2. 若不匹配任何已知前缀，则保守地视为路径 → true
 fn looks_like_file_path(s: &str) -> bool {
-    // Windows 绝对路径形如 C:/... 或 /foo/bar（POSIX 风格）
-    // 简单启发式：若第二个字符是 ':' 或第一个 '/' 之后紧跟另一个 '/'，则为路径
     let bytes = s.as_bytes();
+    // C:/... 或 D:/...
     if bytes.len() >= 3 && bytes[1] == b':' {
-        return true; // C:/... D:/...
+        return true;
     }
-    // 单字符 '/' 后跟字母+数字组合视为 MSVC flag，否则视为路径
-    // 粗略判断：若 '/' 后的第一个字符是大写或小写字母，且长度较短，则为 flag
-    if bytes.len() <= 8 {
-        return false; // 短字符串大概率是 flag
+    // 已知 MSVC 选项前缀列表（均以 '/' 开头，大小写不敏感）
+    let known_flags: &[&str] = &[
+        "/c", "/C", "/P", "/E", "/EP", "/TC", "/TP",
+        "/Fo", "/Fe", "/Fi", "/Fd", "/Fp", "/FA", "/Fa", "/FR", "/Fr",
+        "/I", "/D", "/U", "/FI", "/FU",
+        "/EH", "/MD", "/MT", "/LD", "/LDd", "/MDd", "/MTd",
+        "/W", "/WX", "/GR", "/GX",
+        "/O", "/GL", "/GS", "/RTC",
+        "/Zi", "/ZI", "/Z7", "/Zo",
+        "/std", "/arch", "/Zc", "/permissive", "/nologo",
+        "/showIncludes", "/source-charset", "/utf-8",
+    ];
+    let lower = s.to_ascii_lowercase();
+    for flag in known_flags {
+        if lower.starts_with(&flag.to_ascii_lowercase()) {
+            return false; // 匹配已知选项 → 不是路径
+        }
     }
-    // 较长的 /xxx/yyy/zzz 可能是路径
-    s.contains('/') && s.len() > 8
+    // 未知 "/" 开头字符串，保守视为路径
+    true
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -229,9 +250,10 @@ fn preprocess_file_msvc(
     };
 
     let mut cmd = Command::new(cc);
-    // /P: 预处理到文件；/C: 保留注释；/Fi<path>: 输出路径（无空格）
+    // /P: 预处理到文件；/C: 保留注释；/Fi"<path>": 输出路径（带引号防路径含空格）
     cmd.arg("/P").arg("/C");
-    cmd.arg(format!("/Fi{}", out_path.display()));
+    let out_str = out_path.to_string_lossy();
+    cmd.arg(format!("/Fi\"{}\"", out_str));
 
     // 从原始参数中收集 MSVC 风格的包含路径、宏定义、C++ 标准
     let mut skip_next = false;
