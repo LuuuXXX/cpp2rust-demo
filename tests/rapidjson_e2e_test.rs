@@ -392,8 +392,8 @@ fn rapidjson_merge_phase() {
         "merge: src/ 目录不存在或为符号链接（merge 输出未生成）"
     );
     assert!(
-        !rust_dir.join("src.2").exists(),
-        "merge: src.2/ 应已被 rename 为 src/，不应继续存在"
+        !rust_dir.join("src.2").is_dir() && !rust_dir.join("src.2").exists(),
+        "merge: src.2 应已被 rename 为 src，不应继续存在"
     );
 
     // ── 验证 src/ 中的 .rs 文件内容符合 hicc 格式 ────────────────
