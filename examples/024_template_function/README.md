@@ -20,18 +20,49 @@ void do_swap(T* a, T* b) {
 // 必须显式实例化要导出的类型
 void swap_int(int* a, int* b) { do_swap<int>(a, b); }
 void swap_double(double* a, double* b) { do_swap<double>(a, b); }
+void swap_char(char* a, char* b) { do_swap<char>(a, b); }
+void swap_int_array(int* arr, int i, int j) { do_swap<int>(&arr[i], &arr[j]); }
+int get_int_array(int* arr, int idx) { return arr[idx]; }
+void set_int_array(int* arr, int idx, int value) { arr[idx] = value; }
 ```
 
 ## Rust FFI 代码
 
 ### main.rs
 
+工具自动生成的 `import_lib!` 脚手架包含全部 6 个导出函数：
+
 ```rust
-// 每个模板实例化导出为一个函数
-unsafe fn swap_int(a: *mut i32, b: *mut i32);
-unsafe fn swap_double(a: *mut f64, b: *mut f64);
-unsafe fn swap_char(a: *mut i8, b: *mut i8);
+hicc::import_lib! {
+    #![link_name = "template_function"]
+
+    #[cpp(func = "void swap_int(int*, int*)")]
+    unsafe fn swap_int(a: *mut i32, b: *mut i32);
+
+    #[cpp(func = "void swap_double(double*, double*)")]
+    unsafe fn swap_double(a: *mut f64, b: *mut f64);
+
+    #[cpp(func = "void swap_char(char*, char*)")]
+    unsafe fn swap_char(a: *mut i8, b: *mut i8);
+
+    #[cpp(func = "void swap_int_array(int*, int, int)")]
+    unsafe fn swap_int_array(arr: *mut i32, i: i32, j: i32);
+
+    // ...
+}
 ```
+
+> **Windows MSVC ABI 说明**：`char*` 参数在 MSVC 上经过 hicc ExportFunction 包装后存在 ABI 兼容问题，实际调用时需绕过 hicc wrapper，改用裸 `extern "C"` 绑定：
+>
+> ```rust
+> extern "C" {
+>     // Windows MSVC: hicc wrapper for char* has ABI issues; use direct C binding.
+>     #[link_name = "swap_char"]
+>     fn swap_char_raw(a: *mut i8, b: *mut i8);
+> }
+> ```
+>
+> `import_lib!` 中保留 `swap_char` 声明（与工具生成的脚手架保持一致），运行时通过 `swap_char_raw` 调用。
 
 ## FFI 对比分析
 

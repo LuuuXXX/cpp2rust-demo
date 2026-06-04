@@ -76,11 +76,11 @@ cpp2rust-demo init -- msbuild MyProject.sln
 ### 4.1 MSVC 风格（cl.exe / clang-cl.exe）
 
 - 参数以 `/` 开头（`/I<dir>`、`/D<macro>`、`/std:c++17`）
-- 预处理命令：`cl.exe /P /EP /C /Fi<output> <source>`
+- 预处理命令：`cl.exe /P /C /Fi<output> <source>`
   - `/P`：预处理到文件
-  - `/EP`：不添加 `#line` 指令（等价 `-P`）
   - `/C`：保留注释（等价 `-C`）
   - `/Fi<output>`：指定输出文件名
+  - **注意**：**不**使用 `/EP`（`/EP` 会去掉 `#line` 行号标记）；保留行号标记是必要的，libclang 依赖它们识别系统头文件（`is_in_system_header()`），从而过滤掉 MSVC 内置类型定义，避免污染提取结果。
 
 ### 4.2 GNU 风格（g++.exe / clang++.exe，MinGW-w64）
 
@@ -91,8 +91,8 @@ cpp2rust-demo init -- msbuild MyProject.sln
 ### 4.3 clang-cl 特殊性
 
 - clang-cl 接受 MSVC 风格参数（`/I`/`/D` 等）
-- 但其预处理输出格式与 clang 兼容（GNU `# line` 标记）
-- 工具将其归类为 MSVC 风格，使用 `-EP -C -o` 预处理命令
+- 工具将其归类为 MSVC 风格，使用 `/P /C /Fi<output>` 预处理命令（与 cl.exe 一致）
+- 虽然 clang-cl 的预处理输出格式与 clang 兼容，但保留 `#line` 行号标记的需求与 cl.exe 相同，因此不使用 `/EP`
 
 ---
 
