@@ -11,9 +11,6 @@ hicc::import_lib! {
     #[cpp(func = "void swap_double(double*, double*)")]
     unsafe fn swap_double(a: *mut f64, b: *mut f64);
 
-    #[cpp(func = "void swap_char(char*, char*)")]
-    unsafe fn swap_char(a: *mut i8, b: *mut i8);
-
     #[cpp(func = "void swap_int_array(int*, int, int)")]
     unsafe fn swap_int_array(arr: *mut i32, i: i32, j: i32);
 
@@ -22,6 +19,10 @@ hicc::import_lib! {
 
     #[cpp(func = "void set_int_array(int*, int, int)")]
     unsafe fn set_int_array(arr: *mut i32, idx: i32, value: i32);
+}
+
+extern "C" {
+    fn swap_char(a: *mut i8, b: *mut i8);
 }
 
 fn main() {

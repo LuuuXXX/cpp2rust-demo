@@ -40,7 +40,9 @@ StringVector::~StringVector() {
 
 // FFI wrapper functions
 struct IntVector* int_vector_new(void) {
-    return new IntVector();
+    IntVector* v = new IntVector();
+    v->impl->data.reserve(8);
+    return v;
 }
 
 void int_vector_delete(struct IntVector* self) {
