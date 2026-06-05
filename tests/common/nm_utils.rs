@@ -96,6 +96,19 @@ fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  Symbol classification helpers
+// ─────────────────────────────────────────────────────────────────
+
+/// Return `true` if the symbol name looks like a plain C (non-mangled) name.
+///
+/// Filters out all known C++ mangling schemes:
+/// - `_Z` / `__Z` — GCC/Clang mangling (Linux, macOS, MinGW)
+/// - `?`          — MSVC mangling (Windows); every MSVC-mangled name begins with `?`
+fn is_c_symbol(s: &str) -> bool {
+    !s.starts_with("_Z") && !s.starts_with("__Z") && !s.starts_with('?')
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  C++ side: compile + extract extern-C symbols
 // ─────────────────────────────────────────────────────────────────
 
@@ -241,9 +254,7 @@ pub fn nm_c_exports(obj_path: &Path) -> Vec<String> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut syms: Vec<String> = parse_nm_output(&text, &['T', 'W'])
         .into_iter()
-        .filter(|s| {
-            !s.starts_with("_Z") && !s.starts_with("__Z") && !s.starts_with('?')
-        })
+        .filter(|s| is_c_symbol(s))
         .collect();
     syms.sort();
     syms
@@ -258,9 +269,7 @@ pub fn nm_archive_c_exports(archive_path: &Path) -> HashSet<String> {
     let text = String::from_utf8_lossy(&output.stdout);
     parse_nm_output(&text, &['T', 'W'])
         .into_iter()
-        .filter(|s| {
-            !s.starts_with("_Z") && !s.starts_with("__Z") && !s.starts_with('?')
-        })
+        .filter(|s| is_c_symbol(s))
         .collect()
 }
 
