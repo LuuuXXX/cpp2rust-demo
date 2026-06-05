@@ -70,6 +70,7 @@ struct IntVector {
     size_t size() const { return impl->data.size(); }
     bool empty() const { return impl->data.empty(); }
     size_t capacity() const { return impl->data.capacity(); }
+    void reserve(size_t n) { impl->data.reserve(n); }
     int* data() { return impl->data.data(); }
     void clear() { impl->data.clear(); }
 };

@@ -20,7 +20,9 @@ void swap_double(double* a, double* b) {
 
 void swap_char(char* a, char* b) {
     std::cout << "swap_char called" << std::endl;
-    do_swap<char>(a, b);
+    char temp = *a;
+    *a = *b;
+    *b = temp;
 }
 
 void swap_int_array(int* arr, int i, int j) {

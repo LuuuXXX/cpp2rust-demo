@@ -159,9 +159,10 @@ fn cxx_compile_obj(src: &Path, includes: &[&str], obj: &Path) -> Option<bool> {
     #[cfg(windows)]
     {
         // On Windows: prefer clang++ (compatible output), fall back to g++ (MinGW)
+        // Note: -fPIC is not supported on Windows PE/COFF targets
         for compiler in &["clang++", "g++"] {
             let mut cmd = Command::new(compiler);
-            cmd.args(["-c", "-fPIC", "-w"]);
+            cmd.args(["-c", "-w"]);
             for inc in includes {
                 cmd.arg(format!("-I{}", inc));
             }
