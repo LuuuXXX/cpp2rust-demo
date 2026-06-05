@@ -15,7 +15,7 @@ int UniqueBuffer::getSize() const {
 }
 
 char* UniqueBuffer::getData() {
-    return data.data();
+    return &data[0];
 }
 
 UniqueBuffer UniqueBuffer::move() {
