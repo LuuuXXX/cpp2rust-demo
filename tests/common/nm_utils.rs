@@ -118,7 +118,11 @@ fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
 fn is_c_symbol(s: &str) -> bool {
     #[cfg(windows)]
     {
-        // `_`-prefix covers both implementation-reserved names and _Z/__Z mangling.
+        // `_`-prefix rejects names reserved for the implementation by the C and
+        // POSIX standards; it also subsumes GCC/Clang `_Z`/`__Z` mangling (MinGW)
+        // since those all start with `_`.
+        // `?`-prefix is the MSVC name-mangling scheme — every MSVC-mangled name
+        // begins with `?` and is distinct from the `_`-prefix category above.
         if s.starts_with('_') || s.starts_with('?') {
             return false;
         }
