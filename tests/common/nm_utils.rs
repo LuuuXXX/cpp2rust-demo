@@ -230,29 +230,37 @@ fn cxx_partial_link(objs: &[PathBuf], out: &Path) -> Option<bool> {
 /// Extract extern-"C" exported symbols from a compiled `.o` file.
 ///
 /// Returns symbols whose nm type is `T` or `W` (text section, including weak)
-/// and whose name does **not** start with `_Z` (C++ mangled). This identifies
-/// functions declared `extern "C"` in the source.
+/// and whose name does **not** start with a C++ mangling prefix:
+/// - `_Z` / `__Z` — GCC/Clang (Linux, macOS, MinGW) mangling
+/// - `?`          — MSVC mangling (Windows); all MSVC-mangled names begin with `?`
+///
+/// This identifies functions declared `extern "C"` in the source.
 pub fn nm_c_exports(obj_path: &Path) -> Vec<String> {
     let output = run_nm(obj_path).expect("Failed to run nm/llvm-nm on .o file");
 
     let text = String::from_utf8_lossy(&output.stdout);
     let mut syms: Vec<String> = parse_nm_output(&text, &['T', 'W'])
         .into_iter()
-        .filter(|s| !s.starts_with("_Z") && !s.starts_with("__Z"))
+        .filter(|s| {
+            !s.starts_with("_Z") && !s.starts_with("__Z") && !s.starts_with('?')
+        })
         .collect();
     syms.sort();
     syms
 }
 
 /// Extract all symbols from a static archive (`.a` or `.lib` file) that are of type
-/// `T` or `W` and do not have C++ mangled names.
+/// `T` or `W` and do not have C++ mangled names (GCC/Clang `_Z`/`__Z` prefix or
+/// MSVC `?` prefix).
 pub fn nm_archive_c_exports(archive_path: &Path) -> HashSet<String> {
     let output = run_nm(archive_path).expect("Failed to run nm/llvm-nm on archive file");
 
     let text = String::from_utf8_lossy(&output.stdout);
     parse_nm_output(&text, &['T', 'W'])
         .into_iter()
-        .filter(|s| !s.starts_with("_Z") && !s.starts_with("__Z"))
+        .filter(|s| {
+            !s.starts_with("_Z") && !s.starts_with("__Z") && !s.starts_with('?')
+        })
         .collect()
 }
 
