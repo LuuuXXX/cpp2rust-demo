@@ -133,6 +133,10 @@ fn is_c_symbol(s: &str) -> bool {
         // clang++-with-MSVC-STL define inline in system headers.  They appear as
         // defined symbols in object files but are absent from the Rust-side archive
         // because `cc::Build` uses a different (or no-inline) CRT configuration.
+        //
+        // This list was derived from observed CI failures (clang++ + MSVC STL 14.4x).
+        // If future MSVC toolchain versions inline additional public-name CRT
+        // functions that produce false positives, extend this list accordingly.
         const MSVC_CRT_INLINE: &[&str] = &["sprintf_s", "frexpl"];
         if MSVC_CRT_INLINE.contains(&s) {
             return false;
