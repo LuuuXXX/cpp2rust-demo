@@ -104,8 +104,41 @@ fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
 /// Filters out all known C++ mangling schemes:
 /// - `_Z` / `__Z` — GCC/Clang mangling (Linux, macOS, MinGW)
 /// - `?`          — MSVC mangling (Windows); every MSVC-mangled name begins with `?`
+///
+/// On Windows, additionally filters out MSVC CRT implementation symbols that get
+/// compiled inline into object files when using clang++ with MSVC STL headers:
+/// - Names starting with `_` — reserved for the implementation by the C standard
+///   (covers MSVC internals like `__local_stdio_printf_options`, `_vsprintf_s_l`)
+/// - Known MSVC CRT inline functions with public names (`sprintf_s`, `frexpl`)
+///   that are defined inline in MSVC headers but are not user-defined interface
+///   symbols; they appear in clang++-compiled `.o` files but not in the static
+///   archive produced by `cc::Build`, causing false-positive nm validation failures.
 fn is_c_symbol(s: &str) -> bool {
-    !s.starts_with("_Z") && !s.starts_with("__Z") && !s.starts_with('?')
+    // Filter all known C++ name-mangling prefixes.
+    if s.starts_with("_Z") || s.starts_with("__Z") || s.starts_with('?') {
+        return false;
+    }
+    // On Windows, clang++ with MSVC STL headers inlines certain CRT functions
+    // into every translation unit.  These are not user-defined extern-C symbols
+    // and must not be treated as part of the C interface.
+    #[cfg(windows)]
+    {
+        // All names starting with `_` are reserved for the implementation by the
+        // C and POSIX standards.  User-defined extern-C interface functions should
+        // never start with `_`.
+        if s.starts_with('_') {
+            return false;
+        }
+        // A small set of standard/Microsoft-extension C functions that MSVC and
+        // clang++-with-MSVC-STL define inline in system headers.  They appear as
+        // defined symbols in object files but are absent from the Rust-side archive
+        // because `cc::Build` uses a different (or no-inline) CRT configuration.
+        const MSVC_CRT_INLINE: &[&str] = &["sprintf_s", "frexpl"];
+        if MSVC_CRT_INLINE.contains(&s) {
+            return false;
+        }
+    }
+    true
 }
 
 // ─────────────────────────────────────────────────────────────────
