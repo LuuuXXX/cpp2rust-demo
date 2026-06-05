@@ -30,7 +30,7 @@ void swap_double(double* a, double* b) { do_swap<double>(a, b); }
 // 每个模板实例化导出为一个函数
 unsafe fn swap_int(a: *mut i32, b: *mut i32);
 unsafe fn swap_double(a: *mut f64, b: *mut f64);
-unsafe fn swap_char(a: *mut i8, b: *mut i8);
+unsafe fn swap_char(a: *mut u8, b: *mut u8);
 ```
 
 ## FFI 对比分析

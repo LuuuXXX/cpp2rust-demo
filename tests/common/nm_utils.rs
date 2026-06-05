@@ -159,10 +159,16 @@ fn cxx_compile_obj(src: &Path, includes: &[&str], obj: &Path) -> Option<bool> {
     #[cfg(windows)]
     {
         // On Windows: prefer clang++ (compatible output), fall back to g++ (MinGW)
-        // Note: -fPIC is not supported on Windows PE/COFF targets
-        for compiler in &["clang++", "g++"] {
+        // Note: -fPIC is not supported on Windows PE/COFF targets.
+        // -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH suppresses the STL1000 error
+        // that MSVC STL 14.44+ raises when used with clang < 19.
+        for (compiler, extra_flags) in &[
+            ("clang++", vec!["-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"]),
+            ("g++", vec![]),
+        ] {
             let mut cmd = Command::new(compiler);
             cmd.args(["-c", "-w"]);
+            cmd.args(extra_flags);
             for inc in includes {
                 cmd.arg(format!("-I{}", inc));
             }
@@ -190,8 +196,23 @@ fn cxx_partial_link(objs: &[PathBuf], out: &Path) -> Option<bool> {
     }
     #[cfg(windows)]
     {
-        for compiler in &["clang++", "g++"] {
-            let mut cmd = Command::new(compiler);
+        // On Windows MSVC, clang++ routes to link.exe which does not support -r.
+        // Use llvm-ar to create a static archive instead (llvm-nm can read it).
+        // Fall back to g++ -r for MinGW environments where it works.
+        {
+            let mut cmd = Command::new("llvm-ar");
+            cmd.arg("rcs").arg(out);
+            for obj in objs {
+                cmd.arg(obj);
+            }
+            if let Ok(status) = cmd.status() {
+                if status.success() {
+                    return Some(true);
+                }
+            }
+        }
+        {
+            let mut cmd = Command::new("g++");
             cmd.args(["-r", "-o"]).arg(out);
             for obj in objs {
                 cmd.arg(obj);
@@ -320,7 +341,11 @@ pub fn cargo_build_example(dir: &str, bin_name: &str) -> Option<PathBuf> {
         return None;
     }
 
-    let bin = PathBuf::from(dir).join("target/debug").join(bin_name);
+    #[cfg(windows)]
+    let bin_name_with_ext = format!("{}.exe", bin_name);
+    #[cfg(not(windows))]
+    let bin_name_with_ext = bin_name.to_string();
+    let bin = PathBuf::from(dir).join("target/debug").join(&bin_name_with_ext);
     if bin.exists() {
         Some(bin)
     } else {
