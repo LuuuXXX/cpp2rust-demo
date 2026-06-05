@@ -101,39 +101,28 @@ fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
 
 /// Return `true` if the symbol name looks like a plain C (non-mangled) name.
 ///
-/// Filters out all known C++ mangling schemes:
-/// - `_Z` / `__Z` — GCC/Clang mangling (Linux, macOS, MinGW)
-/// - `?`          — MSVC mangling (Windows); every MSVC-mangled name begins with `?`
+/// **On Windows** two rules are applied:
+/// - Names starting with `_` are rejected — reserved for the implementation by
+///   the C and POSIX standards.  This also subsumes GCC/Clang `_Z`/`__Z`
+///   mangling (MinGW) since those prefixes all begin with `_`.
+/// - Names starting with `?` are rejected — MSVC mangling prefix.
+/// - A small explicit denylist (`sprintf_s`, `frexpl`) covers standard C
+///   functions that MSVC/clang++ with MSVC STL defines inline in system headers;
+///   they appear in `.o` files but not in the `cc::Build` archive, causing
+///   false-positive validation failures (observed: clang++ + MSVC STL 14.4x).
+///   Extend this list if future toolchain versions add more inline CRT symbols.
 ///
-/// On Windows, additionally filters out MSVC CRT implementation symbols that get
-/// compiled inline into object files when using clang++ with MSVC STL headers:
-/// - Names starting with `_` — reserved for the implementation by the C standard
-///   (covers MSVC internals like `__local_stdio_printf_options`, `_vsprintf_s_l`)
-/// - Known MSVC CRT inline functions with public names (`sprintf_s`, `frexpl`)
-///   that are defined inline in MSVC headers but are not user-defined interface
-///   symbols; they appear in clang++-compiled `.o` files but not in the static
-///   archive produced by `cc::Build`, causing false-positive nm validation failures.
+/// **On Linux/macOS** only C++ mangling prefixes are rejected:
+/// - `_Z` / `__Z` — GCC/Clang mangling
+/// - `?`          — MSVC mangling (defensive, unlikely outside Windows)
 fn is_c_symbol(s: &str) -> bool {
-    // Filter all known C++ name-mangling prefixes.
-    if s.starts_with("_Z") || s.starts_with("__Z") || s.starts_with('?') {
-        return false;
-    }
-    // On Windows, clang++ with MSVC STL headers inlines certain CRT functions
-    // into every translation unit.  These are not user-defined extern-C symbols
-    // and must not be treated as part of the C interface.
     #[cfg(windows)]
     {
-        // All names starting with `_` are reserved for the implementation by the
-        // C and POSIX standards.  User-defined extern-C interface functions should
-        // never start with `_`.
-        if s.starts_with('_') {
+        // `_`-prefix covers both implementation-reserved names and _Z/__Z mangling.
+        if s.starts_with('_') || s.starts_with('?') {
             return false;
         }
-        // A small set of standard/Microsoft-extension C functions that MSVC and
-        // clang++-with-MSVC-STL define inline in system headers.  They appear as
-        // defined symbols in object files but are absent from the Rust-side archive
-        // because `cc::Build` uses a different (or no-inline) CRT configuration.
-        //
+        // MSVC CRT functions inlined into every TU when using clang++ + MSVC STL.
         // This list was derived from observed CI failures (clang++ + MSVC STL 14.4x).
         // If future MSVC toolchain versions inline additional public-name CRT
         // functions that produce false positives, extend this list accordingly.
@@ -141,6 +130,10 @@ fn is_c_symbol(s: &str) -> bool {
         if MSVC_CRT_INLINE.contains(&s) {
             return false;
         }
+    }
+    #[cfg(not(windows))]
+    if s.starts_with("_Z") || s.starts_with("__Z") || s.starts_with('?') {
+        return false;
     }
     true
 }
