@@ -342,7 +342,9 @@ fn resolve_paths(
     let rel = normal_src.strip_prefix(&normal_root).ok()?;
 
     let normal_feat = strip_verbatim(feature_root);
-    let out_path = normal_feat.join(rel).with_extension("cpp2rust");
+    // 输出到 feature_root/c/<相对路径>.cpp2rust，与 Linux LD_PRELOAD hook 保持一致。
+    // scan_cpp2rust_files() 扫描的是 <feature_root>/c/ 子目录。
+    let out_path = normal_feat.join("c").join(rel).with_extension("cpp2rust");
     if let Some(parent) = out_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

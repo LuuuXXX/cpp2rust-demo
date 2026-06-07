@@ -132,9 +132,11 @@ fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
             return true;
         }
         // 最终回退：cl.exe /P /C（MSVC）
-        // cl.exe 预处理输出文件名固定为 <stem>.i，需手动 rename
+        // cl.exe 预处理输出文件固定写到当前工作目录下的 <stem>.i，需手动 rename
         let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
-        let cl_out = src.parent().unwrap_or(std::path::Path::new(".")).join(format!("{}.i", stem));
+        let cl_out = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(format!("{}.i", stem));
         let ok = Command::new("cl.exe")
             .args(["/P", "/C", "/nologo"])
             .arg(src)

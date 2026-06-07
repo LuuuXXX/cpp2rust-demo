@@ -4,7 +4,7 @@
 //! 过滤系统头节点，只保留用户代码中的类、函数、枚举等声明。
 
 use anyhow::{anyhow, Result};
-use clang::{Clang, EntityKind, Index};
+use clang::{Clang, EntityKind, Index, Language};
 use std::path::{Path, PathBuf};
 
 // ─────────────────────────────────────────────
@@ -175,10 +175,16 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     // 第一遍：收集类/函数/枚举声明
     for entity in root.get_children() {
         let kind = entity.get_kind();
-        // LinkageSpec（extern "C"/"C++" 块）在 Windows LLVM 17 上 get_location() 有时
-        // 返回 None。若按默认的 unwrap_or(true) 跳过，其子函数声明将丢失。
-        // 对 LinkageSpec 使用 unwrap_or(false)：location 缺失时保守地认为不在系统头。
-        let skip_if_no_location = kind != EntityKind::LinkageSpec;
+        // LinkageSpec（extern "C"/"C++" 块）及 C 链接 FunctionDecl 在 Windows LLVM 17
+        // 上 get_location() 有时返回 None。若按默认的 unwrap_or(true) 跳过，其子函数
+        // 声明或顶层 extern "C" 函数将丢失。
+        // 对 LinkageSpec 和 C 链接 FunctionDecl 使用 unwrap_or(false)：location 缺失时
+        // 保守地认为不在系统头。
+        let skip_if_no_location = match kind {
+            EntityKind::LinkageSpec => false,
+            EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
+            _ => true,
+        };
         if entity
             .get_location()
             .map(|l| l.is_in_system_header())
@@ -242,7 +248,11 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     // 第二遍：收集类外方法定义（带方法体）并更新 body_offset
     for entity in root.get_children() {
         let kind = entity.get_kind();
-        let skip_if_no_location = kind != EntityKind::LinkageSpec;
+        let skip_if_no_location = match kind {
+            EntityKind::LinkageSpec => false,
+            EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
+            _ => true,
+        };
         if entity
             .get_location()
             .map(|l| l.is_in_system_header())
@@ -661,13 +671,19 @@ fn extract_function(
     // 判断函数声明/定义是否来自当前 .cpp 文件（而非被 include 的头文件）。
     let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
 
+    // 通过 libclang 语言标记检测 C 链接（extern "C"）。
+    // 这比仅依赖父节点为 LinkageSpec 更可靠：在 Windows LLVM 17 上，
+    // extern "C" 函数有时作为顶层 FunctionDecl 出现而非 LinkageSpec 的子节点，
+    // 此时父节点法会遗漏这些函数。collect_linkage_spec 路径也会显式覆盖此字段。
+    let is_extern_c = entity.get_language() == Some(Language::C);
+
     Some(FunctionInfo {
         name,
         return_type,
         params,
         is_inline: entity.is_inline_function(),
         is_variadic,
-        is_extern_c: false,
+        is_extern_c,
         friend_of: friend_of.map(String::from),
         body_offset,
         is_from_current_file,

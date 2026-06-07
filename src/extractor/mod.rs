@@ -1027,13 +1027,10 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         normalize_ptr_spacing(clean_type(&fi.return_type))
     };
 
-    // 无参数时：extern_c → "(void)"，否则 "()"
+    // 无参数时统一输出空参数列表 "()"，与 C++ 风格一致。
+    // 无论 extern_c 与否，hicc 对 C++ 签名均接受 "()" 写法。
     let params_str = if param_parts.is_empty() {
-        if fi.is_extern_c {
-            "void".to_string()
-        } else {
-            String::new()
-        }
+        String::new()
     } else {
         param_parts.join(", ")
     };
