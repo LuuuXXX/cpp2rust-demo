@@ -334,7 +334,8 @@ fn resolve_paths(
         .or_else(|| msys2_to_windows(src))?;
 
     // project_root 与 feature_root 可能带有 \\?\ 前缀（Windows 扩展路径格式），
-    // 需要去掉才能与普通 abs_src 做前缀匹配。
+    // abs_src 经 canonicalize() 后也可能带有 \\?\ 前缀。
+    // MinGW cc1plus.exe 不支持 \\?\ 扩展路径，需全部去除。
     let normal_root = strip_verbatim(project_root);
     let normal_src = strip_verbatim(&abs_src);
 
@@ -345,7 +346,7 @@ fn resolve_paths(
     if let Some(parent) = out_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    Some((abs_src, out_path))
+    Some((normal_src, out_path))
 }
 
 /// 去掉 Windows 扩展路径前缀 `\\?\`，返回普通路径。
