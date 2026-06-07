@@ -982,7 +982,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         if t == "*const i8" {
             return true;
         }
-        if t.starts_with("Option<unsafe extern") {
+        if t.starts_with("unsafe extern") {
             return true; // C 函数指针参数：需要 unsafe
         }
         if let Some(inner) = t.strip_prefix("*mut ") {
@@ -996,7 +996,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         false
     }) || ret_type
         .as_deref()
-        .is_some_and(|r| r == "*const i8" || r == "*mut i8" || r.starts_with("Option<unsafe extern"));
+        .is_some_and(|r| r == "*const i8" || r == "*mut i8" || r.starts_with("unsafe extern"));
 
     // 检测参数或返回类型是否含 C 函数指针，用于生成 cpp2rust-todo[FP] 注释
     let has_fn_ptr_param = fi.params.iter().any(|p| p.type_name.contains("(*)"))
@@ -1176,8 +1176,8 @@ fn is_mappable_rust_type(rust_ty: &str, class_names: &[&str]) -> bool {
     if rust_ty.is_empty() {
         return true; // void 返回值
     }
-    // C 函数指针映射结果：`Option<unsafe extern "C" fn(...)>` 始终合法
-    if rust_ty.starts_with("Option<unsafe extern") {
+    // C 函数指针映射结果：`unsafe extern "C" fn(...)` 始终合法
+    if rust_ty.starts_with("unsafe extern") {
         return true;
     }
     // 含 :: 的路径表达式（如 std::string）在 FFI 类型位置非法
@@ -1611,7 +1611,7 @@ mod tests {
         }
     }
 
-    /// 返回类型为 C 函数指针的函数现在应映射为 Option<unsafe extern "C" fn(...)>，出现在 fn_bindings 中
+    /// 返回类型为 C 函数指针的函数现在应映射为 `unsafe extern "C" fn(...)`，出现在 fn_bindings 中
     #[test]
     fn build_lib_spec_maps_fn_ptr_return_type() {
         let fi = make_fn("get_callback", "int (*)(int)", &[]);
@@ -1624,8 +1624,8 @@ mod tests {
         );
         let fb = &spec.fn_bindings[0];
         assert!(
-            fb.ret_type.as_deref().unwrap_or("").starts_with("Option<unsafe extern"),
-            "返回类型应映射为 Option<unsafe extern \"C\" fn(...)>，实际：{:?}",
+            fb.ret_type.as_deref().unwrap_or("").starts_with("unsafe extern"),
+            "返回类型应映射为 unsafe extern \"C\" fn(...)，实际：{:?}",
             fb.ret_type
         );
         assert!(fb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
@@ -1655,8 +1655,8 @@ mod tests {
         let mb = binding.unwrap();
         assert!(mb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
         assert!(
-            mb.params[0].1.starts_with("Option<unsafe extern"),
-            "参数类型应映射为 Option<unsafe extern \"C\" fn(...)>，实际：{}",
+            mb.params[0].1.starts_with("unsafe extern"),
+            "参数类型应映射为 unsafe extern \"C\" fn(...)，实际：{}",
             mb.params[0].1
         );
     }
@@ -1673,8 +1673,8 @@ mod tests {
         let mb = binding.unwrap();
         assert!(mb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
         assert!(
-            mb.ret_type.as_deref().unwrap_or("").starts_with("Option<unsafe extern"),
-            "返回类型应映射为 Option<unsafe extern \"C\" fn(...)>，实际：{:?}",
+            mb.ret_type.as_deref().unwrap_or("").starts_with("unsafe extern"),
+            "返回类型应映射为 unsafe extern \"C\" fn(...)，实际：{:?}",
             mb.ret_type
         );
     }
@@ -1703,10 +1703,10 @@ mod tests {
         let fb = &spec.fn_bindings[0];
         assert!(fb.is_unsafe, "含函数指针参数的函数应标记 is_unsafe");
         assert!(fb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
-        // 第三个参数类型应为 Option<unsafe extern "C" fn(...)>
+        // 第二个参数类型应为 unsafe extern "C" fn(...)
         assert!(
-            fb.params[1].1.starts_with("Option<unsafe extern"),
-            "第二个参数类型应映射为 Option<unsafe extern \"C\" fn(...)>，实际：{}",
+            fb.params[1].1.starts_with("unsafe extern"),
+            "第二个参数类型应映射为 unsafe extern \"C\" fn(...)，实际：{}",
             fb.params[1].1
         );
     }
@@ -1873,19 +1873,18 @@ mod tests {
         );
     }
 
-
     #[test]
     fn is_mappable_rust_type_fn_ptr() {
         assert!(
             is_mappable_rust_type(
-                r#"Option<unsafe extern "C" fn(i32, i32) -> i32>"#,
+                r#"unsafe extern "C" fn(i32, i32) -> i32"#,
                 &[]
             ),
             "C 函数指针映射结果应合法"
         );
         assert!(
             is_mappable_rust_type(
-                r#"Option<unsafe extern "C" fn(i32)>"#,
+                r#"unsafe extern "C" fn(i32)"#,
                 &[]
             ),
             "C 函数指针（无返回类型）映射结果应合法"

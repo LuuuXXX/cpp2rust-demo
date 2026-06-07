@@ -311,6 +311,57 @@ jobs:
           cargo test --test rapidjson_e2e_test -- \
             --test-threads=1
 
+  # ── L4 Windows（MinGW）: 在 windows-latest 上验证 E2E 捕获流程 ──
+  l4-rapidjson-e2e-windows:
+    name: L4 rapidjson E2E (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      # 单线程运行：clang 全局状态 + rapidjson 文件数量多
+      - name: Run L4 rapidjson E2E tests
+        run: |
+          cargo test --test rapidjson_e2e_test -- `
+            --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
   # ── Usage: verify-rapidjson-ffi.sh（本地验证脚本门禁）──────────
   usage-verify-rapidjson-ffi:
     name: Usage verify-rapidjson-ffi

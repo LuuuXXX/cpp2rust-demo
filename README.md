@@ -396,7 +396,7 @@ cargo build --features linux_x86,arm_embedded
 | `[VA]` | 可变参数模板（编译期展开，FFI 无法表达任意参数数） | 检查 wrapper 类展开的版本数量是否满足需求，按需手动添加新版本 |
 | `[LM]` | 有状态 Lambda / std::function（捕获列表不透明） | 若需 Rust 闭包 → C++ 回调，手动编写 trampoline |
 | `[CV]` | C 可变参数函数（`...` 参数，FFI 无法表达任意类型） | 在头文件中为所需参数组合补充固定参数 wrapper，再将其加入 `hicc::cpp!` + `import_lib!` |
-| `[FP]` | 函数指针参数（`void (*)(...)` 类型，自动映射为 `Option<unsafe extern "C" fn(...)>`，生成 `cpp2rust-todo[FP]` 注释提示安全性要求） | 确认回调符合 `extern "C"` 调用约定；若需 Rust 闭包，手动编写 trampoline |
+| `[FP]` | 函数指针参数（`void (*)(...)` 类型，自动映射为 `unsafe extern "C" fn(...)`，生成 `cpp2rust-todo[FP]` 注释提示安全性要求） | 确认回调符合 `extern "C"` 调用约定；若需 Rust 闭包，手动编写 trampoline |
 | `[VM]` | volatile this 成员函数（方法整体从 `import_class!` 移除） | 检查 `import_lib!` 中是否已有对应的 `volatile T*` C shim；如无则手动添加 |
 
 > **完整命令参数说明**见 [命令参考](#命令参考) 章节。
@@ -579,8 +579,8 @@ hicc::import_lib! {
 | [036_string_basic](examples/036_string_basic) | STL 容器 | std::string | ✅ | string wrapper，`c_str()`/`length()` 等通过 `import_class!` 绑定 |
 | [037_array_basic](examples/037_array_basic) | STL 容器 | std::array\<T,N\> | ✅ | 数组 wrapper（N 在实例化时已知）→ `import_class!` |
 | [038_tuple_basic](examples/038_tuple_basic) | STL 容器 | std::tuple\<T...\> | ✅ | tuple wrapper，按位置 `get<N>()` 通过 `import_class!` 绑定 |
-| [039_lambda_basic](examples/039_lambda_basic) | 函数对象 | Lambda 表达式 | ⚠️ `[LM]` | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + `call()` 方法；C 函数指针参数自动映射为 `Option<unsafe extern "C" fn(...)>`（加 `[FP]` 注释） |
-| [040_std_function](examples/040_std_function) | 函数对象 | std::function\<Sig\> | ⚠️ `[LM]` | 类型擦除容器，统一用 class wrapper + opaque pointer；C 函数指针参数自动映射为 `Option<unsafe extern "C" fn(...)>` |
+| [039_lambda_basic](examples/039_lambda_basic) | 函数对象 | Lambda 表达式 | ⚠️ `[LM]` | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + `call()` 方法；C 函数指针参数自动映射为 `unsafe extern "C" fn(...)`（加 `[FP]` 注释） |
+| [040_std_function](examples/040_std_function) | 函数对象 | std::function\<Sig\> | ⚠️ `[LM]` | 类型擦除容器，统一用 class wrapper + opaque pointer；C 函数指针参数自动映射为 `unsafe extern "C" fn(...)` |
 | [041_functional_bind](examples/041_functional_bind) | 函数对象 | std::bind | ✅ | 产物本质是函数对象，同有状态 lambda 策略，`import_class!` 完全覆盖 |
 | [042_exception_basic](examples/042_exception_basic) | 函数对象 | C++ 异常处理 | ✅ | shim 层 `try/catch` 捕获异常，转为错误码 + 错误消息字符串返回 |
 | [043_namespace_nested](examples/043_namespace_nested) | 高级特性 | 嵌套命名空间 | ✅ | `void*` opaque pointer + raw `extern "C"` 绑定，函数名前缀扁平化（`foo::bar::Baz` → `foo_bar_baz_*`） |
@@ -603,7 +603,7 @@ hicc::import_lib! {
 | `[LM]` | 039 | 有状态 Lambda | 匿名闭包类型，FFI 无法表达捕获列表 | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + opaque pointer | 若需 Rust 闭包 → C++ 回调，手动编写 trampoline |
 | `[LM]` | 040 | std::function | 类型擦除容器，捕获状态不透明 | 统一使用 class wrapper + opaque pointer | 可选：手动实现 Rust 闭包 → `std::function` 适配层 |
 | `[CV]` | 005 | C 可变参数函数 | C 的 `...` 参数在运行时按 `va_list` 访问，Rust FFI 要求精确的静态类型列表，无法表达可变元 | 含 `...` 的函数（`is_variadic = true`）整体跳过，不生成任何绑定 | 在头文件中为每种实际调用的参数组合提供固定参数 wrapper，工具自动绑定这些 wrapper |
-| `[FP]` | 039, 040 | 函数指针参数 | C++ 成员函数指针（`int (Cls::*)()` 等）无法映射为 Rust FFI 类型 | C 函数指针（`void (*)(int)` 等）自动映射为 `Option<unsafe extern "C" fn(i32)>`，标记 `is_unsafe = true` 并在绑定前加 `// cpp2rust-todo[FP]:` 注释；C++ 成员函数指针仍整体跳过 | 确认回调符合 `extern "C"` 调用约定；若需 Rust 闭包，手动编写 trampoline |
+| `[FP]` | 039, 040 | 函数指针参数 | C++ 成员函数指针（`int (Cls::*)()` 等）无法映射为 Rust FFI 类型 | C 函数指针（`void (*)(int)` 等）自动映射为 `unsafe extern "C" fn(i32)`，标记 `is_unsafe = true` 并在绑定前加 `// cpp2rust-todo[FP]:` 注释；C++ 成员函数指针仍整体跳过 | 确认回调符合 `extern "C"` 调用约定；若需 Rust 闭包，手动编写 trampoline |
 | `[VM]` | 012 | volatile 成员函数 | hicc 通过方法指针类型进行检查，`volatile this` 修饰的方法指针（`R (T::*)() volatile`）在 Rust 无对应语义，导致类型不匹配 | `is_volatile = true` 的方法从 `import_class!` 中整体移除；`extern "C"` shim 若以 `volatile T*` 为第一参数，则仍进入 `import_lib!` | 检查 `import_lib!` 中是否已有对应 `volatile T*` C shim；若无，在头文件中手动添加 `void foo_read(volatile Foo* self)` 并重新运行 `init` |
 
 ### 降级特性代码示例
@@ -718,12 +718,12 @@ int sum_5(int a, int b, int c, int d, int e);
 
 #### `[FP]` — 函数指针参数
 
-**C 函数指针**（`int (*op)(int, int)` 形式）自动映射为 `Option<unsafe extern "C" fn(i32, i32) -> i32>`，函数标记 `is_unsafe = true`，并在 `#[cpp(func = "...")]` 前自动插入：
+**C 函数指针**（`int (*op)(int, int)` 形式）自动映射为 `unsafe extern "C" fn(i32, i32) -> i32`，函数标记 `is_unsafe = true`，并在 `#[cpp(func = "...")]` 前自动插入：
 
 ```rust
 // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
 #[cpp(func = "int apply_operation(int, int, int (*)(int, int))")]
-unsafe fn apply_operation(a: i32, b: i32, op: Option<unsafe extern "C" fn(i32, i32) -> i32>) -> i32;
+unsafe fn apply_operation(a: i32, b: i32, op: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
 ```
 
 **C++ 成员函数指针**（`int (Cls::*)() const` 形式）仍无法映射为合法 Rust FFI 类型，含此类参数的函数整体跳过。
@@ -818,7 +818,7 @@ cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 | 优先级 | 方向 | 现状 | 目标 |
 |--------|------|------|------|
 | ~~**P1**~~ | ~~**Windows 编译拦截**~~ ✅ | 已通过 `hook/hook_shim.rs` 实现：PATH 注入 `hook_shim.exe` 替代 `LD_PRELOAD`，同时支持 GNU/MinGW 和 MSVC 两种编译器 | — |
-| ~~**P1**~~ | ~~**函数指针参数自动绑定 `[FP]`**~~ ✅ | 已实现：C 函数指针自动映射为 `Option<unsafe extern "C" fn(...)>`，标记 `is_unsafe = true` 并加 `cpp2rust-todo[FP]` 注释；C++ 成员函数指针仍跳过 | — |
+| ~~**P1**~~ | ~~**函数指针参数自动绑定 `[FP]`**~~ ✅ | 已实现：C 函数指针自动映射为 `unsafe extern "C" fn(...)`，标记 `is_unsafe = true` 并加 `cpp2rust-todo[FP]` 注释；C++ 成员函数指针仍跳过 | — |
 | **P2** | **跨翻译单元模板合并** | 每个 `.cpp2rust` 独立解析，跨文件模板实例化可能遗漏；`merge` 阶段已部分缓解 | 在 `merge` 阶段实现跨文件模板实例化聚合，消除遗漏 |
 | **P2** | **更多真实项目 E2E 验证** | 已有 rapidjson 完整参考（10 个子系统）+ L4 E2E 测试 | 扩展至更多主流 C++ 开源库（如 Eigen、Abseil、{fmt}），验证工具在复杂项目上的覆盖率和鲁棒性 |
 | **P3** | **L3 运行测试本地化** | L3 运行测试主要在 CI 环境验证，本地运行步骤较繁琐 | 补充本地快速运行脚本，降低开发者验证门槛 |

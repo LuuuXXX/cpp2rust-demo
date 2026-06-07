@@ -34,7 +34,7 @@ hicc::import_lib! {
 
     // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
     #[cpp(func = "int check_noexcept(int (*)(int, int))")]
-    unsafe fn check_noexcept(fn_: Option<unsafe extern "C" fn(i32, i32) -> i32>) -> i32;
+    unsafe fn check_noexcept(fn_: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
 
     #[cpp(func = "int conditional_abs(int)")]
     fn conditional_abs(value: i32) -> i32;
@@ -44,7 +44,7 @@ hicc::import_lib! {
 
     // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
     #[cpp(func = "int is_noexcept(int (*)(int, int))")]
-    unsafe fn is_noexcept(arg0: Option<unsafe extern "C" fn(i32, i32) -> i32>) -> i32;
+    unsafe fn is_noexcept(arg0: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
 }
 
 fn main() {

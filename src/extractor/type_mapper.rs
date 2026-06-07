@@ -160,7 +160,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         return format!("*mut {}", inner_rust);
     }
 
-    // C 函数指针 `RetType (*)(T1, T2, ...)` → `Option<unsafe extern "C" fn(T1, T2) -> R>`
+    // C 函数指针 `RetType (*)(T1, T2, ...)` → `unsafe extern "C" fn(T1, T2) -> R`
     if let Some(mapped) = try_map_c_fn_ptr(cpp_no_restrict) {
         return mapped;
     }
@@ -198,7 +198,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     cpp_no_restrict.to_string()
 }
 
-/// 尝试将 C 函数指针类型字符串映射为 Rust `Option<unsafe extern "C" fn(...)>` 类型。
+/// 尝试将 C 函数指针类型字符串映射为 Rust `unsafe extern "C" fn(...)` 类型。
 ///
 /// 识别的形式：`RetType (*)(T1, T2, ...)` 或 `RetType (*)(void)` 或 `RetType (*)()`。
 /// 不处理嵌套函数指针（参数中再含 `(*)`）；这些情况返回 `None`。
@@ -239,7 +239,7 @@ pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
     // 映射返回类型
     let rust_ret = cpp_to_rust(ret_cpp);
 
-    // 构造 `Option<unsafe extern "C" fn(T1, T2) -> R>` 字符串
+    // 构造 `unsafe extern "C" fn(T1, T2) -> R` 字符串
     let params_joined = rust_params.join(", ");
     let ret_suffix = if rust_ret.is_empty() {
         String::new() // void 返回 → 省略返回类型注解（无 `-> ...`）
@@ -248,7 +248,7 @@ pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
     };
 
     Some(format!(
-        "Option<unsafe extern \"C\" fn({}){}>",
+        "unsafe extern \"C\" fn({}){}",
         params_joined, ret_suffix
     ))
 }
@@ -376,28 +376,28 @@ mod tests {
 
     #[test]
     fn fn_ptr_basic() {
-        // int (*)(int, int) → Option<unsafe extern "C" fn(i32, i32) -> i32>
+        // int (*)(int, int) → unsafe extern "C" fn(i32, i32) -> i32
         assert_eq!(
             cpp_to_rust("int (*)(int, int)"),
-            "Option<unsafe extern \"C\" fn(i32, i32) -> i32>"
+            "unsafe extern \"C\" fn(i32, i32) -> i32"
         );
     }
 
     #[test]
     fn fn_ptr_void_return() {
-        // void (*)(int) → Option<unsafe extern "C" fn(i32)>（无返回类型后缀）
+        // void (*)(int) → unsafe extern "C" fn(i32)（无返回类型后缀）
         assert_eq!(
             cpp_to_rust("void (*)(int)"),
-            "Option<unsafe extern \"C\" fn(i32)>"
+            "unsafe extern \"C\" fn(i32)"
         );
     }
 
     #[test]
     fn fn_ptr_no_params() {
-        // void (*)() → Option<unsafe extern "C" fn()>
+        // void (*)() → unsafe extern "C" fn()
         assert_eq!(
             cpp_to_rust("void (*)()"),
-            "Option<unsafe extern \"C\" fn()>"
+            "unsafe extern \"C\" fn()"
         );
     }
 
@@ -406,25 +406,25 @@ mod tests {
         // void (*)(void) 与 void (*)() 等价
         assert_eq!(
             cpp_to_rust("void (*)(void)"),
-            "Option<unsafe extern \"C\" fn()>"
+            "unsafe extern \"C\" fn()"
         );
     }
 
     #[test]
     fn fn_ptr_ptr_param() {
-        // void (*)(void*) → Option<unsafe extern "C" fn(*mut u8)>
+        // void (*)(void*) → unsafe extern "C" fn(*mut u8)
         assert_eq!(
             cpp_to_rust("void (*)(void *)"),
-            "Option<unsafe extern \"C\" fn(*mut u8)>"
+            "unsafe extern \"C\" fn(*mut u8)"
         );
     }
 
     #[test]
     fn fn_ptr_const_char_return() {
-        // const char* (*)(int) → Option<unsafe extern "C" fn(i32) -> *const i8>
+        // const char* (*)(int) → unsafe extern "C" fn(i32) -> *const i8
         assert_eq!(
             cpp_to_rust("const char *(*)(int)"),
-            "Option<unsafe extern \"C\" fn(i32) -> *const i8>"
+            "unsafe extern \"C\" fn(i32) -> *const i8"
         );
     }
 
@@ -433,10 +433,10 @@ mod tests {
         // 嵌套函数指针（参数中含 `(*)`）不递归处理，try_map_c_fn_ptr 返回 None，
         // cpp_to_rust 回退为原样字符串
         let nested = "int (*)(int (*)(int), int)";
-        // 不应是合法的 Option<...> 形式，原样返回
+        // 不应是合法的 unsafe extern "C" fn(...) 形式，原样返回
         let result = cpp_to_rust(nested);
         assert!(
-            !result.starts_with("Option<"),
+            !result.starts_with("unsafe extern"),
             "嵌套函数指针不应递归处理，但得到了 {}",
             result
         );
