@@ -161,6 +161,32 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     let cpp_ranges = cpp_byte_ranges(&file_content);
     let user_ranges = user_content_byte_ranges(&file_content);
 
+    // ── Windows 诊断输出（仅在 Windows 构建中启用）──────────────────────────────
+    #[cfg(windows)]
+    {
+        eprintln!("=== cpp2rust Windows AST debug for: {} ===", file.display());
+        eprintln!("  cpp_ranges:  {:?}", cpp_ranges);
+        eprintln!("  user_ranges: {:?}", user_ranges);
+        // 打印预处理文件的前 80 行（包含行号标记）
+        for (i, line) in file_content.lines().enumerate().take(80) {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("# ") || trimmed.starts_with("extern") || trimmed.contains("hello_world") {
+                eprintln!("  [line {:4}] {}", i + 1, line);
+            }
+        }
+        // 打印文件末尾的行（实际函数定义区域）
+        let all_lines: Vec<&str> = file_content.lines().collect();
+        if all_lines.len() > 80 {
+            let start = all_lines.len().saturating_sub(50);
+            for (i, line) in all_lines[start..].iter().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("# ") || trimmed.starts_with("extern") || trimmed.contains("hello_world") {
+                    eprintln!("  [tail {:4}] {}", start + i + 1, line);
+                }
+            }
+        }
+    }
+
     let mut ast = CppAst {
         file: file.to_path_buf(),
         classes: Vec::new(),
@@ -171,6 +197,59 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     };
 
     let root = tu.get_entity();
+
+    // ── Windows: 打印顶层实体信息 ──────────────────────────────────────────────
+    #[cfg(windows)]
+    {
+        eprintln!("  === top-level entities ===");
+        for e in root.get_children() {
+            let offset = e.get_range()
+                .map(|r| r.get_start().get_file_location().offset)
+                .map(|o| o.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let is_sys = e.get_location()
+                .map(|l| l.is_in_system_header())
+                .unwrap_or(false);
+            eprintln!(
+                "    kind={:?} name={:?} is_def={} lang={:?} is_sys={} offset={}",
+                e.get_kind(),
+                e.get_name(),
+                e.is_definition(),
+                e.get_language(),
+                is_sys,
+                offset,
+            );
+            // 如果是 LinkageSpec，还打印子节点
+            if e.get_kind() == EntityKind::LinkageSpec {
+                for child in e.get_children() {
+                    let child_offset = child.get_range()
+                        .map(|r| r.get_start().get_file_location().offset)
+                        .map(|o| o.to_string())
+                        .unwrap_or_else(|| "?".to_string());
+                    let child_sys = child.get_location()
+                        .map(|l| l.is_in_system_header())
+                        .unwrap_or(false);
+                    let in_user = {
+                        child.get_range()
+                            .map(|r| {
+                                let off = r.get_start().get_file_location().offset;
+                                user_ranges.iter().any(|range| range.contains(&off))
+                            })
+                            .unwrap_or(true)
+                    };
+                    eprintln!(
+                        "      child: kind={:?} name={:?} is_def={} is_sys={} in_user_range={} offset={}",
+                        child.get_kind(),
+                        child.get_name(),
+                        child.is_definition(),
+                        child_sys,
+                        in_user,
+                        child_offset,
+                    );
+                }
+            }
+        }
+    }
 
     // 第一遍：收集类/函数/枚举声明
     for entity in root.get_children() {
