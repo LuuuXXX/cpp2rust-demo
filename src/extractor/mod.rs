@@ -1011,7 +1011,9 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
             let ty = normalize_ptr_spacing(clean_type(&p.type_name));
             let is_class_ptr = class_names.iter().any(|cn| p.type_name.contains(cn));
             let is_self_name = matches!(p.name.as_str(), "self" | "this" | "thiz");
-            if is_class_ptr && !p.name.is_empty() && p.name != "_" && !is_self_name {
+            // 函数指针类型（如 void (*)(T*)）无法在末尾追加参数名（非法 C++ 语法），跳过追名
+            let is_fn_ptr = ty.contains("(*)");
+            if is_class_ptr && !p.name.is_empty() && p.name != "_" && !is_self_name && !is_fn_ptr {
                 format!("{} {}", ty, p.name)
             } else {
                 ty
