@@ -23,13 +23,13 @@ hicc::import_lib! {
     #[cpp(func = "MyClass* myclass_new(int)")]
     fn myclass_new(secret_value: i32) -> MyClass;
 
-    #[cpp(func = "int friend_function_getSum(const MyClass* a, const MyClass* b)")]
+    #[cpp(func = "int friend_function_getSum(const struct MyClass* a, const struct MyClass* b)")]
     fn friend_function_get_sum(a: *const MyClass, b: *const MyClass) -> i32;
 
-    #[cpp(func = "int friend_function_getProduct(const MyClass* a, const MyClass* b)")]
+    #[cpp(func = "int friend_function_getProduct(const struct MyClass* a, const struct MyClass* b)")]
     fn friend_function_get_product(a: *const MyClass, b: *const MyClass) -> i32;
 
-    #[cpp(func = "int friend_function_compare(const MyClass* a, const MyClass* b)")]
+    #[cpp(func = "int friend_function_compare(const struct MyClass* a, const struct MyClass* b)")]
     fn friend_function_compare(a: *const MyClass, b: *const MyClass) -> i32;
 }
 
