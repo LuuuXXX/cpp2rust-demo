@@ -187,19 +187,22 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
             continue;
         }
 
-        // 非内联 C 链接函数**定义**不可能来自系统头（系统头只有声明），
+        // 非内联函数**定义**不可能来自系统头（系统头只有声明），
         // 因此即使 Windows LLVM 17 的 is_in_system_header() 错误返回 true，
         // 也必须保留——否则以顶层 FunctionDecl 出现的用户 extern "C" 定义
         // （如 hello_world）将被丢弃，导致 fn_bindings 为空。
+        // 注意：使用 is_noninline_fn_def（不检查语言），因为在 .cpp 文件中
+        // extern "C" {} 块内的函数定义，get_language() 可能返回 CPlusPlus。
         // 与 collect_linkage_spec 中的相同逻辑保持一致。
 
-        // C 链接 FunctionDecl 在 Windows LLVM 17 上 get_location() 有时返回 None；
-        // 使用 unwrap_or(false) 使 None 位置不触发跳过。
+        // FunctionDecl 在 Windows LLVM 17 上 get_location() 有时返回 None；
+        // 对非 C 语言的 FunctionDecl 使用 skip_if_no_location=true，
+        // 避免无位置的系统 C++ 声明被保留。
         let skip_if_no_location = match kind {
             EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
             _ => true,
         };
-        if !is_noninline_c_fn_def(&entity)
+        if !is_noninline_fn_def(&entity)
             && entity
                 .get_location()
                 .map(|l| l.is_in_system_header())
@@ -261,13 +264,14 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     for entity in root.get_children() {
         let kind = entity.get_kind();
 
-        // 与第一遍相同：非内联 C 链接函数定义不受 is_in_system_header() 过滤
+        // 与第一遍相同：非内联函数定义不受 is_in_system_header() 过滤，
+        // 使用 is_noninline_fn_def（不检查语言）。
         let skip_if_no_location = match kind {
             EntityKind::LinkageSpec => false,
             EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
             _ => true,
         };
-        if !is_noninline_c_fn_def(&entity)
+        if !is_noninline_fn_def(&entity)
             && entity
                 .get_location()
                 .map(|l| l.is_in_system_header())
@@ -404,28 +408,15 @@ fn collect_namespace(
     }
 }
 
-/// 判断实体是否为"非内联 C 链接函数**定义**"。
+/// 判断实体是否为"非内联函数**定义**"（不限语言）。
 ///
-/// 系统头文件中不可能存在非内联的 C 函数定义（只有声明和内联定义），
+/// 系统头文件中不可能存在非内联的函数定义（只有声明和内联定义），
 /// 因此对满足该条件的实体，应绕过 `is_in_system_header()` 检查，
 /// 避免 Windows LLVM 17 上 `is_in_system_header()` 对用户代码误报的问题。
 ///
-/// 注意：此函数要求 `get_language() == C`，适用于顶层 `FunctionDecl`（来自
-/// 用户 `.c` 文件或以顶层方式出现的 extern-C 声明）。对 `extern "C" {}` 块
-/// 内部的子实体（`.cpp` 文件中）不应使用此函数——参见 `is_noninline_fn_def`。
-fn is_noninline_c_fn_def(entity: &clang::Entity<'_>) -> bool {
-    entity.get_kind() == EntityKind::FunctionDecl
-        && entity.get_language() == Some(Language::C)
-        && entity.is_definition()
-        && !entity.is_inline_function()
-}
-
-/// 判断实体是否为"非内联函数**定义**"（不限语言）。
-///
-/// 在 `collect_linkage_spec` 中使用：`extern "C" {}` 块内的函数定义位于 `.cpp`
-/// 文件中，libclang 的 `get_language()` 可能返回 `CPlusPlus`（TU 为 C++ 文件）
-/// 而非 `C`，因此不能依赖语言检查。但非内联函数**定义**不可能来自系统头文件，
-/// 应始终绕过 `is_in_system_header()` 的（可能误报的）过滤。
+/// 不限语言：在 `.cpp` 文件中，`extern "C" {}` 块内或顶层的函数定义，
+/// libclang 的 `get_language()` 可能返回 `CPlusPlus` 而非 `C`，
+/// 因此不能依赖语言检查。
 fn is_noninline_fn_def(entity: &clang::Entity<'_>) -> bool {
     entity.get_kind() == EntityKind::FunctionDecl
         && entity.is_definition()
