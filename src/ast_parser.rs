@@ -382,10 +382,18 @@ fn collect_linkage_spec(
 ) {
     for entity in spec.get_children() {
         // 一级过滤：libclang 系统头标记（依赖行号标记中的 flag 3，去掉 -P 后生效）
+        //
+        // 注意：使用 unwrap_or(false) 而非 unwrap_or(true)。
+        // 原因：在 Windows LLVM 17 上，extern "C" 块内的函数实体有时 get_location()
+        // 返回 None（位置信息无效），若使用 unwrap_or(true) 则这些实体会被错误跳过，
+        // 导致如 hello_world 这类在 .cpp 中显式用 extern "C" {} 包裹的函数无法被收集
+        // 进 fn_bindings，从而生成不完整的 FFI 脚手架。
+        // 本函数只在父实体（LinkageSpec）已确认为用户代码时调用，因此 None 位置应
+        // 保守视为用户代码（不跳过），而非系统头（跳过）。
         if entity
             .get_location()
             .map(|l| l.is_in_system_header())
-            .unwrap_or(true)
+            .unwrap_or(false)
         {
             continue;
         }

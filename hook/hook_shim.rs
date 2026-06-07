@@ -47,10 +47,16 @@ impl CompilerKind {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().skip(1).collect();
+    let raw_args: Vec<String> = env::args().skip(1).collect();
     let kind = CompilerKind::from_env();
 
     let real_cc = env::var("CPP2RUST_REAL_CC").unwrap_or_else(|_| "g++".to_string());
+
+    // 将 MSYS2/Cygwin POSIX 路径规范化为 Windows 路径（如 /d/a/... → D:\a\...）。
+    // 背景：MSYS2 bash 在调用原生 Windows 可执行文件时，有时不转换路径参数（特别是
+    // 当 shim 被 MSYS2 识别为 MSYS2-aware 程序时）。若 shim 直接把 POSIX 路径转发
+    // 给真实 g++，MinGW cc1plus.exe 无法正确解析，导致"\\filename.cpp"报错。
+    let args: Vec<String> = raw_args.iter().map(|a| normalize_arg(a)).collect();
 
     // ── 步骤 1：原样转发给真实编译器 ──
     let status = Command::new(&real_cc)
@@ -153,8 +159,17 @@ fn main() {
 /// 2. 若不匹配任何已知前缀，则保守地视为路径 → true
 fn looks_like_file_path(s: &str) -> bool {
     let bytes = s.as_bytes();
-    // C:/... 或 D:/...
+    // Windows 绝对路径：C:/... 或 C:\...（第二个字符为 ':'）
     if bytes.len() >= 3 && bytes[1] == b':' {
+        return true;
+    }
+    // MSYS2/Cygwin POSIX 驱动器路径：/c/... /d/... 等（/ + 小写字母 + /）
+    // 需要在 MSVC 选项前缀匹配之前检测，避免 /d/a/... 误匹配 MSVC /D 宏定义选项
+    if bytes.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_lowercase()
+        && bytes[2] == b'/'
+    {
         return true;
     }
     // 已知 MSVC 选项前缀列表（均以 '/' 开头，大小写不敏感）
@@ -310,13 +325,94 @@ fn resolve_paths(
     project_root: &Path,
     feature_root: &Path,
 ) -> Option<(PathBuf, PathBuf)> {
-    let abs_src = src.canonicalize().ok()?;
-    let rel = abs_src.strip_prefix(project_root).ok()?;
-    let out_path = feature_root.join(rel).with_extension("cpp2rust");
+    // 优先使用 canonicalize；若失败（例如 POSIX 路径 /d/a/... 在 Windows 上），
+    // 尝试将 MSYS2 POSIX 驱动器路径手动转换为 Windows 路径后再 canonicalize。
+    let abs_src = src
+        .canonicalize()
+        .ok()
+        .or_else(|| msys2_to_windows(src).and_then(|p| p.canonicalize().ok()))
+        .or_else(|| msys2_to_windows(src))?;
+
+    // project_root 与 feature_root 可能带有 \\?\ 前缀（Windows 扩展路径格式），
+    // 需要去掉才能与普通 abs_src 做前缀匹配。
+    let normal_root = strip_verbatim(project_root);
+    let normal_src = strip_verbatim(&abs_src);
+
+    let rel = normal_src.strip_prefix(&normal_root).ok()?;
+
+    let normal_feat = strip_verbatim(feature_root);
+    let out_path = normal_feat.join(rel).with_extension("cpp2rust");
     if let Some(parent) = out_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     Some((abs_src, out_path))
+}
+
+/// 去掉 Windows 扩展路径前缀 `\\?\`，返回普通路径。
+/// 若无前缀则返回原路径的 PathBuf 拷贝。
+fn strip_verbatim(p: &Path) -> PathBuf {
+    match p.to_str() {
+        Some(s) if s.starts_with("\\\\?\\") => PathBuf::from(&s[4..]),
+        _ => p.to_path_buf(),
+    }
+}
+
+/// 将 MSYS2/Cygwin POSIX 驱动器路径（如 `/d/a/foo/bar`）转换为
+/// Windows 路径（如 `D:\a\foo\bar`）。
+/// 仅处理以 `/<小写字母>/` 开头的路径；其他形式返回 None。
+fn msys2_to_windows(p: &Path) -> Option<PathBuf> {
+    let s = p.to_str()?;
+    let bytes = s.as_bytes();
+    // 形如 /d/a/... 或 /d/
+    if bytes.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_lowercase()
+        && bytes[2] == b'/'
+    {
+        let drive = (bytes[1] as char).to_ascii_uppercase();
+        // bytes[2..] 以 '/' 开头，例如 "/a/foo/bar"
+        let rest = s[2..].replace('/', "\\");
+        Some(PathBuf::from(format!("{}:{}", drive, rest)))
+    } else {
+        None
+    }
+}
+
+/// 将参数中的 MSYS2 POSIX 路径转换为 Windows 路径。
+///
+/// 处理以下格式：
+/// - 独立路径参数：`/d/a/foo/bar.cpp` → `D:\a\foo\bar.cpp`
+/// - `-I/d/a/foo` 形式（GCC include 标志）：保留 `-I` 前缀，转换路径部分
+/// - 其他参数保持不变
+fn normalize_arg(s: &str) -> String {
+    let bytes = s.as_bytes();
+
+    // 独立的 POSIX 驱动器路径：/d/a/...
+    if bytes.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_lowercase()
+        && bytes[2] == b'/'
+    {
+        if let Some(p) = msys2_to_windows(Path::new(s)) {
+            return p.to_string_lossy().into_owned();
+        }
+    }
+
+    // -I/d/a/... 形式（-I 后紧跟 POSIX 路径）
+    if bytes.len() >= 5
+        && bytes[0] == b'-'
+        && bytes[1] == b'I'
+        && bytes[2] == b'/'
+        && bytes[3].is_ascii_lowercase()
+        && bytes[4] == b'/'
+    {
+        let path_part = &s[2..];
+        if let Some(p) = msys2_to_windows(Path::new(path_part)) {
+            return format!("-I{}", p.to_string_lossy());
+        }
+    }
+
+    s.to_string()
 }
 
 #[cfg(test)]
@@ -434,10 +530,93 @@ mod tests {
 
     #[test]
     fn unknown_slash_prefix_treated_as_path() {
-        // 未知的 /xxx 选项保守视为路径
+        // 未知的 /xxx 选项保守视为路径（/s 不是小写字母开头的驱动器路径，走保守分支）
         assert!(
             looks_like_file_path("/some/unknown/path"),
             "未知 /xxx 前缀应保守视为文件路径"
         );
+    }
+
+    #[test]
+    fn posix_drive_path_is_file_path() {
+        // MSYS2 POSIX 驱动器路径：/d/a/... 不应被误识别为 MSVC /D 宏定义选项
+        assert!(
+            looks_like_file_path("/d/a/project/src/main.cpp"),
+            "/d/a/... POSIX 路径应被视为文件路径，而非 MSVC /D 宏定义选项"
+        );
+        assert!(
+            looks_like_file_path("/c/Users/runner/project/foo.cpp"),
+            "/c/... POSIX 路径应被视为文件路径"
+        );
+    }
+
+    // ── normalize_arg ────────────────────────────────────────────────
+
+    #[test]
+    fn normalize_arg_posix_path_to_windows() {
+        let result = normalize_arg("/d/a/project/src/main.cpp");
+        assert_eq!(result, r"D:\a\project\src\main.cpp");
+    }
+
+    #[test]
+    fn normalize_arg_include_posix_to_windows() {
+        let result = normalize_arg("/d/a/project/include");
+        assert_eq!(result, r"D:\a\project\include");
+    }
+
+    #[test]
+    fn normalize_arg_dash_i_posix_to_windows() {
+        let result = normalize_arg("-I/d/a/project/include");
+        assert_eq!(result, r"-ID:\a\project\include");
+    }
+
+    #[test]
+    fn normalize_arg_non_posix_unchanged() {
+        // 普通 Windows 路径或标志不应被修改
+        assert_eq!(normalize_arg("-c"), "-c");
+        assert_eq!(normalize_arg("-std=c++17"), "-std=c++17");
+        assert_eq!(
+            normalize_arg(r"D:\a\project\main.cpp"),
+            r"D:\a\project\main.cpp"
+        );
+    }
+
+    // ── msys2_to_windows ─────────────────────────────────────────────
+
+    #[test]
+    fn msys2_to_windows_basic() {
+        let p = Path::new("/d/a/foo/bar.cpp");
+        let result = msys2_to_windows(p).unwrap();
+        assert_eq!(result, PathBuf::from(r"D:\a\foo\bar.cpp"));
+    }
+
+    #[test]
+    fn msys2_to_windows_c_drive() {
+        let p = Path::new("/c/Users/runner/project/main.cpp");
+        let result = msys2_to_windows(p).unwrap();
+        assert_eq!(result, PathBuf::from(r"C:\Users\runner\project\main.cpp"));
+    }
+
+    #[test]
+    fn msys2_to_windows_non_posix_returns_none() {
+        // 非 POSIX 驱动器路径不应被转换
+        assert!(msys2_to_windows(Path::new("-c")).is_none());
+        assert!(msys2_to_windows(Path::new(r"D:\a\foo.cpp")).is_none());
+    }
+
+    // ── strip_verbatim ───────────────────────────────────────────────
+
+    #[test]
+    fn strip_verbatim_removes_prefix() {
+        let p = PathBuf::from(r"\\?\D:\a\project");
+        let result = strip_verbatim(&p);
+        assert_eq!(result, PathBuf::from(r"D:\a\project"));
+    }
+
+    #[test]
+    fn strip_verbatim_no_prefix_unchanged() {
+        let p = PathBuf::from(r"D:\a\project");
+        let result = strip_verbatim(&p);
+        assert_eq!(result, PathBuf::from(r"D:\a\project"));
     }
 }

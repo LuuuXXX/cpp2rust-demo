@@ -321,11 +321,9 @@ fn run_with_hook_windows(
         return Err(anyhow!("build command is empty"));
     }
 
-    let abs_project_root = project_root
-        .canonicalize()
+    let abs_project_root = canonicalize_no_verbatim(project_root)
         .map_err(|e| anyhow!("canonicalize {}: {}", project_root.display(), e))?;
-    let abs_feature_root = feature_root
-        .canonicalize()
+    let abs_feature_root = canonicalize_no_verbatim(feature_root)
         .map_err(|e| anyhow!("canonicalize {}: {}", feature_root.display(), e))?;
 
     // 找到真实 C++ 编译器（绕过 shim 目录本身），同时获取编译器类型
@@ -379,6 +377,22 @@ fn run_with_hook_windows(
         ));
     }
     Ok(())
+}
+
+/// Windows canonicalize() 会产生 `\\?\` 前缀（扩展路径格式）。
+/// 该前缀会导致后续 strip_prefix 匹配失败，因此去除它，返回普通 Windows 绝对路径。
+///
+/// 仅在 Windows 上有实际效果；其他平台直接调用标准 canonicalize。
+#[cfg(windows)]
+fn canonicalize_no_verbatim(p: &std::path::Path) -> std::io::Result<PathBuf> {
+    let canonical = p.canonicalize()?;
+    // 去掉 \\?\ 前缀（Windows 扩展路径）
+    let s = canonical.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix("\\\\?\\") {
+        Ok(PathBuf::from(stripped))
+    } else {
+        Ok(canonical)
+    }
 }
 
 /// 在当前 PATH 中搜索 C++ 编译器，返回第一个找到的完整路径及其类型。
