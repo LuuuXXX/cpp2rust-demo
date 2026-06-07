@@ -178,11 +178,11 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         // LinkageSpec（extern "C"/"C++" 块）在 Windows LLVM 17 上 get_location() 有时
         // 返回 None。若按默认的 unwrap_or(true) 跳过，其子函数声明将丢失。
         // 对 LinkageSpec 使用 unwrap_or(false)：location 缺失时保守地认为不在系统头。
-        let default_in_system = kind != EntityKind::LinkageSpec;
+        let skip_if_no_location = kind != EntityKind::LinkageSpec;
         if entity
             .get_location()
             .map(|l| l.is_in_system_header())
-            .unwrap_or(default_in_system)
+            .unwrap_or(skip_if_no_location)
         {
             continue;
         }
@@ -242,11 +242,11 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     // 第二遍：收集类外方法定义（带方法体）并更新 body_offset
     for entity in root.get_children() {
         let kind = entity.get_kind();
-        let default_in_system = kind != EntityKind::LinkageSpec;
+        let skip_if_no_location = kind != EntityKind::LinkageSpec;
         if entity
             .get_location()
             .map(|l| l.is_in_system_header())
-            .unwrap_or(default_in_system)
+            .unwrap_or(skip_if_no_location)
         {
             continue;
         }
