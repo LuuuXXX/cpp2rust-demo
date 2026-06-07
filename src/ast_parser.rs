@@ -162,33 +162,6 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     let user_ranges = user_content_byte_ranges(&file_content);
     let user_files = user_file_paths_from_content(&file_content);
 
-    // ── Windows 诊断输出（仅在 Windows 构建中启用）──────────────────────────────
-    #[cfg(windows)]
-    {
-        eprintln!("=== cpp2rust Windows AST debug for: {} ===", file.display());
-        eprintln!("  cpp_ranges:  {:?}", cpp_ranges);
-        eprintln!("  user_ranges: {:?}", user_ranges);
-        eprintln!("  user_files:  {:?}", user_files);
-        // 打印预处理文件的前 80 行（包含行号标记）
-        for (i, line) in file_content.lines().enumerate().take(80) {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("# ") || trimmed.starts_with("extern") || trimmed.contains("hello_world") {
-                eprintln!("  [line {:4}] {}", i + 1, line);
-            }
-        }
-        // 打印文件末尾的行（实际函数定义区域）
-        let all_lines: Vec<&str> = file_content.lines().collect();
-        if all_lines.len() > 80 {
-            let start = all_lines.len().saturating_sub(50);
-            for (i, line) in all_lines[start..].iter().enumerate() {
-                let trimmed = line.trim_start();
-                if trimmed.starts_with("# ") || trimmed.starts_with("extern") || trimmed.contains("hello_world") {
-                    eprintln!("  [tail {:4}] {}", start + i + 1, line);
-                }
-            }
-        }
-    }
-
     let mut ast = CppAst {
         file: file.to_path_buf(),
         classes: Vec::new(),
@@ -200,70 +173,19 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
 
     let root = tu.get_entity();
 
-    // ── Windows: 打印顶层实体信息 ──────────────────────────────────────────────
-    #[cfg(windows)]
-    {
-        eprintln!("  === top-level entities ===");
-        for e in root.get_children() {
-            let offset = e.get_range()
-                .map(|r| r.get_start().get_file_location().offset)
-                .map(|o| o.to_string())
-                .unwrap_or_else(|| "?".to_string());
-            let is_sys = e.get_location()
-                .map(|l| l.is_in_system_header())
-                .unwrap_or(false);
-            eprintln!(
-                "    kind={:?} name={:?} is_def={} lang={:?} is_sys={} offset={}",
-                e.get_kind(),
-                e.get_name(),
-                e.is_definition(),
-                e.get_language(),
-                is_sys,
-                offset,
-            );
-            // 如果是 LinkageSpec，还打印子节点
-            if e.get_kind() == EntityKind::LinkageSpec {
-                for child in e.get_children() {
-                    let child_offset = child.get_range()
-                        .map(|r| r.get_start().get_file_location().offset)
-                        .map(|o| o.to_string())
-                        .unwrap_or_else(|| "?".to_string());
-                    let child_sys = child.get_location()
-                        .map(|l| l.is_in_system_header())
-                        .unwrap_or(false);
-                    let in_user = {
-                        child.get_range()
-                            .map(|r| {
-                                let off = r.get_start().get_file_location().offset;
-                                user_ranges.iter().any(|range| range.contains(&off))
-                            })
-                            .unwrap_or(true)
-                    };
-                    eprintln!(
-                        "      child: kind={:?} name={:?} is_def={} is_sys={} in_user_range={} offset={}",
-                        child.get_kind(),
-                        child.get_name(),
-                        child.is_definition(),
-                        child_sys,
-                        in_user,
-                        child_offset,
-                    );
-                }
-            }
-        }
-    }
-
     // 第一遍：收集类/函数/枚举声明
     for entity in root.get_children() {
         let kind = entity.get_kind();
 
-        // LinkageSpec（extern "C"/"C++" 块）需要特殊处理：
+        // LinkageSpec（extern "C"/"C++" 块）与 UnexposedDecl 需要特殊处理：
         // 在 Windows LLVM 17 上，用户代码的 extern "C" 块（包括用户头文件中的声明块
         // 和 .cpp 文件中的定义块）的 is_in_system_header() 有时会错误地返回 true，
         // 若依赖该标志跳过，整个块及其内部的所有函数将被丢弃。
-        // 解决方案：对 LinkageSpec 始终调用 collect_linkage_spec，不做顶层过滤；
+        // 另外，在 Windows LLVM 17 + MSVC 头文件环境下，extern "C" 块有时以
+        // EntityKind::UnexposedDecl 形式出现（而非 LinkageSpec），需要同等处理。
+        // 解决方案：对两种 kind 都调用 collect_linkage_spec，不做顶层过滤；
         // 内部的精细过滤由 collect_linkage_spec 自行处理（非内联定义不跳过）。
-        if kind == EntityKind::LinkageSpec {
+        if kind == EntityKind::LinkageSpec || kind == EntityKind::UnexposedDecl {
             collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges, &user_files);
             continue;
         }
@@ -348,7 +270,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         // 与第一遍相同：非内联函数定义不受 is_in_system_header() 过滤，
         // 使用 is_noninline_fn_def（不检查语言）。
         let skip_if_no_location = match kind {
-            EntityKind::LinkageSpec => false,
+            EntityKind::LinkageSpec | EntityKind::UnexposedDecl => false,
             EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
             _ => true,
         };
@@ -1142,7 +1064,10 @@ pub fn user_file_paths_from_content(content: &str) -> std::collections::HashSet<
         if let Some((path, flags)) = parse_line_marker(trimmed) {
             let is_virtual = path.starts_with('<') || path.is_empty();
             if !is_virtual && !flags.contains(&3) {
-                set.insert(path.replace('\\', "/").to_lowercase());
+                // 先解码 C-string 中的 \\ 转义（两个反斜杠→一个反斜杠），
+                // 再将剩余反斜杠统一为正斜杠，避免路径出现双斜杠（如 cpp//file.cpp）。
+                let decoded = path.replace("\\\\", "\\");
+                set.insert(decoded.replace('\\', "/").to_lowercase());
             }
         }
     }
