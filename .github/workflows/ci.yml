@@ -537,7 +537,7 @@ jobs:
       - name: Run verify-rapidjson-ffi.sh in MSYS2 shell
         shell: msys2 {0}
         run: |
-          export PATH="$(cygpath -u "${CARGO_HOME}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
           SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
@@ -589,7 +589,7 @@ jobs:
       - name: Run verify-rapidjson-ffi.sh in MSYS2 shell
         shell: msys2 {0}
         run: |
-          export PATH="$(cygpath -u "${CARGO_HOME}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
           SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
