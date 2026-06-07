@@ -189,10 +189,9 @@ hicc::import_lib! {
 
 ## 6. 后续计划
 
-### 6.1 P2 - 增量处理与局限性（待后续跟进）
+### 6.1 P2/P3 - 待后续跟进
 
 - 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏；merge 阶段已通过去重部分缓解）
-- Windows 编译拦截（捕获阶段依赖 LD_PRELOAD/DYLD_INSERT_LIBRARIES，Windows 尚无等价机制；生成的 Rust 项目 L2/L3/L5 已在 Windows MSVC & MinGW 通过 CI）
 - L3 运行测试本地化（当前仅 CI 验证，建议补充本地快速运行脚本）
 
 ---

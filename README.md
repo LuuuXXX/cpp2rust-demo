@@ -9,6 +9,16 @@ cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 
 > **工具定位**：cpp2rust-demo 负责生成 FFI **脚手架**（绑定声明 + 必要 C 桥接 shim），不处理业务逻辑、不重写 C++ 代码。生成产物开箱即可 `cargo check`，部分降级特性需人工补全后才能完整编译运行。
 
+**主要特性**：
+
+- 🔗 **跨平台编译拦截**：Linux/macOS 使用 `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES`；Windows 通过 PATH 注入 `hook_shim.exe`，同时支持 GNU/MinGW 和 MSVC
+- 🔍 **libclang AST 解析**：精确提取类、函数、枚举、模板实例化；行标记扫描自动区分项目源文件与 `#include` 引入的头文件
+- 📦 **hicc 三段式代码生成**：`hicc::cpp!`（C++ shim 内联）/ `hicc::import_class!`（类方法绑定）/ `hicc::import_lib!`（全局函数绑定）
+- 🏷️ **多 feature 支持**：`--feature <name>` 将不同平台或构建配置的产物隔离到各自目录，`merge` 命令可将多个 feature 合并为带 `[features]` 段的统一 Rust 项目
+- 🤖 **CI / 非交互环境自动全选**：stdin 非 TTY 时自动全选所有捕获到的 `.cpp2rust` 文件，无需人工干预
+- 🧪 **五层测试体系**：L1 黄金文件比对 / L2 编译测试 / L3 运行输出验证 / L4 rapidjson E2E 转换 / L5 `nm` 符号双向验证
+- ⚠️ **降级特性内联提示**：无法完全自动化的 C++ 特性（运算符重载、可变参数模板、有状态 Lambda 等）自动降级并在生成代码中插入 `// cpp2rust-todo[TAG]` 注释，精确定位待手动完善的位置
+
 仓库同时包含 **48 个循序渐进的 C++ 特性示例**，每个示例都有对应的 C++ 源码和可运行的 Rust FFI 参考实现，覆盖从基础函数到模板、STL、虚继承等复杂场景。
 
 **导航**：[工作原理](#工作原理) · [命令参考](#命令参考) · [快速开始](#快速开始) · [生成代码格式](#生成代码格式三段式) · [特性矩阵](#c-特性支持矩阵) · [降级特性](#降级特性详解6-项) · [测试体系](#测试体系) · [局限性](#局限性) · [未来计划](#未来开发计划) · [学习路径](#学习路径示例索引)
@@ -801,7 +811,6 @@ cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 
 | 场景 | 说明 |
 |------|------|
-| **捕获阶段 Windows** | Linux/macOS 使用 `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES`；Windows 通过 PATH 注入 `hook_shim.exe` 实现等价拦截（支持 GNU/MinGW + MSVC），L2/L3/L5 已在 Windows MSVC & MinGW 通过 CI |
 | **命名空间类** | extern "C" 函数签名中含 `::` 类型或 `void*` opaque 指针时，会压制 `import_class!`/`import_lib!` 块（仅生成空 `cpp!`），需手动绑定 |
 | **运算符重载** | 生成命名 shim + `[OP]` TODO，Rust 运算符 trait 需手动实现 |
 | **有状态 Lambda / std::function** | 生成 class wrapper，若需 Rust 闭包回调需手动编写 trampoline |
@@ -813,12 +822,10 @@ cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 
 ## 未来开发计划
 
-以下按优先级从高到低排列（P1 最高，P3 最低）：
+以下按优先级从高到低排列（P2 最高，P3 最低）：
 
 | 优先级 | 方向 | 现状 | 目标 |
 |--------|------|------|------|
-| ~~**P1**~~ | ~~**Windows 编译拦截**~~ ✅ | 已通过 `hook/hook_shim.rs` 实现：PATH 注入 `hook_shim.exe` 替代 `LD_PRELOAD`，同时支持 GNU/MinGW 和 MSVC 两种编译器 | — |
-| ~~**P1**~~ | ~~**函数指针参数自动绑定 `[FP]`**~~ ✅ | 已实现：C 函数指针自动映射为 `unsafe extern "C" fn(...)`，标记 `is_unsafe = true` 并加 `cpp2rust-todo[FP]` 注释；C++ 成员函数指针仍跳过 | — |
 | **P2** | **跨翻译单元模板合并** | 每个 `.cpp2rust` 独立解析，跨文件模板实例化可能遗漏；`merge` 阶段已部分缓解 | 在 `merge` 阶段实现跨文件模板实例化聚合，消除遗漏 |
 | **P2** | **更多真实项目 E2E 验证** | 已有 rapidjson 完整参考（10 个子系统）+ L4 E2E 测试 | 扩展至更多主流 C++ 开源库（如 Eigen、Abseil、{fmt}），验证工具在复杂项目上的覆盖率和鲁棒性 |
 | **P3** | **L3 运行测试本地化** | L3 运行测试主要在 CI 环境验证，本地运行步骤较繁琐 | 补充本地快速运行脚本，降低开发者验证门槛 |
@@ -876,7 +883,9 @@ cd rust_hicc && cargo run
 
 ## 依赖
 
-- Linux（LD_PRELOAD 必需）
+- **操作系统**：
+  - Linux / macOS（`LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` 编译拦截）
+  - Windows（`hook_shim.exe` PATH 注入，同时支持 GNU/MinGW 和 MSVC 编译器）
 - C++ 编译器：g++ 或 clang++（C++11 或更高）
 - Rust 工具链：rustc / cargo（1.82+）
 - libclang（用于 AST 解析）：`libclang-dev`
