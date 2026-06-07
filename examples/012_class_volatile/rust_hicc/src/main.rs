@@ -24,10 +24,10 @@ hicc::import_lib! {
     #[cpp(func = "HardwareDevice* hardware_device_new()")]
     fn hardware_device_new() -> HardwareDevice;
 
-    #[cpp(func = "uint32_t hardware_device_read_status(volatile struct HardwareDevice*)")]
+    #[cpp(func = "uint32_t hardware_device_read_status(volatile HardwareDevice*)")]
     unsafe fn hardware_device_read_status(self_: *mut HardwareDevice) -> u32;
 
-    #[cpp(func = "uint32_t hardware_device_read_data(volatile struct HardwareDevice*)")]
+    #[cpp(func = "uint32_t hardware_device_read_data(volatile HardwareDevice*)")]
     unsafe fn hardware_device_read_data(self_: *mut HardwareDevice) -> u32;
 }
 

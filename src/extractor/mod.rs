@@ -29,10 +29,21 @@ pub fn extract(
     // 去重：对于同名函数，只保留一个（有 body_offset 的优先；否则 is_extern_c=false 优先）
     // 只纳入来自当前 .cpp 文件本身或显式 extern "C" 声明的函数，
     // 过滤掉通过 #include 引入的头文件内部函数（它们不应被导出为 FFI）。
+    //
+    // 第三条件：非内联函数且有定义体（body_offset）。
+    // 背景：在 Windows LLVM 17 上，extern "C" 函数有时以顶层 FunctionDecl 出现（而非
+    // LinkageSpec 的子节点），导致 is_extern_c=false；同时 get_file_location().offset 可能
+    // 返回原始源文件偏移量而非预处理文件偏移量，导致 is_from_current_file=false。
+    // 对于有函数体（is_definition=true）的非内联函数，无论以上两个标志是否正确，
+    // 均应将其视为待导出函数。头文件中的函数声明无 body_offset，不受此条影响。
     let eligible_functions: Vec<FunctionInfo> = ast
         .functions
         .iter()
-        .filter(|f| f.is_from_current_file || f.is_extern_c)
+        .filter(|f| {
+            f.is_from_current_file
+                || f.is_extern_c
+                || (f.body_offset.is_some() && !f.is_inline)
+        })
         .cloned()
         .collect();
     let functions = dedup_functions(&eligible_functions);
@@ -1008,7 +1019,8 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         .params
         .iter()
         .map(|p| {
-            let ty = normalize_ptr_spacing(clean_type(&p.type_name));
+            let ty_stripped = strip_struct_class_keyword(clean_type(&p.type_name));
+            let ty = normalize_ptr_spacing(&ty_stripped);
             let is_class_ptr = class_names.iter().any(|cn| p.type_name.contains(cn));
             let is_self_name = matches!(p.name.as_str(), "self" | "this" | "thiz");
             // 函数指针类型（如 void (*)(T*)）无法在末尾追加参数名（非法 C++ 语法），跳过追名
@@ -1024,7 +1036,8 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let ret_clean = if fi.return_type.is_empty() || fi.return_type == "void" {
         "void".to_string()
     } else {
-        normalize_ptr_spacing(clean_type(&fi.return_type))
+        let ret_stripped = strip_struct_class_keyword(clean_type(&fi.return_type));
+        normalize_ptr_spacing(&ret_stripped)
     };
 
     // 无参数时统一输出空参数列表 "()"，与 C++ 风格一致。
@@ -1308,6 +1321,43 @@ fn find_static_init(source_bytes: &[u8], class_name: &str, field_name: &str) -> 
         }
     }
     None
+}
+
+/// 从 C++ 类型字符串中删除作为类型限定符出现的 `struct ` 和 `class ` 关键字。
+///
+/// 不同平台/版本的 libclang 对同一类型的 elaborated type 处理方式不同：
+///   - Linux libclang：`const struct MyClass *`（保留 struct 关键字）
+///   - Windows LLVM 17：`const MyClass *`（省略 struct 关键字）
+///
+/// 本函数统一删除这些类型限定符，确保跨平台生成的 cpp_sig 一致。
+/// 仅删除 `struct ` / `class `（关键字后跟空格），且前一字符必须为非标识符字符
+/// （空格、`(`、`*` 等），以避免误删标识符中包含的 "struct"/"class" 子串（如
+/// `my_struct_type` 中的 `struct`）。
+fn strip_struct_class_keyword(ty: &str) -> String {
+    let bytes = ty.as_bytes();
+    let mut result = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        // 判断当前位置是否为单词边界（前一字符不是标识符字符）
+        let is_boundary = i == 0 || {
+            let prev = bytes[i - 1];
+            !prev.is_ascii_alphanumeric() && prev != b'_'
+        };
+        if is_boundary {
+            if bytes[i..].starts_with(b"struct ") {
+                i += 7; // "struct ".len()
+                continue;
+            }
+            if bytes[i..].starts_with(b"class ") {
+                i += 6; // "class ".len()
+                continue;
+            }
+        }
+        result.push(bytes[i]);
+        i += 1;
+    }
+    // SAFETY: 仅删除 ASCII 子序列，剩余字节仍为有效 UTF-8
+    String::from_utf8(result).unwrap_or_else(|_| ty.to_string())
 }
 
 /// 规范化 C++ 类型中的指针空格：`T *` → `T*`，`const T *` → `const T*`
