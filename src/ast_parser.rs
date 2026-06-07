@@ -160,6 +160,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     })?;
     let cpp_ranges = cpp_byte_ranges(&file_content);
     let user_ranges = user_content_byte_ranges(&file_content);
+    let user_files = user_file_paths_from_content(&file_content);
 
     // ── Windows 诊断输出（仅在 Windows 构建中启用）──────────────────────────────
     #[cfg(windows)]
@@ -167,6 +168,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         eprintln!("=== cpp2rust Windows AST debug for: {} ===", file.display());
         eprintln!("  cpp_ranges:  {:?}", cpp_ranges);
         eprintln!("  user_ranges: {:?}", user_ranges);
+        eprintln!("  user_files:  {:?}", user_files);
         // 打印预处理文件的前 80 行（包含行号标记）
         for (i, line) in file_content.lines().enumerate().take(80) {
             let trimmed = line.trim_start();
@@ -262,7 +264,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         // 解决方案：对 LinkageSpec 始终调用 collect_linkage_spec，不做顶层过滤；
         // 内部的精细过滤由 collect_linkage_spec 自行处理（非内联定义不跳过）。
         if kind == EntityKind::LinkageSpec {
-            collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges);
+            collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges, &user_files);
             continue;
         }
 
@@ -507,22 +509,17 @@ fn collect_linkage_spec(
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
     user_ranges: &[std::ops::Range<u32>],
+    user_files: &std::collections::HashSet<String>,
 ) {
     for entity in spec.get_children() {
         // 过滤：跳过来自系统头的实体，但有两个关键例外：
         //
-        // 例外 1：非内联函数**定义**不可能真正来自系统头文件（系统头只有声明和内联定义），
-        // 因此无论过滤条件如何都必须保留。
+        // 例外 1：非内联函数**定义**不可能真正来自系统头文件，直接保留。
         //
-        // 例外 2：判断"是否系统头"时，不再使用 is_in_system_header()，
-        // 而改用基于 GCC linemarker flag-3 构建的 user_ranges 字节范围检查。
-        // 背景：Windows LLVM 17 上 is_in_system_header() 对用户 extern "C" 块
-        // （包括用户头文件的声明块和 .cpp 文件的定义块）有时错误返回 true，
-        // 导致 hello_world 等函数被全部过滤，fn_bindings 为空。
-        // user_ranges 直接解析预处理文件中的 flag-3 行号标记，不依赖 libclang 的判断，
-        // 因此不受该 bug 影响。
-        // 当 get_range()=None 时 unwrap_or(true)：无法确定位置则包含（宁可误纳入
-        // 也不漏掉用户函数），与原 is_in_system_header().unwrap_or(false) 语义一致。
+        // 例外 2：用双重检查判断是否为用户代码：
+        //   a) 字节范围检查（user_ranges）：基于 linemarker flag-3 扫描
+        //   b) 路径检查（user_files + get_presumed_location()）：通过原始源文件路径判断
+        // 任一为 true 即视为用户代码。这样即使一种方式因平台差异失效，另一种仍可救援。
         let from_user_range = entity
             .get_range()
             .map(|r| {
@@ -530,7 +527,8 @@ fn collect_linkage_spec(
                 user_ranges.iter().any(|range| range.contains(&offset))
             })
             .unwrap_or(true);
-        if !is_noninline_fn_def(&entity) && !from_user_range {
+        let from_user_file = entity_presumed_from_user_file(&entity, user_files);
+        if !is_noninline_fn_def(&entity) && !from_user_range && !from_user_file {
             continue;
         }
         match entity.get_kind() {
@@ -1125,6 +1123,64 @@ fn parse_line_marker(line: &str) -> Option<(&str, Vec<u32>)> {
         .filter_map(|s| s.parse::<u32>().ok())
         .collect();
     Some((path, flags))
+}
+
+/// 扫描预处理文件，返回属于**用户代码**（非系统头）的原始文件路径集合。
+///
+/// 通过解析行号标记（linemarker），提取不含 flag-3（系统头）且非虚拟路径的文件路径。
+/// 返回的路径已规范化（反斜杠→正斜杠，统一小写），以支持跨平台比较。
+///
+/// 用法：配合 `entity_presumed_from_user_file` 通过 `get_presumed_location()` 检查
+/// 实体是否来自用户代码，该方法不依赖字节偏移量，对 CRLF/路径差异更健壮。
+pub fn user_file_paths_from_content(content: &str) -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    for line in content.split('\n') {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("# ") {
+            continue;
+        }
+        if let Some((path, flags)) = parse_line_marker(trimmed) {
+            let is_virtual = path.starts_with('<') || path.is_empty();
+            if !is_virtual && !flags.contains(&3) {
+                set.insert(path.replace('\\', "/").to_lowercase());
+            }
+        }
+    }
+    set
+}
+
+/// 通过 `get_presumed_location()` 判断实体是否来自用户代码文件。
+///
+/// `get_presumed_location()` 跟随预处理文件中的 `#line` 指令，返回实体在**原始源文件**
+/// 中的路径（而非预处理文件本身）。与字节范围检查互补：当字节偏移量因平台差异（CRLF、
+/// 绝对路径、不同预处理器）导致比较失败时，基于路径的判断仍然正确。
+///
+/// 匹配策略：
+///   1. 直接匹配（规范化后完整路径相等）
+///   2. 后缀匹配（一方是另一方的后缀，处理绝对路径 vs 相对路径的差异）
+fn entity_presumed_from_user_file(
+    entity: &clang::Entity<'_>,
+    user_files: &std::collections::HashSet<String>,
+) -> bool {
+    if user_files.is_empty() {
+        return false; // 无信息时保守处理，由其他检查决定
+    }
+    let Some(range) = entity.get_range() else {
+        return false;
+    };
+    let (presumed_path, _, _) = range.get_start().get_presumed_location();
+    if presumed_path.starts_with('<') || presumed_path.is_empty() {
+        return false; // 虚拟路径 = 非用户文件
+    }
+    let normalized = presumed_path.replace('\\', "/").to_lowercase();
+    // 直接匹配
+    if user_files.contains(&normalized) {
+        return true;
+    }
+    // 后缀匹配：处理绝对路径（linemarker）vs 相对路径（presumed）或反之
+    user_files.iter().any(|uf| {
+        normalized.ends_with(uf.as_str()) || uf.ends_with(normalized.as_str())
+    })
 }
 
 /// 扫描 `g++ -E`（不带 `-P`）生成的预处理文件，返回属于**用户代码**（非系统头）的字节区间。
