@@ -187,16 +187,27 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
             continue;
         }
 
+        // 非内联 C 链接函数**定义**不可能来自系统头（系统头只有声明），
+        // 因此即使 Windows LLVM 17 的 is_in_system_header() 错误返回 true，
+        // 也必须保留——否则以顶层 FunctionDecl 出现的用户 extern "C" 定义
+        // （如 hello_world）将被丢弃，导致 fn_bindings 为空。
+        // 与 collect_linkage_spec 中的相同逻辑保持一致。
+        let is_noninline_c_fn_def = kind == EntityKind::FunctionDecl
+            && entity.get_language() == Some(Language::C)
+            && entity.is_definition()
+            && !entity.is_inline_function();
+
         // C 链接 FunctionDecl 在 Windows LLVM 17 上 get_location() 有时返回 None；
         // 使用 unwrap_or(false) 使 None 位置不触发跳过。
         let skip_if_no_location = match kind {
             EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
             _ => true,
         };
-        if entity
-            .get_location()
-            .map(|l| l.is_in_system_header())
-            .unwrap_or(skip_if_no_location)
+        if !is_noninline_c_fn_def
+            && entity
+                .get_location()
+                .map(|l| l.is_in_system_header())
+                .unwrap_or(skip_if_no_location)
         {
             continue;
         }
