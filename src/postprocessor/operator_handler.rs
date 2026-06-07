@@ -94,6 +94,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                     params: vec![("self_".to_string(), format!("*const {}", ci.name))],
                     ret_type: Some(ret_rust),
                     is_unsafe: false,
+                    has_fn_ptr_param: false,
                 });
                 continue;
             }
@@ -121,6 +122,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                         ],
                         ret_type: Some(format!("*mut {}", ci.name)),
                         is_unsafe: false,
+                    has_fn_ptr_param: false,
                     });
                 }
                 continue;
@@ -147,6 +149,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                     params: vec![("a".to_string(), format!("*const {}", ci.name))],
                     ret_type: Some(format!("*mut {}", ci.name)),
                     is_unsafe: false,
+                    has_fn_ptr_param: false,
                 });
                 continue;
             }
@@ -181,6 +184,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                     ],
                     ret_type: Some(ret_rust),
                     is_unsafe: false,
+                    has_fn_ptr_param: false,
                 });
             }
         }

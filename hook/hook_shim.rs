@@ -318,3 +318,125 @@ fn resolve_paths(
     }
     Some((abs_src, out_path))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── CompilerKind::is_compile_mode ────────────────────────────────
+
+    #[test]
+    fn gnu_compile_mode_detects_dash_c() {
+        let kind = CompilerKind::Gnu;
+        assert!(
+            kind.is_compile_mode(&["-c".to_string()]),
+            "GNU: -c 应触发编译模式"
+        );
+    }
+
+    #[test]
+    fn gnu_compile_mode_in_multiarg_list() {
+        let kind = CompilerKind::Gnu;
+        let args: Vec<String> = ["-I/usr/include", "-o", "foo.o", "foo.cpp", "-c"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(
+            kind.is_compile_mode(&args),
+            "GNU: 多参数列表中含 -c 应触发编译模式"
+        );
+    }
+
+    #[test]
+    fn gnu_link_mode_no_dash_c() {
+        let kind = CompilerKind::Gnu;
+        let args: Vec<String> = ["-o", "prog", "foo.o", "bar.o"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(
+            !kind.is_compile_mode(&args),
+            "GNU: 不含 -c 不应触发编译模式"
+        );
+    }
+
+    #[test]
+    fn gnu_compile_mode_empty_args() {
+        let kind = CompilerKind::Gnu;
+        assert!(
+            !kind.is_compile_mode(&[]),
+            "GNU: 空参数列表不应触发编译模式"
+        );
+    }
+
+    #[test]
+    fn msvc_compile_mode_detects_slash_c() {
+        let kind = CompilerKind::Msvc;
+        assert!(
+            kind.is_compile_mode(&["/c".to_string()]),
+            "MSVC: /c 应触发编译模式"
+        );
+    }
+
+    #[test]
+    fn msvc_slash_c_uppercase_not_compile_mode() {
+        // `/C` 是"保留注释"，不是编译模式
+        let kind = CompilerKind::Msvc;
+        assert!(
+            !kind.is_compile_mode(&["/C".to_string()]),
+            "MSVC: /C (大写) 不应触发编译模式"
+        );
+    }
+
+    #[test]
+    fn msvc_gnu_dash_c_not_compile_mode() {
+        // MSVC 编译器不识别 `-c`，is_compile_mode 应返回 false
+        let kind = CompilerKind::Msvc;
+        assert!(
+            !kind.is_compile_mode(&["-c".to_string()]),
+            "MSVC: GNU 风格的 -c 不应触发 MSVC 编译模式"
+        );
+    }
+
+    // ── looks_like_file_path ─────────────────────────────────────────
+
+    #[test]
+    fn absolute_windows_path_is_file_path() {
+        assert!(
+            looks_like_file_path("C:/Users/foo/bar.cpp"),
+            "C:/... 形式应被视为文件路径"
+        );
+        assert!(
+            looks_like_file_path("D:/project/src/main.cpp"),
+            "D:/... 形式应被视为文件路径"
+        );
+    }
+
+    #[test]
+    fn known_msvc_flags_not_file_path() {
+        for flag in &[
+            "/c", "/C", "/P", "/E", "/EP", "/TC", "/TP",
+            "/Fo", "/Fe", "/Fi", "/Fd",
+            "/I", "/D", "/U", "/FI",
+            "/EH", "/MD", "/MT", "/WX", "/GR",
+            "/O1", "/O2", "/GL", "/GS",
+            "/Zi", "/ZI", "/Z7",
+            "/std:c++17", "/nologo",
+        ] {
+            assert!(
+                !looks_like_file_path(flag),
+                "已知 MSVC 选项 {} 不应被视为文件路径",
+                flag
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_slash_prefix_treated_as_path() {
+        // 未知的 /xxx 选项保守视为路径
+        assert!(
+            looks_like_file_path("/some/unknown/path"),
+            "未知 /xxx 前缀应保守视为文件路径"
+        );
+    }
+}

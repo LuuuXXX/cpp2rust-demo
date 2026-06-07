@@ -93,6 +93,7 @@ fn apply_class(
             params: vec![("self_".to_string(), format!("*mut {}", ci.name))],
             ret_type,
             is_unsafe: false, // 菱形 shim 遵循 golden 规则：不标记 unsafe
+            has_fn_ptr_param: false,
         });
 
         diamond_snake_names.insert(to_snake_case(method_name));

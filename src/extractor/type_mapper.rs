@@ -160,6 +160,11 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         return format!("*mut {}", inner_rust);
     }
 
+    // C 函数指针 `RetType (*)(T1, T2, ...)` → `Option<unsafe extern "C" fn(T1, T2) -> R>`
+    if let Some(mapped) = try_map_c_fn_ptr(cpp_no_restrict) {
+        return mapped;
+    }
+
     // 引用类型：T& → &mut T，const T& → &T
     if let Some(rest) = cpp_no_restrict
         .strip_suffix(" &")
@@ -193,7 +198,62 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     cpp_no_restrict.to_string()
 }
 
-/// 构造 C++ 函数签名字符串（用于 #[cpp(func = "...")]）
+/// 尝试将 C 函数指针类型字符串映射为 Rust `Option<unsafe extern "C" fn(...)>` 类型。
+///
+/// 识别的形式：`RetType (*)(T1, T2, ...)` 或 `RetType (*)(void)` 或 `RetType (*)()`。
+/// 不处理嵌套函数指针（参数中再含 `(*)`）；这些情况返回 `None`。
+///
+/// 返回 `Some(mapped_type)` 当成功解析，`None` 当类型不是合法的顶层 C 函数指针形式。
+pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
+    // 必须含有 `(*)(` 模式
+    let star_paren = cpp.find("(*)(").or_else(|| {
+        // 也接受 `(* )(` 形式（极少见但合法）
+        None
+    })?;
+
+    // 提取 `(*)` 左边的返回类型
+    let ret_cpp = cpp[..star_paren].trim();
+
+    // 提取 `(*)(` 后到字符串末尾 `)` 之间的参数列表
+    let after = &cpp[star_paren + 4..]; // 跳过 `(*)(` 这 4 个字符
+
+    // 最后的 `)` 必须在末尾（顶层，不支持嵌套）
+    let params_str = after.strip_suffix(')')?;
+
+    // 若参数字符串本身含有 `(*)`，表示嵌套函数指针，不处理
+    if params_str.contains("(*)") {
+        return None;
+    }
+
+    // 解析参数列表
+    let rust_params: Vec<String> = if params_str.trim().is_empty() || params_str.trim() == "void" {
+        // `void (*)()` 或 `void (*)(void)` → 无参数
+        vec![]
+    } else {
+        params_str
+            .split(',')
+            .map(|t| cpp_to_rust(t.trim()))
+            .collect()
+    };
+
+    // 映射返回类型
+    let rust_ret = cpp_to_rust(ret_cpp);
+
+    // 构造 `Option<unsafe extern "C" fn(T1, T2) -> R>` 字符串
+    let params_joined = rust_params.join(", ");
+    let ret_suffix = if rust_ret.is_empty() {
+        String::new() // void 返回 → 省略 `-> ()`
+    } else {
+        format!(" -> {}", rust_ret)
+    };
+
+    Some(format!(
+        "Option<unsafe extern \"C\" fn({}){}>" ,
+        params_joined, ret_suffix
+    ))
+}
+
+
 ///
 /// 例：`counter_new() -> Counter*` → `Counter* counter_new()`
 pub fn build_cpp_fn_sig(name: &str, ret: &str, params: &[(&str, &str)]) -> String {
@@ -311,5 +371,83 @@ mod tests {
         assert_eq!(cpp_to_rust("void *const"), "*mut u8");
         // `char *const *` → 指向 const 指针的指针 → `*mut *mut i8`
         assert_eq!(cpp_to_rust("char *const *"), "*mut *mut i8");
+    }
+
+    // ── try_map_c_fn_ptr / C 函数指针映射 ────────────────────────────
+
+    #[test]
+    fn fn_ptr_basic() {
+        // int (*)(int, int) → Option<unsafe extern "C" fn(i32, i32) -> i32>
+        assert_eq!(
+            cpp_to_rust("int (*)(int, int)"),
+            "Option<unsafe extern \"C\" fn(i32, i32) -> i32>"
+        );
+    }
+
+    #[test]
+    fn fn_ptr_void_return() {
+        // void (*)(int) → Option<unsafe extern "C" fn(i32)>（无返回类型后缀）
+        assert_eq!(
+            cpp_to_rust("void (*)(int)"),
+            "Option<unsafe extern \"C\" fn(i32)>"
+        );
+    }
+
+    #[test]
+    fn fn_ptr_no_params() {
+        // void (*)() → Option<unsafe extern "C" fn()>
+        assert_eq!(
+            cpp_to_rust("void (*)()"),
+            "Option<unsafe extern \"C\" fn()>"
+        );
+    }
+
+    #[test]
+    fn fn_ptr_void_param() {
+        // void (*)(void) 与 void (*)() 等价
+        assert_eq!(
+            cpp_to_rust("void (*)(void)"),
+            "Option<unsafe extern \"C\" fn()>"
+        );
+    }
+
+    #[test]
+    fn fn_ptr_ptr_param() {
+        // void (*)(void*) → Option<unsafe extern "C" fn(*mut u8)>
+        assert_eq!(
+            cpp_to_rust("void (*)(void *)"),
+            "Option<unsafe extern \"C\" fn(*mut u8)>"
+        );
+    }
+
+    #[test]
+    fn fn_ptr_const_char_return() {
+        // const char* (*)(int) → Option<unsafe extern "C" fn(i32) -> *const i8>
+        assert_eq!(
+            cpp_to_rust("const char *(*)(int)"),
+            "Option<unsafe extern \"C\" fn(i32) -> *const i8>"
+        );
+    }
+
+    #[test]
+    fn fn_ptr_nested_not_supported() {
+        // 嵌套函数指针（参数中含 `(*)`）不递归处理，try_map_c_fn_ptr 返回 None，
+        // cpp_to_rust 回退为原样字符串
+        let nested = "int (*)(int (*)(int), int)";
+        // 不应是合法的 Option<...> 形式，原样返回
+        let result = cpp_to_rust(nested);
+        assert!(
+            !result.starts_with("Option<"),
+            "嵌套函数指针不应递归处理，但得到了 {}",
+            result
+        );
+    }
+
+    #[test]
+    fn non_fn_ptr_unchanged() {
+        // 普通类型不受影响
+        assert_eq!(cpp_to_rust("int"), "i32");
+        assert_eq!(cpp_to_rust("Counter *"), "*mut Counter");
+        assert_eq!(cpp_to_rust("const char *"), "*const i8");
     }
 }
