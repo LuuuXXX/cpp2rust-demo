@@ -264,15 +264,23 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     // 第二遍：收集类外方法定义（带方法体）并更新 body_offset
     for entity in root.get_children() {
         let kind = entity.get_kind();
+
+        // 与第一遍相同：非内联 C 链接函数定义不受 is_in_system_header() 过滤
+        let is_noninline_c_fn_def = kind == EntityKind::FunctionDecl
+            && entity.get_language() == Some(Language::C)
+            && entity.is_definition()
+            && !entity.is_inline_function();
+
         let skip_if_no_location = match kind {
             EntityKind::LinkageSpec => false,
             EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
             _ => true,
         };
-        if entity
-            .get_location()
-            .map(|l| l.is_in_system_header())
-            .unwrap_or(skip_if_no_location)
+        if !is_noninline_c_fn_def
+            && entity
+                .get_location()
+                .map(|l| l.is_in_system_header())
+                .unwrap_or(skip_if_no_location)
         {
             continue;
         }
