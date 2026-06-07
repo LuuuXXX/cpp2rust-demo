@@ -382,7 +382,7 @@ fn run_with_hook_windows(
 /// Windows canonicalize() 会产生 `\\?\` 前缀（扩展路径格式）。
 /// 该前缀会导致后续 strip_prefix 匹配失败，因此去除它，返回普通 Windows 绝对路径。
 ///
-/// 仅在 Windows 上有实际效果；其他平台直接调用标准 canonicalize。
+/// 在 Windows 上会去掉 `\\?\` 前缀；其他平台直接调用标准 canonicalize。
 #[cfg(windows)]
 fn canonicalize_no_verbatim(p: &std::path::Path) -> std::io::Result<PathBuf> {
     let canonical = p.canonicalize()?;
@@ -393,6 +393,11 @@ fn canonicalize_no_verbatim(p: &std::path::Path) -> std::io::Result<PathBuf> {
     } else {
         Ok(canonical)
     }
+}
+
+#[cfg(not(windows))]
+fn canonicalize_no_verbatim(p: &std::path::Path) -> std::io::Result<PathBuf> {
+    p.canonicalize()
 }
 
 /// 在当前 PATH 中搜索 C++ 编译器，返回第一个找到的完整路径及其类型。

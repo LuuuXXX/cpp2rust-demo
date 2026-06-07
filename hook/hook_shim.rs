@@ -530,10 +530,18 @@ mod tests {
 
     #[test]
     fn unknown_slash_prefix_treated_as_path() {
-        // 未知的 /xxx 选项保守视为路径（/s 不是小写字母开头的驱动器路径，走保守分支）
+        // 未知的 /xxx 选项保守视为路径。
+        // /some/unknown/path：bytes[2]='o'（非 '/'），不匹配 POSIX 驱动器路径（需要 /x/ 格式），
+        // 且 "some" 不匹配任何已知 MSVC 标志前缀，因此走保守分支返回 true。
         assert!(
             looks_like_file_path("/some/unknown/path"),
             "未知 /xxx 前缀应保守视为文件路径"
+        );
+        // /xyz/foo：首字符后跟非 '/' 字母，不匹配 POSIX 驱动器路径，
+        // 且 /xyz 不在已知 MSVC 标志列表中，走保守分支返回 true。
+        assert!(
+            looks_like_file_path("/xyz/foo/bar.cpp"),
+            "/xyz/... 未知前缀应保守视为文件路径"
         );
     }
 
