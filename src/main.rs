@@ -50,7 +50,6 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
         .map(|e| e.path().to_path_buf())
         .collect();
     rs_files.sort();
-    rs_files.sort();
 
     let mut import_lib_files = 0usize;
     let mut import_class_files = 0usize;
