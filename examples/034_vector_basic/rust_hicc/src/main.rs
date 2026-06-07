@@ -29,6 +29,9 @@ hicc::import_class! {
         #[cpp(method = "size_t capacity() const")]
         fn capacity(&self) -> usize;
 
+        #[cpp(method = "void reserve(size_t n)")]
+        fn reserve(&mut self, n: usize);
+
         #[cpp(method = "int* data()")]
         fn data(&mut self) -> *mut i32;
 
@@ -66,6 +69,9 @@ fn main() {
     let mut vec = int_vector_new();
 
     println!("Empty: {}", vec.empty());
+
+    // Reserve capacity to ensure consistent behavior across platforms
+    vec.reserve(8);
 
     // Push elements
     for i in 0..5 {

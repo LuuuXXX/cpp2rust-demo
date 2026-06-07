@@ -27,26 +27,17 @@ pub fn run_tool_on(example_dir: &str) -> String {
         .unwrap_or("unit")
         .to_string();
 
-    // 3. g++ -E -C file.cpp → 临时 .cpp2rust 文件
+    // 3. g++ -E -C file.cpp → 临时 .cpp2rust 文件（Windows 优先尝试 clang++）
     let tmp_dir = std::env::temp_dir().join(format!("cpp2rust_{}", unit_name));
     std::fs::create_dir_all(&tmp_dir).ok();
     let preprocessed = tmp_dir.join(format!("{}.cpp2rust", unit_name));
 
-    let status = Command::new("g++")
-        .args([
-            "-E",
-            "-C",
-            cpp_file.to_str().unwrap(),
-            "-o",
-            preprocessed.to_str().unwrap(),
-        ])
-        .status();
-
-    match status {
-        Ok(s) if s.success() => {}
-        _ => {
+    let preprocess_ok = run_preprocess(&cpp_file, &preprocessed);
+    match preprocess_ok {
+        true => {}
+        false => {
             eprintln!(
-                "run_tool_on: g++ preprocessing failed for {}",
+                "run_tool_on: preprocessing failed for {}",
                 cpp_file.display()
             );
             return String::new();
@@ -86,6 +77,76 @@ fn find_cpp_file(dir: &str) -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+/// 对 C++ 源文件运行预处理器（-E -C），输出到 `out`。
+///
+/// - Linux / macOS：使用 `g++`。
+/// - Windows：优先尝试 `clang++`（LLVM for Windows），
+///   回退到 `g++`（MinGW/MSYS2），再回退到 `cl.exe /P /C`（MSVC）。
+fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
+    #[cfg(not(windows))]
+    {
+        Command::new("g++")
+            .args([
+                "-E",
+                "-C",
+                src.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        // 优先 clang++（LLVM）
+        let ok = Command::new("clang++")
+            .args([
+                "-E",
+                "-C",
+                src.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return true;
+        }
+        // 回退到 g++（MinGW/MSYS2）
+        let ok = Command::new("g++")
+            .args([
+                "-E",
+                "-C",
+                src.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return true;
+        }
+        // 最终回退：cl.exe /P /C（MSVC）
+        // cl.exe 预处理输出文件名固定为 <stem>.i，需手动 rename
+        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
+        let cl_out = src.parent().unwrap_or(std::path::Path::new(".")).join(format!("{}.i", stem));
+        let ok = Command::new("cl.exe")
+            .args(["/P", "/C", "/nologo"])
+            .arg(src)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok && cl_out.exists() {
+            let _ = std::fs::rename(&cl_out, out);
+            return true;
+        }
+        false
+    }
 }
 
 /// Extract all hicc::cpp!, hicc::import_class!, hicc::import_lib! blocks from source.

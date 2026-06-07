@@ -382,34 +382,25 @@ fn rapidjson_merge_phase() {
     merger::merge_in_place(&rust_dir).expect("merge_in_place 失败");
 
     // ── 验证输出目录结构 ────────────────────────────────────────────
+    // merge_in_place 新行为：src.2 被 rename 为 src（真实目录），src.2 不再存在
     let src1 = rust_dir.join("src.1");
-    let src2 = rust_dir.join("src.2");
-    let src_link = rust_dir.join("src");
+    let src_dir = rust_dir.join("src");
 
     assert!(src1.is_dir(), "merge: src.1/ 目录不存在（init 备份未生成）");
     assert!(
-        src2.is_dir(),
-        "merge: src.2/ 目录不存在（merge 输出未生成）"
+        src_dir.is_dir() && !src_dir.is_symlink(),
+        "merge: src/ 目录不存在或为符号链接（merge 输出未生成）"
     );
     assert!(
-        src_link.is_symlink(),
-        "merge: src 不是符号链接（应指向 src.2/）"
+        !rust_dir.join("src.2").is_dir() && !rust_dir.join("src.2").exists(),
+        "merge: src.2 应已被 rename 为 src，不应继续存在"
     );
 
-    // symlink 目标必须是 src.2
-    let link_target = std::fs::read_link(&src_link).expect("read_link(src) 失败");
-    assert_eq!(
-        link_target.to_str().unwrap_or(""),
-        "src.2",
-        "merge: src 符号链接目标错误，期望 src.2，实际 {}",
-        link_target.display()
-    );
-
-    // ── 验证 src.2/ 中的 .rs 文件内容符合 hicc 格式 ────────────────
-    let merged_files = merger::collect_unit_rs_files(&src2);
+    // ── 验证 src/ 中的 .rs 文件内容符合 hicc 格式 ────────────────
+    let merged_files = merger::collect_unit_rs_files(&src_dir);
     assert!(
         !merged_files.is_empty(),
-        "merge: src.2/ 下未找到任何 .rs 文件"
+        "merge: src/ 下未找到任何 .rs 文件"
     );
 
     let mut format_errors = Vec::new();
@@ -443,7 +434,7 @@ fn rapidjson_merge_phase() {
 
     // ── 统计报告 ────────────────────────────────────────────────────
     println!(
-        "rapidjson merge: {} unit 文件 → src.2/ 中 {} 个 .rs 文件",
+        "rapidjson merge: {} unit 文件 → src/ 中 {} 个 .rs 文件",
         unit_paths.len(),
         merged_files.len()
     );

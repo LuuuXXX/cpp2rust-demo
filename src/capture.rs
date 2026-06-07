@@ -4,14 +4,55 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 // 将 hook 源文件内容直接嵌入 binary，确保 `cargo install` 后无需额外文件。
+#[cfg(unix)]
 const HOOK_CPP: &str = include_str!("../hook/hook.cpp");
+#[cfg(unix)]
 const HOOK_MAKEFILE: &str = include_str!("../hook/Makefile");
+#[cfg(windows)]
+const HOOK_SHIM_RS: &str = include_str!("../hook/hook_shim.rs");
+
+/// 从 `hook/Makefile` 构建 `libhook.so`（Unix），或编译 `hook_shim.exe`（Windows）。
+///
+/// 若产物已是最新则跳过重新构建（快速路径）。返回产物路径。
+pub fn build_hook() -> Result<PathBuf> {
+    #[cfg(unix)]
+    return build_hook_unix();
+    #[cfg(windows)]
+    return build_hook_windows();
+    #[cfg(not(any(unix, windows)))]
+    return Err(anyhow!(
+        "capture hook is not supported on this platform (only Unix and Windows)"
+    ));
+}
+
+/// 使用平台对应的 hook 机制运行用户提供的构建命令，并捕获 .cpp2rust 文件。
+pub fn run_with_hook(
+    build_dir: &Path,
+    cmd: &[String],
+    project_root: &Path,
+    feature_root: &Path,
+    hook_artifact: &Path,
+) -> Result<()> {
+    #[cfg(unix)]
+    return run_with_hook_unix(build_dir, cmd, project_root, feature_root, hook_artifact);
+    #[cfg(windows)]
+    return run_with_hook_windows(build_dir, cmd, project_root, feature_root, hook_artifact);
+    #[cfg(not(any(unix, windows)))]
+    return Err(anyhow!(
+        "capture hook is not supported on this platform (only Unix and Windows)"
+    ));
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Unix 实现（LD_PRELOAD + libhook.so）
+// ─────────────────────────────────────────────────────────────────
 
 /// 从 `hook/Makefile` 构建 `libhook.so`。
 ///
 /// 若 `libhook.so` 已存在且比 `hook.cpp` 更新，则跳过编译（快速路径）。
 /// 返回 `libhook.so` 的路径。
-pub fn build_hook() -> Result<PathBuf> {
+#[cfg(unix)]
+fn build_hook_unix() -> Result<PathBuf> {
     let hook_dir = hook_dir()?;
     let so = hook_dir.join("libhook.so");
     let cpp = hook_dir.join("hook.cpp");
@@ -55,7 +96,8 @@ pub fn build_hook() -> Result<PathBuf> {
 }
 
 /// 使用 LD_PRELOAD 设置为 libhook.so，执行用户提供的构建命令。
-pub fn run_with_hook(
+#[cfg(unix)]
+fn run_with_hook_unix(
     build_dir: &Path,
     cmd: &[String],
     project_root: &Path,
@@ -105,6 +147,7 @@ pub fn run_with_hook(
 /// 从运行中二进制文件所在目录开始向上查找 `hook/` 目录。
 /// 若找不到，则将嵌入二进制的 hook 源文件解压到用户数据目录，
 /// 以便 `cargo install` 用户无需单独检出代码即可使用。
+#[cfg(unix)]
 fn hook_dir() -> Result<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -142,6 +185,7 @@ fn hook_dir() -> Result<PathBuf> {
 /// - Linux / 其他：`$XDG_DATA_HOME/cpp2rust-demo/hook/`
 ///   （默认 `~/.local/share/cpp2rust-demo/hook/`）
 /// - macOS：`~/Library/Application Support/cpp2rust-demo/hook/`
+#[cfg(unix)]
 fn ensure_hook_data_dir() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
     let hook_dir = base.join("cpp2rust-demo").join("hook");
@@ -174,13 +218,226 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
     Ok(hook_dir)
 }
 
+// ─────────────────────────────────────────────────────────────────
+//  Windows 实现（PATH 注入 + hook_shim.exe）
+//  支持 GNU（g++/clang++）和 MSVC（cl.exe）两种编译器
+// ─────────────────────────────────────────────────────────────────
+
+/// 将 `hook_shim.rs` 写入数据目录并使用 `rustc` 编译为 `hook_shim.exe`。
+///
+/// 产物路径：`%APPDATA%\cpp2rust-demo\hook\hook_shim.exe`
+/// 若 shim 源码无变化则复用已有产物（快速路径）。
+///
+/// 同一个 `hook_shim.exe` 同时支持 GNU 和 MSVC 两种模式：
+/// 运行时通过 `CPP2RUST_COMPILER_KIND` 环境变量（由 `run_with_hook_windows` 设置）区分。
+#[cfg(windows)]
+fn build_hook_windows() -> Result<PathBuf> {
+    let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
+    let hook_dir = base.join("cpp2rust-demo").join("hook");
+    std::fs::create_dir_all(&hook_dir)
+        .map_err(|e| anyhow!("create_dir_all {}: {}", hook_dir.display(), e))?;
+
+    let shim_rs = hook_dir.join("hook_shim.rs");
+    let shim_exe = hook_dir.join("hook_shim.exe");
+
+    // 若源码有变化则写入（触发重新编译）
+    let needs_write = match std::fs::read_to_string(&shim_rs) {
+        Ok(existing) => existing != HOOK_SHIM_RS,
+        Err(_) => true,
+    };
+    if needs_write {
+        std::fs::write(&shim_rs, HOOK_SHIM_RS)
+            .map_err(|e| anyhow!("write {}: {}", shim_rs.display(), e))?;
+    }
+
+    // 快速路径：若 .exe 比 .rs 更新则跳过编译
+    if shim_exe.exists() && !needs_write {
+        println!("Hook shim up-to-date: {}", shim_exe.display());
+        return Ok(shim_exe);
+    }
+
+    println!("Compiling hook shim from {}...", shim_rs.display());
+    let status = Command::new("rustc")
+        .args(["--edition", "2021", "-o"])
+        .arg(&shim_exe)
+        .arg(&shim_rs)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| anyhow!("failed to run rustc (is Rust installed?): {}", e))?;
+
+    if !status.success() {
+        return Err(anyhow!("rustc failed to compile hook_shim.rs"));
+    }
+    if !shim_exe.exists() {
+        return Err(anyhow!(
+            "hook_shim.exe not found after build at {}",
+            shim_exe.display()
+        ));
+    }
+
+    println!("Hook shim built: {}", shim_exe.display());
+    Ok(shim_exe)
+}
+
+/// Windows 编译器类型，用于向 hook_shim 传递正确的预处理策略。
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsCompilerKind {
+    /// GCC/Clang（g++.exe / clang++.exe / c++.exe）
+    Gnu,
+    /// MSVC（cl.exe）
+    Msvc,
+}
+
+#[cfg(windows)]
+impl WindowsCompilerKind {
+    /// 对应 `CPP2RUST_COMPILER_KIND` 环境变量的字符串值。
+    fn env_value(self) -> &'static str {
+        match self {
+            WindowsCompilerKind::Gnu => "gnu",
+            WindowsCompilerKind::Msvc => "msvc",
+        }
+    }
+}
+
+/// 通过 PATH 注入将 `hook_shim.exe` 伪装成真实编译器，然后执行用户构建命令。
+///
+/// 流程：
+///  1. 在临时目录中将 hook_shim.exe 以真实编译器基名（如 `g++.exe` / `cl.exe`）命名。
+///  2. 将该临时目录插入 PATH 最前面。
+///  3. 设置 `CPP2RUST_REAL_CC`、`CPP2RUST_COMPILER_KIND`、`CPP2RUST_PROJECT_ROOT`、
+///     `CPP2RUST_FEATURE_ROOT`。
+///  4. 执行构建命令；shim 拦截编译调用并生成 .cpp2rust 文件。
+#[cfg(windows)]
+fn run_with_hook_windows(
+    build_dir: &Path,
+    cmd: &[String],
+    project_root: &Path,
+    feature_root: &Path,
+    hook_exe: &Path,
+) -> Result<()> {
+    if cmd.is_empty() {
+        return Err(anyhow!("build command is empty"));
+    }
+
+    let abs_project_root = project_root
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", project_root.display(), e))?;
+    let abs_feature_root = feature_root
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", feature_root.display(), e))?;
+
+    // 找到真实 C++ 编译器（绕过 shim 目录本身），同时获取编译器类型
+    let (real_cc, cc_kind) = detect_windows_cxx_compiler().ok_or_else(|| {
+        anyhow!("no C++ compiler (g++/clang++/cl.exe) found in PATH")
+    })?;
+
+    // 将 shim 放入临时目录，以真实编译器基名命名
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("cpp2rust-shim-")
+        .tempdir()
+        .map_err(|e| anyhow!("tempdir: {}", e))?;
+    let cc_basename = real_cc
+        .file_name()
+        .ok_or_else(|| anyhow!("real_cc has no filename"))?;
+    let shim_alias = tmp_dir.path().join(cc_basename);
+    std::fs::copy(hook_exe, &shim_alias)
+        .map_err(|e| anyhow!("copy shim → {}: {}", shim_alias.display(), e))?;
+
+    // 将临时目录插入 PATH 最前面
+    let old_path = std::env::var_os("PATH").unwrap_or_default();
+    let new_path = std::env::join_paths(
+        std::iter::once(tmp_dir.path().to_path_buf()).chain(std::env::split_paths(&old_path)),
+    )
+    .map_err(|e| anyhow!("join_paths: {}", e))?;
+
+    println!("Running build command: {}", cmd.join(" "));
+    println!("  CPP2RUST_PROJECT_ROOT  = {}", abs_project_root.display());
+    println!("  CPP2RUST_FEATURE_ROOT  = {}", abs_feature_root.display());
+    println!("  CPP2RUST_REAL_CC       = {}", real_cc.display());
+    println!("  CPP2RUST_COMPILER_KIND = {}", cc_kind.env_value());
+    println!();
+
+    let status = Command::new(&cmd[0])
+        .args(&cmd[1..])
+        .current_dir(build_dir)
+        .env("PATH", new_path)
+        .env("CPP2RUST_REAL_CC", &real_cc)
+        .env("CPP2RUST_COMPILER_KIND", cc_kind.env_value())
+        .env("CPP2RUST_PROJECT_ROOT", &abs_project_root)
+        .env("CPP2RUST_FEATURE_ROOT", &abs_feature_root)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| anyhow!("failed to spawn '{}': {}", cmd[0], e))?;
+
+    if !status.success() {
+        return Err(anyhow!(
+            "build command failed with exit code {}",
+            status.code().unwrap_or(-1)
+        ));
+    }
+    Ok(())
+}
+
+/// 在当前 PATH 中搜索 C++ 编译器，返回第一个找到的完整路径及其类型。
+///
+/// 搜索顺序（GNU 优先，以便在同时安装 MinGW 和 MSVC 时保持向后兼容）：
+/// 1. g++.exe / clang++.exe / c++.exe（GNU ABI）
+/// 2. cl.exe（MSVC）
+///
+/// 每个 PATH 目录只遍历一次：先检查所有 GNU 候选，再检查 cl.exe。
+/// 若系统同时存在 GNU 和 MSVC 编译器，GNU 将优先被选择。
+/// 如需强制使用 MSVC，可在调用 `cpp2rust-demo init` 之前将 MSVC 的 bin 目录排列在 PATH 最前面
+/// 并确保 g++/clang++ 不在 PATH 中。
+#[cfg(windows)]
+fn detect_windows_cxx_compiler() -> Option<(PathBuf, WindowsCompilerKind)> {
+    let path_var = std::env::var_os("PATH")?;
+
+    let gnu_candidates = ["g++.exe", "clang++.exe", "c++.exe"];
+    let mut msvc_candidate: Option<PathBuf> = None;
+
+    // 单次遍历 PATH，同时检查 GNU 和 MSVC 候选
+    for dir in std::env::split_paths(&path_var) {
+        // 优先检查 GNU 编译器
+        for name in &gnu_candidates {
+            let full = dir.join(name);
+            if full.is_file() {
+                return Some((full, WindowsCompilerKind::Gnu));
+            }
+        }
+        // 记录第一个找到的 cl.exe（若尚未找到 GNU，则作为后备）
+        if msvc_candidate.is_none() {
+            let cl = dir.join("cl.exe");
+            if cl.is_file() {
+                msvc_candidate = Some(cl);
+            }
+        }
+    }
+
+    // 只有在没有找到任何 GNU 编译器时才使用 cl.exe
+    msvc_candidate.map(|p| (p, WindowsCompilerKind::Msvc))
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  共用：平台相关的数据目录 + home 目录
+// ─────────────────────────────────────────────────────────────────
+
 /// 平台相关的基础数据目录（不含应用子路径）。
 fn data_dir() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         dirs_home().map(|h| h.join("Library").join("Application Support"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        // 优先使用 %APPDATA%（通常为 C:\Users\<user>\AppData\Roaming）
+        std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         // 优先使用 XDG_DATA_HOME；回退到 ~/.local/share。
         if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
@@ -195,16 +452,34 @@ fn data_dir() -> Option<PathBuf> {
 
 /// 返回当前用户的 home 目录。
 ///
-/// 使用 `HOME` 环境变量，这是标准的 POSIX 机制，
-/// 适用于 Linux、macOS 及大多数类 Unix 系统。
-/// 本工具依赖 LD_PRELOAD 和 ELF 共享库，不支持 Windows，
-/// 因此无需 Windows 专用的回退逻辑。
+/// - POSIX（Linux / macOS）：使用 `HOME` 环境变量。
+/// - Windows：依次尝试 `USERPROFILE`、`HOMEDRIVE` + `HOMEPATH`。
 fn dirs_home() -> Option<PathBuf> {
-    // 优先使用 HOME 环境变量（适用于大多数 POSIX 环境）。
+    // POSIX: HOME
     if let Some(h) = std::env::var_os("HOME") {
         let p = PathBuf::from(h);
         if p.is_absolute() {
             return Some(p);
+        }
+    }
+    // Windows: USERPROFILE
+    #[cfg(windows)]
+    {
+        if let Some(h) = std::env::var_os("USERPROFILE") {
+            let p = PathBuf::from(h);
+            if p.is_absolute() {
+                return Some(p);
+            }
+        }
+        if let (Some(drive), Some(path)) = (
+            std::env::var_os("HOMEDRIVE"),
+            std::env::var_os("HOMEPATH"),
+        ) {
+            let mut full = PathBuf::from(drive);
+            full.push(path);
+            if full.is_absolute() {
+                return Some(full);
+            }
         }
     }
     None

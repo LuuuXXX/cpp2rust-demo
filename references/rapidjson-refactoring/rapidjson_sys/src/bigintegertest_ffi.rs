@@ -53,7 +53,7 @@ impl CxxBigInteger {
         // Simple fixed-size buffer; can be adjusted if needed.
         let mut buf = [0i8; 256];
         let ok = unsafe {
-            rapidjson_biginteger_to_string(self.inner, buf.as_mut_ptr(), buf.len() as u64)
+            rapidjson_biginteger_to_string(self.inner, buf.as_mut_ptr(), buf.len() as ::std::os::raw::c_ulong)
         };
         if ok == 0 {
             return String::new();

@@ -117,11 +117,11 @@ const int* int_array5_data_const(const struct IntArray5* self) {
 }
 
 int* int_array5_begin(struct IntArray5* self) {
-    return self->impl->data.begin();
+    return self->impl->data.data();
 }
 
 int* int_array5_end(struct IntArray5* self) {
-    return self->impl->data.end();
+    return self->impl->data.data() + self->impl->data.size();
 }
 
 int int_array5_at(const struct IntArray5* self, size_t index) {

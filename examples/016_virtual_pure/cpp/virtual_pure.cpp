@@ -1,3 +1,6 @@
+#ifdef _MSC_VER
+#define _USE_MATH_DEFINES
+#endif
 #include "virtual_pure.h"
 #include <iostream>
 #include <cmath>

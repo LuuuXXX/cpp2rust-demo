@@ -18,9 +18,9 @@ void swap_double(double* a, double* b) {
     do_swap<double>(a, b);
 }
 
-void swap_char(char* a, char* b) {
+void swap_char(unsigned char* a, unsigned char* b) {
     std::cout << "swap_char called" << std::endl;
-    do_swap<char>(a, b);
+    do_swap<unsigned char>(a, b);
 }
 
 void swap_int_array(int* arr, int i, int j) {
