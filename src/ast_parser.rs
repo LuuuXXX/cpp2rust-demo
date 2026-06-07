@@ -430,19 +430,28 @@ fn collect_linkage_spec(
     user_ranges: &[std::ops::Range<u32>],
 ) {
     for entity in spec.get_children() {
-        // 过滤：跳过来自系统头的实体，但有一个关键例外：
-        // 非内联函数**定义**不可能真正来自系统头文件（系统头只有声明和内联定义），
-        // 因此即使 is_in_system_header() 在 Windows LLVM 17 上错误返回 true，
-        // 也必须保留这类实体——否则显式 extern "C" {} 块中的用户函数定义
-        // （如 hello_world）将被错误丢弃，导致 fn_bindings 为空。
-        // 注意：此处使用 is_noninline_fn_def（不检查语言），因为在 .cpp 文件的
-        // extern "C" 块中，get_language() 可能返回 CPlusPlus 而非 C。
-        if !is_noninline_fn_def(&entity)
-            && entity
-                .get_location()
-                .map(|l| l.is_in_system_header())
-                .unwrap_or(false)
-        {
+        // 过滤：跳过来自系统头的实体，但有两个关键例外：
+        //
+        // 例外 1：非内联函数**定义**不可能真正来自系统头文件（系统头只有声明和内联定义），
+        // 因此无论过滤条件如何都必须保留。
+        //
+        // 例外 2：判断"是否系统头"时，不再使用 is_in_system_header()，
+        // 而改用基于 GCC linemarker flag-3 构建的 user_ranges 字节范围检查。
+        // 背景：Windows LLVM 17 上 is_in_system_header() 对用户 extern "C" 块
+        // （包括用户头文件的声明块和 .cpp 文件的定义块）有时错误返回 true，
+        // 导致 hello_world 等函数被全部过滤，fn_bindings 为空。
+        // user_ranges 直接解析预处理文件中的 flag-3 行号标记，不依赖 libclang 的判断，
+        // 因此不受该 bug 影响。
+        // 当 get_range()=None 时 unwrap_or(true)：无法确定位置则包含（宁可误纳入
+        // 也不漏掉用户函数），与原 is_in_system_header().unwrap_or(false) 语义一致。
+        let from_user_range = entity
+            .get_range()
+            .map(|r| {
+                let offset = r.get_start().get_file_location().offset;
+                user_ranges.iter().any(|range| range.contains(&offset))
+            })
+            .unwrap_or(true);
+        if !is_noninline_fn_def(&entity) && !from_user_range {
             continue;
         }
         match entity.get_kind() {
