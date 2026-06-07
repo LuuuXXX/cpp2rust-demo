@@ -1052,6 +1052,13 @@ fn parse_line_marker(line: &str) -> Option<(&str, Vec<u32>)> {
 /// 通过解析行号标记（linemarker），提取不含 flag-3（系统头）且非虚拟路径的文件路径。
 /// 返回的路径已规范化（反斜杠→正斜杠，统一小写），以支持跨平台比较。
 ///
+/// **路径规范化**：linemarker 中的路径使用 C-string 转义，Windows 路径如
+/// `cpp\\file.cpp`（两个反斜杠）会被直接写入文件。因此需要两步转换：
+/// 1. `\\` → `\`（解码 C-string 转义，例如 `C:\\dir\\file.cpp` → `C:\dir\file.cpp`）
+/// 2. `\` → `/`（统一分隔符，例如 `C:\dir\file.cpp` → `C:/dir/file.cpp`）
+/// 若跳过第一步直接替换，则 `cpp\\hello.cpp` 会变成 `cpp//hello.cpp`（双斜杠），
+/// 导致与 libclang `get_presumed_location()` 返回的路径无法匹配。
+///
 /// 用法：配合 `entity_presumed_from_user_file` 通过 `get_presumed_location()` 检查
 /// 实体是否来自用户代码，该方法不依赖字节偏移量，对 CRLF/路径差异更健壮。
 pub fn user_file_paths_from_content(content: &str) -> std::collections::HashSet<String> {
