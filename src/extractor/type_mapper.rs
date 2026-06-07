@@ -242,17 +242,16 @@ pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
     // 构造 `Option<unsafe extern "C" fn(T1, T2) -> R>` 字符串
     let params_joined = rust_params.join(", ");
     let ret_suffix = if rust_ret.is_empty() {
-        String::new() // void 返回 → 省略 `-> ()`
+        String::new() // void 返回 → 省略返回类型注解（无 `-> ...`）
     } else {
         format!(" -> {}", rust_ret)
     };
 
     Some(format!(
-        "Option<unsafe extern \"C\" fn({}){}>" ,
+        "Option<unsafe extern \"C\" fn({}){}>",
         params_joined, ret_suffix
     ))
 }
-
 
 ///
 /// 例：`counter_new() -> Counter*` → `Counter* counter_new()`

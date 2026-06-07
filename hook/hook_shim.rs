@@ -380,7 +380,8 @@ mod tests {
 
     #[test]
     fn msvc_slash_c_uppercase_not_compile_mode() {
-        // `/C` 是"保留注释"，不是编译模式
+        // `/C` 是 MSVC 预处理选项"保留注释"（preprocessing comment-preserve），
+        // 不是"编译（不链接）"模式标志 `/c`（两者大小写不同，语义完全不同）
         let kind = CompilerKind::Msvc;
         assert!(
             !kind.is_compile_mode(&["/C".to_string()]),
