@@ -206,10 +206,10 @@ pub fn cpp_to_rust(cpp: &str) -> String {
 /// 返回 `Some(mapped_type)` 当成功解析，`None` 当类型不是合法的顶层 C 函数指针形式。
 pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
     // 必须含有 `(*)(` 模式
-    let star_paren = cpp.find("(*)(").or_else(|| {
+    let star_paren = cpp.find("(*)(").or(
         // 也接受 `(* )(` 形式（极少见但合法）
         None
-    })?;
+    )?;
 
     // 提取 `(*)` 左边的返回类型
     let ret_cpp = cpp[..star_paren].trim();
@@ -253,21 +253,6 @@ pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
     ))
 }
 
-///
-/// 例：`counter_new() -> Counter*` → `Counter* counter_new()`
-pub fn build_cpp_fn_sig(name: &str, ret: &str, params: &[(&str, &str)]) -> String {
-    let param_str = params
-        .iter()
-        .map(|(_, ty)| ty.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    if ret.is_empty() || ret == "void" {
-        format!("void {}({})", name, param_str)
-    } else {
-        format!("{}* {}({})", clean_type(ret), name, param_str)
-    }
-}
-
 /// 清理 C++ 类型中的 `struct ` / `class ` 前缀
 pub fn clean_type(ty: &str) -> &str {
     ty.strip_prefix("struct ")
@@ -295,11 +280,6 @@ pub fn to_snake_case(s: &str) -> String {
         }
     }
     result
-}
-
-/// 判断 Rust 类型是否需要 unsafe（含裸指针）
-pub fn needs_unsafe(rust_type: &str) -> bool {
-    rust_type.contains("*mut ") || rust_type.contains("*const ")
 }
 
 #[cfg(test)]

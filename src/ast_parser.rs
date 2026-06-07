@@ -1056,8 +1056,9 @@ fn parse_line_marker(line: &str) -> Option<(&str, Vec<u32>)> {
 /// `cpp\\file.cpp`（两个反斜杠）会被直接写入文件。因此需要两步转换：
 /// 1. `\\` → `\`（解码 C-string 转义，例如 `C:\\dir\\file.cpp` → `C:\dir\file.cpp`）
 /// 2. `\` → `/`（统一分隔符，例如 `C:\dir\file.cpp` → `C:/dir/file.cpp`）
+///
 /// 若跳过第一步直接替换，则 `cpp\\hello.cpp` 会变成 `cpp//hello.cpp`（双斜杠），
-/// 导致与 libclang `get_presumed_location()` 返回的路径无法匹配。
+///    导致与 libclang `get_presumed_location()` 返回的路径无法匹配。
 ///
 /// 用法：配合 `entity_presumed_from_user_file` 通过 `get_presumed_location()` 检查
 /// 实体是否来自用户代码，该方法不依赖字节偏移量，对 CRLF/路径差异更健壮。

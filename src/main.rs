@@ -10,10 +10,12 @@ use cpp2rust_demo::generator::project_generator;
 use cpp2rust_demo::layout::{self, FeatureLayout, InitReportData, InitUnitStat, MergeReportData};
 use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use walkdir::WalkDir;
 
 // ─── post-merge FFI 统计 ───────────────────────────────────────────────────
 
@@ -32,21 +34,6 @@ struct RustSrcMetrics {
     degraded_tags: Vec<(String, usize)>,
 }
 
-/// 递归收集 `dir` 下所有 `.rs` 文件。
-fn walk_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_rs_files(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
-        }
-    }
-}
-
 /// 统计文件行数（逐行读取，内存高效）。
 fn count_file_lines(path: &Path) -> usize {
     std::fs::File::open(path)
@@ -56,8 +43,13 @@ fn count_file_lines(path: &Path) -> usize {
 
 /// 扫描 `rust_src` 目录下所有 `.rs` 文件，统计 FFI 绑定指标。
 fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
-    let mut rs_files = Vec::new();
-    walk_rs_files(rust_src, &mut rs_files);
+    let mut rs_files: Vec<PathBuf> = WalkDir::new(rust_src)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
+        .map(|e| e.path().to_path_buf())
+        .collect();
+    rs_files.sort();
     rs_files.sort();
 
     let mut import_lib_files = 0usize;
@@ -461,7 +453,7 @@ fn run_init(args: InitArgs) -> Result<()> {
             .iter()
             .map(|p| (p, count_file_lines(p)))
             .collect();
-        sizes.sort_by(|a, b| b.1.cmp(&a.1));
+        sizes.sort_by_key(|b| Reverse(b.1));
         let total: usize = sizes.iter().map(|(_, n)| n).sum();
         println!("\n── 捕获的 .cpp2rust 文件（行数，降序）──");
         for (path, lines) in sizes.iter().take(15) {
@@ -698,7 +690,7 @@ fn opaque_import_class_block(type_name: &str) -> String {
 /// 返回 `true` 当且仅当 `s` 是合法的 C++/Rust 标识符（ASCII 字母、数字、下划线，首字符非数字）。
 fn is_valid_identifier(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
+        && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 

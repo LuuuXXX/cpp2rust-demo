@@ -17,6 +17,7 @@ use anyhow::anyhow;
 use block_parser::{parse_unit_rs, ParsedFnBinding, ParsedUnit};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use walkdir::WalkDir;
 
 // ─────────────────────────────────────────────
 //  合并后的中间结构
@@ -236,28 +237,21 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
 /// 递归扫描 `src_dir` 下所有 `*.rs` 文件，返回路径列表（排序）。
 /// 排除 `lib.rs`（汇总模块）和 `mod.rs`（目录声明文件），只返回实际 unit 文件。
 pub fn collect_unit_rs_files(src_dir: &Path) -> Vec<std::path::PathBuf> {
-    let mut result = Vec::new();
-    collect_unit_rs_recursive(src_dir, &mut result);
+    let mut result: Vec<std::path::PathBuf> = WalkDir::new(src_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path();
+            p.extension().and_then(|ext| ext.to_str()) == Some("rs")
+                && !matches!(
+                    p.file_name().and_then(|n| n.to_str()),
+                    Some("lib.rs") | Some("mod.rs")
+                )
+        })
+        .map(|e| e.path().to_path_buf())
+        .collect();
     result.sort();
     result
-}
-
-fn collect_unit_rs_recursive(dir: &Path, result: &mut Vec<std::path::PathBuf>) {
-    let rd = match std::fs::read_dir(dir) {
-        Ok(r) => r,
-        Err(_) => return,
-    };
-    for entry in rd.flatten() {
-        let p = entry.path();
-        if p.is_dir() {
-            collect_unit_rs_recursive(&p, result);
-        } else if p.extension().and_then(|e| e.to_str()) == Some("rs") {
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name != "lib.rs" && name != "mod.rs" {
-                result.push(p);
-            }
-        }
-    }
 }
 
 // ─────────────────────────────────────────────

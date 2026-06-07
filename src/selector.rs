@@ -56,41 +56,33 @@ fn is_non_interactive() -> bool {
     !std::io::stdin().is_terminal()
 }
 
-/// 无需用户交互、直接选择全部候选文件的选择器。用于测试。
-#[allow(dead_code)]
-pub struct SelectAll;
-
-impl FileSelector for SelectAll {
-    fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
-        Ok(candidates.to_vec())
-    }
-}
-
-/// 不选择任何候选文件的选择器。用于测试。
-#[allow(dead_code)]
-pub struct SelectNone;
-
-impl FileSelector for SelectNone {
-    fn select(&self, _candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
-        Ok(vec![])
-    }
-}
-
-/// 基于谓词闭包的选择器。用于测试。
-#[allow(dead_code)]
-pub struct PredicateSelector<F>(pub F)
-where
-    F: Fn(&PathBuf) -> bool;
-
-impl<F: Fn(&PathBuf) -> bool> FileSelector for PredicateSelector<F> {
-    fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
-        Ok(candidates.iter().filter(|p| (self.0)(p)).cloned().collect())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 无需用户交互、直接选择全部候选文件的选择器。
+    struct SelectAll;
+    impl FileSelector for SelectAll {
+        fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
+            Ok(candidates.to_vec())
+        }
+    }
+
+    /// 不选择任何候选文件的选择器。
+    struct SelectNone;
+    impl FileSelector for SelectNone {
+        fn select(&self, _candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
+            Ok(vec![])
+        }
+    }
+
+    /// 基于谓词闭包的选择器。
+    struct PredicateSelector<F: Fn(&PathBuf) -> bool>(F);
+    impl<F: Fn(&PathBuf) -> bool> FileSelector for PredicateSelector<F> {
+        fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
+            Ok(candidates.iter().filter(|p| (self.0)(p)).cloned().collect())
+        }
+    }
 
     fn make_paths(names: &[&str]) -> Vec<PathBuf> {
         names.iter().map(PathBuf::from).collect()

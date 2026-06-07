@@ -1,6 +1,7 @@
 use crate::error::Result;
 use anyhow::anyhow;
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
 // ─────────────────────────────────────────────
 //  报告数据结构
@@ -71,7 +72,6 @@ pub fn find_project_root(start: &Path) -> PathBuf {
 
 /// `.cpp2rust/<feature>/` 目录结构描述。
 pub struct FeatureLayout {
-    #[allow(dead_code)]
     pub project_root: PathBuf,
     /// `.cpp2rust/<feature>/`
     pub feature_root: PathBuf,
@@ -218,7 +218,7 @@ impl FeatureLayout {
             "- **生成 `.rs` 文件总数：** {}\n",
             data.rs_file_count
         ));
-        out.push_str("\n");
+        out.push('\n');
 
         // 冲突
         out.push_str("## 冲突\n\n");
@@ -283,23 +283,14 @@ pub fn scan_cpp2rust_files(c_dir: &Path) -> Result<Vec<PathBuf>> {
     if !c_dir.exists() {
         return Ok(vec![]);
     }
-    let mut out = Vec::new();
-    visit_dir(c_dir, &mut out)?;
+    let mut out: Vec<PathBuf> = WalkDir::new(c_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "cpp2rust"))
+        .map(|e| e.path().to_path_buf())
+        .collect();
     out.sort();
     Ok(out)
-}
-
-fn visit_dir(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in std::fs::read_dir(dir).map_err(|e| anyhow!("read_dir {}: {}", dir.display(), e))? {
-        let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
-        let path = entry.path();
-        if path.is_dir() {
-            visit_dir(&path, out)?;
-        } else if path.extension().is_some_and(|e| e == "cpp2rust") {
-            out.push(path);
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

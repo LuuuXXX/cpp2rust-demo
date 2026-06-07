@@ -395,11 +395,6 @@ fn canonicalize_no_verbatim(p: &std::path::Path) -> std::io::Result<PathBuf> {
     }
 }
 
-#[cfg(not(windows))]
-fn canonicalize_no_verbatim(p: &std::path::Path) -> std::io::Result<PathBuf> {
-    p.canonicalize()
-}
-
 /// 在当前 PATH 中搜索 C++ 编译器，返回第一个找到的完整路径及其类型。
 ///
 /// 搜索顺序（GNU 优先，以便在同时安装 MinGW 和 MSVC 时保持向后兼容）：
