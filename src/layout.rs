@@ -165,9 +165,7 @@ impl FeatureLayout {
         if data.degraded_tags.is_empty() {
             out.push_str("*（无 — 所有特性均已完整映射）*\n");
         } else {
-            out.push_str(
-                "以下特性标签需要人工处理（在生成文件中搜索 `cpp2rust-todo`）：\n\n",
-            );
+            out.push_str("以下特性标签需要人工处理（在生成文件中搜索 `cpp2rust-todo`）：\n\n");
             out.push_str("| 标签 | 编译单元 | 出现次数 |\n|------|---------|----------|\n");
             for (tag, units) in data.degraded_tags {
                 for (unit_path, count) in units {
@@ -186,9 +184,7 @@ impl FeatureLayout {
         out.push_str("    │   ├── build_cmd.txt\n");
         out.push_str("    │   ├── selected_files.json\n");
         out.push_str("    │   ├── init-report.md          （本文件）\n");
-        out.push_str(
-            "    │   └── merge-report.md         （由 'cpp2rust-demo merge' 生成）\n",
-        );
+        out.push_str("    │   └── merge-report.md         （由 'cpp2rust-demo merge' 生成）\n");
         out.push_str(
             "    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）\n",
         );

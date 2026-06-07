@@ -122,7 +122,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                         ],
                         ret_type: Some(format!("*mut {}", ci.name)),
                         is_unsafe: false,
-                    has_fn_ptr_param: false,
+                        has_fn_ptr_param: false,
                     });
                 }
                 continue;

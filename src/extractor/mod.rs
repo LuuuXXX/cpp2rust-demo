@@ -40,9 +40,7 @@ pub fn extract(
         .functions
         .iter()
         .filter(|f| {
-            f.is_from_current_file
-                || f.is_extern_c
-                || (f.body_offset.is_some() && !f.is_inline)
+            f.is_from_current_file || f.is_extern_c || (f.body_offset.is_some() && !f.is_inline)
         })
         .cloned()
         .collect();
@@ -798,9 +796,7 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         return None;
     }
     // C++ 成员函数指针无法映射为有效 Rust FFI 类型，跳过
-    if m.params.iter().any(|p| p.type_name.contains("::*)"))
-        || m.return_type.contains("::*)")
-    {
+    if m.params.iter().any(|p| p.type_name.contains("::*)")) || m.return_type.contains("::*)") {
         return None;
     }
     let rust_name = sanitize_fn_name(&m.name);
@@ -820,8 +816,8 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
     let ret_type = ret_type_from_cpp(&m.return_type);
 
     // 检测参数或返回类型是否含 C 函数指针，用于生成 cpp2rust-todo[FP] 注释
-    let has_fn_ptr_param = m.params.iter().any(|p| p.type_name.contains("(*)"))
-        || m.return_type.contains("(*)");
+    let has_fn_ptr_param =
+        m.params.iter().any(|p| p.type_name.contains("(*)")) || m.return_type.contains("(*)");
 
     // C++ 方法签名：含参数名（若 AST 有）、剥除参数 volatile、指针紧贴类型
     // 返回类型 volatile 和方法 this-volatile 均需保留，供 hicc 编译时方法指针类型检查
@@ -938,12 +934,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         .params
         .iter()
         .enumerate()
-        .map(|(i, p)| {
-            (
-                sanitize_param_name(&p.name, i),
-                cpp_to_rust(&p.type_name),
-            )
-        })
+        .map(|(i, p)| (sanitize_param_name(&p.name, i), cpp_to_rust(&p.type_name)))
         .collect();
 
     let ret_type = ret_type_from_cpp(&fi.return_type);
@@ -996,8 +987,8 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         .is_some_and(|r| r == "*const i8" || r == "*mut i8" || r.starts_with("unsafe extern"));
 
     // 检测参数或返回类型是否含 C 函数指针，用于生成 cpp2rust-todo[FP] 注释
-    let has_fn_ptr_param = fi.params.iter().any(|p| p.type_name.contains("(*)"))
-        || fi.return_type.contains("(*)");
+    let has_fn_ptr_param =
+        fi.params.iter().any(|p| p.type_name.contains("(*)")) || fi.return_type.contains("(*)");
 
     // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名，
     // 但 self/this/thiz 等接收者惯用名除外（这些参数在 C 签名中通常省略参数名）
@@ -1659,7 +1650,10 @@ mod tests {
         );
         let fb = &spec.fn_bindings[0];
         assert!(
-            fb.ret_type.as_deref().unwrap_or("").starts_with("unsafe extern"),
+            fb.ret_type
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("unsafe extern"),
             "返回类型应映射为 unsafe extern \"C\" fn(...)，实际：{:?}",
             fb.ret_type
         );
@@ -1708,7 +1702,10 @@ mod tests {
         let mb = binding.unwrap();
         assert!(mb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
         assert!(
-            mb.ret_type.as_deref().unwrap_or("").starts_with("unsafe extern"),
+            mb.ret_type
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("unsafe extern"),
             "返回类型应映射为 unsafe extern \"C\" fn(...)，实际：{:?}",
             mb.ret_type
         );
@@ -1773,7 +1770,10 @@ mod tests {
     fn build_method_binding_has_fn_ptr_param_false_for_normal_method() {
         let m = make_method("get_value", "int", &["int"]);
         let mb = build_method_binding(&m).expect("普通方法应生成绑定");
-        assert!(!mb.has_fn_ptr_param, "普通方法的 has_fn_ptr_param 应为 false");
+        assert!(
+            !mb.has_fn_ptr_param,
+            "普通方法的 has_fn_ptr_param 应为 false"
+        );
     }
 
     /// 普通函数（无函数指针）不应被过滤
@@ -1911,17 +1911,11 @@ mod tests {
     #[test]
     fn is_mappable_rust_type_fn_ptr() {
         assert!(
-            is_mappable_rust_type(
-                r#"unsafe extern "C" fn(i32, i32) -> i32"#,
-                &[]
-            ),
+            is_mappable_rust_type(r#"unsafe extern "C" fn(i32, i32) -> i32"#, &[]),
             "C 函数指针映射结果应合法"
         );
         assert!(
-            is_mappable_rust_type(
-                r#"unsafe extern "C" fn(i32)"#,
-                &[]
-            ),
+            is_mappable_rust_type(r#"unsafe extern "C" fn(i32)"#, &[]),
             "C 函数指针（无返回类型）映射结果应合法"
         );
     }

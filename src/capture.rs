@@ -327,9 +327,8 @@ fn run_with_hook_windows(
         .map_err(|e| anyhow!("canonicalize {}: {}", feature_root.display(), e))?;
 
     // 找到真实 C++ 编译器（绕过 shim 目录本身），同时获取编译器类型
-    let (real_cc, cc_kind) = detect_windows_cxx_compiler().ok_or_else(|| {
-        anyhow!("no C++ compiler (g++/clang++/cl.exe) found in PATH")
-    })?;
+    let (real_cc, cc_kind) = detect_windows_cxx_compiler()
+        .ok_or_else(|| anyhow!("no C++ compiler (g++/clang++/cl.exe) found in PATH"))?;
 
     // 将 shim 放入临时目录，以真实编译器基名命名
     let tmp_dir = tempfile::Builder::new()
@@ -485,10 +484,9 @@ fn dirs_home() -> Option<PathBuf> {
                 return Some(p);
             }
         }
-        if let (Some(drive), Some(path)) = (
-            std::env::var_os("HOMEDRIVE"),
-            std::env::var_os("HOMEPATH"),
-        ) {
+        if let (Some(drive), Some(path)) =
+            (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH"))
+        {
             let mut full = PathBuf::from(drive);
             full.push(path);
             if full.is_absolute() {

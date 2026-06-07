@@ -208,7 +208,7 @@ pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
     // 必须含有 `(*)(` 模式
     let star_paren = cpp.find("(*)(").or(
         // 也接受 `(* )(` 形式（极少见但合法）
-        None
+        None,
     )?;
 
     // 提取 `(*)` 左边的返回类型
@@ -366,28 +366,19 @@ mod tests {
     #[test]
     fn fn_ptr_void_return() {
         // void (*)(int) → unsafe extern "C" fn(i32)（无返回类型后缀）
-        assert_eq!(
-            cpp_to_rust("void (*)(int)"),
-            "unsafe extern \"C\" fn(i32)"
-        );
+        assert_eq!(cpp_to_rust("void (*)(int)"), "unsafe extern \"C\" fn(i32)");
     }
 
     #[test]
     fn fn_ptr_no_params() {
         // void (*)() → unsafe extern "C" fn()
-        assert_eq!(
-            cpp_to_rust("void (*)()"),
-            "unsafe extern \"C\" fn()"
-        );
+        assert_eq!(cpp_to_rust("void (*)()"), "unsafe extern \"C\" fn()");
     }
 
     #[test]
     fn fn_ptr_void_param() {
         // void (*)(void) 与 void (*)() 等价
-        assert_eq!(
-            cpp_to_rust("void (*)(void)"),
-            "unsafe extern \"C\" fn()"
-        );
+        assert_eq!(cpp_to_rust("void (*)(void)"), "unsafe extern \"C\" fn()");
     }
 
     #[test]

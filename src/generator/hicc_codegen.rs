@@ -32,7 +32,9 @@ pub fn emit_cpp_block(lines: &[String]) -> String {
 fn emit_fn_binding(out: &mut String, fb: &FnBinding, ret_override: Option<&str>) {
     out.push('\n');
     if fb.has_fn_ptr_param {
-        out.push_str("    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern \"C\" 调用约定\n");
+        out.push_str(
+            "    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern \"C\" 调用约定\n",
+        );
     }
     out.push_str(&format!("    #[cpp(func = \"{}\")]\n", fb.cpp_sig));
     let unsafe_kw = if fb.is_unsafe { "unsafe " } else { "" };

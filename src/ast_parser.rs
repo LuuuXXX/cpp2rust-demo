@@ -1111,9 +1111,9 @@ fn entity_presumed_from_user_file(
         return true;
     }
     // 后缀匹配：处理绝对路径（linemarker）vs 相对路径（presumed）或反之
-    user_files.iter().any(|uf| {
-        normalized.ends_with(uf.as_str()) || uf.ends_with(normalized.as_str())
-    })
+    user_files
+        .iter()
+        .any(|uf| normalized.ends_with(uf.as_str()) || uf.ends_with(normalized.as_str()))
 }
 
 /// 扫描 `g++ -E`（不带 `-P`）生成的预处理文件，返回属于**用户代码**（非系统头）的字节区间。

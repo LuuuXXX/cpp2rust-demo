@@ -165,24 +165,59 @@ fn looks_like_file_path(s: &str) -> bool {
     }
     // MSYS2/Cygwin POSIX 驱动器路径：/c/... /d/... 等（/ + 小写字母 + /）
     // 需要在 MSVC 选项前缀匹配之前检测，避免 /d/a/... 误匹配 MSVC /D 宏定义选项
-    if bytes.len() >= 3
-        && bytes[0] == b'/'
-        && bytes[1].is_ascii_lowercase()
-        && bytes[2] == b'/'
-    {
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_lowercase() && bytes[2] == b'/' {
         return true;
     }
     // 已知 MSVC 选项前缀列表（均以 '/' 开头，大小写不敏感）
     let known_flags: &[&str] = &[
-        "/c", "/C", "/P", "/E", "/EP", "/TC", "/TP",
-        "/Fo", "/Fe", "/Fi", "/Fd", "/Fp", "/FA", "/Fa", "/FR", "/Fr",
-        "/I", "/D", "/U", "/FI", "/FU",
-        "/EH", "/MD", "/MT", "/LD", "/LDd", "/MDd", "/MTd",
-        "/W", "/WX", "/GR", "/GX",
-        "/O", "/GL", "/GS", "/RTC",
-        "/Zi", "/ZI", "/Z7", "/Zo",
-        "/std", "/arch", "/Zc", "/permissive", "/nologo",
-        "/showIncludes", "/source-charset", "/utf-8",
+        "/c",
+        "/C",
+        "/P",
+        "/E",
+        "/EP",
+        "/TC",
+        "/TP",
+        "/Fo",
+        "/Fe",
+        "/Fi",
+        "/Fd",
+        "/Fp",
+        "/FA",
+        "/Fa",
+        "/FR",
+        "/Fr",
+        "/I",
+        "/D",
+        "/U",
+        "/FI",
+        "/FU",
+        "/EH",
+        "/MD",
+        "/MT",
+        "/LD",
+        "/LDd",
+        "/MDd",
+        "/MTd",
+        "/W",
+        "/WX",
+        "/GR",
+        "/GX",
+        "/O",
+        "/GL",
+        "/GS",
+        "/RTC",
+        "/Zi",
+        "/ZI",
+        "/Z7",
+        "/Zo",
+        "/std",
+        "/arch",
+        "/Zc",
+        "/permissive",
+        "/nologo",
+        "/showIncludes",
+        "/source-charset",
+        "/utf-8",
     ];
     let lower = s.to_ascii_lowercase();
     for flag in known_flags {
@@ -294,7 +329,8 @@ fn preprocess_file_msvc(
         if a.starts_with("/I")
             || a.starts_with("/D")
             || a.starts_with("/std:")
-            || a.starts_with("/FI") // forced include
+            || a.starts_with("/FI")
+        // forced include
         {
             cmd.arg(a);
             continue;
@@ -367,11 +403,7 @@ fn msys2_to_windows(p: &Path) -> Option<PathBuf> {
     let s = p.to_str()?;
     let bytes = s.as_bytes();
     // 形如 /d/a/... 或 /d/
-    if bytes.len() >= 3
-        && bytes[0] == b'/'
-        && bytes[1].is_ascii_lowercase()
-        && bytes[2] == b'/'
-    {
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_lowercase() && bytes[2] == b'/' {
         let drive = (bytes[1] as char).to_ascii_uppercase();
         // bytes[2..] 以 '/' 开头，例如 "/a/foo/bar"
         let rest = s[2..].replace('/', "\\");
@@ -391,11 +423,7 @@ fn normalize_arg(s: &str) -> String {
     let bytes = s.as_bytes();
 
     // 独立的 POSIX 驱动器路径：/d/a/...
-    if bytes.len() >= 3
-        && bytes[0] == b'/'
-        && bytes[1].is_ascii_lowercase()
-        && bytes[2] == b'/'
-    {
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_lowercase() && bytes[2] == b'/' {
         if let Some(p) = msys2_to_windows(Path::new(s)) {
             return p.to_string_lossy().into_owned();
         }
@@ -515,13 +543,35 @@ mod tests {
     #[test]
     fn known_msvc_flags_not_file_path() {
         for flag in &[
-            "/c", "/C", "/P", "/E", "/EP", "/TC", "/TP",
-            "/Fo", "/Fe", "/Fi", "/Fd",
-            "/I", "/D", "/U", "/FI",
-            "/EH", "/MD", "/MT", "/WX", "/GR",
-            "/O1", "/O2", "/GL", "/GS",
-            "/Zi", "/ZI", "/Z7",
-            "/std:c++17", "/nologo",
+            "/c",
+            "/C",
+            "/P",
+            "/E",
+            "/EP",
+            "/TC",
+            "/TP",
+            "/Fo",
+            "/Fe",
+            "/Fi",
+            "/Fd",
+            "/I",
+            "/D",
+            "/U",
+            "/FI",
+            "/EH",
+            "/MD",
+            "/MT",
+            "/WX",
+            "/GR",
+            "/O1",
+            "/O2",
+            "/GL",
+            "/GS",
+            "/Zi",
+            "/ZI",
+            "/Z7",
+            "/std:c++17",
+            "/nologo",
         ] {
             assert!(
                 !looks_like_file_path(flag),

@@ -605,7 +605,10 @@ hicc::import_lib! {
         );
         // src 是真实目录，可正常访问
         assert!(rust_dir.join("src/lib.rs").exists());
-        assert!(!rust_dir.join("src").is_symlink(), "src should not be a symlink");
+        assert!(
+            !rust_dir.join("src").is_symlink(),
+            "src should not be a symlink"
+        );
     }
 
     #[test]

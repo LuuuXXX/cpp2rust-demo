@@ -210,7 +210,10 @@ fn cxx_compile_obj(src: &Path, includes: &[&str], obj: &Path) -> Option<bool> {
         // -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH suppresses the STL1000 error
         // that MSVC STL 14.44+ raises when used with clang < 19.
         for (compiler, extra_flags) in &[
-            ("clang++", vec!["-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"]),
+            (
+                "clang++",
+                vec!["-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"],
+            ),
             ("g++", vec![]),
         ] {
             let mut cmd = Command::new(compiler);
@@ -396,7 +399,9 @@ pub fn cargo_build_example(dir: &str, bin_name: &str) -> Option<PathBuf> {
     let bin_name_with_ext = format!("{}.exe", bin_name);
     #[cfg(not(windows))]
     let bin_name_with_ext = bin_name.to_string();
-    let bin = PathBuf::from(dir).join("target/debug").join(&bin_name_with_ext);
+    let bin = PathBuf::from(dir)
+        .join("target/debug")
+        .join(&bin_name_with_ext);
     if bin.exists() {
         Some(bin)
     } else {
