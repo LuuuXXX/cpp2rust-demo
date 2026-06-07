@@ -175,13 +175,21 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     // 第一遍：收集类/函数/枚举声明
     for entity in root.get_children() {
         let kind = entity.get_kind();
-        // LinkageSpec（extern "C"/"C++" 块）及 C 链接 FunctionDecl 在 Windows LLVM 17
-        // 上 get_location() 有时返回 None。若按默认的 unwrap_or(true) 跳过，其子函数
-        // 声明或顶层 extern "C" 函数将丢失。
-        // 对 LinkageSpec 和 C 链接 FunctionDecl 使用 unwrap_or(false)：location 缺失时
-        // 保守地认为不在系统头。
+
+        // LinkageSpec（extern "C"/"C++" 块）需要特殊处理：
+        // 在 Windows LLVM 17 上，用户代码的 extern "C" 块（包括用户头文件中的声明块
+        // 和 .cpp 文件中的定义块）的 is_in_system_header() 有时会错误地返回 true，
+        // 若依赖该标志跳过，整个块及其内部的所有函数将被丢弃。
+        // 解决方案：对 LinkageSpec 始终调用 collect_linkage_spec，不做顶层过滤；
+        // 内部的精细过滤由 collect_linkage_spec 自行处理（非内联定义不跳过）。
+        if kind == EntityKind::LinkageSpec {
+            collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges);
+            continue;
+        }
+
+        // C 链接 FunctionDecl 在 Windows LLVM 17 上 get_location() 有时返回 None；
+        // 使用 unwrap_or(false) 使 None 位置不触发跳过。
         let skip_if_no_location = match kind {
-            EntityKind::LinkageSpec => false,
             EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
             _ => true,
         };
@@ -234,9 +242,6 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
             }
             EntityKind::Namespace => {
                 collect_namespace(&entity, &mut ast, &cpp_ranges, &user_ranges);
-            }
-            EntityKind::LinkageSpec => {
-                collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges);
             }
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, &mut ast, &user_ranges);
@@ -396,27 +401,22 @@ fn collect_linkage_spec(
     user_ranges: &[std::ops::Range<u32>],
 ) {
     for entity in spec.get_children() {
-        // 一级过滤：libclang 系统头标记（依赖行号标记中的 flag 3，去掉 -P 后生效）
-        //
-        // 注意：使用 unwrap_or(false) 而非 unwrap_or(true)。
-        // 原因：在 Windows LLVM 17 上，extern "C" 块内的函数实体有时 get_location()
-        // 返回 None（位置信息无效），若使用 unwrap_or(true) 则这些实体会被错误跳过，
-        // 导致如 hello_world 这类在 .cpp 中显式用 extern "C" {} 包裹的函数无法被收集
-        // 进 fn_bindings，从而生成不完整的 FFI 脚手架。
-        // 本函数只在父实体（LinkageSpec）已确认为用户代码时调用，因此 None 位置应
-        // 保守视为用户代码（不跳过），而非系统头（跳过）。
-        if entity
-            .get_location()
-            .map(|l| l.is_in_system_header())
-            .unwrap_or(false)
+        // 过滤：跳过来自系统头的实体，但有一个关键例外：
+        // 非内联函数**定义**不可能真正来自系统头文件（系统头只有声明和内联定义），
+        // 因此即使 is_in_system_header() 在 Windows LLVM 17 上错误返回 true，
+        // 也必须保留这类实体——否则显式 extern "C" {} 块中的用户函数定义
+        // （如 hello_world）将被错误丢弃，导致 fn_bindings 为空。
+        let is_noninline_fn_def = entity.get_kind() == EntityKind::FunctionDecl
+            && entity.is_definition()
+            && !entity.is_inline_function();
+        if !is_noninline_fn_def
+            && entity
+                .get_location()
+                .map(|l| l.is_in_system_header())
+                .unwrap_or(false)
         {
             continue;
         }
-        // 注：之前存在的基于 user_ranges 的二级过滤已移除。
-        // 原因：Windows 上 clang 的 get_file_location().offset 对于 extern "C" 块内的实体
-        // 有时返回原始源文件中的偏移量（通过 #line 标记解析后的位置），而非预处理后文件的
-        // 物理偏移量，导致 user_ranges 比对失败，从而错误地跳过用户代码中的函数（如
-        // hello_world）。is_in_system_header() 已足够可靠地区分系统头内容与用户代码。
         match entity.get_kind() {
             EntityKind::FunctionDecl => {
                 if let Some(mut fi) = extract_function(&entity, None, cpp_ranges) {
