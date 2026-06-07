@@ -389,19 +389,11 @@ fn collect_linkage_spec(
         {
             continue;
         }
-        // 防御性二级过滤：基于行号标记字节区间判断是否属于用户代码内容。
-        // 若预处理文件含行号标记（正常情况），只接受落在用户区间内的实体；
-        // 若文件不含行号标记（如历史使用了 -P 生成），user_ranges 覆盖全文，退化为无额外过滤。
-        let in_user = entity
-            .get_range()
-            .map(|r| {
-                let offset = r.get_start().get_file_location().offset;
-                user_ranges.iter().any(|range| range.contains(&offset))
-            })
-            .unwrap_or(false);
-        if !in_user {
-            continue;
-        }
+        // 注：之前存在的基于 user_ranges 的二级过滤已移除。
+        // 原因：Windows 上 clang 的 get_file_location().offset 对于 extern "C" 块内的实体
+        // 有时返回原始源文件中的偏移量（通过 #line 标记解析后的位置），而非预处理后文件的
+        // 物理偏移量，导致 user_ranges 比对失败，从而错误地跳过用户代码中的函数（如
+        // hello_world）。is_in_system_header() 已足够可靠地区分系统头内容与用户代码。
         match entity.get_kind() {
             EntityKind::FunctionDecl => {
                 if let Some(mut fi) = extract_function(&entity, None, cpp_ranges) {
