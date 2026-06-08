@@ -1229,3 +1229,199 @@ jobs:
 
       - name: Run fmtlib E2E
         run: cargo test --test fmtlib_e2e_test -- --test-threads=1
+
+  # ── L4 E2E Libraries (macOS) ──────────────────────────────────────
+  l4-e2e-libraries-macos:
+    name: L4 E2E Libraries (macOS)
+    runs-on: macos-latest
+    needs: build-macos
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init E2E submodules
+        run: |
+          git submodule update --init \
+            references/tinyxml2 \
+            references/pugixml \
+            references/nlohmann-json \
+            references/fmtlib
+
+      - name: Install LLVM and sqlite3
+        run: brew install llvm sqlite3
+
+      - name: Set LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run tinyxml2 E2E
+        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
+
+      - name: Run pugixml E2E
+        run: cargo test --test pugixml_e2e_test -- --test-threads=1
+
+      - name: Run sqlite3 E2E
+        # macOS 系统头路径与 Linux 不同，测试内部会自动跳过（graceful skip）
+        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
+
+      - name: Run nlohmann/json E2E
+        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
+
+      - name: Run fmtlib E2E
+        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
+
+  # ── L4 E2E Libraries (Windows MinGW) ─────────────────────────────
+  l4-e2e-libraries-windows:
+    name: L4 E2E Libraries (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init E2E submodules
+        run: |
+          git submodule update --init `
+            references/tinyxml2 `
+            references/pugixml `
+            references/nlohmann-json `
+            references/fmtlib
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Run tinyxml2 E2E
+        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run pugixml E2E
+        run: cargo test --test pugixml_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run sqlite3 E2E
+        # Windows 无 /usr/include/sqlite3.h，测试内部会自动跳过（graceful skip）
+        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run nlohmann/json E2E
+        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run fmtlib E2E
+        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── L4 E2E Libraries (Windows MSVC) ──────────────────────────────
+  l4-e2e-libraries-msvc:
+    name: L4 E2E Libraries (Windows MSVC)
+    runs-on: windows-latest
+    needs: build-msvc
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init E2E submodules
+        run: |
+          git submodule update --init `
+            references/tinyxml2 `
+            references/pugixml `
+            references/nlohmann-json `
+            references/fmtlib
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (MSVC ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-msvc-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-msvc-cargo-
+
+      - name: Run tinyxml2 E2E
+        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run pugixml E2E
+        run: cargo test --test pugixml_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run sqlite3 E2E
+        # Windows 无 /usr/include/sqlite3.h，测试内部会自动跳过（graceful skip）
+        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run nlohmann/json E2E
+        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run fmtlib E2E
+        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
