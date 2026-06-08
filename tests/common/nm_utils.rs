@@ -1,22 +1,23 @@
-/// nm_utils: helpers for L5 symbol-level FFI validation.
-///
-/// The validation flow is:
-///
-/// ```text
-/// C++ side
-///   └─ g++ -c *.cpp → .o
-///         └─ nm --defined-only -f posix <.o>
-///               filter: type T or W, name not starting with _Z
-///               → cpp_exports: {"counter_new", "counter_delete", ...}
-///
-/// Rust side
-///   └─ cargo build → binary / static library
-///         └─ nm --defined-only -f posix <artifact>
-///               filter: type T, intersect with cpp_exports set
-///               → rust_linked: {"counter_new", ...}
-///
-/// Assert: cpp_exports ⊆ rust_linked
-/// ```
+//! nm_utils: helpers for L5 symbol-level FFI validation.
+//!
+//! The validation flow is:
+//!
+//! ```text
+//! C++ side
+//!   └─ g++ -c *.cpp → .o
+//!         └─ nm --defined-only -f posix <.o>
+//!               filter: type T or W, name not starting with _Z
+//!               → cpp_exports: {"counter_new", "counter_delete", ...}
+//!
+//! Rust side
+//!   └─ cargo build → binary / static library
+//!         └─ nm --defined-only -f posix <artifact>
+//!               filter: type T, intersect with cpp_exports set
+//!               → rust_linked: {"counter_new", ...}
+//!
+//! Assert: cpp_exports ⊆ rust_linked
+//! ```
+#![allow(dead_code)]
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;

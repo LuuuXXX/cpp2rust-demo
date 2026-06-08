@@ -856,7 +856,7 @@ mod tests {
     #[test]
     fn multi_feature_combined_name_uses_underscore_join() {
         // 验证多 feature 合并时目录名由 features.join("_") 生成
-        let features = vec!["linux_x86".to_string(), "arm_embedded".to_string()];
+        let features = ["linux_x86".to_string(), "arm_embedded".to_string()];
         let combined_name = features.join("_");
         assert_eq!(combined_name, "linux_x86_arm_embedded");
     }

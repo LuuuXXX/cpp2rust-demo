@@ -1,9 +1,10 @@
+#![allow(dead_code)]
+
 pub mod nm_utils;
 
 use cpp2rust_demo::ast_parser;
 use cpp2rust_demo::extractor;
 use cpp2rust_demo::generator::hicc_codegen;
-use std::path::Path;
 use std::process::Command;
 
 /// Run the cpp2rust-demo tool on an example directory.
@@ -160,15 +161,14 @@ pub fn extract_hicc_blocks(src: &str) -> String {
 
     for line in src.lines() {
         let trimmed = line.trim();
-        if !in_block {
-            if trimmed.starts_with("hicc::cpp!")
+        if !in_block
+            && (trimmed.starts_with("hicc::cpp!")
                 || trimmed.starts_with("hicc::import_class!")
-                || trimmed.starts_with("hicc::import_lib!")
-            {
-                in_block = true;
-                depth = 0;
-                block_buf.clear();
-            }
+                || trimmed.starts_with("hicc::import_lib!"))
+        {
+            in_block = true;
+            depth = 0;
+            block_buf.clear();
         }
         if in_block {
             block_buf.push_str(line);
