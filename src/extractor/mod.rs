@@ -143,7 +143,7 @@ pub fn extract(
     // 而 void* → *mut u8 等可映射类型则正常生成绑定。
     let lib_spec = {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        build_lib_spec(&functions, unit_name, &class_names)
+        build_lib_spec(&functions, unit_name, &class_names, &ast.classes)
     };
 
     let mut spec = FfiSpec {
@@ -707,7 +707,12 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
         .methods
         .iter()
         .filter(|m| {
-            !m.is_constructor && !m.is_destructor && m.accessibility == "public" && !m.is_static
+            !m.is_constructor
+                && !m.is_destructor
+                && m.accessibility == "public"
+                && !m.is_static
+                && !m.is_virtual
+                && !m.is_pure_virtual
         })
         .filter(|m| !m.name.starts_with("operator") && !is_rust_keyword(&to_snake_case(&m.name)))
         .collect();
@@ -722,11 +727,13 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
 
     let mut methods: Vec<MethodBinding> = Vec::new();
 
-    // 先放继承来的（本类未覆盖的，同样跳过 operator 和 Rust 关键字方法名）
+    // 先放继承来的（本类未覆盖的，同样跳过 operator 和 Rust 关键字方法名，以及虚方法）
     for im in &inherited {
         if !own_names.contains(im.name.as_str())
             && !im.name.starts_with("operator")
             && !is_rust_keyword(&to_snake_case(&im.name))
+            && !im.is_virtual
+            && !im.is_pure_virtual
         {
             if let Some(mb) = build_method_binding(im) {
                 methods.push(mb);
@@ -864,14 +871,110 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
 }
 
 // ─────────────────────────────────────────────
+//  虚函数 shim 识别
+// ─────────────────────────────────────────────
+
+/// 收集所有虚函数 shim 的函数名集合。
+///
+/// 虚函数 shim：形如 `snake_class_method(ClassType* self)` 的 C ABI 包装函数，
+/// 其对应的 C++ 方法在类层次中为 virtual 或 pure virtual。
+/// 这类函数需要出现在 `import_lib!` 中（而非 `import_class!` 的类体内）。
+fn collect_virtual_shim_names(
+    functions: &[&FunctionInfo],
+    all_classes: &[ClassInfo],
+) -> std::collections::HashSet<String> {
+    let class_names: Vec<&str> = all_classes.iter().map(|c| c.name.as_str()).collect();
+    let mut result = std::collections::HashSet::new();
+
+    for fi in functions {
+        // 只关注 MethodAccessor 模式：第一个参数是类指针且名为 self/this/thiz
+        let first_param = match fi.params.first() {
+            Some(p) => p,
+            None => continue,
+        };
+        if !matches!(first_param.name.as_str(), "self" | "this" | "thiz") {
+            continue;
+        }
+        // volatile 限定的参数不是 MethodAccessor
+        if first_param.type_name.split_whitespace().any(|w| w == "volatile") {
+            continue;
+        }
+        // 找出第一个参数对应的类（取最长匹配，避免子串误匹配）
+        let cn = class_names
+            .iter()
+            .filter(|cn| {
+                let ty = &first_param.type_name;
+                ty.contains(&format!("{} *", cn))
+                    || ty.contains(&format!("{}*", cn))
+                    || ty.contains(&format!("{} &", cn))
+            })
+            .max_by_key(|cn| cn.len())
+            .copied();
+        let cn = match cn {
+            Some(cn) => cn,
+            None => continue,
+        };
+        // 函数名必须以 snake_case(class) + "_" 开头
+        let prefix = format!("{}_", to_snake_case(cn));
+        let fi_name_lower = fi.name.to_lowercase();
+        if !fi_name_lower.starts_with(&prefix) {
+            continue;
+        }
+        // 提取方法名（全小写），如 "abstract_shape_area" → "area"
+        let method_name_lower = &fi_name_lower[prefix.len()..];
+        if method_name_lower.is_empty() {
+            continue;
+        }
+        // 检查该方法在类层次中是否为虚函数
+        if let Some(ci) = all_classes.iter().find(|c| c.name == cn) {
+            if has_virtual_method(ci, all_classes, method_name_lower) {
+                result.insert(fi.name.clone());
+            }
+        }
+    }
+    result
+}
+
+/// 检查某个类（及其所有祖先类）是否拥有指定名称（全小写）的虚方法。
+fn has_virtual_method(ci: &ClassInfo, all_classes: &[ClassInfo], method_name_lower: &str) -> bool {
+    // 检查本类的虚方法
+    if ci.methods.iter().any(|m| {
+        (m.is_virtual || m.is_pure_virtual)
+            && !m.is_constructor
+            && !m.is_destructor
+            && m.name.to_lowercase() == method_name_lower
+    }) {
+        return true;
+    }
+    // 递归检查基类
+    for base in &ci.bases {
+        let base_name = crate::extractor::type_mapper::clean_type(&base.name).to_string();
+        if let Some(base_ci) = all_classes.iter().find(|c| c.name == base_name) {
+            if has_virtual_method(base_ci, all_classes, method_name_lower) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+// ─────────────────────────────────────────────
 //  import_lib! 块
 // ─────────────────────────────────────────────
 
-fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&str]) -> LibSpec {
+fn build_lib_spec(
+    functions: &[&FunctionInfo],
+    unit_name: &str,
+    class_names: &[&str],
+    all_classes: &[ClassInfo],
+) -> LibSpec {
+    let virtual_shim_names = collect_virtual_shim_names(functions, all_classes);
     let shims = classify_functions(functions, class_names);
     let fn_bindings: Vec<FnBinding> = shims
         .iter()
-        .filter(|(_, k)| !matches!(k, ShimKind::MethodAccessor))
+        .filter(|(fi, k)| {
+            !matches!(k, ShimKind::MethodAccessor) || virtual_shim_names.contains(&fi.name)
+        })
         .filter(|(fi, _)| !fi.is_variadic)
         .filter(|(fi, _)| !fi.name.starts_with("operator"))
         // C++ 成员函数指针（如 `int (Cls::*)() const`）无法映射为有效 Rust FFI 类型，跳过整个函数
@@ -887,7 +990,7 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
                 .all(|p| is_mappable_rust_type(&cpp_to_rust(&p.type_name), class_names))
                 && is_mappable_rust_type(&cpp_to_rust(&fi.return_type), class_names)
         })
-        .map(|(fi, _)| build_fn_binding(fi, class_names))
+        .map(|(fi, _)| build_fn_binding(fi, class_names, &virtual_shim_names))
         .collect();
 
     // 前向声明：只包含在函数签名中实际引用的类（按原始顺序）
@@ -928,8 +1031,22 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
     }
 }
 
-fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
-    let rust_name = sanitize_fn_name(&fi.name);
+fn build_fn_binding(
+    fi: &FunctionInfo,
+    class_names: &[&str],
+    virtual_shim_names: &std::collections::HashSet<String>,
+) -> FnBinding {
+    // 虚函数 shim 保留原始 C 函数名（含 camelCase 方法部分），与 C API 和 golden 保持一致；
+    // 其他函数统一转换为 snake_case（Rust 命名惯例）。
+    let rust_name = if virtual_shim_names.contains(&fi.name) {
+        if is_rust_keyword(&fi.name) {
+            format!("{}_", fi.name)
+        } else {
+            fi.name.clone()
+        }
+    } else {
+        sanitize_fn_name(&fi.name)
+    };
     let params: Vec<(String, String)> = fi
         .params
         .iter()
@@ -940,51 +1057,57 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let ret_type = ret_type_from_cpp(&fi.return_type);
 
     // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
-    // 例外：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）
+    // 例外1：虚函数 shim 遵循类方法的安全规则，不标记 unsafe
+    // 例外2：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）
     //        且参数不含 volatile 限定 → NOT unsafe
-    let primitive_ret = ret_type
-        .as_deref()
-        .map(|r| {
-            matches!(
-                r,
-                "i8" | "u8"
-                    | "i16"
-                    | "u16"
-                    | "i32"
-                    | "u32"
-                    | "i64"
-                    | "u64"
-                    | "f32"
-                    | "f64"
-                    | "bool"
-                    | "isize"
-                    | "usize"
-            )
-        })
-        .unwrap_or(false);
-    let has_volatile_param = fi
-        .params
-        .iter()
-        .any(|p| p.type_name.split_whitespace().any(|w| w == "volatile"));
-    let is_unsafe = params.iter().any(|(_, t)| {
-        if t == "*const i8" {
-            return true;
-        }
-        if t.starts_with("unsafe extern") {
-            return true; // C 函数指针参数：需要 unsafe
-        }
-        if let Some(inner) = t.strip_prefix("*mut ") {
-            let is_class = class_names.contains(&inner);
-            // volatile 限定的类指针参数不能享受 primitive_ret 豁免：仍标记为 unsafe
-            if is_class && primitive_ret && !has_volatile_param {
-                return false;
-            }
-            return true;
-        }
+    let is_unsafe = if virtual_shim_names.contains(&fi.name) {
+        // 虚函数 shim 与类方法有相同的安全规则：调用者无需额外标记 unsafe
         false
-    }) || ret_type
-        .as_deref()
-        .is_some_and(|r| r == "*const i8" || r == "*mut i8" || r.starts_with("unsafe extern"));
+    } else {
+        let primitive_ret = ret_type
+            .as_deref()
+            .map(|r| {
+                matches!(
+                    r,
+                    "i8" | "u8"
+                        | "i16"
+                        | "u16"
+                        | "i32"
+                        | "u32"
+                        | "i64"
+                        | "u64"
+                        | "f32"
+                        | "f64"
+                        | "bool"
+                        | "isize"
+                        | "usize"
+                )
+            })
+            .unwrap_or(false);
+        let has_volatile_param = fi
+            .params
+            .iter()
+            .any(|p| p.type_name.split_whitespace().any(|w| w == "volatile"));
+        params.iter().any(|(_, t)| {
+            if t == "*const i8" {
+                return true;
+            }
+            if t.starts_with("unsafe extern") {
+                return true; // C 函数指针参数：需要 unsafe
+            }
+            if let Some(inner) = t.strip_prefix("*mut ") {
+                let is_class = class_names.contains(&inner);
+                // volatile 限定的类指针参数不能享受 primitive_ret 豁免：仍标记为 unsafe
+                if is_class && primitive_ret && !has_volatile_param {
+                    return false;
+                }
+                return true;
+            }
+            false
+        }) || ret_type
+            .as_deref()
+            .is_some_and(|r| r == "*const i8" || r == "*mut i8" || r.starts_with("unsafe extern"))
+    };
 
     // 检测参数或返回类型是否含 C 函数指针，用于生成 cpp2rust-todo[FP] 注释
     let has_fn_ptr_param =
@@ -1642,7 +1765,7 @@ mod tests {
     fn build_lib_spec_maps_fn_ptr_return_type() {
         let fi = make_fn("get_callback", "int (*)(int)", &[]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &[]);
+        let spec = build_lib_spec(&funcs, "test", &[], &[]);
         assert_eq!(
             spec.fn_bindings.len(),
             1,
@@ -1665,7 +1788,7 @@ mod tests {
     fn build_lib_spec_filters_member_fn_ptr_return_type() {
         let fi = make_fn("get_method_ptr", "int (Cls::*)(int) const", &[]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &[]);
+        let spec = build_lib_spec(&funcs, "test", &[], &[]);
         assert!(
             spec.fn_bindings.is_empty(),
             "返回 C++ 成员函数指针的函数应被过滤，但仍出现在 fn_bindings 中"
@@ -1726,7 +1849,7 @@ mod tests {
     fn build_lib_spec_maps_fn_ptr_param() {
         let fi = make_fn("apply_op", "int", &["int", "int (*)(int, int)"]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &[]);
+        let spec = build_lib_spec(&funcs, "test", &[], &[]);
         assert_eq!(
             spec.fn_bindings.len(),
             1,
@@ -1748,7 +1871,7 @@ mod tests {
     fn build_lib_spec_still_filters_member_fn_ptr_param() {
         let fi = make_fn("set_handler", "void", &["int (Cls::*)(int)"]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &[]);
+        let spec = build_lib_spec(&funcs, "test", &[], &[]);
         assert!(
             spec.fn_bindings.is_empty(),
             "含 C++ 成员函数指针参数的函数应被过滤，但仍出现在 fn_bindings 中"
@@ -1781,7 +1904,7 @@ mod tests {
     fn build_lib_spec_keeps_normal_fn() {
         let fi = make_fn("get_value", "int", &["int"]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &[]);
+        let spec = build_lib_spec(&funcs, "test", &[], &[]);
         assert_eq!(
             spec.fn_bindings.len(),
             1,
@@ -1877,7 +2000,7 @@ mod tests {
         // FILE 是 C 标准类型，不在 class_names 中，无法映射为合法 Rust 类型
         let fi = make_fn("open_encoded_file", "void", &["const char *", "FILE *"]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &[]);
+        let spec = build_lib_spec(&funcs, "test", &[], &[]);
         assert!(
             spec.fn_bindings.is_empty(),
             "含未知参数类型（FILE *）的函数应被过滤"
@@ -1889,7 +2012,7 @@ mod tests {
     fn build_lib_spec_filters_unknown_return_type() {
         let fi = make_fn("return_schema_doc", "SchemaDocument", &[]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &[]);
+        let spec = build_lib_spec(&funcs, "test", &[], &[]);
         assert!(
             spec.fn_bindings.is_empty(),
             "含未知返回类型（SchemaDocument）的函数应被过滤"
@@ -1901,7 +2024,7 @@ mod tests {
     fn build_lib_spec_filters_namespace_return_type() {
         let fi = make_fn("get_string", "std::string", &[]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &[]);
+        let spec = build_lib_spec(&funcs, "test", &[], &[]);
         assert!(
             spec.fn_bindings.is_empty(),
             "含命名空间返回类型（std::string）的函数应被过滤"
@@ -1925,7 +2048,7 @@ mod tests {
     fn build_lib_spec_keeps_known_class_ref_param() {
         let fi = make_fn("process", "int", &["MyClass &"]);
         let funcs = vec![&fi];
-        let spec = build_lib_spec(&funcs, "test", &["MyClass"]);
+        let spec = build_lib_spec(&funcs, "test", &["MyClass"], &[]);
         assert_eq!(spec.fn_bindings.len(), 1, "参数为已知类引用的函数应保留");
     }
 }

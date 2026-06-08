@@ -39,6 +39,9 @@ hicc::import_lib! {
     fn circle_new(radius: f64) -> Circle;
 
     // 虚函数通过 C ABI 包装调用，避免 macOS ARM64 vtable 兼容问题
+    #[cpp(func = "double shape_area(Shape*)")]
+    fn shape_area(self_: *mut Shape) -> f64;
+
     #[cpp(func = "double circle_area(Circle*)")]
     fn circle_area(self_: *mut Circle) -> f64;
 }

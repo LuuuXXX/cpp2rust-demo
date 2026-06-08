@@ -10,8 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "Shape", destroy = "shape_delete")]
-    pub class Shape {
-    }
+    pub class Shape {}
 }
 
 hicc::import_lib! {
@@ -31,6 +30,9 @@ hicc::import_lib! {
     // 纯虚函数通过 C ABI 包装调用，避免 macOS ARM64 vtable 兼容问题
     #[cpp(func = "int shape_getType(Shape*)")]
     fn shape_getType(self_: *mut Shape) -> i32;
+
+    #[cpp(func = "const char* shape_getTypeName(Shape*)")]
+    fn shape_getTypeName(self_: *mut Shape) -> *const i8;
 
     #[cpp(func = "double shape_area(Shape*)")]
     fn shape_area(self_: *mut Shape) -> f64;

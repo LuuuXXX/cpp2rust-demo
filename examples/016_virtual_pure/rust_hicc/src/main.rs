@@ -10,8 +10,7 @@ hicc::cpp! {
 
 hicc::import_class! {
     #[cpp(class = "AbstractShape", destroy = "abstract_shape_delete")]
-    pub class AbstractShape {
-    }
+    pub class AbstractShape {}
 }
 
 hicc::import_lib! {
