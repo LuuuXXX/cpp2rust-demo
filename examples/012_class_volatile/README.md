@@ -54,16 +54,39 @@ volatile 的含义：
 ## Rust FFI 代码
 
 ```rust
-// volatile 成员函数
-#[cpp(func = "uint32_t hardware_device_read_status(volatile struct HardwareDevice*)")]
-unsafe fn hardware_device_read_status(self_: *mut HardwareDevice) -> u32;
+hicc::cpp! {
+    #include <iostream>
+    #include <cstdint>
+
+    #include "class_volatile.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "HardwareDevice", destroy = "hardware_device_delete")]
+    pub class HardwareDevice {
+        #[cpp(method = "void init()")]
+        fn init(&mut self);
+
+        #[cpp(method = "void reset()")]
+        fn reset(&mut self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "class_volatile"]
+
+    class HardwareDevice;
+
+    #[cpp(func = "HardwareDevice* hardware_device_new()")]
+    fn hardware_device_new() -> HardwareDevice;
+
+    #[cpp(func = "uint32_t hardware_device_read_status(volatile HardwareDevice*)")]
+    unsafe fn hardware_device_read_status(self_: *mut HardwareDevice) -> u32;
+
+    #[cpp(func = "uint32_t hardware_device_read_data(volatile HardwareDevice*)")]
+    unsafe fn hardware_device_read_data(self_: *mut HardwareDevice) -> u32;
+}
 ```
-
-Rust 中不需要特殊的 volatile 限定符，因为：
-- Rust 的 raw pointer 访问本身就是一次性的
-- 编译器不会优化掉独立的指针解引用
-- 但需要在 FFI 边界明确标注 volatile 的存在
-
 ## 关键点
 
 ### volatile vs const

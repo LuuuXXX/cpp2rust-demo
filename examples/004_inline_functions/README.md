@@ -64,17 +64,19 @@ int max_v2(int a, int b) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include "inline_functions.h"
+}
+
 hicc::import_lib! {
     #![link_name = "inline_functions"]
 
     #[cpp(func = "int min(int, int)")]
-    fn min_val(a: i32, b: i32) -> i32;
+    fn min(a: i32, b: i32) -> i32;
 
     #[cpp(func = "int max(int, int)")]
-    fn max_val(a: i32, b: i32) -> i32;
+    fn max(a: i32, b: i32) -> i32;
 
     #[cpp(func = "int min_v2(int, int)")]
     fn min_v2(a: i32, b: i32) -> i32;
@@ -83,7 +85,6 @@ hicc::import_lib! {
     fn max_v2(a: i32, b: i32) -> i32;
 }
 ```
-
 ## 关键点
 
 ### 内联函数的 FFI 限制

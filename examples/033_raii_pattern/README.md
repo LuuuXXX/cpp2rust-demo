@@ -87,37 +87,75 @@ public:
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <stddef.h>
+    #include <string>
+    #include <iostream>
+    #include <thread>
+    #include <mutex>
+    #include <fstream>
+    #include <cstring>
+
+    #include "raii_pattern.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Mutex", destroy = "mutex_delete")]
+    pub class Mutex {
+        #[cpp(method = "void lock()")]
+        fn lock(&mut self);
+
+        #[cpp(method = "void unlock()")]
+        fn unlock(&mut self);
+
+        #[cpp(method = "bool try_lock()")]
+        fn try_lock(&mut self) -> bool;
+
+        #[cpp(method = "const char* name() const")]
+        fn name(&self) -> *const i8;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "ScopedLock", destroy = "scoped_lock_delete")]
+    pub class ScopedLock {
+        #[cpp(method = "bool owns_lock() const")]
+        fn owns_lock(&self) -> bool;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "FileLock", destroy = "file_lock_delete")]
+    pub class FileLock {
+        #[cpp(method = "void lock()")]
+        fn lock(&mut self);
+
+        #[cpp(method = "void unlock()")]
+        fn unlock(&mut self);
+
+        #[cpp(method = "const char* filename() const")]
+        fn filename(&self) -> *const i8;
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "raii_pattern"]
 
-    struct Mutex;
-    struct ScopedLock;
+    class Mutex;
+    class ScopedLock;
+    class FileLock;
 
-    #[cpp(func = "struct Mutex* mutex_new(void)")]
-    fn mutex_new() -> *mut Mutex;
+    #[cpp(func = "Mutex* mutex_new()")]
+    fn mutex_new() -> Mutex;
 
-    #[cpp(func = "struct ScopedLock* scoped_lock_new(struct Mutex*)")]
-    fn scoped_lock_new(mtx: *mut Mutex) -> *mut ScopedLock;
+    #[cpp(func = "ScopedLock* scoped_lock_new(Mutex* mutex)")]
+    unsafe fn scoped_lock_new(mutex: *mut Mutex) -> ScopedLock;
 
-    #[cpp(func = "void scoped_lock_delete(struct ScopedLock*)")]
-    unsafe fn scoped_lock_delete(lock: *mut ScopedLock);
-}
-
-// Rust RAII Guard
-struct MutexGuard<'a> {
-    mutex: &'a Mutex,
-}
-
-impl Drop for MutexGuard<'_> {
-    fn drop(&mut self) {
-        unsafe { mutex_unlock(self.mutex) }
-    }
+    #[cpp(func = "FileLock* file_lock_new(const char*)")]
+    unsafe fn file_lock_new(filename: *const i8) -> FileLock;
 }
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ RAII | Rust FFI |

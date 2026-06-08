@@ -86,25 +86,82 @@ let i = t.0;
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <tuple>
+    #include <string>
+    #include <cstring>
+
+    #include "tuple_basic.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Tuple2", destroy = "tuple2_delete")]
+    pub class Tuple2 {
+        #[cpp(method = "int get_first() const")]
+        fn get_first(&self) -> i32;
+
+        #[cpp(method = "const char* get_second() const")]
+        fn get_second(&self) -> *const i8;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Tuple3", destroy = "tuple3_delete")]
+    pub class Tuple3 {
+        #[cpp(method = "int get_first() const")]
+        fn get_first(&self) -> i32;
+
+        #[cpp(method = "double get_second() const")]
+        fn get_second(&self) -> f64;
+
+        #[cpp(method = "const char* get_third() const")]
+        fn get_third(&self) -> *const i8;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Tuple4", destroy = "tuple4_delete")]
+    pub class Tuple4 {
+        #[cpp(method = "int get_first() const")]
+        fn get_first(&self) -> i32;
+
+        #[cpp(method = "double get_second() const")]
+        fn get_second(&self) -> f64;
+
+        #[cpp(method = "const char* get_third() const")]
+        fn get_third(&self) -> *const i8;
+
+        #[cpp(method = "int get_fourth() const")]
+        fn get_fourth(&self) -> i32;
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "tuple_basic"]
 
-    struct Tuple2;
+    class Tuple2;
+    class Tuple3;
+    class Tuple4;
 
-    #[cpp(func = "struct Tuple2* tuple2_new(int, const char*)")]
-    fn tuple2_new(first: i32, second: *const i8) -> *mut Tuple2;
+    #[cpp(func = "Tuple2* tuple2_new(int, const char*)")]
+    unsafe fn tuple2_new(first: i32, second: *const i8) -> Tuple2;
 
-    #[cpp(func = "int tuple2_get_first(struct Tuple2*)")]
-    unsafe fn tuple2_get_first(t: *mut Tuple2) -> i32;
+    #[cpp(func = "Tuple3* tuple3_new(int, double, const char*)")]
+    unsafe fn tuple3_new(first: i32, second: f64, third: *const i8) -> Tuple3;
 
-    #[cpp(func = "const char* tuple2_get_second(struct Tuple2*)")]
-    unsafe fn tuple2_get_second(t: *mut Tuple2) -> *const i8;
+    #[cpp(func = "Tuple4* tuple4_new(int, double, const char*, int)")]
+    unsafe fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> Tuple4;
+
+    #[cpp(func = "Tuple2* make_int_string_pair(int, const char*)")]
+    unsafe fn make_int_string_pair(i: i32, s: *const i8) -> *mut Tuple2;
+
+    #[cpp(func = "Tuple3* make_int_double_string(int, double, const char*)")]
+    unsafe fn make_int_double_string(i: i32, d: f64, s: *const i8) -> *mut Tuple3;
 }
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ std::tuple | Rust FFI |

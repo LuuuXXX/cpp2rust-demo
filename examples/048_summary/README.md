@@ -281,6 +281,46 @@ hicc-build = "0.2"
 
 本项目仅供学习参考。
 
+
+## Rust FFI 代码
+
+```rust
+hicc::cpp! {
+    #include <cstdint>
+
+    #include "summary.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Counter", destroy = "counter_delete")]
+    pub class Counter {
+        #[cpp(method = "int get() const")]
+        fn get(&self) -> i32;
+
+        #[cpp(method = "void increment()")]
+        fn increment(&mut self);
+
+        #[cpp(method = "void decrement()")]
+        fn decrement(&mut self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "summary"]
+
+    class Counter;
+
+    #[cpp(func = "Counter* counter_new()")]
+    fn counter_new() -> Counter;
+
+    #[cpp(func = "int safe_add(int, int)")]
+    fn safe_add(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int get_max_size()")]
+    fn get_max_size() -> i32;
+}
+```
+
 ## 运行结果
 
 ```

@@ -53,26 +53,38 @@ void counter_resetInstanceCount(void) {
 ## Rust FFI 代码
 
 ```rust
-// 静态方法：不需要实例调用
-#[cpp(func = "int counter_getInstanceCount(void)")]
-fn counter_getInstanceCount() -> i32;
+hicc::cpp! {
+    #include <iostream>
 
-#[cpp(func = "void counter_resetInstanceCount(void)")]
-fn counter_resetInstanceCount();
+    #include "class_static.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Counter", destroy = "counter_delete")]
+    pub class Counter {
+        #[cpp(method = "int getValue() const")]
+        fn get_value(&self) -> i32;
+
+        #[cpp(method = "void increment()")]
+        fn increment(&mut self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "class_static"]
+
+    class Counter;
+
+    #[cpp(func = "Counter* counter_new()")]
+    fn counter_new() -> Counter;
+
+    #[cpp(func = "int counter_getInstanceCount()")]
+    fn counter_get_instance_count() -> i32;
+
+    #[cpp(func = "void counter_resetInstanceCount()")]
+    fn counter_reset_instance_count();
+}
 ```
-
-### 调用方式对比
-
-```rust
-// 实例方法：需要实例
-let c1 = counter_new();
-counter_increment(c1);  // 隐式传递 this
-
-// 静态方法：不需要实例
-counter_getInstanceCount();  // 直接调用
-counter_resetInstanceCount();
-```
-
 ## 关键点
 
 ### 静态成员变量的封装
@@ -87,10 +99,10 @@ static int instance_count = 0;  // 仅本文件可见
 
 ### Rust 端调用
 
-Rust 调用静态方法不需要实例：
+Rust 通过 `import_lib!` 中的自由函数调用静态方法，与 C++ 静态方法调用语义一致：
 
 ```rust
-let count = counter_getInstanceCount();  // 直接调用
+let count = counter_get_instance_count();  // snake_case 命名，直接调用
 ```
 
 ## 运行结果

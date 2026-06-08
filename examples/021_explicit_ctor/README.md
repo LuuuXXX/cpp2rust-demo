@@ -29,17 +29,36 @@ Widget* widget_fromInt(int value) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
-// implicit 构造函数
-fn widget_new(value: i32) -> *mut Widget;
+hicc::cpp! {
+    #include <iostream>
 
-// explicit 构造函数
-fn widget_fromInt(value: i32) -> *mut Widget;
-fn widget_fromDouble(value: f64) -> *mut Widget;
+    #include "explicit_ctor.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Widget", destroy = "widget_delete")]
+    pub class Widget {
+        #[cpp(method = "int getValue() const")]
+        fn get_value(&self) -> i32;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "explicit_ctor"]
+
+    class Widget;
+
+    #[cpp(func = "Widget* widget_new(int)")]
+    fn widget_new(value: i32) -> Widget;
+
+    #[cpp(func = "Widget* widget_fromInt(int)")]
+    fn widget_from_int(value: i32) -> Widget;
+
+    #[cpp(func = "Widget* widget_fromDouble(double)")]
+    fn widget_from_double(value: f64) -> Widget;
+}
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ | Rust FFI |

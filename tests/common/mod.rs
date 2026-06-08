@@ -87,69 +87,26 @@ fn find_cpp_file(dir: &str) -> Option<std::path::PathBuf> {
 /// - Windows：优先尝试 `clang++`（LLVM for Windows），
 ///   回退到 `g++`（MinGW/MSYS2），再回退到 `cl.exe /P /C`（MSVC）。
 fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
-    #[cfg(not(windows))]
-    {
-        // 优先 clang++（macOS Xcode CLI 内置；Linux 也常见）
-        let ok = Command::new("clang++")
-            .args([
-                "-E",
-                "-C",
-                src.to_str().unwrap(),
-                "-o",
-                out.to_str().unwrap(),
-            ])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if ok {
-            return true;
-        }
-        // 回退到 g++（Linux 默认；macOS Homebrew GCC）
-        Command::new("g++")
-            .args([
-                "-E",
-                "-C",
-                src.to_str().unwrap(),
-                "-o",
-                out.to_str().unwrap(),
-            ])
+    // 通用辅助：尝试用指定编译器执行 -E -C 预处理
+    let try_cxx = |compiler: &str| -> bool {
+        Command::new(compiler)
+            .args(["-E", "-C", src.to_str().unwrap(), "-o", out.to_str().unwrap()])
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
+    };
+
+    // clang++ 和 g++ 在所有平台上逻辑相同
+    if try_cxx("clang++") {
+        return true;
     }
+    if try_cxx("g++") {
+        return true;
+    }
+
+    // Windows 独有的 cl.exe 回退
     #[cfg(windows)]
     {
-        // 优先 clang++（LLVM）
-        let ok = Command::new("clang++")
-            .args([
-                "-E",
-                "-C",
-                src.to_str().unwrap(),
-                "-o",
-                out.to_str().unwrap(),
-            ])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if ok {
-            return true;
-        }
-        // 回退到 g++（MinGW/MSYS2）
-        let ok = Command::new("g++")
-            .args([
-                "-E",
-                "-C",
-                src.to_str().unwrap(),
-                "-o",
-                out.to_str().unwrap(),
-            ])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if ok {
-            return true;
-        }
-        // 最终回退：cl.exe /P /C（MSVC）
         // cl.exe 预处理输出文件固定写到当前工作目录下的 <stem>.i，需手动 rename
         let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
         let cl_out = std::env::current_dir()
@@ -165,8 +122,9 @@ fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
             let _ = std::fs::rename(&cl_out, out);
             return true;
         }
-        false
     }
+
+    false
 }
 
 /// Extract all hicc::cpp!, hicc::import_class!, hicc::import_lib! blocks from source.

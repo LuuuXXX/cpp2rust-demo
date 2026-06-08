@@ -87,33 +87,87 @@ void foo(std::function<int(int)> cb);
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <functional>
+    #include <vector>
+    #include <thread>
+    #include <chrono>
+
+    #include "std_function.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "CallbackWrapper", destroy = "callback_wrapper_delete")]
+    pub class CallbackWrapper {
+        #[cpp(method = "int invoke(int value)")]
+        fn invoke(&mut self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Processor", destroy = "processor_delete")]
+    pub class Processor {
+        #[cpp(method = "int process(int value)")]
+        fn process(&mut self, value: i32) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "MultiCallback", destroy = "multi_callback_delete")]
+    pub class MultiCallback {
+        #[cpp(method = "void invoke_all(int value)")]
+        fn invoke_all(&mut self, value: i32);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "AsyncProcessor", destroy = "async_processor_delete")]
+    pub class AsyncProcessor {
+        #[cpp(method = "bool is_cancelled() const")]
+        fn is_cancelled(&self) -> bool;
+
+        #[cpp(method = "void cancel()")]
+        fn cancel(&mut self);
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "std_function"]
 
-    struct Processor;
+    class CallbackWrapper;
+    class Processor;
+    class MultiCallback;
+    class AsyncProcessor;
 
-    #[cpp(func = "struct Processor* processor_new(void)")]
-    fn processor_new() -> *mut Processor;
+    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
+    #[cpp(func = "CallbackWrapper* callback_wrapper_new(int (*)(int))")]
+    unsafe fn callback_wrapper_new(fn_: unsafe extern "C" fn(i32) -> i32) -> CallbackWrapper;
 
-    #[cpp(func = "void processor_set_callback(struct Processor*, int(*)(int))")]
-    unsafe fn processor_set_callback(
-        p: *mut Processor,
-        cb: Option<extern "C" fn(i32) -> i32>
-    );
+    #[cpp(func = "CallbackWrapper* callback_wrapper_new_double()")]
+    fn callback_wrapper_new_double() -> CallbackWrapper;
 
-    #[cpp(func = "int processor_process(struct Processor*, int)")]
-    unsafe fn processor_process(p: *mut Processor, value: i32) -> i32;
-}
+    #[cpp(func = "Processor* processor_new()")]
+    fn processor_new() -> Processor;
 
-// Rust 回调函数
-extern "C" fn rust_callback(value: i32) -> i32 {
-    value * 2
+    #[cpp(func = "MultiCallback* multi_callback_new()")]
+    fn multi_callback_new() -> MultiCallback;
+
+    #[cpp(func = "AsyncProcessor* async_processor_new()")]
+    fn async_processor_new() -> AsyncProcessor;
+
+    #[cpp(func = "void processor_set_double(Processor* p)")]
+    unsafe fn processor_set_double(p: *mut Processor);
+
+    #[cpp(func = "void multi_callback_add_double(MultiCallback* mc)")]
+    unsafe fn multi_callback_add_double(mc: *mut MultiCallback);
+
+    #[cpp(func = "void multi_callback_add_triple(MultiCallback* mc)")]
+    unsafe fn multi_callback_add_triple(mc: *mut MultiCallback);
 }
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ std::function | Rust FFI |

@@ -117,34 +117,21 @@ void operation_result_delete(void* p) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
-// 使用 void* opaque pointer 模式
-type OperationResult = *mut std::ffi::c_void;
-
-#[link(name = "enum_class")]
-unsafe extern "C" {
-    fn operation_result_new() -> OperationResult;
-    fn operation_result_delete(p: OperationResult);
-    fn operation_result_set_error(p: OperationResult, error_code: i32);
-    fn operation_result_get_error(p: OperationResult) -> i32;
-    fn operation_result_set_state(p: OperationResult, state: u8);
-    fn operation_result_get_state(p: OperationResult) -> u8;
-    fn operation_result_set_flags(p: OperationResult, flags: u32);
-    fn operation_result_get_flags(p: OperationResult) -> u32;
-    fn combine_flags(f1: u32, f2: u32) -> u32;
-    fn has_flag(flags: u32, flag: u32) -> i32;
+hicc::cpp! {
+    #include "enum_class.h"
 }
 
-// Enum constants for Rust
-pub const ERROR_NONE: i32 = 0;
-pub const ERROR_INVALID_INPUT: i32 = 1;
-pub const STATE_IDLE: u8 = 0;
-pub const STATE_RUNNING: u8 = 1;
-pub const FLAG_READ: u32 = 1;
-```
+hicc::import_lib! {
+    #![link_name = "enum_class"]
 
+    #[cpp(func = "unsigned int combine_flags(unsigned int, unsigned int)")]
+    fn combine_flags(f1: u32, f2: u32) -> u32;
+
+    #[cpp(func = "int has_flag(unsigned int, unsigned int)")]
+    fn has_flag(flags: u32, flag: u32) -> i32;
+}
+```
 ## enum class vs enum
 
 | 特性 | enum | enum class |

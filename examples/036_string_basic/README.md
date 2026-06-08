@@ -84,55 +84,65 @@ int string_equals(struct String* self, const char* other) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <string>
+    #include <cstring>
+    #include <algorithm>
+    #include <cctype>
+
+    #include "string_basic.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "String", destroy = "string_delete")]
+    pub class String {
+        #[cpp(method = "const char* c_str() const")]
+        fn c_str(&self) -> *const i8;
+
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "size_t length() const")]
+        fn length(&self) -> usize;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "int compare(const char* str) const")]
+        fn compare(&self, str: *const i8) -> i32;
+
+        #[cpp(method = "bool equals(const char* str) const")]
+        fn equals(&self, str: *const i8) -> bool;
+
+        #[cpp(method = "void append(const char* str)")]
+        fn append(&mut self, str: *const i8);
+
+        #[cpp(method = "void to_upper()")]
+        fn to_upper(&mut self);
+
+        #[cpp(method = "void to_lower()")]
+        fn to_lower(&mut self);
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "string_basic"]
 
-    struct String;
+    class String;
 
-    #[cpp(func = "struct String* string_new_from(const char*)")]
-    fn string_new_from(s: *const i8) -> *mut String;
+    #[cpp(func = "String* string_new()")]
+    fn string_new() -> String;
 
-    #[cpp(func = "void string_delete(struct String*)")]
-    unsafe fn string_delete(s: *mut String);
+    #[cpp(func = "String* string_new_from(const char*)")]
+    unsafe fn string_new_from(str: *const i8) -> String;
 
-    #[cpp(func = "const char* string_c_str(struct String*)")]
-    unsafe fn string_c_str(s: *mut String) -> *const i8;
-
-    #[cpp(func = "void string_append(struct String*, const char*)")]
-    unsafe fn string_append(s: *mut String, other: *const i8);
+    #[cpp(func = "String* string_new_from_len(const char*, size_t)")]
+    unsafe fn string_new_from_len(str: *const i8, len: usize) -> String;
 }
 ```
-
-### Safe Wrapper
-
-```rust
-struct CppString {
-    ptr: *mut String,
-}
-
-impl CppString {
-    fn from_rust(s: &str) -> Option<Self> {
-        let cstr = CString::new(s).ok()?;
-        let ptr = unsafe { string_new_from(cstr.as_ptr()) };
-        if ptr.is_null() { None } else { Some(Self { ptr }) }
-    }
-
-    fn as_str(&self) -> &str {
-        let c_str = unsafe { CStr::from_ptr(string_c_str(self.ptr)) };
-        c_str.to_str().unwrap_or("")
-    }
-}
-
-impl Drop for CppString {
-    fn drop(&mut self) {
-        unsafe { string_delete(self.ptr) }
-    }
-}
-```
-
 ## FFI 对比分析
 
 | 方面 | C++ std::string | Rust FFI |

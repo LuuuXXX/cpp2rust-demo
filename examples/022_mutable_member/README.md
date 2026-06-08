@@ -23,6 +23,41 @@ struct DataFetcher {
 | 函数签名 | `const char* getName() const` | `const char* datafetcher_getName(struct DataFetcher*)` |
 | 实现差异 | 内部可修改 mutable 成员 | 相同实现，但 Rust 不区分 |
 
+
+## Rust FFI 代码
+
+```rust
+hicc::cpp! {
+    #include <iostream>
+    #include <cstring>
+
+    #include "mutable_member.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "DataFetcher", destroy = "datafetcher_delete")]
+    pub class DataFetcher {
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const i8;
+
+        #[cpp(method = "int getCacheCount() const")]
+        fn get_cache_count(&self) -> i32;
+
+        #[cpp(method = "void refresh()")]
+        fn refresh(&mut self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "mutable_member"]
+
+    class DataFetcher;
+
+    #[cpp(func = "DataFetcher* datafetcher_new(const char*)")]
+    unsafe fn datafetcher_new(name: *const i8) -> DataFetcher;
+}
+```
+
 ## 运行结果
 
 ```

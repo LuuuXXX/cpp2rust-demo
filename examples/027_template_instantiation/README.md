@@ -27,17 +27,68 @@ template class Matrix<double>;
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
-// 每个实例化 = 独立的 FFI 结构
-struct IntMatrix;
-struct DoubleMatrix;
+hicc::cpp! {
+    #include <iostream>
+    #include <vector>
+    #include <iomanip>
 
-fn intmatrix_new(rows: i32, cols: i32) -> *mut IntMatrix;
-fn doublematrix_new(rows: i32, cols: i32) -> *mut DoubleMatrix;
+    #include "template_instantiation.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "IntMatrix", destroy = "intmatrix_delete")]
+    pub class IntMatrix {
+        #[cpp(method = "int rows() const")]
+        fn rows(&self) -> i32;
+
+        #[cpp(method = "int cols() const")]
+        fn cols(&self) -> i32;
+
+        #[cpp(method = "int get(int row, int col) const")]
+        fn get(&self, row: i32, col: i32) -> i32;
+
+        #[cpp(method = "void set(int row, int col, int value)")]
+        fn set(&mut self, row: i32, col: i32, value: i32);
+
+        #[cpp(method = "void print() const")]
+        fn print(&self);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "DoubleMatrix", destroy = "doublematrix_delete")]
+    pub class DoubleMatrix {
+        #[cpp(method = "int rows() const")]
+        fn rows(&self) -> i32;
+
+        #[cpp(method = "int cols() const")]
+        fn cols(&self) -> i32;
+
+        #[cpp(method = "double get(int row, int col) const")]
+        fn get(&self, row: i32, col: i32) -> f64;
+
+        #[cpp(method = "void set(int row, int col, double value)")]
+        fn set(&mut self, row: i32, col: i32, value: f64);
+
+        #[cpp(method = "void print() const")]
+        fn print(&self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "template_instantiation"]
+
+    class IntMatrix;
+    class DoubleMatrix;
+
+    #[cpp(func = "IntMatrix* intmatrix_new(int, int)")]
+    fn intmatrix_new(rows: i32, cols: i32) -> IntMatrix;
+
+    #[cpp(func = "DoubleMatrix* doublematrix_new(int, int)")]
+    fn doublematrix_new(rows: i32, cols: i32) -> DoubleMatrix;
+}
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ | Rust FFI |

@@ -29,24 +29,67 @@ struct DoubleStack {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
-// 每个模板实例 = 独立的 Rust 类型
-struct IntStack;
-struct DoubleStack;
+hicc::cpp! {
+    #include <iostream>
+    #include <stack>
 
-// IntStack 方法
-fn intstack_new() -> *mut IntStack;
-fn intstack_push(self_: *mut IntStack, value: i32);
-fn intstack_top(self_: *mut IntStack) -> i32;
+    #include "template_class.h"
+}
 
-// DoubleStack 方法
-fn doublestack_new() -> *mut DoubleStack;
-fn doublestack_push(self_: *mut DoubleStack, value: f64);
-fn doublestack_top(self_: *mut DoubleStack) -> f64;
+hicc::import_class! {
+    #[cpp(class = "IntStack", destroy = "intstack_delete")]
+    pub class IntStack {
+        #[cpp(method = "int size() const")]
+        fn size(&self) -> i32;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "void push(int value)")]
+        fn push(&mut self, value: i32);
+
+        #[cpp(method = "int top() const")]
+        fn top(&self) -> i32;
+
+        #[cpp(method = "void pop()")]
+        fn pop(&mut self);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "DoubleStack", destroy = "doublestack_delete")]
+    pub class DoubleStack {
+        #[cpp(method = "int size() const")]
+        fn size(&self) -> i32;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "void push(double value)")]
+        fn push(&mut self, value: f64);
+
+        #[cpp(method = "double top() const")]
+        fn top(&self) -> f64;
+
+        #[cpp(method = "void pop()")]
+        fn pop(&mut self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "template_class"]
+
+    class IntStack;
+    class DoubleStack;
+
+    #[cpp(func = "IntStack* intstack_new()")]
+    fn intstack_new() -> IntStack;
+
+    #[cpp(func = "DoubleStack* doublestack_new()")]
+    fn doublestack_new() -> DoubleStack;
+}
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ 模板 | Rust FFI |

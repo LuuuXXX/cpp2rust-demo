@@ -100,10 +100,45 @@ struct D {
 ## Rust FFI 代码
 
 ```rust
-#[cpp(func = "int d_getAValue(struct D*)")]
-unsafe fn d_getAValue(self_: *mut D) -> i32;
-```
+hicc::cpp! {
+    #include <iostream>
 
+    #include "virtual_diamond.h"
+    int d_get_a_value(D* self) {
+        return self->getAValue();
+    }
+
+}
+
+hicc::import_class! {
+    #[cpp(class = "D", destroy = "d_delete")]
+    pub class D {
+        #[cpp(method = "int getBValue() const")]
+        fn get_b_value(&self) -> i32;
+
+        #[cpp(method = "int getCValue() const")]
+        fn get_c_value(&self) -> i32;
+
+        #[cpp(method = "int getDValue() const")]
+        fn get_d_value(&self) -> i32;
+
+        #[cpp(method = "void compute() const")]
+        fn compute(&self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "virtual_diamond"]
+
+    class D;
+
+    #[cpp(func = "D* d_new(int, int, int, int)")]
+    fn d_new(a: i32, b: i32, c: i32, d: i32) -> D;
+
+    #[cpp(func = "int d_get_a_value(D*)")]
+    fn d_get_a_value(self_: *mut D) -> i32;
+}
+```
 ## 关键点
 
 ### 虚拟继承的复杂性
