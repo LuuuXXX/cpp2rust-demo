@@ -483,6 +483,8 @@ jobs:
         run: cargo build --release
 
       - name: Run verify-rapidjson-ffi.sh
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
           SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
@@ -1069,6 +1071,8 @@ jobs:
           done
 
       - name: Run L3 run tests
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           cargo test --test l3_run_tests -- \
             --include-ignored \
@@ -1103,6 +1107,8 @@ jobs:
 
       # 单线程运行：clang 全局状态 + rapidjson 文件数量多
       - name: Run L4 rapidjson E2E tests
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           cargo test --test rapidjson_e2e_test -- \
             --test-threads=1

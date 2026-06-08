@@ -1,5 +1,7 @@
 use crate::error::Result;
 use anyhow::anyhow;
+#[cfg(any(target_os = "macos", windows))]
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -322,13 +324,25 @@ fn run_with_hook_macos(
         .prefix("cpp2rust-shim-")
         .tempdir()
         .map_err(|e| anyhow!("tempdir: {}", e))?;
+
+    // 为所有常见编译器名都创建 shim 副本，确保无论构建脚本用哪个名字都能被拦截
+    let shim_names = ["clang++", "g++", "c++"];
+    for name in &shim_names {
+        let alias = tmp_dir.path().join(name);
+        std::fs::copy(hook_bin, &alias)
+            .map_err(|e| anyhow!("copy shim → {}: {}", alias.display(), e))?;
+        set_executable(&alias)?;
+    }
+    // 如果真实编译器的 basename 不在上述列表中，也为它创建一份
     let cc_basename = real_cc
         .file_name()
         .ok_or_else(|| anyhow!("real_cc has no filename"))?;
-    let shim_alias = tmp_dir.path().join(cc_basename);
-    std::fs::copy(hook_bin, &shim_alias)
-        .map_err(|e| anyhow!("copy shim → {}: {}", shim_alias.display(), e))?;
-    set_executable(&shim_alias)?;
+    if !shim_names.iter().any(|n| OsStr::new(n) == cc_basename) {
+        let shim_alias = tmp_dir.path().join(cc_basename);
+        std::fs::copy(hook_bin, &shim_alias)
+            .map_err(|e| anyhow!("copy shim → {}: {}", shim_alias.display(), e))?;
+        set_executable(&shim_alias)?;
+    }
 
     let old_path = std::env::var_os("PATH").unwrap_or_default();
     let new_path = std::env::join_paths(
