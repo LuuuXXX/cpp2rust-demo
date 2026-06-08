@@ -128,10 +128,7 @@ pub fn extract(
             .map(|ci| {
                 build_class_spec(ci, &ast.classes).unwrap_or_else(|| ClassSpec {
                     name: ci.name.clone(),
-                    methods: Vec::new(),
-                    associated_fns: Vec::new(),
-                    destroy_fn: None,
-                    is_interface: false,
+                    ..Default::default()
                 })
             })
             .collect()

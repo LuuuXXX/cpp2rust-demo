@@ -57,9 +57,11 @@ int sum3(int a, int b, int c) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include "function_overload.h"
+}
+
 hicc::import_lib! {
     #![link_name = "function_overload"]
 
@@ -76,7 +78,6 @@ hicc::import_lib! {
     fn sum3(a: i32, b: i32, c: i32) -> i32;
 }
 ```
-
 ## 关键点
 
 ### C++ 函数重载与 FFI

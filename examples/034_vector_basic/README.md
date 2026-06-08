@@ -77,28 +77,70 @@ int int_vector_get(struct IntVector* self, size_t index) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <vector>
+    #include <string>
+    #include <cstring>
+
+    #include "vector_basic.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "IntVector", destroy = "int_vector_delete")]
+    pub class IntVector {
+        #[cpp(method = "void push_back(int val)")]
+        fn push_back(&mut self, val: i32);
+
+        #[cpp(method = "int get(size_t i) const")]
+        fn get(&self, i: usize) -> i32;
+
+        #[cpp(method = "void set(size_t i, int val)")]
+        fn set(&mut self, i: usize, val: i32);
+
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "size_t capacity() const")]
+        fn capacity(&self) -> usize;
+
+        #[cpp(method = "void reserve(size_t n)")]
+        fn reserve(&mut self, n: usize);
+
+        #[cpp(method = "int* data()")]
+        fn data(&mut self) -> *mut i32;
+
+        #[cpp(method = "void clear()")]
+        fn clear(&mut self);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StringVector", destroy = "string_vector_delete")]
+    pub class StringVector {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "vector_basic"]
 
-    struct IntVector;
+    class IntVector;
+    class StringVector;
 
-    #[cpp(func = "struct IntVector* int_vector_new(void)")]
-    fn int_vector_new() -> *mut IntVector;
+    #[cpp(func = "IntVector* int_vector_new()")]
+    fn int_vector_new() -> IntVector;
 
-    #[cpp(func = "void int_vector_push_back(struct IntVector*, int)")]
-    unsafe fn int_vector_push_back(vec: *mut IntVector, value: i32);
-
-    #[cpp(func = "size_t int_vector_size(struct IntVector*)")]
-    unsafe fn int_vector_size(vec: *mut IntVector) -> usize;
-
-    #[cpp(func = "int int_vector_get(struct IntVector*, size_t)")]
-    unsafe fn int_vector_get(vec: *mut IntVector, index: usize) -> i32;
+    #[cpp(func = "StringVector* string_vector_new()")]
+    fn string_vector_new() -> StringVector;
 }
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ std::vector | Rust FFI |

@@ -110,24 +110,45 @@ void config_manager_delete(void* self) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
-// 使用 void* opaque pointer 模式
-type OperationResult = *mut std::ffi::c_void;
+hicc::cpp! {
+    #include "namespace_nested.h"
+}
 
-#[link(name = "namespace_nested")]
-unsafe extern "C" {
-    fn config_manager_new() -> ConfigManager;
-    fn config_manager_delete(p: ConfigManager);
-    fn config_manager_set_value(p: ConfigManager, key: *const i8, value: i32);
-    fn config_manager_get_value(p: ConfigManager, key: *const i8) -> i32;
-    fn data_processor_new() -> DataProcessor;
-    fn data_processor_delete(p: DataProcessor);
-    fn data_processor_process(p: DataProcessor, input: i32) -> i32;
+hicc::import_lib! {
+    #![link_name = "namespace_nested"]
+
+    #[cpp(func = "void* config_manager_new()")]
+    fn config_manager_new() -> *mut u8;
+
+    #[cpp(func = "void config_manager_delete(void*)")]
+    unsafe fn config_manager_delete(self_: *mut u8);
+
+    #[cpp(func = "void config_manager_set_value(void*, const char*, int)")]
+    unsafe fn config_manager_set_value(self_: *mut u8, key: *const i8, value: i32);
+
+    #[cpp(func = "int config_manager_get_value(void*, const char*)")]
+    unsafe fn config_manager_get_value(self_: *mut u8, key: *const i8) -> i32;
+
+    #[cpp(func = "int string_length(const char*)")]
+    unsafe fn string_length(str: *const i8) -> i32;
+
+    #[cpp(func = "void* data_processor_new()")]
+    fn data_processor_new() -> *mut u8;
+
+    #[cpp(func = "void data_processor_delete(void*)")]
+    unsafe fn data_processor_delete(self_: *mut u8);
+
+    #[cpp(func = "int data_processor_process(void*, int)")]
+    unsafe fn data_processor_process(self_: *mut u8, input: i32) -> i32;
+
+    #[cpp(func = "const char* get_version()")]
+    unsafe fn get_version() -> *const i8;
+
+    #[cpp(func = "int get_build_number()")]
+    fn get_build_number() -> i32;
 }
 ```
-
 ## 嵌套命名空间 FFI 模式
 
 | 方案 | 优点 | 缺点 |

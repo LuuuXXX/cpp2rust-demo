@@ -77,25 +77,79 @@ int* int_array5_data(struct IntArray5* self) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <array>
+    #include <string>
+    #include <cstring>
+
+    #include "array_basic.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "IntArray5", destroy = "int_array5_delete")]
+    pub class IntArray5 {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "bool empty() const")]
+        fn empty(&self) -> bool;
+
+        #[cpp(method = "void set(size_t i, int val)")]
+        fn set(&mut self, i: usize, val: i32);
+
+        #[cpp(method = "int get(size_t i) const")]
+        fn get(&self, i: usize) -> i32;
+
+        #[cpp(method = "int at(size_t i) const")]
+        fn at(&self, i: usize) -> i32;
+
+        #[cpp(method = "int* data()")]
+        fn data(&mut self) -> *mut i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "DoubleArray3", destroy = "double_array3_delete")]
+    pub class DoubleArray3 {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StringArray4", destroy = "string_array4_delete")]
+    pub class StringArray4 {
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "array_basic"]
 
-    struct IntArray5;
+    class IntArray5;
+    class DoubleArray3;
+    class StringArray4;
 
-    #[cpp(func = "struct IntArray5* int_array5_new(void)")]
-    fn int_array5_new() -> *mut IntArray5;
+    #[cpp(func = "IntArray5* int_array5_new()")]
+    fn int_array5_new() -> IntArray5;
 
-    #[cpp(func = "int int_array5_get(struct IntArray5*, size_t)")]
-    unsafe fn int_array5_get(arr: *mut IntArray5, index: usize) -> i32;
+    #[cpp(func = "IntArray5* int_array5_new_from(const int*)")]
+    fn int_array5_new_from(values: *const i32) -> IntArray5;
 
-    #[cpp(func = "int* int_array5_data(struct IntArray5*)")]
-    unsafe fn int_array5_data(arr: *mut IntArray5) -> *mut i32;
+    #[cpp(func = "DoubleArray3* double_array3_new()")]
+    fn double_array3_new() -> DoubleArray3;
+
+    #[cpp(func = "DoubleArray3* double_array3_new_from(const double*)")]
+    fn double_array3_new_from(values: *const f64) -> DoubleArray3;
+
+    #[cpp(func = "StringArray4* string_array4_new()")]
+    fn string_array4_new() -> StringArray4;
 }
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ std::array | Rust FFI |

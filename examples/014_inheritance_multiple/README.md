@@ -85,14 +85,38 @@ struct Derived {
 ## Rust FFI 代码
 
 ```rust
-// 多继承：多个基类成员
-#[cpp(func = "int derived_getValue1(struct Derived*)")]
-unsafe fn derived_getValue1(self_: *mut Derived) -> i32;
+hicc::cpp! {
+    #include <iostream>
 
-#[cpp(func = "int derived_getValue2(struct Derived*)")]
-unsafe fn derived_getValue2(self_: *mut Derived) -> i32;
+    #include "inheritance_multiple.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Derived", destroy = "derived_delete")]
+    pub class Derived {
+        #[cpp(method = "int getValue1() const")]
+        fn get_value1(&self) -> i32;
+
+        #[cpp(method = "int getValue2() const")]
+        fn get_value2(&self) -> i32;
+
+        #[cpp(method = "int getDerivedValue() const")]
+        fn get_derived_value(&self) -> i32;
+
+        #[cpp(method = "void compute() const")]
+        fn compute(&self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "inheritance_multiple"]
+
+    class Derived;
+
+    #[cpp(func = "Derived* derived_new(int, int, int)")]
+    fn derived_new(v1: i32, v2: i32, dv: i32) -> Derived;
+}
 ```
-
 ## 关键点
 
 ### 内存布局

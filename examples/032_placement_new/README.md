@@ -78,25 +78,60 @@ new (address) Constructor(args)
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <cstring>
+    #include <new>
+
+    #include "placement_new.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Buffer", destroy = "buffer_delete")]
+    pub class Buffer {
+        #[cpp(method = "void* data()")]
+        fn data(&mut self) -> *mut u8;
+
+        #[cpp(method = "size_t capacity() const")]
+        fn capacity(&self) -> usize;
+
+        #[cpp(method = "size_t size() const")]
+        fn size(&self) -> usize;
+
+        #[cpp(method = "void* construct(size_t offset)")]
+        fn construct(&mut self, offset: usize) -> *mut u8;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "VectorBuffer", destroy = "vector_buffer_delete")]
+    pub class VectorBuffer {
+        #[cpp(method = "void* data()")]
+        fn data(&mut self) -> *mut u8;
+
+        #[cpp(method = "size_t element_size() const")]
+        fn element_size(&self) -> usize;
+
+        #[cpp(method = "void destroy_all()")]
+        fn destroy_all(&mut self);
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "placement_new"]
 
-    struct Buffer;
+    class Buffer;
+    class VectorBuffer;
 
-    #[cpp(func = "struct Buffer* buffer_new(size_t)")]
-    fn buffer_new(capacity: usize) -> *mut Buffer;
+    #[cpp(func = "Buffer* buffer_new(size_t)")]
+    fn buffer_new(capacity: usize) -> Buffer;
 
-    #[cpp(func = "void* buffer_data(struct Buffer*)")]
-    unsafe fn buffer_data(buf: *mut Buffer) -> *mut std::ffi::c_void;
-
-    #[cpp(func = "void buffer_delete(struct Buffer*)")]
-    unsafe fn buffer_delete(buf: *mut Buffer);
+    #[cpp(func = "VectorBuffer* vector_buffer_new(size_t)")]
+    fn vector_buffer_new(capacity: usize) -> VectorBuffer;
 }
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ Placement New | Rust FFI |

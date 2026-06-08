@@ -39,8 +39,6 @@ void hello_world(void) {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
 hicc::cpp! {
     #include "hello_world.h"
@@ -49,20 +47,10 @@ hicc::cpp! {
 hicc::import_lib! {
     #![link_name = "hello_world"]
 
-    #[cpp(func = "void hello_world(void)")]
+    #[cpp(func = "void hello_world()")]
     fn hello_world();
 }
-
-fn main() {
-    hello_world();
-}
 ```
-
-关键点：
-- `hicc::cpp!` 宏包含 C++ 头文件
-- `#[link_name = "hello_world"]` 链接到编译后的库
-- `#[cpp(func = "...")]` 声明对应的 C++ 函数
-
 ## 构建方法
 
 ### C++ 编译

@@ -105,16 +105,53 @@ fn call_area(shape: &ShapeData) -> f64 {
 ## Rust FFI 代码
 
 ```rust
-// 虚函数的 Rust FFI 表示
-#[cpp(func = "double shape_area(struct Shape*)")]
-unsafe fn shape_area(self_: *mut Shape) -> f64;
+hicc::cpp! {
+    #include <iostream>
+    #include <cmath>
+    #include <cstring>
+    #include <string>
 
-#[cpp(func = "double circle_area(struct Circle*)")]
-unsafe fn circle_area(self_: *mut Circle) -> f64;
+    #include "virtual_basic.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Shape", destroy = "shape_delete")]
+    pub class Shape {
+        #[cpp(method = "double area() const")]
+        fn area(&self) -> f64;
+
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const i8;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Circle", destroy = "circle_delete")]
+    pub class Circle {
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const i8;
+
+        #[cpp(method = "double area() const")]
+        fn area(&self) -> f64;
+
+        #[cpp(method = "double getRadius() const")]
+        fn get_radius(&self) -> f64;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "virtual_basic"]
+
+    class Shape;
+    class Circle;
+
+    #[cpp(func = "Shape* shape_new()")]
+    fn shape_new() -> Shape;
+
+    #[cpp(func = "Circle* circle_new(double)")]
+    fn circle_new(radius: f64) -> Circle;
+}
 ```
-
-注意：这里直接调用 `circle_area` 而不是通过 `shape_area` 的多态调用。
-
 ## 关键点
 
 ### Vtable 的复杂性

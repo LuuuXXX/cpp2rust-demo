@@ -30,6 +30,18 @@ pub struct ClassSpec {
     pub is_interface: bool,
 }
 
+impl Default for ClassSpec {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            methods: Vec::new(),
+            associated_fns: Vec::new(),
+            destroy_fn: None,
+            is_interface: false,
+        }
+    }
+}
+
 /// 类方法绑定
 #[derive(Debug)]
 pub struct MethodBinding {

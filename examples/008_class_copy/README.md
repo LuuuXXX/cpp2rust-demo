@@ -45,10 +45,42 @@ struct Buffer* buffer_newCopy(const struct Buffer* other) {
 ## Rust FFI 代码
 
 ```rust
-#[cpp(func = "struct Buffer* buffer_newCopy(const struct Buffer*)")]
-unsafe fn buffer_newCopy(other: *const Buffer) -> *mut Buffer;
-```
+hicc::cpp! {
+    #include <iostream>
+    #include <cstring>
 
+    #include "class_copy.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Buffer", destroy = "buffer_delete")]
+    pub class Buffer {
+        #[cpp(method = "void set(int index, int value)")]
+        fn set(&mut self, index: i32, value: i32);
+
+        #[cpp(method = "int get(int index) const")]
+        fn get(&self, index: i32) -> i32;
+
+        #[cpp(method = "int getSize() const")]
+        fn get_size(&self) -> i32;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "class_copy"]
+
+    class Buffer;
+
+    #[cpp(func = "Buffer* buffer_new()")]
+    fn buffer_new() -> Buffer;
+
+    #[cpp(func = "Buffer* buffer_newWithSize(int)")]
+    fn buffer_new_with_size(size: i32) -> Buffer;
+
+    #[cpp(func = "Buffer* buffer_newCopy(const Buffer* other)")]
+    fn buffer_new_copy(other: *const Buffer) -> Buffer;
+}
+```
 ## 关键点
 
 ### const 在 FFI 的意义

@@ -80,22 +80,43 @@ public:
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <iostream>
+    #include <cmath>
+
+    #include "class_constructor.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Point", destroy = "point_delete")]
+    pub class Point {
+        #[cpp(method = "int getX() const")]
+        fn get_x(&self) -> i32;
+
+        #[cpp(method = "int getY() const")]
+        fn get_y(&self) -> i32;
+
+        #[cpp(method = "double getMagnitude() const")]
+        fn get_magnitude(&self) -> f64;
+
+        #[cpp(method = "double getAngle() const")]
+        fn get_angle(&self) -> f64;
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "class_constructor"]
 
-    #[cpp(func = "struct Point* point_new_xy(int, int)")]
-    fn point_new_xy(x: i32, y: i32) -> *mut Point;
+    class Point;
 
-    #[cpp(func = "struct Point* point_newPolar(double, double)")]
-    fn point_newPolar(r: f64, theta: f64) -> *mut Point;
+    #[cpp(func = "Point* point_new_xy(int, int)")]
+    fn point_new_xy(x: i32, y: i32) -> Point;
 
-    // ...
+    #[cpp(func = "Point* point_newPolar(double, double)")]
+    fn point_new_polar(r: f64, theta: f64) -> Point;
 }
 ```
-
 ## 关键点
 
 ### 构造函数重载的 FFI 策略

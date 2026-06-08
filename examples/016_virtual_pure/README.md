@@ -93,14 +93,37 @@ double calculate(struct AbstractShape* shape) {
 ## Rust FFI 代码
 
 ```rust
-// 抽象接口的 Rust FFI 表示
-#[cpp(func = "struct AbstractShape* abstract_shape_create_circle(double)")]
-fn abstract_shape_create_circle(radius: f64) -> *mut AbstractShape;
+hicc::cpp! {
+    #include <iostream>
+    #include <cmath>
+    #include <cstring>
 
-#[cpp(func = "double abstract_shape_area(struct AbstractShape*)")]
-unsafe fn abstract_shape_area(self_: *mut AbstractShape) -> f64;
+    #include "virtual_pure.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "AbstractShape", destroy = "abstract_shape_delete")]
+    pub class AbstractShape {
+        #[cpp(method = "double area() const")]
+        fn area(&self) -> f64;
+
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const i8;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "virtual_pure"]
+
+    class AbstractShape;
+
+    #[cpp(func = "AbstractShape* abstract_shape_create_circle(double)")]
+    fn abstract_shape_create_circle(radius: f64) -> *mut AbstractShape;
+
+    #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double, double)")]
+    fn abstract_shape_create_rectangle(width: f64, height: f64) -> *mut AbstractShape;
+}
 ```
-
 ## 关键点
 
 ### 抽象类的 FFI 策略

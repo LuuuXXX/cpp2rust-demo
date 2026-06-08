@@ -17,6 +17,14 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use walkdir::WalkDir;
 
+// ─── 字符串常量 ────────────────────────────────────────────────────────────────
+
+const IMPORT_LIB_MARKER: &str = "hicc::import_lib!";
+const IMPORT_CLASS_MARKER: &str = "hicc::import_class!";
+const FN_BINDING_MARKER: &str = "#[cpp(func =";
+const LINK_NAME_PREFIX: &str = "link_name = \"";
+const TODO_MARKER_PREFIX: &str = "cpp2rust-todo[";
+
 // ─── post-merge FFI 统计 ───────────────────────────────────────────────────
 
 struct RustSrcMetrics {
@@ -47,7 +55,7 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
-        .map(|e| e.path().to_path_buf())
+        .map(|e| e.into_path())
         .collect();
     rs_files.sort();
 
@@ -62,13 +70,13 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
         let Ok(content) = std::fs::read_to_string(path) else {
             continue;
         };
-        if content.contains("hicc::import_lib!") {
+        if content.contains(IMPORT_LIB_MARKER) {
             import_lib_files += 1;
         }
-        if content.contains("hicc::import_class!") {
+        if content.contains(IMPORT_CLASS_MARKER) {
             import_class_files += 1;
         }
-        fn_binding_count += content.matches("#[cpp(func =").count();
+        fn_binding_count += content.matches(FN_BINDING_MARKER).count();
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -77,8 +85,8 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
                 include_count += 1;
             }
             // link_name = "..." 提取
-            if let Some(pos) = trimmed.find("link_name = \"") {
-                let rest = &trimmed[pos + "link_name = \"".len()..];
+            if let Some(pos) = trimmed.find(LINK_NAME_PREFIX) {
+                let rest = &trimmed[pos + LINK_NAME_PREFIX.len()..];
                 if let Some(end) = rest.find('"') {
                     let name = &rest[..end];
                     if name.contains('/') {
@@ -87,8 +95,8 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
                 }
             }
             // cpp2rust-todo[TAG] 统计
-            if let Some(start) = line.find("cpp2rust-todo[") {
-                let rest = &line[start + "cpp2rust-todo[".len()..];
+            if let Some(start) = line.find(TODO_MARKER_PREFIX) {
+                let rest = &line[start + TODO_MARKER_PREFIX.len()..];
                 if let Some(end) = rest.find(']') {
                     let tag = rest[..end].to_string();
                     *todo_tags.entry(tag).or_insert(0) += 1;
@@ -287,11 +295,7 @@ fn run_merge_output(features: Vec<String>, out_dir: PathBuf) -> Result<()> {
             "--output-dir 不支持多 feature，请只指定一个 --feature"
         ));
     }
-    let feature = if features.is_empty() {
-        "default".to_string()
-    } else {
-        features.into_iter().next().expect("features is not empty")
-    };
+    let feature = features.into_iter().next().unwrap_or_else(|| "default".to_string());
 
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);

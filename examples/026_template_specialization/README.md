@@ -22,23 +22,66 @@ struct StringHolder {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
-// 每个特化版本 = 独立结构
-struct IntHolder;
-struct DoubleHolder;
-struct StringHolder;
+hicc::cpp! {
+    #include <iostream>
+    #include <cstring>
+    #include <cstdlib>
+    #include <cstdio>
 
-// IntHolder 方法
-fn intholder_new(value: i32) -> *mut IntHolder;
-fn intholder_get(self_: *mut IntHolder) -> i32;
+    #include "template_specialization.h"
+}
 
-// StringHolder 方法
-fn stringholder_new(value: *const i8) -> *mut StringHolder;
-fn stringholder_get(self_: *mut StringHolder) -> *const i8;
+hicc::import_class! {
+    #[cpp(class = "IntHolder", destroy = "intholder_delete")]
+    pub class IntHolder {
+        #[cpp(method = "int get() const")]
+        fn get(&self) -> i32;
+
+        #[cpp(method = "const char* describe() const")]
+        fn describe(&self) -> *const i8;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "DoubleHolder", destroy = "doubleholder_delete")]
+    pub class DoubleHolder {
+        #[cpp(method = "double get() const")]
+        fn get(&self) -> f64;
+
+        #[cpp(method = "const char* describe() const")]
+        fn describe(&self) -> *const i8;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "StringHolder", destroy = "stringholder_delete")]
+    pub class StringHolder {
+        #[cpp(method = "const char* get() const")]
+        fn get(&self) -> *const i8;
+
+        #[cpp(method = "const char* describe() const")]
+        fn describe(&self) -> *const i8;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "template_specialization"]
+
+    class IntHolder;
+    class DoubleHolder;
+    class StringHolder;
+
+    #[cpp(func = "IntHolder* intholder_new(int)")]
+    fn intholder_new(value: i32) -> IntHolder;
+
+    #[cpp(func = "DoubleHolder* doubleholder_new(double)")]
+    fn doubleholder_new(value: f64) -> DoubleHolder;
+
+    #[cpp(func = "StringHolder* stringholder_new(const char*)")]
+    unsafe fn stringholder_new(value: *const i8) -> StringHolder;
+}
 ```
-
 ## FFI 对比分析
 
 | 方面 | C++ 模板 | Rust FFI |

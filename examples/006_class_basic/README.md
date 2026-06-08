@@ -88,77 +88,53 @@ struct Counter;  // 前向声明，不完整类型
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include <iostream>
+
+    #include "class_basic.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Counter", destroy = "counter_delete")]
+    pub class Counter {
+        #[cpp(method = "int get() const")]
+        fn get(&self) -> i32;
+
+        #[cpp(method = "void increment()")]
+        fn increment(&mut self);
+
+        #[cpp(method = "void decrement()")]
+        fn decrement(&mut self);
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "class_basic"]
 
     class Counter;
 
-    #[cpp(func = "struct Counter* counter_new(void)")]
-    fn counter_new() -> *mut Counter;
-
-    #[cpp(func = "void counter_delete(struct Counter*)")]
-    unsafe fn counter_delete(self_: *mut Counter);
-
-    #[cpp(func = "int counter_get(struct Counter*)")]
-    unsafe fn counter_get(self_: *mut Counter) -> i32;
-
-    #[cpp(func = "void counter_increment(struct Counter*)")]
-    unsafe fn counter_increment(self_: *mut Counter);
-
-    #[cpp(func = "void counter_decrement(struct Counter*)")]
-    unsafe fn counter_decrement(self_: *mut Counter);
+    #[cpp(func = "Counter* counter_new()")]
+    fn counter_new() -> Counter;
 }
 ```
-
-### Safe Wrapper
-
-```rust
-struct Counter {
-    ptr: *mut Counter,
-}
-
-impl Counter {
-    fn new() -> Self {
-        let ptr = counter_new();
-        Self { ptr }
-    }
-
-    fn get(&self) -> i32 {
-        unsafe { counter_get(self.ptr) }
-    }
-
-    fn increment(&mut self) {
-        unsafe { counter_increment(self.ptr) }
-    }
-}
-
-impl Drop for Counter {
-    fn drop(&mut self) {
-        unsafe { counter_delete(self.ptr) }
-    }
-}
-```
-
 ## 关键点
 
-### C++ 类到 FFI 的映射
+### C++ 类到 hicc FFI 的映射
 
-| C++ 概念 | FFI 模式 |
-|----------|----------|
-| 构造函数 | `Class* class_new()` |
-| 析构函数 | `void class_delete(Class*)` |
-| 成员函数 | `ReturnType class_method(Class*, ...)` |
-| this 指针 | 作为第一个参数传递 |
-| 访问控制 | FFI 边界不可见 |
+| C++ 概念 | hicc 映射方式 |
+|----------|--------------|
+| 构造函数 | `import_lib!` 中 `fn counter_new() -> Counter`（返回 owned 类型） |
+| 析构函数 | `import_class!` 的 `destroy = "counter_delete"` 属性自动管理 |
+| const 成员函数 | `fn get(&self) -> i32`（`&self`） |
+| 非 const 成员函数 | `fn increment(&mut self)`（`&mut self`） |
+| 访问控制 | FFI 边界不可见，hicc 通过 opaque pointer 封装 |
 
-### Rust 端内存管理
+### hicc 内存管理
 
-1. **raw pointer**：`*mut T` 表示独占访问
-2. **Drop trait**：自动调用 `counter_delete`
-3. **borrow checker**：确保没有悬垂指针
+1. **owned 类型**：`counter_new() -> Counter` 返回 hicc 管理的 owned 对象（非原始指针）
+2. **自动析构**：`destroy = "counter_delete"` 使 hicc 在 Drop 时自动调用 `counter_delete`
+3. **安全引用**：`&self` / `&mut self` 保证 borrow checker 的安全性
 
 ## 构建方法
 
@@ -190,7 +166,7 @@ Rust FFI: Basic class operations completed!
 
 ## 总结
 
-1. **Opaque 指针模式**：隐藏 C++ 类内部结构
-2. **构造/销毁函数对**：模拟构造函数和析构函数
-3. **成员函数第一个参数是 this**：符合 C 调用约定
-4. **Rust wrapper**：添加 safe interface 和 Drop 实现
+1. **Opaque 指针模式**：hicc 通过 `class Counter;` 前向声明隐藏 C++ 类内部结构
+2. **owned 返回**：`fn counter_new() -> Counter` 返回 hicc owned 对象，析构时自动调用 `counter_delete`
+3. **安全方法绑定**：`import_class!` 将 C++ 成员方法映射为 `&self`/`&mut self` 的 Rust 方法
+4. **零 unsafe 调用**：hicc 将不安全的 FFI 封装为安全 Rust API

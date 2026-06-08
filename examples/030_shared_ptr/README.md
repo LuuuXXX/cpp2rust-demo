@@ -76,6 +76,62 @@ unsafe fn shareddata_expired(self_: *mut SharedData) -> i32;
 | 释放 | 计数为 0 时 | Rust 仍需显式 delete |
 | weak_ptr | `lock()` 获取 shared_ptr | `expired()` 检查 + 创建新 |
 
+
+## Rust FFI 代码
+
+```rust
+hicc::cpp! {
+    #include <string>
+    #include <iostream>
+    #include <memory>
+    #include <cstring>
+    #include <unordered_map>
+
+    #include "shared_ptr.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "SharedData", destroy = "shareddata_delete")]
+    pub class SharedData {
+        #[cpp(method = "int useCount() const")]
+        fn use_count(&self) -> i32;
+
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const i8;
+
+        #[cpp(method = "SharedData* clone() const")]
+        fn clone(&self) -> *mut SharedData;
+
+        #[cpp(method = "void reset()")]
+        fn reset(&mut self);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Cache", destroy = "cache_delete")]
+    pub class Cache {
+        #[cpp(method = "SharedData* get(const char* name)")]
+        fn get(&mut self, name: *const i8) -> *mut SharedData;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "shared_ptr"]
+
+    class SharedData;
+    class Cache;
+
+    #[cpp(func = "SharedData* shareddata_new(const char*)")]
+    unsafe fn shareddata_new(name: *const i8) -> SharedData;
+
+    #[cpp(func = "Cache* cache_new()")]
+    fn cache_new() -> Cache;
+
+    #[cpp(func = "SharedData* cache_get(Cache* c, const char*)")]
+    unsafe fn cache_get(c: *mut Cache, name: *const i8) -> *mut SharedData;
+}
+```
+
 ## 运行结果
 
 ```

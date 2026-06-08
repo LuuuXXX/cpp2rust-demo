@@ -86,31 +86,21 @@ sum(3, 1i32, 2i32, 3i32)  // 必须是 i32
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
+hicc::cpp! {
+    #include "variadic_functions.h"
+}
+
 hicc::import_lib! {
     #![link_name = "variadic_functions"]
 
-    #[cpp(func = "int sum(int, ...)")]
-    unsafe fn sum(count: i32, ...) -> i32;
+    #[cpp(func = "int sum_3(int, int, int)")]
+    fn sum_3(a: i32, b: i32, c: i32) -> i32;
 
-    #[cpp(func = "int print_formatted(const char*, ...)")]
-    unsafe fn print_formatted(format: *const i8, ...) -> i32;
-}
-
-fn main() {
-    unsafe {
-        let result = sum(3, 1i32, 2i32, 3i32);
-        println!("sum(3, 1, 2, 3) = {}", result);
-
-        let format = b"Hello, %s! Number: %d\n\0".as_ptr() as *const i8;
-        let name = b"World\0".as_ptr() as *const i8;
-        print_formatted(format, name, 42i32);
-    }
+    #[cpp(func = "int sum_5(int, int, int, int, int)")]
+    fn sum_5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32;
 }
 ```
-
 ## 关键点
 
 ### 可变参数的 FFI 限制

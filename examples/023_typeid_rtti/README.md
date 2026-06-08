@@ -44,6 +44,48 @@ match shape_getType(shape) {
 | 类型名称 | `ti.name()` | 编译器特定，无法可靠传递 |
 | 类型比较 | `ti == typeid(Circle)` | 枚举值比较 |
 
+
+## Rust FFI 代码
+
+```rust
+hicc::cpp! {
+    #include <iostream>
+    #include <typeinfo>
+    #include <cmath>
+
+    #include "typeid_rtti.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Shape", destroy = "shape_delete")]
+    pub class Shape {
+        #[cpp(method = "int getType() const")]
+        fn get_type(&self) -> i32;
+
+        #[cpp(method = "const char* getTypeName() const")]
+        fn get_type_name(&self) -> *const i8;
+
+        #[cpp(method = "double area() const")]
+        fn area(&self) -> f64;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "typeid_rtti"]
+
+    class Shape;
+
+    #[cpp(func = "Shape* shape_new_circle(double)")]
+    fn shape_new_circle(radius: f64) -> Shape;
+
+    #[cpp(func = "Shape* shape_new_rectangle(double, double)")]
+    fn shape_new_rectangle(width: f64, height: f64) -> Shape;
+
+    #[cpp(func = "Shape* shape_new_triangle(double, double)")]
+    fn shape_new_triangle(base: f64, height: f64) -> Shape;
+}
+```
+
 ## 运行结果
 
 ```

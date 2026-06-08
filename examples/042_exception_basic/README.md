@@ -57,33 +57,42 @@ struct Calculator {
 
 ## Rust FFI 代码
 
-### main.rs
-
 ```rust
-hicc::import_lib! {
-    const EXCEPTION_NONE: i32 = 0;
-    const EXCEPTION_RUNTIME_ERROR: i32 = 3;
+hicc::cpp! {
+    #include <stddef.h>
+    #include <iostream>
+    #include <stdexcept>
+    #include <cstring>
 
-    struct Calculator;
-
-    #[cpp(func = "int calculator_divide(struct Calculator*, int, int)")]
-    unsafe fn calculator_divide(c: *mut Calculator, a: i32, b: i32) -> i32;
+    #include "exception_basic.h"
 }
 
-fn main() {
-    let calc = calculator_new();
+hicc::import_class! {
+    #[cpp(class = "Calculator", destroy = "calculator_delete")]
+    pub class Calculator {
+        #[cpp(method = "void clear_exception()")]
+        fn clear_exception(&mut self);
 
-    // 调用可能抛出异常的函数
-    let result = unsafe { calculator_divide(calc, 10, 0) };
+        #[cpp(method = "int get_exception()")]
+        fn get_exception(&mut self) -> i32;
 
-    // 检查异常状态
-    let code = unsafe { calculator_get_exception(calc) };
-    if code != EXCEPTION_NONE {
-        println!("Exception occurred: {:?}", code);
+        #[cpp(method = "int divide(int a, int b)")]
+        fn divide(&mut self, a: i32, b: i32) -> i32;
+
+        #[cpp(method = "int string_to_int(const char* str)")]
+        fn string_to_int(&mut self, str: *const i8) -> i32;
     }
 }
-```
 
+hicc::import_lib! {
+    #![link_name = "exception_basic"]
+
+    class Calculator;
+
+    #[cpp(func = "Calculator* calculator_new()")]
+    fn calculator_new() -> Calculator;
+}
+```
 ## 构建方法
 
 ### C++ 编译

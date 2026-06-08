@@ -72,17 +72,52 @@ const char* dog_getName(struct Dog* self) {
 ## Rust FFI 代码
 
 ```rust
-// Dog 派生类
-struct Dog;
+hicc::cpp! {
+    #include <iostream>
+    #include <cstring>
+    #include <string>
 
-#[cpp(func = "struct Dog* dog_new(const char*)")]
-fn dog_new(name: *const u8) -> *mut Dog;
+    #include "inheritance_single.h"
+}
 
-// Dog 继承的 Animal 方法
-#[cpp(func = "const char* dog_getName(struct Dog*)")]
-unsafe fn dog_getName(self_: *mut Dog) -> *const u8;
+hicc::import_class! {
+    #[cpp(class = "Animal", destroy = "animal_delete")]
+    pub class Animal {
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const i8;
+
+        #[cpp(method = "void speak() const")]
+        fn speak(&self);
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Dog", destroy = "dog_delete")]
+    pub class Dog {
+        #[cpp(method = "const char* getName() const")]
+        fn get_name(&self) -> *const i8;
+
+        #[cpp(method = "void bark() const")]
+        fn bark(&self);
+
+        #[cpp(method = "void speak() const")]
+        fn speak(&self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "inheritance_single"]
+
+    class Animal;
+    class Dog;
+
+    #[cpp(func = "Animal* animal_new(const char*)")]
+    unsafe fn animal_new(name: *const i8) -> Animal;
+
+    #[cpp(func = "Dog* dog_new(const char*)")]
+    unsafe fn dog_new(name: *const i8) -> Dog;
+}
 ```
-
 ## 关键点
 
 ### 继承的挑战
