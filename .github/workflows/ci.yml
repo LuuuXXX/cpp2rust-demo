@@ -1175,3 +1175,57 @@ jobs:
             --ignored \
             --nocapture \
             --test-threads=4
+
+  # ── L4: 五个新项目 E2E 端到端验证（tinyxml2/pugixml/sqlite3/nlohmann/fmtlib）─
+  l4-e2e-libraries:
+    name: L4 E2E Libraries
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false  # 手动初始化需要的子模块
+
+      - name: Init E2E submodules
+        run: |
+          git submodule update --init \
+            references/tinyxml2 \
+            references/pugixml \
+            references/nlohmann-json \
+            references/fmtlib
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev libsqlite3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run tinyxml2 E2E
+        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
+
+      - name: Run pugixml E2E
+        run: cargo test --test pugixml_e2e_test -- --test-threads=1
+
+      - name: Run sqlite3 E2E
+        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
+
+      - name: Run nlohmann/json E2E
+        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
+
+      - name: Run fmtlib E2E
+        run: cargo test --test fmtlib_e2e_test -- --test-threads=1

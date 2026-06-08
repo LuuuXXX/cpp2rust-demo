@@ -5,6 +5,7 @@ macro_rules! run_test {
         #[test]
         #[ignore = "Requires full runtime environment"]
         fn $name() {
+            common::ensure_cpp_lib($example);
             let dir = concat!("examples/", $example, "/rust_hicc");
             let readme = concat!("examples/", $example, "/README.md");
             let output = common::cargo_run(dir);
@@ -30,6 +31,7 @@ macro_rules! run_test_skip_macos_virtual {
         #[ignore = "Requires full runtime environment"]
         #[cfg(not(target_os = "macos"))]
         fn $name() {
+            common::ensure_cpp_lib($example);
             let dir = concat!("examples/", $example, "/rust_hicc");
             let readme = concat!("examples/", $example, "/README.md");
             let output = common::cargo_run(dir);
