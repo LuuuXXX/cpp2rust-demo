@@ -99,16 +99,18 @@ fn merge_classes(
     method_seen: &mut HashMap<(String, String), String>,
 ) {
     for cb in &unit.class_blocks {
-        if !spec.classes.contains_key(&cb.class_name) {
-            spec.class_order.push(cb.class_name.clone());
-            spec.classes.insert(cb.class_name.clone(), Vec::new());
-            // 首次遇到时记录完整属性行
-            if !cb.class_attr.is_empty() {
-                spec.class_attrs
-                    .insert(cb.class_name.clone(), cb.class_attr.clone());
+        let methods = match spec.classes.entry(cb.class_name.clone()) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                spec.class_order.push(cb.class_name.clone());
+                // 首次遇到时记录完整属性行
+                if !cb.class_attr.is_empty() {
+                    spec.class_attrs
+                        .insert(cb.class_name.clone(), cb.class_attr.clone());
+                }
+                e.insert(Vec::new())
             }
-        }
-        let methods = spec.classes.get_mut(&cb.class_name).unwrap();
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+        };
         for method in &cb.methods {
             let key = (cb.class_name.clone(), method.attr.clone());
             if let Some(existing_sig) = method_seen.get(&key) {

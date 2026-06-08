@@ -194,28 +194,26 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
         .map_err(|e| anyhow!("create_dir_all {}: {}", hook_dir.display(), e))?;
 
     // 若 hook.cpp 不存在或内容有变化，则写入（二进制更新时自动升级）。
-    let cpp_path = hook_dir.join("hook.cpp");
-    let needs_write = match std::fs::read_to_string(&cpp_path) {
-        Ok(existing) => existing != HOOK_CPP,
+    write_if_changed(&hook_dir.join("hook.cpp"), HOOK_CPP)?;
+    // 若 Makefile 不存在或内容有变化，则写入。
+    write_if_changed(&hook_dir.join("Makefile"), HOOK_MAKEFILE)?;
+
+    Ok(hook_dir)
+}
+
+/// 若 `path` 不存在或内容与 `content` 不同，则写入文件。
+///
+/// 避免不必要的写入，以免触发文件系统 mtime 变更（影响 `libhook.so` 的快速路径判断）。
+#[cfg(unix)]
+fn write_if_changed(path: &Path, content: &str) -> Result<()> {
+    let needs_write = match std::fs::read_to_string(path) {
+        Ok(existing) => existing != content,
         Err(_) => true,
     };
     if needs_write {
-        std::fs::write(&cpp_path, HOOK_CPP)
-            .map_err(|e| anyhow!("write {}: {}", cpp_path.display(), e))?;
+        std::fs::write(path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))?;
     }
-
-    // 若 Makefile 不存在或内容有变化，则写入。
-    let mk_path = hook_dir.join("Makefile");
-    let mk_needs_write = match std::fs::read_to_string(&mk_path) {
-        Ok(existing) => existing != HOOK_MAKEFILE,
-        Err(_) => true,
-    };
-    if mk_needs_write {
-        std::fs::write(&mk_path, HOOK_MAKEFILE)
-            .map_err(|e| anyhow!("write {}: {}", mk_path.display(), e))?;
-    }
-
-    Ok(hook_dir)
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────

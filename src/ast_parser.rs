@@ -541,22 +541,13 @@ fn extract_class(
                     is_virtual: child.is_virtual_base(),
                 });
             }
-            EntityKind::Method => {
+            EntityKind::Method | EntityKind::Constructor | EntityKind::Destructor => {
                 if let Some(mi) = extract_method(&child) {
                     methods.push(mi);
                 }
             }
-            EntityKind::Constructor => {
-                if let Some(mi) = extract_method(&child) {
-                    methods.push(mi);
-                }
-            }
-            EntityKind::Destructor => {
-                if let Some(mi) = extract_method(&child) {
-                    methods.push(mi);
-                }
-            }
-            EntityKind::FieldDecl => {
+            EntityKind::FieldDecl | EntityKind::VarDecl => {
+                let is_static = child.get_kind() == EntityKind::VarDecl;
                 let field_name = child.get_name().unwrap_or_default();
                 let type_name = child
                     .get_type()
@@ -572,29 +563,8 @@ fn extract_class(
                 fields.push(FieldInfo {
                     name: field_name,
                     type_name,
-                    is_mutable: child.is_mutable(),
-                    is_static: false,
-                    accessibility,
-                    field_offset,
-                });
-            }
-            EntityKind::VarDecl => {
-                let field_name = child.get_name().unwrap_or_default();
-                let type_name = child
-                    .get_type()
-                    .map(|t| t.get_display_name())
-                    .unwrap_or_default();
-                let accessibility = access_str(child.get_accessibility());
-                let field_offset = child.get_range().map(|r| {
-                    let start = r.get_start().get_file_location().offset;
-                    let end = r.get_end().get_file_location().offset;
-                    (start, end)
-                });
-                fields.push(FieldInfo {
-                    name: field_name,
-                    type_name,
-                    is_mutable: false,
-                    is_static: true,
+                    is_mutable: !is_static && child.is_mutable(),
+                    is_static,
                     accessibility,
                     field_offset,
                 });
@@ -765,12 +735,7 @@ fn extract_enum(entity: &clang::Entity<'_>) -> Option<EnumInfo> {
         .get_children()
         .first()
         .and_then(|c| c.get_name())
-        .map(|cn| {
-            entity
-                .get_name()
-                .map(|en| cn.starts_with(&en))
-                .unwrap_or(false)
-        })
+        .map(|cn| cn.starts_with(&name))
         .unwrap_or(false);
 
     let variants = entity
