@@ -153,26 +153,14 @@ struct MergeArgs {
     #[arg(long = "feature", value_name = "FEATURE")]
     features: Vec<String>,
 
-    #[command(subcommand)]
-    subcommand: Option<MergeCommand>,
-}
-
-#[derive(Subcommand)]
-enum MergeCommand {
-    /// 将 Cargo 项目结构输出到指定目录（meta/ src/ build.rs Cargo.toml）
-    Output(MergeOutputArgs),
-}
-
-#[derive(Args)]
-struct MergeOutputArgs {
-    /// 输出目录（不存在时自动创建）
+    /// 将 Cargo 项目结构输出到指定目录（meta/ src/ build.rs Cargo.toml）；不指定则输出到标准位置
     #[arg(long, value_name = "DIR")]
-    output_dir: PathBuf,
+    output_dir: Option<PathBuf>,
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
-    match args.subcommand {
-        Some(MergeCommand::Output(out_args)) => run_merge_output(args.features, out_args),
+    match args.output_dir {
+        Some(out_dir) => run_merge_output(args.features, out_dir),
         None => {
             let features = if args.features.is_empty() {
                 vec!["default".to_string()]
@@ -292,11 +280,11 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 执行 `merge output` 子命令：将 Cargo 项目结构输出到指定目录。
-fn run_merge_output(features: Vec<String>, out_args: MergeOutputArgs) -> Result<()> {
+/// 执行 `merge --output-dir` 选项：将 Cargo 项目结构输出到指定目录。
+fn run_merge_output(features: Vec<String>, out_dir: PathBuf) -> Result<()> {
     if features.len() > 1 {
         return Err(anyhow!(
-            "output 子命令不支持多 feature，请只指定一个 --feature"
+            "--output-dir 不支持多 feature，请只指定一个 --feature"
         ));
     }
     let feature = if features.is_empty() {
@@ -312,7 +300,7 @@ fn run_merge_output(features: Vec<String>, out_args: MergeOutputArgs) -> Result<
     println!("=== cpp2rust-demo merge output ===");
     println!("项目根目录 : {}", project_root.display());
     println!("Feature    : {}", feature);
-    println!("输出目录   : {}", out_args.output_dir.display());
+    println!("输出目录   : {}", out_dir.display());
     println!();
 
     if !lo.feature_root.exists() {
@@ -363,8 +351,6 @@ fn run_merge_output(features: Vec<String>, out_args: MergeOutputArgs) -> Result<
             src_path.display()
         ));
     }
-
-    let out_dir = &out_args.output_dir;
 
     // 1. meta/ ← 复制整个 .cpp2rust/
     let cpp2rust_dir = project_root.join(".cpp2rust");
@@ -1117,11 +1103,10 @@ mod tests {
     }
 
     #[test]
-    fn merge_output_subcommand_default_feature() {
+    fn merge_output_dir_default_feature() {
         let args = Cli::try_parse_from([
             "cpp2rust-demo",
             "merge",
-            "output",
             "--output-dir",
             "/tmp/out",
         ])
@@ -1130,20 +1115,16 @@ mod tests {
             panic!("expected Merge");
         };
         assert!(merge.features.is_empty());
-        let Some(MergeCommand::Output(out)) = merge.subcommand else {
-            panic!("expected Output subcommand");
-        };
-        assert_eq!(out.output_dir, PathBuf::from("/tmp/out"));
+        assert_eq!(merge.output_dir, Some(PathBuf::from("/tmp/out")));
     }
 
     #[test]
-    fn merge_output_subcommand_with_feature() {
+    fn merge_output_dir_with_feature() {
         let args = Cli::try_parse_from([
             "cpp2rust-demo",
             "merge",
             "--feature",
             "mylib",
-            "output",
             "--output-dir",
             "/tmp/mylib-out",
         ])
@@ -1152,16 +1133,17 @@ mod tests {
             panic!("expected Merge");
         };
         assert_eq!(merge.features, vec!["mylib"]);
-        let Some(MergeCommand::Output(out)) = merge.subcommand else {
-            panic!("expected Output subcommand");
-        };
-        assert_eq!(out.output_dir, PathBuf::from("/tmp/mylib-out"));
+        assert_eq!(merge.output_dir, Some(PathBuf::from("/tmp/mylib-out")));
     }
 
     #[test]
-    fn merge_output_requires_output_dir() {
-        let result = Cli::try_parse_from(["cpp2rust-demo", "merge", "output"]);
-        assert!(result.is_err());
+    fn merge_without_output_dir_is_valid() {
+        let result = Cli::try_parse_from(["cpp2rust-demo", "merge"]);
+        assert!(result.is_ok());
+        let Commands::Merge(merge) = result.unwrap().command else {
+            panic!("expected Merge");
+        };
+        assert!(merge.output_dir.is_none());
     }
 
     #[test]
