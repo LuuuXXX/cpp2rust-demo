@@ -11,9 +11,6 @@ hicc::import_class! {
     pub class Animal {
         #[cpp(method = "const char* getName() const")]
         fn get_name(&self) -> *const i8;
-
-        #[cpp(method = "void speak() const")]
-        fn speak(&self);
     }
 }
 
@@ -25,9 +22,6 @@ hicc::import_class! {
 
         #[cpp(method = "void bark() const")]
         fn bark(&self);
-
-        #[cpp(method = "void speak() const")]
-        fn speak(&self);
     }
 }
 
@@ -42,24 +36,33 @@ hicc::import_lib! {
 
     #[cpp(func = "Dog* dog_new(const char*)")]
     unsafe fn dog_new(name: *const i8) -> Dog;
+
+    // 虚函数通过 C ABI 包装调用，避免 macOS ARM64 vtable 兼容问题
+    #[cpp(func = "void animal_speak(Animal*)")]
+    fn animal_speak(self_: *mut Animal);
+
+    #[cpp(func = "void dog_speak(Dog*)")]
+    fn dog_speak(self_: *mut Dog);
 }
 
 fn main() {
+    use hicc::AbiClass;
+
     // Create Animal
     let animal_name = "Generic Animal\0";
-    let animal = unsafe { animal_new(animal_name.as_ptr() as *const i8) };
+    let mut animal = unsafe { animal_new(animal_name.as_ptr() as *const i8) };
 
     println!("Animal name: {}", decode_cstr(animal.get_name()));
-    animal.speak();
+    animal_speak(&animal.as_mut_ptr());
 
     println!();
 
     // Create Dog
     let dog_name = "Buddy\0";
-    let dog = unsafe { dog_new(dog_name.as_ptr() as *const i8) };
+    let mut dog = unsafe { dog_new(dog_name.as_ptr() as *const i8) };
 
     println!("Dog name: {}", decode_cstr(dog.get_name()));
-    dog.speak();  // Call inherited speak method
+    dog_speak(&dog.as_mut_ptr());  // Call inherited speak method
     dog.bark();   // Call Dog's own bark method
 
     println!("\nRust FFI: Single inheritance with hicc pattern");

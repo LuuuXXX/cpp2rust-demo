@@ -11,14 +11,6 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "Shape", destroy = "shape_delete")]
     pub class Shape {
-        #[cpp(method = "int getType() const")]
-        fn get_type(&self) -> i32;
-
-        #[cpp(method = "const char* getTypeName() const")]
-        fn get_type_name(&self) -> *const i8;
-
-        #[cpp(method = "double area() const")]
-        fn area(&self) -> f64;
     }
 }
 
@@ -35,30 +27,39 @@ hicc::import_lib! {
 
     #[cpp(func = "Shape* shape_new_triangle(double, double)")]
     fn shape_new_triangle(base: f64, height: f64) -> Shape;
+
+    // 纯虚函数通过 C ABI 包装调用，避免 macOS ARM64 vtable 兼容问题
+    #[cpp(func = "int shape_getType(Shape*)")]
+    fn shape_getType(self_: *mut Shape) -> i32;
+
+    #[cpp(func = "double shape_area(Shape*)")]
+    fn shape_area(self_: *mut Shape) -> f64;
 }
 
 fn main() {
+    use hicc::AbiClass;
+
     println!("=== 023_typeid_rtti - typeid 与 RTTI ===\n");
 
-    let circle = unsafe { shape_new_circle(5.0).into_unique() };
-    let rect = unsafe { shape_new_rectangle(4.0, 6.0).into_unique() };
-    let triangle = unsafe { shape_new_triangle(3.0, 4.0).into_unique() };
+    let mut circle = unsafe { shape_new_circle(5.0).into_unique() };
+    let mut rect = unsafe { shape_new_rectangle(4.0, 6.0).into_unique() };
+    let mut triangle = unsafe { shape_new_triangle(3.0, 4.0).into_unique() };
 
     println!("\nUsing typeid to determine runtime type:");
     println!("Circle: type={}, name={}, area={:.2}",
-        circle.get_type(),
+        shape_getType(&circle.as_mut_ptr()),
         "Circle",
-        circle.area()
+        shape_area(&circle.as_mut_ptr())
     );
 
     println!("Rectangle: type={}, area={:.2}",
-        rect.get_type(),
-        rect.area()
+        shape_getType(&rect.as_mut_ptr()),
+        shape_area(&rect.as_mut_ptr())
     );
 
     println!("Triangle: type={}, area={:.2}",
-        triangle.get_type(),
-        triangle.area()
+        shape_getType(&triangle.as_mut_ptr()),
+        shape_area(&triangle.as_mut_ptr())
     );
 
     drop(circle);
