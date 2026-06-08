@@ -75,7 +75,7 @@ for example in "${EXAMPLES[@]}"; do
         ok_count=$((ok_count + 1))
     else
         echo "✗  失败"
-        cat /tmp/cpp2rust_build_err.txt | head -20
+        head -20 /tmp/cpp2rust_build_err.txt
         fail_count=$((fail_count + 1))
     fi
 done

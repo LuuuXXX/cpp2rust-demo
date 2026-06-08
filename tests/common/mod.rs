@@ -319,8 +319,9 @@ pub fn parse_readme_run_result(readme_path: &str) -> String {
 //  E2E 测试共享辅助函数
 // ─────────────────────────────────────────────────────────────────
 
-/// 使用 `g++ -E -C` 预处理 C++ 源文件，写出到 `out_dir/<unit_name>.cpp2rust`。
+/// 使用 C++ 编译器预处理源文件，写出到 `out_dir/<unit_name>.cpp2rust`。
 ///
+/// 编译器选择顺序：`CXX` 环境变量 → `g++` → `clang++`。
 /// `include_dirs` 为额外 `-I` 搜索路径列表（相对路径以仓库根目录为基准）。
 /// 成功返回输出文件路径，预处理失败返回 `None`。
 pub fn preprocess_cpp(
@@ -330,14 +331,34 @@ pub fn preprocess_cpp(
     unit_name: &str,
 ) -> Option<std::path::PathBuf> {
     let out = out_dir.join(format!("{}.cpp2rust", unit_name));
-    let mut cmd = Command::new("g++");
-    cmd.args(["-E", "-C", "-w"]);
-    for inc in include_dirs {
-        cmd.arg(format!("-I{}", inc));
+
+    let try_cxx = |compiler: &str| -> bool {
+        let mut cmd = Command::new(compiler);
+        cmd.args(["-E", "-C", "-w"]);
+        for inc in include_dirs {
+            cmd.arg(format!("-I{}", inc));
+        }
+        cmd.arg(src).arg("-o").arg(&out);
+        cmd.status().map(|s| s.success()).unwrap_or(false)
+    };
+
+    // 优先使用 CXX 环境变量指定的编译器，否则依次尝试 g++ 和 clang++
+    let cxx_env = std::env::var("CXX").unwrap_or_default();
+    let candidates: &[&str] = if !cxx_env.is_empty() {
+        &[]
+    } else {
+        &["g++", "clang++"]
+    };
+
+    if !cxx_env.is_empty() && try_cxx(&cxx_env) {
+        return Some(out);
     }
-    cmd.arg(src).arg("-o").arg(&out);
-    let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
-    if ok { Some(out) } else { None }
+    for compiler in candidates {
+        if try_cxx(compiler) {
+            return Some(out);
+        }
+    }
+    None
 }
 
 /// 验证生成的 hicc 代码符合三段式格式约束：
