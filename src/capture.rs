@@ -1,5 +1,5 @@
 use crate::error::Result;
-use anyhow::anyhow;
+use anyhow::{anyhow, Context as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -83,7 +83,7 @@ fn build_hook_unix() -> Result<PathBuf> {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
-        .map_err(|e| anyhow!("failed to run make in {}: {}", hook_dir.display(), e))?;
+        .with_context(|| format!("failed to run make in {}", hook_dir.display()))?;
 
     if !status.success() {
         return Err(anyhow!("make failed in {}", hook_dir.display()));
@@ -116,13 +116,13 @@ fn run_with_hook_unix(
 
     let abs_project_root = project_root
         .canonicalize()
-        .map_err(|e| anyhow!("canonicalize {}: {}", project_root.display(), e))?;
+        .with_context(|| format!("canonicalize {}", project_root.display()))?;
     let abs_feature_root = feature_root
         .canonicalize()
-        .map_err(|e| anyhow!("canonicalize {}: {}", feature_root.display(), e))?;
+        .with_context(|| format!("canonicalize {}", feature_root.display()))?;
     let abs_hook = hook_so
         .canonicalize()
-        .map_err(|e| anyhow!("canonicalize {}: {}", hook_so.display(), e))?;
+        .with_context(|| format!("canonicalize {}", hook_so.display()))?;
 
     // macOS 使用 DYLD_INSERT_LIBRARIES；Linux 使用 LD_PRELOAD
     #[cfg(target_os = "macos")]
@@ -145,7 +145,7 @@ fn run_with_hook_unix(
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
-        .map_err(|e| anyhow!("failed to spawn '{}': {}", cmd[0], e))?;
+        .with_context(|| format!("failed to spawn '{}'", cmd[0]))?;
 
     if !status.success() {
         return Err(anyhow!(
@@ -181,7 +181,7 @@ fn hook_dir() -> Result<PathBuf> {
     }
 
     let cwd_candidate = std::env::current_dir()
-        .map_err(|e| anyhow!("current_dir: {}", e))?
+        .context("current_dir")?
         .join("hook");
     if cwd_candidate.join("Makefile").exists() {
         return Ok(cwd_candidate);
@@ -203,7 +203,7 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
     let hook_dir = base.join("cpp2rust-demo").join("hook");
 
     std::fs::create_dir_all(&hook_dir)
-        .map_err(|e| anyhow!("create_dir_all {}: {}", hook_dir.display(), e))?;
+        .with_context(|| format!("create_dir_all {}", hook_dir.display()))?;
 
     // 若 hook.cpp 不存在或内容有变化，则写入（二进制更新时自动升级）。
     write_if_changed(&hook_dir.join("hook.cpp"), HOOK_CPP)?;
@@ -223,7 +223,8 @@ fn write_if_changed(path: &Path, content: &str) -> Result<()> {
         Err(_) => true,
     };
     if needs_write {
-        std::fs::write(path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))?;
+        std::fs::write(path, content)
+            .with_context(|| format!("write {}", path.display()))?;
     }
     Ok(())
 }
@@ -245,7 +246,7 @@ fn build_hook_windows() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
     let hook_dir = base.join("cpp2rust-demo").join("hook");
     std::fs::create_dir_all(&hook_dir)
-        .map_err(|e| anyhow!("create_dir_all {}: {}", hook_dir.display(), e))?;
+        .with_context(|| format!("create_dir_all {}", hook_dir.display()))?;
 
     let shim_rs = hook_dir.join("hook_shim.rs");
     let shim_exe = hook_dir.join("hook_shim.exe");
@@ -257,7 +258,7 @@ fn build_hook_windows() -> Result<PathBuf> {
     };
     if needs_write {
         std::fs::write(&shim_rs, HOOK_SHIM_RS)
-            .map_err(|e| anyhow!("write {}: {}", shim_rs.display(), e))?;
+            .with_context(|| format!("write {}", shim_rs.display()))?;
     }
 
     // 快速路径：若 .exe 比 .rs 更新则跳过编译
@@ -274,7 +275,7 @@ fn build_hook_windows() -> Result<PathBuf> {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
-        .map_err(|e| anyhow!("failed to run rustc (is Rust installed?): {}", e))?;
+        .context("failed to run rustc (is Rust installed?)")?;
 
     if !status.success() {
         return Err(anyhow!("rustc failed to compile hook_shim.rs"));
@@ -332,9 +333,9 @@ fn run_with_hook_windows(
     }
 
     let abs_project_root = canonicalize_no_verbatim(project_root)
-        .map_err(|e| anyhow!("canonicalize {}: {}", project_root.display(), e))?;
+        .with_context(|| format!("canonicalize {}", project_root.display()))?;
     let abs_feature_root = canonicalize_no_verbatim(feature_root)
-        .map_err(|e| anyhow!("canonicalize {}: {}", feature_root.display(), e))?;
+        .with_context(|| format!("canonicalize {}", feature_root.display()))?;
 
     // 找到真实 C++ 编译器（绕过 shim 目录本身），同时获取编译器类型
     let (real_cc, cc_kind) = detect_windows_cxx_compiler()
@@ -344,20 +345,20 @@ fn run_with_hook_windows(
     let tmp_dir = tempfile::Builder::new()
         .prefix("cpp2rust-shim-")
         .tempdir()
-        .map_err(|e| anyhow!("tempdir: {}", e))?;
+        .context("tempdir")?;
     let cc_basename = real_cc
         .file_name()
         .ok_or_else(|| anyhow!("real_cc has no filename"))?;
     let shim_alias = tmp_dir.path().join(cc_basename);
     std::fs::copy(hook_exe, &shim_alias)
-        .map_err(|e| anyhow!("copy shim → {}: {}", shim_alias.display(), e))?;
+        .with_context(|| format!("copy shim → {}", shim_alias.display()))?;
 
     // 将临时目录插入 PATH 最前面
     let old_path = std::env::var_os("PATH").unwrap_or_default();
     let new_path = std::env::join_paths(
         std::iter::once(tmp_dir.path().to_path_buf()).chain(std::env::split_paths(&old_path)),
     )
-    .map_err(|e| anyhow!("join_paths: {}", e))?;
+    .context("join_paths")?;
 
     println!("Running build command: {}", cmd.join(" "));
     println!("  CPP2RUST_PROJECT_ROOT  = {}", abs_project_root.display());
@@ -377,7 +378,7 @@ fn run_with_hook_windows(
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
-        .map_err(|e| anyhow!("failed to spawn '{}': {}", cmd[0], e))?;
+        .with_context(|| format!("failed to spawn '{}'", cmd[0]))?;
 
     if !status.success() {
         return Err(anyhow!(
