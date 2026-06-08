@@ -1,22 +1,23 @@
-/// nm_utils: helpers for L5 symbol-level FFI validation.
-///
-/// The validation flow is:
-///
-/// ```text
-/// C++ side
-///   └─ g++ -c *.cpp → .o
-///         └─ nm --defined-only -f posix <.o>
-///               filter: type T or W, name not starting with _Z
-///               → cpp_exports: {"counter_new", "counter_delete", ...}
-///
-/// Rust side
-///   └─ cargo build → binary / static library
-///         └─ nm --defined-only -f posix <artifact>
-///               filter: type T, intersect with cpp_exports set
-///               → rust_linked: {"counter_new", ...}
-///
-/// Assert: cpp_exports ⊆ rust_linked
-/// ```
+//! nm_utils: helpers for L5 symbol-level FFI validation.
+//!
+//! The validation flow is:
+//!
+//! ```text
+//! C++ side
+//!   └─ g++ -c *.cpp → .o
+//!         └─ nm --defined-only -f posix <.o>
+//!               filter: type T or W, name not starting with _Z
+//!               → cpp_exports: {"counter_new", "counter_delete", ...}
+//!
+//! Rust side
+//!   └─ cargo build → binary / static library
+//!         └─ nm --defined-only -f posix <artifact>
+//!               filter: type T, intersect with cpp_exports set
+//!               → rust_linked: {"counter_new", ...}
+//!
+//! Assert: cpp_exports ⊆ rust_linked
+//! ```
+#![allow(dead_code)]
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -210,7 +211,10 @@ fn cxx_compile_obj(src: &Path, includes: &[&str], obj: &Path) -> Option<bool> {
         // -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH suppresses the STL1000 error
         // that MSVC STL 14.44+ raises when used with clang < 19.
         for (compiler, extra_flags) in &[
-            ("clang++", vec!["-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"]),
+            (
+                "clang++",
+                vec!["-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"],
+            ),
             ("g++", vec![]),
         ] {
             let mut cmd = Command::new(compiler);
@@ -396,7 +400,9 @@ pub fn cargo_build_example(dir: &str, bin_name: &str) -> Option<PathBuf> {
     let bin_name_with_ext = format!("{}.exe", bin_name);
     #[cfg(not(windows))]
     let bin_name_with_ext = bin_name.to_string();
-    let bin = PathBuf::from(dir).join("target/debug").join(&bin_name_with_ext);
+    let bin = PathBuf::from(dir)
+        .join("target/debug")
+        .join(&bin_name_with_ext);
     if bin.exists() {
         Some(bin)
     } else {

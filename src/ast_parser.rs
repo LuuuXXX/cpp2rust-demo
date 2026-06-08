@@ -4,7 +4,7 @@
 //! 过滤系统头节点，只保留用户代码中的类、函数、枚举等声明。
 
 use anyhow::{anyhow, Result};
-use clang::{Clang, EntityKind, Index};
+use clang::{Clang, EntityKind, Index, Language};
 use std::path::{Path, PathBuf};
 
 // ─────────────────────────────────────────────
@@ -160,6 +160,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     })?;
     let cpp_ranges = cpp_byte_ranges(&file_content);
     let user_ranges = user_content_byte_ranges(&file_content);
+    let user_files = user_file_paths_from_content(&file_content);
 
     let mut ast = CppAst {
         file: file.to_path_buf(),
@@ -174,14 +175,45 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
 
     // 第一遍：收集类/函数/枚举声明
     for entity in root.get_children() {
-        if entity
-            .get_location()
-            .map(|l| l.is_in_system_header())
-            .unwrap_or(true)
+        let kind = entity.get_kind();
+
+        // LinkageSpec（extern "C"/"C++" 块）与 UnexposedDecl 需要特殊处理：
+        // 在 Windows LLVM 17 上，用户代码的 extern "C" 块（包括用户头文件中的声明块
+        // 和 .cpp 文件中的定义块）的 is_in_system_header() 有时会错误地返回 true，
+        // 若依赖该标志跳过，整个块及其内部的所有函数将被丢弃。
+        // 另外，在 Windows LLVM 17 + MSVC 头文件环境下，extern "C" 块有时以
+        // EntityKind::UnexposedDecl 形式出现（而非 LinkageSpec），需要同等处理。
+        // 解决方案：对两种 kind 都调用 collect_linkage_spec，不做顶层过滤；
+        // 内部的精细过滤由 collect_linkage_spec 自行处理（非内联定义不跳过）。
+        if kind == EntityKind::LinkageSpec || kind == EntityKind::UnexposedDecl {
+            collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges, &user_files);
+            continue;
+        }
+
+        // 非内联函数**定义**不可能来自系统头（系统头只有声明），
+        // 因此即使 Windows LLVM 17 的 is_in_system_header() 错误返回 true，
+        // 也必须保留——否则以顶层 FunctionDecl 出现的用户 extern "C" 定义
+        // （如 hello_world）将被丢弃，导致 fn_bindings 为空。
+        // 注意：使用 is_noninline_fn_def（不检查语言），因为在 .cpp 文件中
+        // extern "C" {} 块内的函数定义，get_language() 可能返回 CPlusPlus。
+        // 与 collect_linkage_spec 中的相同逻辑保持一致。
+
+        // FunctionDecl 在 Windows LLVM 17 上 get_location() 有时返回 None；
+        // 对非 C 语言的 FunctionDecl 使用 skip_if_no_location=true，
+        // 避免无位置的系统 C++ 声明被保留。
+        let skip_if_no_location = match kind {
+            EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
+            _ => true,
+        };
+        if !is_noninline_fn_def(&entity)
+            && entity
+                .get_location()
+                .map(|l| l.is_in_system_header())
+                .unwrap_or(skip_if_no_location)
         {
             continue;
         }
-        match entity.get_kind() {
+        match kind {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
                 if let Some(ci) = extract_class(&entity, &cpp_ranges) {
                     ast.classes.push(ci);
@@ -224,9 +256,6 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
             EntityKind::Namespace => {
                 collect_namespace(&entity, &mut ast, &cpp_ranges, &user_ranges);
             }
-            EntityKind::LinkageSpec => {
-                collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges);
-            }
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, &mut ast, &user_ranges);
             }
@@ -236,15 +265,23 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
 
     // 第二遍：收集类外方法定义（带方法体）并更新 body_offset
     for entity in root.get_children() {
-        if entity
-            .get_location()
-            .map(|l| l.is_in_system_header())
-            .unwrap_or(true)
+        let kind = entity.get_kind();
+
+        // 与第一遍相同：非内联函数定义不受 is_in_system_header() 过滤，
+        // 使用 is_noninline_fn_def（不检查语言）。
+        let skip_if_no_location = match kind {
+            EntityKind::LinkageSpec | EntityKind::UnexposedDecl => false,
+            EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
+            _ => true,
+        };
+        if !is_noninline_fn_def(&entity)
+            && entity
+                .get_location()
+                .map(|l| l.is_in_system_header())
+                .unwrap_or(skip_if_no_location)
         {
             continue;
         }
-
-        let kind = entity.get_kind();
         let is_method_def = matches!(
             kind,
             EntityKind::Method | EntityKind::Constructor | EntityKind::Destructor
@@ -374,32 +411,46 @@ fn collect_namespace(
     }
 }
 
+/// 判断实体是否为"非内联函数**定义**"（不限语言）。
+///
+/// 系统头文件中不可能存在非内联的函数定义（只有声明和内联定义），
+/// 因此对满足该条件的实体，应绕过 `is_in_system_header()` 检查，
+/// 避免 Windows LLVM 17 上 `is_in_system_header()` 对用户代码误报的问题。
+///
+/// 不限语言：在 `.cpp` 文件中，`extern "C" {}` 块内或顶层的函数定义，
+/// libclang 的 `get_language()` 可能返回 `CPlusPlus` 而非 `C`，
+/// 因此不能依赖语言检查。
+fn is_noninline_fn_def(entity: &clang::Entity<'_>) -> bool {
+    entity.get_kind() == EntityKind::FunctionDecl
+        && entity.is_definition()
+        && !entity.is_inline_function()
+}
+
 fn collect_linkage_spec(
     spec: &clang::Entity<'_>,
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
     user_ranges: &[std::ops::Range<u32>],
+    user_files: &std::collections::HashSet<String>,
 ) {
     for entity in spec.get_children() {
-        // 一级过滤：libclang 系统头标记（依赖行号标记中的 flag 3，去掉 -P 后生效）
-        if entity
-            .get_location()
-            .map(|l| l.is_in_system_header())
-            .unwrap_or(true)
-        {
-            continue;
-        }
-        // 防御性二级过滤：基于行号标记字节区间判断是否属于用户代码内容。
-        // 若预处理文件含行号标记（正常情况），只接受落在用户区间内的实体；
-        // 若文件不含行号标记（如历史使用了 -P 生成），user_ranges 覆盖全文，退化为无额外过滤。
-        let in_user = entity
+        // 过滤：跳过来自系统头的实体，但有两个关键例外：
+        //
+        // 例外 1：非内联函数**定义**不可能真正来自系统头文件，直接保留。
+        //
+        // 例外 2：用双重检查判断是否为用户代码：
+        //   a) 字节范围检查（user_ranges）：基于 linemarker flag-3 扫描
+        //   b) 路径检查（user_files + get_presumed_location()）：通过原始源文件路径判断
+        // 任一为 true 即视为用户代码。这样即使一种方式因平台差异失效，另一种仍可救援。
+        let from_user_range = entity
             .get_range()
             .map(|r| {
                 let offset = r.get_start().get_file_location().offset;
                 user_ranges.iter().any(|range| range.contains(&offset))
             })
-            .unwrap_or(false);
-        if !in_user {
+            .unwrap_or(true);
+        let from_user_file = entity_presumed_from_user_file(&entity, user_files);
+        if !is_noninline_fn_def(&entity) && !from_user_range && !from_user_file {
             continue;
         }
         match entity.get_kind() {
@@ -490,22 +541,13 @@ fn extract_class(
                     is_virtual: child.is_virtual_base(),
                 });
             }
-            EntityKind::Method => {
+            EntityKind::Method | EntityKind::Constructor | EntityKind::Destructor => {
                 if let Some(mi) = extract_method(&child) {
                     methods.push(mi);
                 }
             }
-            EntityKind::Constructor => {
-                if let Some(mi) = extract_method(&child) {
-                    methods.push(mi);
-                }
-            }
-            EntityKind::Destructor => {
-                if let Some(mi) = extract_method(&child) {
-                    methods.push(mi);
-                }
-            }
-            EntityKind::FieldDecl => {
+            EntityKind::FieldDecl | EntityKind::VarDecl => {
+                let is_static = child.get_kind() == EntityKind::VarDecl;
                 let field_name = child.get_name().unwrap_or_default();
                 let type_name = child
                     .get_type()
@@ -521,29 +563,8 @@ fn extract_class(
                 fields.push(FieldInfo {
                     name: field_name,
                     type_name,
-                    is_mutable: child.is_mutable(),
-                    is_static: false,
-                    accessibility,
-                    field_offset,
-                });
-            }
-            EntityKind::VarDecl => {
-                let field_name = child.get_name().unwrap_or_default();
-                let type_name = child
-                    .get_type()
-                    .map(|t| t.get_display_name())
-                    .unwrap_or_default();
-                let accessibility = access_str(child.get_accessibility());
-                let field_offset = child.get_range().map(|r| {
-                    let start = r.get_start().get_file_location().offset;
-                    let end = r.get_end().get_file_location().offset;
-                    (start, end)
-                });
-                fields.push(FieldInfo {
-                    name: field_name,
-                    type_name,
-                    is_mutable: false,
-                    is_static: true,
+                    is_mutable: !is_static && child.is_mutable(),
+                    is_static,
                     accessibility,
                     field_offset,
                 });
@@ -656,13 +677,19 @@ fn extract_function(
     // 判断函数声明/定义是否来自当前 .cpp 文件（而非被 include 的头文件）。
     let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
 
+    // 通过 libclang 语言标记检测 C 链接（extern "C"）。
+    // 这比仅依赖父节点为 LinkageSpec 更可靠：在 Windows LLVM 17 上，
+    // extern "C" 函数有时作为顶层 FunctionDecl 出现而非 LinkageSpec 的子节点，
+    // 此时父节点法会遗漏这些函数。collect_linkage_spec 路径也会显式覆盖此字段。
+    let is_extern_c = entity.get_language() == Some(Language::C);
+
     Some(FunctionInfo {
         name,
         return_type,
         params,
         is_inline: entity.is_inline_function(),
         is_variadic,
-        is_extern_c: false,
+        is_extern_c,
         friend_of: friend_of.map(String::from),
         body_offset,
         is_from_current_file,
@@ -708,12 +735,7 @@ fn extract_enum(entity: &clang::Entity<'_>) -> Option<EnumInfo> {
         .get_children()
         .first()
         .and_then(|c| c.get_name())
-        .map(|cn| {
-            entity
-                .get_name()
-                .map(|en| cn.starts_with(&en))
-                .unwrap_or(false)
-        })
+        .map(|cn| cn.starts_with(&name))
         .unwrap_or(false);
 
     let variants = entity
@@ -988,6 +1010,75 @@ fn parse_line_marker(line: &str) -> Option<(&str, Vec<u32>)> {
         .filter_map(|s| s.parse::<u32>().ok())
         .collect();
     Some((path, flags))
+}
+
+/// 扫描预处理文件，返回属于**用户代码**（非系统头）的原始文件路径集合。
+///
+/// 通过解析行号标记（linemarker），提取不含 flag-3（系统头）且非虚拟路径的文件路径。
+/// 返回的路径已规范化（反斜杠→正斜杠，统一小写），以支持跨平台比较。
+///
+/// **路径规范化**：linemarker 中的路径使用 C-string 转义，Windows 路径如
+/// `cpp\\file.cpp`（两个反斜杠）会被直接写入文件。因此需要两步转换：
+/// 1. `\\` → `\`（解码 C-string 转义，例如 `C:\\dir\\file.cpp` → `C:\dir\file.cpp`）
+/// 2. `\` → `/`（统一分隔符，例如 `C:\dir\file.cpp` → `C:/dir/file.cpp`）
+///
+/// 若跳过第一步直接替换，则 `cpp\\hello.cpp` 会变成 `cpp//hello.cpp`（双斜杠），
+///    导致与 libclang `get_presumed_location()` 返回的路径无法匹配。
+///
+/// 用法：配合 `entity_presumed_from_user_file` 通过 `get_presumed_location()` 检查
+/// 实体是否来自用户代码，该方法不依赖字节偏移量，对 CRLF/路径差异更健壮。
+pub fn user_file_paths_from_content(content: &str) -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    for line in content.split('\n') {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("# ") {
+            continue;
+        }
+        if let Some((path, flags)) = parse_line_marker(trimmed) {
+            let is_virtual = path.starts_with('<') || path.is_empty();
+            if !is_virtual && !flags.contains(&3) {
+                // 先解码 C-string 中的 \\ 转义（两个反斜杠→一个反斜杠），
+                // 再将剩余反斜杠统一为正斜杠，避免路径出现双斜杠（如 cpp//file.cpp）。
+                let decoded = path.replace("\\\\", "\\");
+                set.insert(decoded.replace('\\', "/").to_lowercase());
+            }
+        }
+    }
+    set
+}
+
+/// 通过 `get_presumed_location()` 判断实体是否来自用户代码文件。
+///
+/// `get_presumed_location()` 跟随预处理文件中的 `#line` 指令，返回实体在**原始源文件**
+/// 中的路径（而非预处理文件本身）。与字节范围检查互补：当字节偏移量因平台差异（CRLF、
+/// 绝对路径、不同预处理器）导致比较失败时，基于路径的判断仍然正确。
+///
+/// 匹配策略：
+///   1. 直接匹配（规范化后完整路径相等）
+///   2. 后缀匹配（一方是另一方的后缀，处理绝对路径 vs 相对路径的差异）
+fn entity_presumed_from_user_file(
+    entity: &clang::Entity<'_>,
+    user_files: &std::collections::HashSet<String>,
+) -> bool {
+    if user_files.is_empty() {
+        return false; // 无信息时保守处理，由其他检查决定
+    }
+    let Some(range) = entity.get_range() else {
+        return false;
+    };
+    let (presumed_path, _, _) = range.get_start().get_presumed_location();
+    if presumed_path.starts_with('<') || presumed_path.is_empty() {
+        return false; // 虚拟路径 = 非用户文件
+    }
+    let normalized = presumed_path.replace('\\', "/").to_lowercase();
+    // 直接匹配
+    if user_files.contains(&normalized) {
+        return true;
+    }
+    // 后缀匹配：处理绝对路径（linemarker）vs 相对路径（presumed）或反之
+    user_files
+        .iter()
+        .any(|uf| normalized.ends_with(uf.as_str()) || uf.ends_with(normalized.as_str()))
 }
 
 /// 扫描 `g++ -E`（不带 `-P`）生成的预处理文件，返回属于**用户代码**（非系统头）的字节区间。

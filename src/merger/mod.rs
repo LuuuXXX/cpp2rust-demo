@@ -17,6 +17,7 @@ use anyhow::anyhow;
 use block_parser::{parse_unit_rs, ParsedFnBinding, ParsedUnit};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use walkdir::WalkDir;
 
 // ─────────────────────────────────────────────
 //  合并后的中间结构
@@ -98,16 +99,18 @@ fn merge_classes(
     method_seen: &mut HashMap<(String, String), String>,
 ) {
     for cb in &unit.class_blocks {
-        if !spec.classes.contains_key(&cb.class_name) {
-            spec.class_order.push(cb.class_name.clone());
-            spec.classes.insert(cb.class_name.clone(), Vec::new());
-            // 首次遇到时记录完整属性行
-            if !cb.class_attr.is_empty() {
-                spec.class_attrs
-                    .insert(cb.class_name.clone(), cb.class_attr.clone());
+        let methods = match spec.classes.entry(cb.class_name.clone()) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                spec.class_order.push(cb.class_name.clone());
+                // 首次遇到时记录完整属性行
+                if !cb.class_attr.is_empty() {
+                    spec.class_attrs
+                        .insert(cb.class_name.clone(), cb.class_attr.clone());
+                }
+                e.insert(Vec::new())
             }
-        }
-        let methods = spec.classes.get_mut(&cb.class_name).unwrap();
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+        };
         for method in &cb.methods {
             let key = (cb.class_name.clone(), method.attr.clone());
             if let Some(existing_sig) = method_seen.get(&key) {
@@ -236,28 +239,21 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
 /// 递归扫描 `src_dir` 下所有 `*.rs` 文件，返回路径列表（排序）。
 /// 排除 `lib.rs`（汇总模块）和 `mod.rs`（目录声明文件），只返回实际 unit 文件。
 pub fn collect_unit_rs_files(src_dir: &Path) -> Vec<std::path::PathBuf> {
-    let mut result = Vec::new();
-    collect_unit_rs_recursive(src_dir, &mut result);
+    let mut result: Vec<std::path::PathBuf> = WalkDir::new(src_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path();
+            p.extension().and_then(|ext| ext.to_str()) == Some("rs")
+                && !matches!(
+                    p.file_name().and_then(|n| n.to_str()),
+                    Some("lib.rs") | Some("mod.rs")
+                )
+        })
+        .map(|e| e.path().to_path_buf())
+        .collect();
     result.sort();
     result
-}
-
-fn collect_unit_rs_recursive(dir: &Path, result: &mut Vec<std::path::PathBuf>) {
-    let rd = match std::fs::read_dir(dir) {
-        Ok(r) => r,
-        Err(_) => return,
-    };
-    for entry in rd.flatten() {
-        let p = entry.path();
-        if p.is_dir() {
-            collect_unit_rs_recursive(&p, result);
-        } else if p.extension().and_then(|e| e.to_str()) == Some("rs") {
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name != "lib.rs" && name != "mod.rs" {
-                result.push(p);
-            }
-        }
-    }
 }
 
 // ─────────────────────────────────────────────
@@ -611,7 +607,10 @@ hicc::import_lib! {
         );
         // src 是真实目录，可正常访问
         assert!(rust_dir.join("src/lib.rs").exists());
-        assert!(!rust_dir.join("src").is_symlink(), "src should not be a symlink");
+        assert!(
+            !rust_dir.join("src").is_symlink(),
+            "src should not be a symlink"
+        );
     }
 
     #[test]

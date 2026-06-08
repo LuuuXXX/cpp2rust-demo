@@ -559,10 +559,7 @@ fn rapidjson_shim_ffi_generates_importlib() {
             if let Some(rest) = trimmed.strip_prefix("#![link_name = \"") {
                 let ln = rest.strip_suffix("\"]").unwrap_or(rest);
                 if ln.contains('/') || ln.contains('\\') {
-                    failed_ffi.push(format!(
-                        "{}: link_name 含路径分隔符：{}",
-                        unit_name, ln
-                    ));
+                    failed_ffi.push(format!("{}: link_name 含路径分隔符：{}", unit_name, ln));
                 }
             }
         }

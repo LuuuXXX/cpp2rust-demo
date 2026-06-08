@@ -43,6 +43,8 @@ pub struct MethodBinding {
     pub params: Vec<(String, String)>,
     /// 返回类型（None 表示 void）
     pub ret_type: Option<String>,
+    /// 参数或返回类型含 C 函数指针（用于生成 cpp2rust-todo[FP] 注释）
+    pub has_fn_ptr_param: bool,
 }
 
 /// import_class! 方法的 self 参数类型
@@ -78,4 +80,6 @@ pub struct FnBinding {
     pub ret_type: Option<String>,
     /// 是否需要 unsafe 关键字
     pub is_unsafe: bool,
+    /// 参数或返回类型含 C 函数指针（用于生成 cpp2rust-todo[FP] 注释）
+    pub has_fn_ptr_param: bool,
 }

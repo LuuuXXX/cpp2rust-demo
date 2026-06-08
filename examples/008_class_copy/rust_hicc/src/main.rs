@@ -30,7 +30,7 @@ hicc::import_lib! {
     #[cpp(func = "Buffer* buffer_newWithSize(int)")]
     fn buffer_new_with_size(size: i32) -> Buffer;
 
-    #[cpp(func = "Buffer* buffer_newCopy(const struct Buffer* other)")]
+    #[cpp(func = "Buffer* buffer_newCopy(const Buffer* other)")]
     fn buffer_new_copy(other: *const Buffer) -> Buffer;
 }
 

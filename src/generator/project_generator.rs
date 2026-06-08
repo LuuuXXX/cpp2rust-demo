@@ -373,9 +373,7 @@ pub fn copy_feature_src_to_module(
 
 fn copy_feature_src_recursive(src: &Path, dst: &Path, feature_name: &str) -> Result<()> {
     std::fs::create_dir_all(dst).map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
-    for entry in
-        std::fs::read_dir(src).map_err(|e| anyhow!("read dir {}: {}", src.display(), e))?
-    {
+    for entry in std::fs::read_dir(src).map_err(|e| anyhow!("read dir {}: {}", src.display(), e))? {
         let entry = entry.map_err(|e| anyhow!("read entry: {}", e))?;
         let from = entry.path();
         let file_name = entry.file_name();
@@ -401,11 +399,7 @@ fn copy_feature_src_recursive(src: &Path, dst: &Path, feature_name: &str) -> Res
                 .map(|line| {
                     let trimmed = line.trim_start();
                     if trimmed.starts_with("use crate::") {
-                        line.replacen(
-                            "use crate::",
-                            &format!("use crate::{}::", feature_name),
-                            1,
-                        )
+                        line.replacen("use crate::", &format!("use crate::{}::", feature_name), 1)
                     } else {
                         line.to_string()
                     }
@@ -418,8 +412,7 @@ fn copy_feature_src_recursive(src: &Path, dst: &Path, feature_name: &str) -> Res
             } else {
                 rewritten
             };
-            std::fs::write(&to, rewritten)
-                .map_err(|e| anyhow!("write {}: {}", to.display(), e))?;
+            std::fs::write(&to, rewritten).map_err(|e| anyhow!("write {}: {}", to.display(), e))?;
         }
     }
     Ok(())

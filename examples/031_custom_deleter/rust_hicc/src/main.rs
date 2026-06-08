@@ -36,6 +36,10 @@ hicc::import_lib! {
 
     class FileHandle;
 
+    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
+    #[cpp(func = "FileHandle* file_open(const char*, const char*, void (*)(FileHandle*))")]
+    unsafe fn file_open(filename: *const i8, mode: *const i8, deleter: unsafe extern "C" fn(*mut FileHandle)) -> *mut FileHandle;
+
     #[cpp(func = "void file_close(FileHandle* handle)")]
     unsafe fn file_close(handle: *mut FileHandle);
 

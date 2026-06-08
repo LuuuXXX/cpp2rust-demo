@@ -29,10 +29,19 @@ pub fn extract(
     // 去重：对于同名函数，只保留一个（有 body_offset 的优先；否则 is_extern_c=false 优先）
     // 只纳入来自当前 .cpp 文件本身或显式 extern "C" 声明的函数，
     // 过滤掉通过 #include 引入的头文件内部函数（它们不应被导出为 FFI）。
+    //
+    // 第三条件：非内联函数且有定义体（body_offset）。
+    // 背景：在 Windows LLVM 17 上，extern "C" 函数有时以顶层 FunctionDecl 出现（而非
+    // LinkageSpec 的子节点），导致 is_extern_c=false；同时 get_file_location().offset 可能
+    // 返回原始源文件偏移量而非预处理文件偏移量，导致 is_from_current_file=false。
+    // 对于有函数体（is_definition=true）的非内联函数，无论以上两个标志是否正确，
+    // 均应将其视为待导出函数。头文件中的函数声明无 body_offset，不受此条影响。
     let eligible_functions: Vec<FunctionInfo> = ast
         .functions
         .iter()
-        .filter(|f| f.is_from_current_file || f.is_extern_c)
+        .filter(|f| {
+            f.is_from_current_file || f.is_extern_c || (f.body_offset.is_some() && !f.is_inline)
+        })
         .cloned()
         .collect();
     let functions = dedup_functions(&eligible_functions);
@@ -644,20 +653,6 @@ fn build_inline_method_line(m: &MethodInfo, source_bytes: &[u8], class_name: &st
     }
 }
 
-/// 检测函数体文本是否为空（仅含 `{ }` 或 `: init_list {}`，大括号内无语句）
-#[allow(dead_code)]
-fn has_empty_body(text: &str) -> bool {
-    if let Some(open) = text.rfind('{') {
-        if let Some(close) = text.rfind('}') {
-            if close > open {
-                let inner = text[open + 1..close].trim();
-                return inner.is_empty();
-            }
-        }
-    }
-    false
-}
-
 /// 过滤预处理器行号标记，如 `# 26 "file.cpp" 3 4`
 fn strip_preprocessor_markers(text: &str) -> String {
     text.lines()
@@ -800,13 +795,8 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
     if m.is_volatile {
         return None;
     }
-    // 参数或返回类型含函数指针/成员函数指针语法，无法映射为有效 Rust 类型，跳过
-    if m.params
-        .iter()
-        .any(|p| p.type_name.contains("(*)") || p.type_name.contains("::*)"))
-        || m.return_type.contains("(*)")
-        || m.return_type.contains("::*)")
-    {
+    // C++ 成员函数指针无法映射为有效 Rust FFI 类型，跳过
+    if m.params.iter().any(|p| p.type_name.contains("::*)")) || m.return_type.contains("::*)") {
         return None;
     }
     let rust_name = sanitize_fn_name(&m.name);
@@ -824,6 +814,10 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         .collect();
 
     let ret_type = ret_type_from_cpp(&m.return_type);
+
+    // 检测参数或返回类型是否含 C 函数指针，用于生成 cpp2rust-todo[FP] 注释
+    let has_fn_ptr_param =
+        m.params.iter().any(|p| p.type_name.contains("(*)")) || m.return_type.contains("(*)");
 
     // C++ 方法签名：含参数名（若 AST 有）、剥除参数 volatile、指针紧贴类型
     // 返回类型 volatile 和方法 this-volatile 均需保留，供 hicc 编译时方法指针类型检查
@@ -865,6 +859,7 @@ fn build_method_binding(m: &MethodInfo) -> Option<MethodBinding> {
         self_kind,
         params,
         ret_type,
+        has_fn_ptr_param,
     })
 }
 
@@ -879,11 +874,9 @@ fn build_lib_spec(functions: &[&FunctionInfo], unit_name: &str, class_names: &[&
         .filter(|(_, k)| !matches!(k, ShimKind::MethodAccessor))
         .filter(|(fi, _)| !fi.is_variadic)
         .filter(|(fi, _)| !fi.name.starts_with("operator"))
-        .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("(*)")))
         // C++ 成员函数指针（如 `int (Cls::*)() const`）无法映射为有效 Rust FFI 类型，跳过整个函数
         .filter(|(fi, _)| !fi.params.iter().any(|p| p.type_name.contains("::*)")))
-        // 返回类型含函数指针/成员函数指针语法，同样无法映射为有效 Rust FFI 类型，跳过整个函数
-        .filter(|(fi, _)| !fi.return_type.contains("(*)"))
+        // 返回类型含 C++ 成员函数指针语法，同样无法映射为有效 Rust FFI 类型，跳过整个函数
         .filter(|(fi, _)| !fi.return_type.contains("::*)"))
         // 参数或返回类型经 cpp_to_rust 映射后仍是无法在 Rust FFI 中使用的类型
         // （如未声明的 C 类型 FILE、未知 C++ 类型 MessageMap、含命名空间的 std::string 等），
@@ -941,12 +934,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         .params
         .iter()
         .enumerate()
-        .map(|(i, p)| {
-            (
-                sanitize_param_name(&p.name, i),
-                cpp_to_rust(&p.type_name),
-            )
-        })
+        .map(|(i, p)| (sanitize_param_name(&p.name, i), cpp_to_rust(&p.type_name)))
         .collect();
 
     let ret_type = ret_type_from_cpp(&fi.return_type);
@@ -982,6 +970,9 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         if t == "*const i8" {
             return true;
         }
+        if t.starts_with("unsafe extern") {
+            return true; // C 函数指针参数：需要 unsafe
+        }
         if let Some(inner) = t.strip_prefix("*mut ") {
             let is_class = class_names.contains(&inner);
             // volatile 限定的类指针参数不能享受 primitive_ret 豁免：仍标记为 unsafe
@@ -993,7 +984,11 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         false
     }) || ret_type
         .as_deref()
-        .is_some_and(|r| r == "*const i8" || r == "*mut i8");
+        .is_some_and(|r| r == "*const i8" || r == "*mut i8" || r.starts_with("unsafe extern"));
+
+    // 检测参数或返回类型是否含 C 函数指针，用于生成 cpp2rust-todo[FP] 注释
+    let has_fn_ptr_param =
+        fi.params.iter().any(|p| p.type_name.contains("(*)")) || fi.return_type.contains("(*)");
 
     // 构造 C++ 函数签名：只有当参数类型为已知类的指针时才保留参数名，
     // 但 self/this/thiz 等接收者惯用名除外（这些参数在 C 签名中通常省略参数名）
@@ -1001,10 +996,13 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         .params
         .iter()
         .map(|p| {
-            let ty = normalize_ptr_spacing(clean_type(&p.type_name));
+            let ty_stripped = strip_struct_class_keyword(clean_type(&p.type_name));
+            let ty = normalize_ptr_spacing(&ty_stripped);
             let is_class_ptr = class_names.iter().any(|cn| p.type_name.contains(cn));
             let is_self_name = matches!(p.name.as_str(), "self" | "this" | "thiz");
-            if is_class_ptr && !p.name.is_empty() && p.name != "_" && !is_self_name {
+            // 函数指针类型（如 void (*)(T*)）无法在末尾追加参数名（非法 C++ 语法），跳过追名
+            let is_fn_ptr = ty.contains("(*)");
+            if is_class_ptr && !p.name.is_empty() && p.name != "_" && !is_self_name && !is_fn_ptr {
                 format!("{} {}", ty, p.name)
             } else {
                 ty
@@ -1015,16 +1013,14 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let ret_clean = if fi.return_type.is_empty() || fi.return_type == "void" {
         "void".to_string()
     } else {
-        normalize_ptr_spacing(clean_type(&fi.return_type))
+        let ret_stripped = strip_struct_class_keyword(clean_type(&fi.return_type));
+        normalize_ptr_spacing(&ret_stripped)
     };
 
-    // 无参数时：extern_c → "(void)"，否则 "()"
+    // 无参数时统一输出空参数列表 "()"，与 C++ 风格一致。
+    // 无论 extern_c 与否，hicc 对 C++ 签名均接受 "()" 写法。
     let params_str = if param_parts.is_empty() {
-        if fi.is_extern_c {
-            "void".to_string()
-        } else {
-            String::new()
-        }
+        String::new()
     } else {
         param_parts.join(", ")
     };
@@ -1037,6 +1033,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
         params,
         ret_type,
         is_unsafe,
+        has_fn_ptr_param,
     }
 }
 
@@ -1168,6 +1165,10 @@ fn is_mappable_rust_type(rust_ty: &str, class_names: &[&str]) -> bool {
     if rust_ty.is_empty() {
         return true; // void 返回值
     }
+    // C 函数指针映射结果：`unsafe extern "C" fn(...)` 始终合法
+    if rust_ty.starts_with("unsafe extern") {
+        return true;
+    }
     // 含 :: 的路径表达式（如 std::string）在 FFI 类型位置非法
     if rust_ty.contains("::") {
         return false;
@@ -1297,6 +1298,43 @@ fn find_static_init(source_bytes: &[u8], class_name: &str, field_name: &str) -> 
         }
     }
     None
+}
+
+/// 从 C++ 类型字符串中删除作为类型限定符出现的 `struct ` 和 `class ` 关键字。
+///
+/// 不同平台/版本的 libclang 对同一类型的 elaborated type 处理方式不同：
+///   - Linux libclang：`const struct MyClass *`（保留 struct 关键字）
+///   - Windows LLVM 17：`const MyClass *`（省略 struct 关键字）
+///
+/// 本函数统一删除这些类型限定符，确保跨平台生成的 cpp_sig 一致。
+/// 仅删除 `struct ` / `class `（关键字后跟空格），且前一字符必须为非标识符字符
+/// （空格、`(`、`*` 等），以避免误删标识符中包含的 "struct"/"class" 子串（如
+/// `my_struct_type` 中的 `struct`）。
+fn strip_struct_class_keyword(ty: &str) -> String {
+    let bytes = ty.as_bytes();
+    let mut result = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        // 判断当前位置是否为单词边界（前一字符不是标识符字符）
+        let is_boundary = i == 0 || {
+            let prev = bytes[i - 1];
+            !prev.is_ascii_alphanumeric() && prev != b'_'
+        };
+        if is_boundary {
+            if bytes[i..].starts_with(b"struct ") {
+                i += 7; // "struct ".len()
+                continue;
+            }
+            if bytes[i..].starts_with(b"class ") {
+                i += 6; // "class ".len()
+                continue;
+            }
+        }
+        result.push(bytes[i]);
+        i += 1;
+    }
+    // SAFETY: 仅删除 ASCII 子序列，剩余字节仍为有效 UTF-8
+    String::from_utf8(result).unwrap_or_else(|_| ty.to_string())
 }
 
 /// 规范化 C++ 类型中的指针空格：`T *` → `T*`，`const T *` → `const T*`
@@ -1599,16 +1637,27 @@ mod tests {
         }
     }
 
-    /// 返回类型为 C 函数指针的函数不应出现在 import_lib! 中
+    /// 返回类型为 C 函数指针的函数现在应映射为 `unsafe extern "C" fn(...)`，出现在 fn_bindings 中
     #[test]
-    fn build_lib_spec_filters_fn_ptr_return_type() {
+    fn build_lib_spec_maps_fn_ptr_return_type() {
         let fi = make_fn("get_callback", "int (*)(int)", &[]);
         let funcs = vec![&fi];
         let spec = build_lib_spec(&funcs, "test", &[]);
-        assert!(
-            spec.fn_bindings.is_empty(),
-            "返回 C 函数指针的函数应被过滤，但仍出现在 fn_bindings 中"
+        assert_eq!(
+            spec.fn_bindings.len(),
+            1,
+            "返回 C 函数指针的函数应生成绑定，但未出现在 fn_bindings 中"
         );
+        let fb = &spec.fn_bindings[0];
+        assert!(
+            fb.ret_type
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("unsafe extern"),
+            "返回类型应映射为 unsafe extern \"C\" fn(...)，实际：{:?}",
+            fb.ret_type
+        );
+        assert!(fb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
     }
 
     /// 返回类型为 C++ 成员函数指针的函数不应出现在 import_lib! 中
@@ -1623,23 +1672,42 @@ mod tests {
         );
     }
 
-    /// 参数含 C 函数指针的方法不应出现在 import_class! 中
+    /// 参数含 C 函数指针的方法现在应生成 MethodBinding（不再跳过）
     #[test]
-    fn build_method_binding_filters_fn_ptr_param() {
+    fn build_method_binding_maps_fn_ptr_param() {
         let m = make_method("set_handler", "void", &["int (*)(int)"]);
+        let binding = build_method_binding(&m);
         assert!(
-            build_method_binding(&m).is_none(),
-            "含 C 函数指针参数的方法应返回 None，但未被过滤"
+            binding.is_some(),
+            "含 C 函数指针参数的方法应生成绑定，但返回了 None"
+        );
+        let mb = binding.unwrap();
+        assert!(mb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
+        assert!(
+            mb.params[0].1.starts_with("unsafe extern"),
+            "参数类型应映射为 unsafe extern \"C\" fn(...)，实际：{}",
+            mb.params[0].1
         );
     }
 
-    /// 返回类型为 C 函数指针的方法不应出现在 import_class! 中
+    /// 返回类型为 C 函数指针的方法现在应生成 MethodBinding（不再跳过）
     #[test]
-    fn build_method_binding_filters_fn_ptr_return_type() {
+    fn build_method_binding_maps_fn_ptr_return_type() {
         let m = make_method("get_handler", "int (*)(int)", &[]);
+        let binding = build_method_binding(&m);
         assert!(
-            build_method_binding(&m).is_none(),
-            "返回 C 函数指针的方法应返回 None，但未被过滤"
+            binding.is_some(),
+            "返回 C 函数指针的方法应生成绑定，但返回了 None"
+        );
+        let mb = binding.unwrap();
+        assert!(mb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
+        assert!(
+            mb.ret_type
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("unsafe extern"),
+            "返回类型应映射为 unsafe extern \"C\" fn(...)，实际：{:?}",
+            mb.ret_type
         );
     }
 
@@ -1650,6 +1718,61 @@ mod tests {
         assert!(
             build_method_binding(&m).is_none(),
             "返回 C++ 成员函数指针的方法应返回 None，但未被过滤"
+        );
+    }
+
+    /// 参数含 C 函数指针的函数应出现在 fn_bindings 中，且标记 is_unsafe 和 has_fn_ptr_param
+    #[test]
+    fn build_lib_spec_maps_fn_ptr_param() {
+        let fi = make_fn("apply_op", "int", &["int", "int (*)(int, int)"]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert_eq!(
+            spec.fn_bindings.len(),
+            1,
+            "含 C 函数指针参数的函数应生成绑定，但未出现在 fn_bindings 中"
+        );
+        let fb = &spec.fn_bindings[0];
+        assert!(fb.is_unsafe, "含函数指针参数的函数应标记 is_unsafe");
+        assert!(fb.has_fn_ptr_param, "has_fn_ptr_param 应为 true");
+        // 第二个参数类型应为 unsafe extern "C" fn(...)
+        assert!(
+            fb.params[1].1.starts_with("unsafe extern"),
+            "第二个参数类型应映射为 unsafe extern \"C\" fn(...)，实际：{}",
+            fb.params[1].1
+        );
+    }
+
+    /// C++ 成员函数指针参数应继续被过滤（不在 fn_bindings 中）
+    #[test]
+    fn build_lib_spec_still_filters_member_fn_ptr_param() {
+        let fi = make_fn("set_handler", "void", &["int (Cls::*)(int)"]);
+        let funcs = vec![&fi];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert!(
+            spec.fn_bindings.is_empty(),
+            "含 C++ 成员函数指针参数的函数应被过滤，但仍出现在 fn_bindings 中"
+        );
+    }
+
+    /// C++ 成员函数指针参数的方法应继续被过滤（返回 None）
+    #[test]
+    fn build_method_binding_still_filters_member_fn_ptr_param() {
+        let m = make_method("set_method_ptr", "void", &["int (Cls::*)(int)"]);
+        assert!(
+            build_method_binding(&m).is_none(),
+            "含 C++ 成员函数指针参数的方法应返回 None，但未被过滤"
+        );
+    }
+
+    /// 普通方法中 has_fn_ptr_param 应为 false
+    #[test]
+    fn build_method_binding_has_fn_ptr_param_false_for_normal_method() {
+        let m = make_method("get_value", "int", &["int"]);
+        let mb = build_method_binding(&m).expect("普通方法应生成绑定");
+        assert!(
+            !mb.has_fn_ptr_param,
+            "普通方法的 has_fn_ptr_param 应为 false"
         );
     }
 
@@ -1782,6 +1905,18 @@ mod tests {
         assert!(
             spec.fn_bindings.is_empty(),
             "含命名空间返回类型（std::string）的函数应被过滤"
+        );
+    }
+
+    #[test]
+    fn is_mappable_rust_type_fn_ptr() {
+        assert!(
+            is_mappable_rust_type(r#"unsafe extern "C" fn(i32, i32) -> i32"#, &[]),
+            "C 函数指针映射结果应合法"
+        );
+        assert!(
+            is_mappable_rust_type(r#"unsafe extern "C" fn(i32)"#, &[]),
+            "C 函数指针（无返回类型）映射结果应合法"
         );
     }
 

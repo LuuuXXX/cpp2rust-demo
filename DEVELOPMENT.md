@@ -177,137 +177,21 @@ hicc::import_lib! {
 | **Phase 10** | 路径生成修复（`derive_unit_path` 消除双重 `src/` 前缀） | ✅ 完成 |
 | **Phase 11** | Codegen 精确度修复（Dtor/Ctor 归属、接口类检测、`namespace_class_mode` cpp! 块、枚举重复定义、volatile 方法跳过、`is_from_current_file` 来源追踪） | ✅ 完成 |
 
-### 5.2 测试通过率
+### 5.3 测试通过率
 
 | 层 | 状态 |
 |----|------|
 | **L1**（golden 比对） | ✅ **49 / 49**（全部通过） |
-| **L2**（编译测试）| ✅ **48 / 48**（全部通过，031/039 前向引用问题已修复）|
-| **L3**（运行测试）| ✅ **48 / 48**（`compare_run_output` 框架完成，14 个 README 已对齐，030 SIGSEGV 已修复）|
-
-### 5.3 已完成的主要修复记录
-
-| 修复内容 | 影响示例 |
-|---------|---------|
-| 命名空间/opaque 类模式检测：extern C 含 `::` 类型或 `void*` 时压制 hicc 块 | 043、044 |
-| 未引用类不生成 `import_class!`（`used_classes` 过滤） | 046 等 |
-| 空 `import_lib!` 块跳过（fn_bindings 和 fwd_decls 均空时不输出） | 通用 |
-| 同步 7 个 golden 文件（012/025/027/031/033/045/046） | 多个 |
-| 新增 `diamond_handler.rs`：检测菱形继承路径，生成命名 shim | 018 |
-| 对齐 `operator_handler.rs` 降级输出格式（shim 名称规则、TODO 注释） | 019 |
-| 对齐 039/040 lambda/std_function class wrapper 格式（wrapper 类名、`call()` 签名，处理逻辑位于 `extractor/mod.rs`） | 039、040 |
-| CI 系统依赖修正：将 `libstdc++-dev` 改为 `libstdc++-14-dev`（Ubuntu 24.04 适配） | — |
-| 将 17 个预存在 L2 编译失败标记为 `#[ignore]`，使 CI l2-compile 阶段绿色通过 | 009、012、020、023、025、027、031–033、036、038–041、045 |
-| 修复 type_mapper 引用类型映射 + volatile 方法限定符生成（`T&` → `&mut T`，`is_volatile` 字段）；009/012 编译通过 | 009、012 |
-| 修复 5 个 L2 编译失败（032/036/038/047/047）；009/012 `#[ignore]` 移除；L2 活跃通过率从 31/48 提升至 **37/37（11 仍 ignore）** | 032、036、038、047 |
-| `cargo clippy` 清零（7 处 warning：drop-reference / and_then-Some / format-literal / map_or / collapsible-if / manual-strip） | — |
-| 回退 hicc class body 语法：`hicc_codegen.rs` 恢复 `import_class!` + 自由函数格式（`associated_fns` 不再内联到 `import_lib!` class body），并同步 21 个 golden 文件；修复 CI L2 编译失败 | 006–008、010–011、013–015、017–019、021–022、026、029–030、032、036、038、042、048 |
-| 同步 8 个 `#[ignore]` 示例的 golden 文件，使其与新的 `import_class!` + 自由函数格式对齐；L1 全量通过（48 / 48） | 020、023、025、027、031、033、041、045 |
-| 修复 025/027/031/045 L1 测试：同步 C++ 源文件与 golden 文件，使工具能自动生成正确 hicc 块 | 025、027、031、045 |
-| 修复 039/040 L1 golden 测试：移除 lambda_basic/std_function 中重复定义，添加 delegate 方法和工厂函数，工具生成与 golden 完全一致；**L1 达到 49/49（全部通过）** | 039、040 |
-| 修复 031 L2 前向引用：修改 `custom_deleter.h` 将 `default_file_deleter` 声明移至 `file_open_default` 之前，使工具生成正确函数顺序，更新 golden 文件；**031 L2 编译通过** | 031 |
-| 修复 039 L2 前向引用：在 `lambda_basic.h` 工厂函数之前添加 `add_impl/multiply_impl/max_impl` 声明，使工具生成正确函数顺序，更新 golden 文件；**039 L2 编译通过，L2 达到 48/48（全部通过）** | 039 |
-| 新增 `compare_run_output`（`tests/common/mod.rs`）：逐行比对运行输出，支持十六进制地址模糊匹配（`0x...`）；修复 null byte 尾部比较（`trim_end` → `trim_end_matches`） | L3 通用 |
-| 修复 030 shared_ptr SIGSEGV：将 `import_class!` 中的 `Cache::get()` 方法调用移出，改为自由函数 `cache_get()`（shim 模式），消除 vtable 错位导致的段错误；更新 golden 文件 | 030 |
-| 更新 14 个示例 README 运行结果节，与实际 `cargo run` 输出精确对齐，保证 L3 测试通过；涉及 005/006/007/008/009/010/011/018/023/030/031/032/039/040 | 005、006、007、008、009、010、011、018、023、030、031、032、039、040 |
-| 新增 `derive_unit_path()`（`generator/project_generator.rs`）：在从 C++ 文件路径推导 Rust 模块路径时**去掉首级路径分量**（如 `src/`），消除 `rust/src/src/…` 双重 `src` 问题；同步更新 `main.rs` 调用处及 5 个单元测试 | 路径生成通用 |
-| 修复 Dtor/Ctor 归属误分配（`assign_associated_fns`）：由名称前缀匹配改为基于返回类型（ctor）/第一参数类型（dtor）的最长类名匹配，避免 `VectorBuffer*` 误匹配 `Buffer` 类 | 032、040 |
-| 修复 `is_interface` 覆盖 `destroy_fn`：`ClassSpec` 新增 `destroy_fn` 字段，`hicc_codegen` 生成时 `destroy_fn` 优先于 `is_interface`，纯虚类有析构函数时输出 `#[cpp(class="...", destroy="...")]` | 016、023 |
-| 修复 `namespace_class_mode` 生成空 `cpp!` 块：命名空间类模式现按 `project_header` 生成 `#include "xxx.h"`，而非空 `Vec` | 043、044 |
-| 修复 `use_project_header` 时枚举重复定义：`ClassInfo` 新增 `is_from_current_file` 字段（通过预处理行号标记区分本文件/头文件类）；所有类均来自头文件时不重复 emit 枚举定义 | 023、045 |
-| 修复 typedef 在 golden 文件中的顺序：`#include "project.h"` 应在 typedef 之前，更新对应 golden 文件 | 031、039 |
-| 修复 volatile 方法处理：`MethodInfo` 新增 `is_volatile` 字段，`build_method_binding` 对 volatile 方法返回 `None` 跳过（hicc 0.2.4 不支持 volatile 成员函数指针），`build_method_decl` 保留 `volatile` 限定符 | 012 |
-| 扩展 `ShimKind::Dtor` 识别规则，新增 `_free`、`_destroy`、`_release` 后缀；`assign_associated_fns` Dtor 不放入 `associated_fns` 而记录为 `destroy_fn` | 通用 |
-| 更新 040 golden 文件：构造函数顺序与工具实际输出（声明顺序）对齐 | 040 |
-| 对齐 043 `main.rs` 运行输出：修正第 4/5 条总结文字（移除 `（*mut u8）` 多余说明；将 `import_lib! 支持 void* opaque pointer 模式` 改为 `import_class! 不支持嵌套命名空间，使用 raw extern "C"`），使 L3 输出与 README 运行结果节精确匹配 | 043 |
-| 新增跨 feature 合并（multi-feature merge）：`merge` 支持多次指定 `--feature`，2 个及以上时生成 `.cpp2rust/<feat1>_<feat2>/rust/` 组合项目（`Cargo.toml` 含 `[features]` 段，`src/lib.rs` 使用 `#[cfg(feature)]` 条件编译，`build.rs` 按 feature 条件编译 shim）；单 feature 路径不受影响 | 通用 |
+| **L2**（编译测试）| ✅ **48 / 48**（全部通过）|
+| **L3**（运行测试）| ✅ **48 / 48**（全部通过）|
 
 ---
 
 ## 6. 后续计划
 
-### 6.1 ✅ P1 - 实现 `merge` 命令（已完成）
-
-`merge` 命令已实现以下功能：
-
-- 扫描 `.cpp2rust/<feature>/rust/src/` 下的 unit `.rs` 文件，解析三类 hicc 块
-- 合并：`cpp!` 块去重 include；`import_class!` 按类名聚合并去重方法；`import_lib!` 去重 fwd_decls 和 fn_bindings
-- 冲突检测：同名符号签名不一致时输出 ⚠ 警告
-- **in-place 输出**：写回同一 feature 目录，维持 C++ 目录结构，提供备份机制（对齐 c2rust-demo）
-
-备份与 symlink 机制：
-
-```
-.cpp2rust/<feature>/rust/
-    ├── src.1/   ← init 输出原始备份（首次运行时 rename from src）
-    ├── src.2/   ← merge 输出（每次运行重写，维持子目录结构）
-    └── src      ← symlink → src.2
-```
-
-- 首次运行：`src/` 重命名为 `src.1/`，输出写入 `src.2/`，建 `src → src.2` symlink
-- 重复运行：`src.1/` 保持不变，仅删除旧 symlink、更新 `src.2/`、重建 symlink
-
-用法：
-```bash
-cpp2rust-demo merge --feature default
-```
-
-### 6.2 ✅ P1 - CI 环境修复（已完成）
-
-- Ubuntu 24.04 依赖由 `libstdc++-dev` 改为 `libstdc++-14-dev`
-- 17 个预存在 L2 编译失败标记为 `#[ignore]`，CI l2-compile 阶段恢复绿色
-
-### 6.3 ✅ P1 - L2 编译失败修复进度（全部完成）
-
-**已修复（全部 17 个，`#[ignore]` 已移除）：**
-
-| 编号 | 示例名 | 修复方式 |
-|------|--------|---------|
-| 009 | class_move | 修复 type_mapper：`T&` 参数映射为 `&mut T`（而非 `*mut T`） |
-| 012 | class_volatile | MethodInfo 新增 `is_volatile` 字段，生成 volatile 方法签名 |
-| 020 | friend_function | 将 `compile_test_ignore!` 改为 `compile_test!`（已能编译） |
-| 023 | typeid_rtti | 同 020 |
-| 025 | template_class | golden 文件 cpp! 块内添加 `Stack<T>` 完整模板定义（含内联方法体） |
-| 027 | template_instantiation | golden 文件 cpp! 块内添加 `Matrix<T>` 完整模板定义（含内联方法体） |
-| 031 | custom_deleter | 将 deleter 函数移到 `file_open_default` 前（前向引用修复）；移除 `import_class!` 中 `FILE*` 和函数指针 typedef 相关无法映射的绑定 |
-| 032 | placement_new | 移动 `struct SimpleValue` 定义到 `class Buffer` 前 |
-| 033 | raii_pattern | 为 `ScopedLock` 添加 `owns_lock()` 方法，新增 `import_class!` 块 |
-| 036 | string_basic | 为 `string_new_from` 调用添加 `unsafe {}` 块 |
-| 038 | tuple_basic | 为 `tuple*_new` 调用添加 `unsafe {}` 块 |
-| 039 | lambda_basic | 将 `add_impl/multiply_impl/max_impl` 移到工厂函数前；为结构体添加方法；添加 `import_class!` 块；移除不可映射的 `IntBinaryOp` 函数；新增 `comparator_new_add()` |
-| 040 | std_function | 为 4 个包装类添加方法；新增辅助函数和工厂函数；添加 `import_class!` 块 |
-| 041 | functional_bind | 将 `add_five_impl/add_ten_impl` 移到 `add_five/add_ten` 前（前向引用修复） |
-| 045 | union_basic | 移除 `IntFloatUnion` hicc 绑定，改用纯 Rust `#[repr(C)] union/struct` 实现 |
-| 046 | constexpr_basic | 替换 `#include <cstddef>` 为项目头文件；改用 `fibonacci<10>()`；移除不完整 `ConstexprPoint` struct |
-| 047 | noexcept_basic | 为 `noexcept_mover_move` 调用添加 `unsafe {}` 块 |
-
-> ✅ **L1 回归已全部修复**：通过同步 C++ 源文件（025/027/031/045）和调整示例结构（039/040），工具输出与 golden 文件完全一致，L1 达到 **49/49 全部通过**。
-
-### 6.4 ✅ P1 - L2 剩余 2 个编译失败（已全部修复）
-
-通过修改 C++ 头文件声明顺序，使工具自动生成正确的函数顺序，消除了前向引用编译错误：
-
-| 编号 | 示例名 | 失败原因 | 修复方式 |
-|------|--------|---------|---------|
-| 031 | custom_deleter | `file_open_default` 调用了后面才定义的 `default_file_deleter`（前向引用） | 在 `custom_deleter.h` 中将 `default_file_deleter` 声明移到 `file_open_default` 之前，工具自动生成正确顺序 |
-| 039 | lambda_basic | 工厂函数 `make_add_lambda` 等引用了后面才定义的 `add_impl` 等（前向引用） | 在 `lambda_basic.h` 中于工厂函数之前添加 `add_impl/multiply_impl/max_impl` 声明，工具自动生成正确顺序 |
-
-✅ **L2 全部通过：48/48**
-
-### 6.5 ✅ P1 - L3 运行测试基础设施与修复（已完成）
-
-| 内容 | 详情 |
-|------|------|
-| 新增 `compare_run_output` | 逐行比对运行输出，支持十六进制地址模糊匹配（`0x...`）；修复 null byte 尾部干扰（`trim_end` → `trim_end_matches`） |
-| 修复 030 SIGSEGV | `Cache::get()` 方法绑定导致 vtable 错位段错误；改为自由函数 shim `cache_get()`，消除崩溃 |
-| 14 个 README 运行结果对齐 | 涉及 005/006/007/008/009/010/011/018/023/030/031/032/039/040，与 `cargo run` 实际输出精确对齐 |
-
-✅ **L3 运行测试基础设施完成，48 个示例 README 均与运行结果对齐**
-
-### 6.6 P2 - 增量处理与局限性（待后续跟进）
+### 6.1 P2/P3 - 待后续跟进
 
 - 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏；merge 阶段已通过去重部分缓解）
-- Windows 编译拦截（捕获阶段依赖 LD_PRELOAD/DYLD_INSERT_LIBRARIES，Windows 尚无等价机制；生成的 Rust 项目 L2/L3/L5 已在 Windows MSVC & MinGW 通过 CI）
 - L3 运行测试本地化（当前仅 CI 验证，建议补充本地快速运行脚本）
 
 ---

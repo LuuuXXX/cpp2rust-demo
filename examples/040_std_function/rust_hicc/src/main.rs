@@ -54,6 +54,10 @@ hicc::import_lib! {
     class MultiCallback;
     class AsyncProcessor;
 
+    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
+    #[cpp(func = "CallbackWrapper* callback_wrapper_new(int (*)(int))")]
+    unsafe fn callback_wrapper_new(fn_: unsafe extern "C" fn(i32) -> i32) -> CallbackWrapper;
+
     #[cpp(func = "CallbackWrapper* callback_wrapper_new_double()")]
     fn callback_wrapper_new_double() -> CallbackWrapper;
 

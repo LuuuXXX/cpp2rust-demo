@@ -10,10 +10,12 @@ use cpp2rust_demo::generator::project_generator;
 use cpp2rust_demo::layout::{self, FeatureLayout, InitReportData, InitUnitStat, MergeReportData};
 use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use walkdir::WalkDir;
 
 // ─── post-merge FFI 统计 ───────────────────────────────────────────────────
 
@@ -32,21 +34,6 @@ struct RustSrcMetrics {
     degraded_tags: Vec<(String, usize)>,
 }
 
-/// 递归收集 `dir` 下所有 `.rs` 文件。
-fn walk_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_rs_files(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
-        }
-    }
-}
-
 /// 统计文件行数（逐行读取，内存高效）。
 fn count_file_lines(path: &Path) -> usize {
     std::fs::File::open(path)
@@ -56,8 +43,12 @@ fn count_file_lines(path: &Path) -> usize {
 
 /// 扫描 `rust_src` 目录下所有 `.rs` 文件，统计 FFI 绑定指标。
 fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
-    let mut rs_files = Vec::new();
-    walk_rs_files(rust_src, &mut rs_files);
+    let mut rs_files: Vec<PathBuf> = WalkDir::new(rust_src)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
+        .map(|e| e.path().to_path_buf())
+        .collect();
     rs_files.sort();
 
     let mut import_lib_files = 0usize;
@@ -256,9 +247,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     println!("    │   └── merge-report.md  （merge 摘要）");
     println!("    └── rust/");
     println!("        ├── src.1/  (init 输出备份)");
-    println!(
-        "        ├── src.2/  （merge 输出，目录结构与 C++ 项目一致）"
-    );
+    println!("        ├── src.2/  （merge 输出，目录结构与 C++ 项目一致）");
     println!("        └── src     （符号链接 → src.2）");
 
     // ── §5 生成的 .rs 文件列表 ──────────────────────────────────────────────
@@ -281,13 +270,19 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     println!("── FFI 绑定统计 ──");
     println!("  import_lib!  绑定文件数：{}", m.import_lib_files);
     println!("  import_class! 绑定文件数：{}", m.import_class_files);
-    println!("  FFI 函数绑定总数（#[cpp(func=...)]）：{}", m.fn_binding_count);
+    println!(
+        "  FFI 函数绑定总数（#[cpp(func=...)]）：{}",
+        m.fn_binding_count
+    );
 
     // link_name 一致性
     if m.bad_link_names.is_empty() {
         println!("  link_name 一致性：✓ 全部通过（无路径分隔符）");
     } else {
-        println!("  link_name 一致性：⚠ {} 处含路径分隔符：", m.bad_link_names.len());
+        println!(
+            "  link_name 一致性：⚠ {} 处含路径分隔符：",
+            m.bad_link_names.len()
+        );
         for name in &m.bad_link_names {
             println!("    ✗ {}", name);
         }
@@ -295,7 +290,10 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
 
     // #include 探测
     if m.include_count > 0 {
-        println!("  cpp! 块 #include 指令数：{} （头文件探测已生效）", m.include_count);
+        println!(
+            "  cpp! 块 #include 指令数：{} （头文件探测已生效）",
+            m.include_count
+        );
     } else {
         println!("  cpp! 块 #include 指令数：0 （可能未探测到对应头文件）");
     }
@@ -331,7 +329,10 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     } else {
         println!("  降级标记         : ⚠ {} 处（需人工完善）", m.todo_count);
     }
-    println!("  报告             : .cpp2rust/{}/meta/merge-report.md", feature);
+    println!(
+        "  报告             : .cpp2rust/{}/meta/merge-report.md",
+        feature
+    );
 
     Ok(())
 }
@@ -419,9 +420,7 @@ fn run_multi_feature_merge(features: &[String]) -> Result<()> {
         println!("        ├── {}/", feature);
     }
     println!();
-    println!(
-        "单独构建某个 feature：  cargo build --features <feature>"
-    );
+    println!("单独构建某个 feature：  cargo build --features <feature>");
 
     Ok(())
 }
@@ -457,11 +456,9 @@ fn run_init(args: InitArgs) -> Result<()> {
 
     // ── §6d 预处理文件行数统计 ─────────────────────────────────────────────────
     {
-        let mut sizes: Vec<(&PathBuf, usize)> = captured
-            .iter()
-            .map(|p| (p, count_file_lines(p)))
-            .collect();
-        sizes.sort_by(|a, b| b.1.cmp(&a.1));
+        let mut sizes: Vec<(&PathBuf, usize)> =
+            captured.iter().map(|p| (p, count_file_lines(p))).collect();
+        sizes.sort_by_key(|b| Reverse(b.1));
         let total: usize = sizes.iter().map(|(_, n)| n).sum();
         println!("\n── 捕获的 .cpp2rust 文件（行数，降序）──");
         for (path, lines) in sizes.iter().take(15) {
@@ -562,10 +559,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                     elapsed_ms,
                 });
 
-                all_units.push(UnitData {
-                    unit_path,
-                    spec,
-                });
+                all_units.push(UnitData { unit_path, spec });
             }
             Err(err) => {
                 let elapsed_ms = file_start.elapsed().as_millis();
@@ -632,9 +626,7 @@ fn run_init(args: InitArgs) -> Result<()> {
                 println!("      {} （{} 次）", unit_path, count);
             }
         }
-        println!(
-            "  → 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。"
-        );
+        println!("  → 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。");
     }
 
     // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
@@ -657,15 +649,9 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("\n✓ cpp2rust-demo init 完成。");
     println!("\n输出目录结构:");
     println!("  .cpp2rust/{}/", feature);
-    println!(
-        "    ├── c/          （捕获的 .cpp2rust 文件，目录结构与 C++ 项目一致）"
-    );
-    println!(
-        "    ├── meta/       （build_cmd.txt、selected_files.json、init-report.md）"
-    );
-    println!(
-        "    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）"
-    );
+    println!("    ├── c/          （捕获的 .cpp2rust 文件，目录结构与 C++ 项目一致）");
+    println!("    ├── meta/       （build_cmd.txt、selected_files.json、init-report.md）");
+    println!("    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）");
     println!();
     println!(
         "已在 .cpp2rust/{}/rust/src/ 生成 {} 个单元文件",
@@ -675,7 +661,10 @@ fn run_init(args: InitArgs) -> Result<()> {
     if unit_paths.iter().any(|p| p.contains('/')) {
         println!("  （目录结构与 C++ 项目一致）");
     }
-    println!("  → 运行 'cpp2rust-demo merge --feature {}' 整理输出结构。", feature);
+    println!(
+        "  → 运行 'cpp2rust-demo merge --feature {}' 整理输出结构。",
+        feature
+    );
 
     Ok(())
 }
@@ -698,7 +687,9 @@ fn opaque_import_class_block(type_name: &str) -> String {
 /// 返回 `true` 当且仅当 `s` 是合法的 C++/Rust 标识符（ASCII 字母、数字、下划线，首字符非数字）。
 fn is_valid_identifier(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
+        && s.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
@@ -865,7 +856,7 @@ mod tests {
     #[test]
     fn multi_feature_combined_name_uses_underscore_join() {
         // 验证多 feature 合并时目录名由 features.join("_") 生成
-        let features = vec!["linux_x86".to_string(), "arm_embedded".to_string()];
+        let features = ["linux_x86", "arm_embedded"];
         let combined_name = features.join("_");
         assert_eq!(combined_name, "linux_x86_arm_embedded");
     }
@@ -923,7 +914,7 @@ mod tests {
         use cpp2rust_demo::ffi_model::{FfiSpec, LibSpec};
         let spec = FfiSpec {
             lib_spec: LibSpec {
-                fwd_decls: vec!["struct Foo;".to_string()],  // not "class ..." format
+                fwd_decls: vec!["struct Foo;".to_string()], // not "class ..." format
                 ..Default::default()
             },
             ..Default::default()
@@ -931,7 +922,10 @@ mod tests {
         let map = HashMap::new();
         // malformed fwd_decl → preamble should be empty (no panic, no generated code)
         let preamble = build_cross_module_preamble(&spec, "mymod", &map);
-        assert!(preamble.is_empty(), "expected empty preamble, got: {preamble:?}");
+        assert!(
+            preamble.is_empty(),
+            "expected empty preamble, got: {preamble:?}"
+        );
     }
 
     #[test]
@@ -946,6 +940,9 @@ mod tests {
         };
         let map = HashMap::new();
         let preamble = build_cross_module_preamble(&spec, "mymod", &map);
-        assert!(preamble.is_empty(), "expected empty preamble, got: {preamble:?}");
+        assert!(
+            preamble.is_empty(),
+            "expected empty preamble, got: {preamble:?}"
+        );
     }
 }

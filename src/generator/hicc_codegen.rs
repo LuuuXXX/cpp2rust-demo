@@ -31,6 +31,11 @@ pub fn emit_cpp_block(lines: &[String]) -> String {
 /// `ret_override`：若为 `Some(s)`，用 `s` 替换 `fb.ret_type` 作为返回类型（不含 ` -> ` 前缀）。
 fn emit_fn_binding(out: &mut String, fb: &FnBinding, ret_override: Option<&str>) {
     out.push('\n');
+    if fb.has_fn_ptr_param {
+        out.push_str(
+            "    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern \"C\" 调用约定\n",
+        );
+    }
     out.push_str(&format!("    #[cpp(func = \"{}\")]\n", fb.cpp_sig));
     let unsafe_kw = if fb.is_unsafe { "unsafe " } else { "" };
     let params_str = fb
@@ -87,6 +92,9 @@ pub fn generate(spec: &FfiSpec) -> String {
         } else {
             out.push_str(&format!("    pub class {} {{\n", cs.name));
             for mb in &cs.methods {
+                if mb.has_fn_ptr_param {
+                    out.push_str("        // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern \"C\" 调用约定\n");
+                }
                 out.push_str(&format!("        #[cpp(method = \"{}\")]\n", mb.cpp_sig));
                 let self_ref = match mb.self_kind {
                     SelfKind::Ref => "&self",
@@ -178,5 +186,100 @@ fn strip_mut_ptr(ret_type: &str, class_name: &str) -> String {
         class_name.to_string()
     } else {
         ret_type.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ffi_model::{ClassSpec, FfiSpec, FnBinding, LibSpec, MethodBinding, SelfKind};
+
+    fn make_fn_binding(name: &str, has_fn_ptr_param: bool) -> FnBinding {
+        FnBinding {
+            cpp_sig: format!("void {}()", name),
+            rust_name: name.to_string(),
+            params: vec![],
+            ret_type: None,
+            is_unsafe: has_fn_ptr_param,
+            has_fn_ptr_param,
+        }
+    }
+
+    fn make_method_binding(name: &str, has_fn_ptr_param: bool) -> MethodBinding {
+        MethodBinding {
+            cpp_sig: format!("void {}()", name),
+            rust_name: name.to_string(),
+            self_kind: SelfKind::RefMut,
+            params: vec![],
+            ret_type: None,
+            has_fn_ptr_param,
+        }
+    }
+
+    fn make_spec_with_fn(fb: FnBinding) -> FfiSpec {
+        FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec!["#include <test.h>".to_string()],
+            class_specs: vec![],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![fb],
+            },
+        }
+    }
+
+    /// 含函数指针参数的函数绑定应生成 cpp2rust-todo[FP] 注释
+    #[test]
+    fn generate_fn_binding_with_fp_emits_todo_comment() {
+        let fb = make_fn_binding("apply_op", true);
+        let spec = make_spec_with_fn(fb);
+        let code = generate(&spec);
+        assert!(
+            code.contains("// cpp2rust-todo[FP]:"),
+            "含函数指针参数的函数绑定应生成 cpp2rust-todo[FP] 注释，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// 不含函数指针的函数绑定不应生成 cpp2rust-todo[FP] 注释
+    #[test]
+    fn generate_without_fp_no_todo_comment() {
+        let fb = make_fn_binding("get_value", false);
+        let spec = make_spec_with_fn(fb);
+        let code = generate(&spec);
+        assert!(
+            !code.contains("// cpp2rust-todo[FP]:"),
+            "不含函数指针的函数绑定不应生成 cpp2rust-todo[FP] 注释，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// 含函数指针参数的方法绑定应生成 cpp2rust-todo[FP] 注释
+    #[test]
+    fn generate_method_with_fp_emits_todo_comment() {
+        let mb = make_method_binding("set_handler", true);
+        let spec = FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec!["#include <test.h>".to_string()],
+            class_specs: vec![ClassSpec {
+                name: "MyClass".to_string(),
+                methods: vec![mb],
+                associated_fns: vec![],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![],
+            },
+        };
+        let code = generate(&spec);
+        assert!(
+            code.contains("// cpp2rust-todo[FP]:"),
+            "含函数指针参数的方法绑定应生成 cpp2rust-todo[FP] 注释，实际输出：\n{}",
+            code
+        );
     }
 }

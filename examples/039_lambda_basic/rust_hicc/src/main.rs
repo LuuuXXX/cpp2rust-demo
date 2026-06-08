@@ -43,11 +43,27 @@ hicc::import_lib! {
     class StateLambda;
     class Comparator;
 
+    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
+    #[cpp(func = "LambdaWrapper* lambda_wrapper_new(int (*)(int, int))")]
+    unsafe fn lambda_wrapper_new(fn_: unsafe extern "C" fn(i32, i32) -> i32) -> LambdaWrapper;
+
     #[cpp(func = "StateLambda* state_lambda_new(int)")]
     fn state_lambda_new(initial_value: i32) -> StateLambda;
 
+    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
+    #[cpp(func = "Comparator* comparator_new(int (*)(int, int))")]
+    unsafe fn comparator_new(cmp: unsafe extern "C" fn(i32, i32) -> i32) -> Comparator;
+
     #[cpp(func = "Comparator* comparator_new_add()")]
     fn comparator_new_add() -> Comparator;
+
+    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
+    #[cpp(func = "int apply_operation(int, int, int (*)(int, int))")]
+    unsafe fn apply_operation(a: i32, b: i32, op: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
+
+    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
+    #[cpp(func = "int apply_twice(int, int (*)(int, int))")]
+    unsafe fn apply_twice(x: i32, op: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
 
     #[cpp(func = "int add_impl(int, int)")]
     fn add_impl(a: i32, b: i32) -> i32;

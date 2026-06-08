@@ -1,9 +1,10 @@
+#![allow(dead_code)]
+
 pub mod nm_utils;
 
 use cpp2rust_demo::ast_parser;
 use cpp2rust_demo::extractor;
 use cpp2rust_demo::generator::hicc_codegen;
-use std::path::Path;
 use std::process::Command;
 
 /// Run the cpp2rust-demo tool on an example directory.
@@ -132,9 +133,11 @@ fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
             return true;
         }
         // 最终回退：cl.exe /P /C（MSVC）
-        // cl.exe 预处理输出文件名固定为 <stem>.i，需手动 rename
+        // cl.exe 预处理输出文件固定写到当前工作目录下的 <stem>.i，需手动 rename
         let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
-        let cl_out = src.parent().unwrap_or(std::path::Path::new(".")).join(format!("{}.i", stem));
+        let cl_out = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(format!("{}.i", stem));
         let ok = Command::new("cl.exe")
             .args(["/P", "/C", "/nologo"])
             .arg(src)
@@ -158,15 +161,14 @@ pub fn extract_hicc_blocks(src: &str) -> String {
 
     for line in src.lines() {
         let trimmed = line.trim();
-        if !in_block {
-            if trimmed.starts_with("hicc::cpp!")
+        if !in_block
+            && (trimmed.starts_with("hicc::cpp!")
                 || trimmed.starts_with("hicc::import_class!")
-                || trimmed.starts_with("hicc::import_lib!")
-            {
-                in_block = true;
-                depth = 0;
-                block_buf.clear();
-            }
+                || trimmed.starts_with("hicc::import_lib!"))
+        {
+            in_block = true;
+            depth = 0;
+            block_buf.clear();
         }
         if in_block {
             block_buf.push_str(line);

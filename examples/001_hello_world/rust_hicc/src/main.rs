@@ -5,7 +5,7 @@ hicc::cpp! {
 hicc::import_lib! {
     #![link_name = "hello_world"]
 
-    #[cpp(func = "void hello_world(void)")]
+    #[cpp(func = "void hello_world()")]
     fn hello_world();
 }
 
