@@ -152,20 +152,184 @@ struct MergeArgs {
     /// 要合并的特性名称（默认："default"；可多次指定以合并多个 feature）
     #[arg(long = "feature", value_name = "FEATURE")]
     features: Vec<String>,
+
+    #[command(subcommand)]
+    subcommand: Option<MergeCommand>,
+}
+
+#[derive(Subcommand)]
+enum MergeCommand {
+    /// 将 Cargo 项目结构输出到指定目录（meta/ src/ build.rs Cargo.toml）
+    Output(MergeOutputArgs),
+}
+
+#[derive(Args)]
+struct MergeOutputArgs {
+    /// 输出目录（不存在时自动创建）
+    #[arg(long, value_name = "DIR")]
+    output_dir: PathBuf,
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
-    let features = if args.features.is_empty() {
-        vec!["default".to_string()]
+    match args.subcommand {
+        Some(MergeCommand::Output(out_args)) => run_merge_output(args.features, out_args),
+        None => {
+            let features = if args.features.is_empty() {
+                vec!["default".to_string()]
+            } else {
+                args.features
+            };
+
+            if features.len() == 1 {
+                run_single_feature_merge(&features[0])
+            } else {
+                run_multi_feature_merge(&features)
+            }
+        }
+    }
+}
+
+/// 递归复制 `src` 目录到 `dst`，跟随符号链接（follow_links），跳过符号链接条目本身。
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+    std::fs::create_dir_all(dst)
+        .map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
+    for entry in WalkDir::new(src).follow_links(true).into_iter() {
+        let entry = entry.map_err(|e| anyhow!("walk {}: {}", src.display(), e))?;
+        // 跳过源目录本身
+        if entry.path() == src {
+            continue;
+        }
+        let rel = entry
+            .path()
+            .strip_prefix(src)
+            .map_err(|e| anyhow!("strip_prefix: {}", e))?;
+        let target = dst.join(rel);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target)
+                .map_err(|e| anyhow!("create dir {}: {}", target.display(), e))?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| anyhow!("create dir {}: {}", parent.display(), e))?;
+            }
+            std::fs::copy(entry.path(), &target).map_err(|e| {
+                anyhow!(
+                    "copy {} → {}: {}",
+                    entry.path().display(),
+                    target.display(),
+                    e
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// 执行 `merge output` 子命令：将 Cargo 项目结构输出到指定目录。
+fn run_merge_output(features: Vec<String>, out_args: MergeOutputArgs) -> Result<()> {
+    if features.len() > 1 {
+        return Err(anyhow!(
+            "output 子命令不支持多 feature，请只指定一个 --feature"
+        ));
+    }
+    let feature = if features.is_empty() {
+        "default".to_string()
     } else {
-        args.features
+        features.into_iter().next().unwrap()
     };
 
-    if features.len() == 1 {
-        run_single_feature_merge(&features[0])
-    } else {
-        run_multi_feature_merge(&features)
+    let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
+    let project_root = layout::find_project_root(&cwd);
+    let lo = FeatureLayout::new(project_root.clone(), &feature);
+
+    println!("=== cpp2rust-demo merge output ===");
+    println!("项目根目录 : {}", project_root.display());
+    println!("Feature    : {}", feature);
+    println!("输出目录   : {}", out_args.output_dir.display());
+    println!();
+
+    if !lo.feature_root.exists() {
+        return Err(anyhow!(
+            "feature '{}' 不存在于 {}；请先运行 init",
+            feature,
+            lo.feature_root.display()
+        ));
     }
+
+    // 检查 Cargo.toml 和 build.rs 是否已生成（需要先运行 merge）
+    let cargo_toml = lo.rust_dir.join("Cargo.toml");
+    let build_rs = lo.rust_dir.join("build.rs");
+    if !cargo_toml.exists() || !build_rs.exists() {
+        return Err(anyhow!(
+            "未找到 Cargo.toml 或 build.rs（位于 {}）；请先运行 'cpp2rust-demo merge --feature {}'",
+            lo.rust_dir.display(),
+            feature
+        ));
+    }
+
+    // 确定 src 来源：优先 src.2，否则取 src（解引用 symlink）
+    let src_path = {
+        let src2 = lo.rust_dir.join("src.2");
+        if src2.is_dir() {
+            src2
+        } else {
+            let src_link = lo.rust_dir.join("src");
+            // 若 src 是 symlink，解引用到真实路径
+            if src_link.is_symlink() {
+                let target = std::fs::read_link(&src_link)
+                    .map_err(|e| anyhow!("read_link {}: {}", src_link.display(), e))?;
+                // symlink 可能是相对路径，需拼上父目录
+                if target.is_absolute() {
+                    target
+                } else {
+                    lo.rust_dir.join(target)
+                }
+            } else {
+                src_link
+            }
+        }
+    };
+
+    if !src_path.is_dir() {
+        return Err(anyhow!(
+            "src 目录不存在于 {}；请先运行 merge",
+            src_path.display()
+        ));
+    }
+
+    let out_dir = &out_args.output_dir;
+
+    // 1. meta/ ← 复制整个 .cpp2rust/
+    let cpp2rust_dir = project_root.join(".cpp2rust");
+    let meta_dest = out_dir.join("meta");
+    println!("复制 .cpp2rust/ → meta/ ...");
+    copy_dir_all(&cpp2rust_dir, &meta_dest)?;
+
+    // 2. src/ ← 复制 rust/src（或 src.2）内容
+    let src_dest = out_dir.join("src");
+    println!("复制 src → src/ ...");
+    copy_dir_all(&src_path, &src_dest)?;
+
+    // 3. build.rs
+    let build_rs_dest = out_dir.join("build.rs");
+    std::fs::create_dir_all(out_dir)
+        .map_err(|e| anyhow!("create dir {}: {}", out_dir.display(), e))?;
+    std::fs::copy(&build_rs, &build_rs_dest).map_err(|e| anyhow!("copy build.rs: {}", e))?;
+
+    // 4. Cargo.toml
+    let cargo_toml_dest = out_dir.join("Cargo.toml");
+    std::fs::copy(&cargo_toml, &cargo_toml_dest)
+        .map_err(|e| anyhow!("copy Cargo.toml: {}", e))?;
+
+    println!("\n✓ cpp2rust-demo merge output 完成。");
+    println!("\n输出目录结构：");
+    println!("  {}/", out_dir.display());
+    println!("    ├── meta/        （.cpp2rust/ 的副本）");
+    println!("    ├── src/         （合并后的 Rust 源码）");
+    println!("    ├── build.rs");
+    println!("    └── Cargo.toml");
+
+    Ok(())
 }
 
 fn run_single_feature_merge(feature: &str) -> Result<()> {
@@ -851,6 +1015,77 @@ mod tests {
             panic!("expected Merge");
         };
         assert_eq!(merge.features, vec!["feat1", "feat2", "feat3"]);
+    }
+
+    #[test]
+    fn merge_output_subcommand_default_feature() {
+        let args = Cli::try_parse_from([
+            "cpp2rust-demo",
+            "merge",
+            "output",
+            "--output-dir",
+            "/tmp/out",
+        ])
+        .unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert!(merge.features.is_empty());
+        let Some(MergeCommand::Output(out)) = merge.subcommand else {
+            panic!("expected Output subcommand");
+        };
+        assert_eq!(out.output_dir, PathBuf::from("/tmp/out"));
+    }
+
+    #[test]
+    fn merge_output_subcommand_with_feature() {
+        let args = Cli::try_parse_from([
+            "cpp2rust-demo",
+            "merge",
+            "--feature",
+            "mylib",
+            "output",
+            "--output-dir",
+            "/tmp/mylib-out",
+        ])
+        .unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.features, vec!["mylib"]);
+        let Some(MergeCommand::Output(out)) = merge.subcommand else {
+            panic!("expected Output subcommand");
+        };
+        assert_eq!(out.output_dir, PathBuf::from("/tmp/mylib-out"));
+    }
+
+    #[test]
+    fn merge_output_requires_output_dir() {
+        let result = Cli::try_parse_from(["cpp2rust-demo", "merge", "output"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn copy_dir_all_copies_files() {
+        use tempfile::TempDir;
+        let src_tmp = TempDir::new().unwrap();
+        let dst_tmp = TempDir::new().unwrap();
+
+        // 建立源目录结构
+        std::fs::create_dir(src_tmp.path().join("sub")).unwrap();
+        std::fs::write(src_tmp.path().join("a.txt"), "hello").unwrap();
+        std::fs::write(src_tmp.path().join("sub/b.txt"), "world").unwrap();
+
+        copy_dir_all(src_tmp.path(), dst_tmp.path()).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dst_tmp.path().join("a.txt")).unwrap(),
+            "hello"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst_tmp.path().join("sub/b.txt")).unwrap(),
+            "world"
+        );
     }
 
     #[test]
