@@ -140,14 +140,14 @@ foreach ($ExampleDir in Get-ChildItem -Path $ExamplesDir -Directory) {
             # MinGW / clang++：生成 DLL
             $Args = @("-std=c++17", "-shared", "-fPIC") + $CppFiles +
                     @("-o", $DllOutput, "-I$CppDir")
-            $proc = Start-Process $CXX -ArgumentList $Args -NoNewWindow -Wait -PassThru -RedirectStandardError NUL
+            $proc = Start-Process $CXX -ArgumentList $Args -NoNewWindow -Wait -PassThru -RedirectStandardError $null
             $Compiled_ok = ($proc.ExitCode -eq 0)
         }
         else {
             # MSVC cl.exe：生成 DLL
             $Args = @("/std:c++17", "/LD") + $CppFiles +
                     @("/I$CppDir", "/Fe:$DllOutput")
-            $proc = Start-Process $CXX -ArgumentList $Args -NoNewWindow -Wait -PassThru -RedirectStandardError NUL
+            $proc = Start-Process $CXX -ArgumentList $Args -NoNewWindow -Wait -PassThru -RedirectStandardError $null
             $Compiled_ok = ($proc.ExitCode -eq 0)
         }
     }

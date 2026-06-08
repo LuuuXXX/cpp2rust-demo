@@ -112,7 +112,7 @@ fn merge_cpp_lines(
         if trimmed.starts_with("template") && trimmed.contains('<') {
             let block_start = i;
             let mut block: Vec<String> = Vec::new();
-            let mut depth = 0i32;
+            let mut depth = 0;
             let mut j = i;
             let mut block_complete = false;
 
@@ -330,6 +330,7 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
         if let Some(units) = spec.cross_unit_classes.get(class_name) {
             // 去重 unit 名列表
             let mut unique_units: Vec<&String> = units.iter().collect();
+            unique_units.sort();
             unique_units.dedup();
             if unique_units.len() > 1 {
                 let unit_list: Vec<&str> = unique_units.iter().map(|s| s.as_str()).collect();

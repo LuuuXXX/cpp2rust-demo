@@ -109,7 +109,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ $CLEAN -eq 1 ]]; then
     echo "清理所有编译产物..."
-    find "$EXAMPLES_DIR" -name "*.so" -o -name "*.dylib" | while read -r f; do
+    find "$EXAMPLES_DIR" \( -name "*.so" -o -name "*.dylib" \) | while read -r f; do
         echo "  删除：$f"
         rm -f "$f"
     done

@@ -39,12 +39,10 @@ test-l2:
 FILTER ?=
 THREADS ?= 4
 
+FILTER_ARG := $(if $(FILTER),--filter "$(FILTER)",)
+
 test-l3:
-ifdef FILTER
-	./scripts/run_l3_local.sh --filter "$(FILTER)" --threads $(THREADS)
-else
-	./scripts/run_l3_local.sh --threads $(THREADS)
-endif
+	./scripts/run_l3_local.sh $(FILTER_ARG) --threads $(THREADS)
 
 # L4 RapidJSON E2E 测试
 test-l4:

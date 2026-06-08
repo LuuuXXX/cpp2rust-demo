@@ -169,9 +169,9 @@ fn fmt_shim_ffi_generates_importlib() {
                 for line in code.lines() {
                     let trimmed = line.trim();
                     if let Some(rest) = trimmed.strip_prefix("#![link_name = \"") {
-                        let ln = rest.strip_suffix("\"]").unwrap_or(rest);
-                        if ln.contains('/') || ln.contains('\\') {
-                            failed.push(format!("{}: link_name 含路径分隔符：{}", unit_name, ln));
+                        let link_name = rest.strip_suffix("\"]").unwrap_or(rest);
+                        if link_name.contains('/') || link_name.contains('\\') {
+                            failed.push(format!("{}: link_name 含路径分隔符：{}", unit_name, link_name));
                         }
                     }
                 }
