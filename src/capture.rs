@@ -325,7 +325,8 @@ fn run_with_hook_macos(
         .tempdir()
         .map_err(|e| anyhow!("tempdir: {}", e))?;
 
-    // 为所有常见编译器名都创建 shim 副本，确保无论构建脚本用哪个名字都能被拦截
+    // 为 macOS 上三个主要的 C++ 编译器别名创建 shim 副本：
+    // 构建脚本可能硬编码 g++、clang++ 或 c++，统一拦截以确保 capture 正常工作。
     let shim_names = ["clang++", "g++", "c++"];
     for name in &shim_names {
         let alias = tmp_dir.path().join(name);
@@ -333,7 +334,8 @@ fn run_with_hook_macos(
             .map_err(|e| anyhow!("copy shim → {}: {}", alias.display(), e))?;
         set_executable(&alias)?;
     }
-    // 如果真实编译器的 basename 不在上述列表中，也为它创建一份
+    // 若检测到的真实编译器 basename 不在上述三个名字中（如 g++-14 等），
+    // 也为其创建一份 shim（尽力而为，覆盖非标准命名场景）。
     let cc_basename = real_cc
         .file_name()
         .ok_or_else(|| anyhow!("real_cc has no filename"))?;

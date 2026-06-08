@@ -484,6 +484,8 @@ jobs:
 
       - name: Run verify-rapidjson-ffi.sh
         env:
+          # cc-rs 在 Apple clang 16.x 上需要版本化的 target triple（如 arm64-apple-macosx14.0），
+          # 设置 MACOSX_DEPLOYMENT_TARGET 可使 cc-rs 生成正确格式的 --target 参数。
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
@@ -1072,6 +1074,8 @@ jobs:
 
       - name: Run L3 run tests
         env:
+          # cc-rs 在 Apple clang 16.x 上需要版本化的 target triple（如 arm64-apple-macosx14.0），
+          # 设置 MACOSX_DEPLOYMENT_TARGET 可使 cc-rs 生成正确格式的 --target 参数。
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           cargo test --test l3_run_tests -- \
@@ -1108,6 +1112,8 @@ jobs:
       # 单线程运行：clang 全局状态 + rapidjson 文件数量多
       - name: Run L4 rapidjson E2E tests
         env:
+          # cc-rs 在 Apple clang 16.x 上需要版本化的 target triple（如 arm64-apple-macosx14.0），
+          # 设置 MACOSX_DEPLOYMENT_TARGET 可使 cc-rs 生成正确格式的 --target 参数。
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           cargo test --test rapidjson_e2e_test -- \
