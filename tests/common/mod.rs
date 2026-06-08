@@ -82,12 +82,29 @@ fn find_cpp_file(dir: &str) -> Option<std::path::PathBuf> {
 
 /// 对 C++ 源文件运行预处理器（-E -C），输出到 `out`。
 ///
-/// - Linux / macOS：使用 `g++`。
+/// - Linux / macOS：优先尝试 `clang++`（macOS Xcode CLI 默认可用；Linux 也常见），
+///   回退到 `g++`（Linux 默认编译器；macOS Homebrew GCC）。
 /// - Windows：优先尝试 `clang++`（LLVM for Windows），
 ///   回退到 `g++`（MinGW/MSYS2），再回退到 `cl.exe /P /C`（MSVC）。
 fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
     #[cfg(not(windows))]
     {
+        // 优先 clang++（macOS Xcode CLI 内置；Linux 也常见）
+        let ok = Command::new("clang++")
+            .args([
+                "-E",
+                "-C",
+                src.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+            ])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return true;
+        }
+        // 回退到 g++（Linux 默认；macOS Homebrew GCC）
         Command::new("g++")
             .args([
                 "-E",

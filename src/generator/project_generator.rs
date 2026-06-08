@@ -174,8 +174,14 @@ pub fn derive_unit_path(c_dir: &Path, cpp2rust_file: &Path) -> String {
 /// 保留前缀的 lex 错误。在 hicc::cpp! 中 C++ 代码以 token stream 传入，Rust 2021
 /// 会在 proc macro 执行前就报 lex error；2018 则将其 tokenize 为标识符 `L` + 字符字面量。
 ///
-/// 包含 `hicc-std`：当 C++ API 使用 STL 类型（`std::string`、`std::vector<T>` 等）时，
-/// 生成代码需要 `hicc_std::` 类型别名；始终声明该依赖可确保生成的项目开箱即用。
+/// **条件引入 `hicc-std` 依赖**：`hicc-std 0.2` 在 macOS Apple Clang 下存在编译问题——
+/// 其 `build.rs` 在非 MSVC 平台统一链接 `stdc++`，而 Apple Clang 使用 `libc++`（`-lc++`），
+/// 导致 `cargo check/build` 在 macOS 上失败。因此通过
+/// `[target.'cfg(not(target_os = "macos"))'.dependencies]` 仅在 Linux / Windows 上自动引入
+/// `hicc-std`，macOS 不引入。工具生成的 Rust FFI 代码本身不直接依赖 `hicc_std::` 类型，
+/// STL 容器均通过 C++ 侧自定义包装类暴露为普通 `extern "C"` 接口，所有平台均可编译；
+/// `hicc_std::` 类型别名（如 `hicc_std::string`、`hicc_std::vector` 等）在 Linux / Windows
+/// 上可直接使用，macOS 上需通过 wrapper 类方式替代。
 pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
     let content = format!(
         r#"[package]
@@ -189,6 +195,8 @@ path = "src/lib.rs"
 
 [dependencies]
 hicc = {{ version = "0.2" }}
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
 hicc-std = {{ version = "0.2" }}
 
 [build-dependencies]
@@ -263,6 +271,9 @@ fn main() {{
 /// 用作 `package.name` 和 `[lib] name`。
 /// 生成的项目在 `[features]` 中列出每个 feature，
 /// 支持 `cargo build --features <feature>` 按需构建对应代码。
+///
+/// 同 [`write_cargo_toml`]，通过 `[target.'cfg(not(target_os = "macos"))'.dependencies]`
+/// 仅在 Linux / Windows 上自动引入 `hicc-std`（macOS Apple Clang 兼容性问题，见上方说明）。
 pub fn write_multi_feature_cargo_toml(
     rust_dir: &Path,
     combined_name: &str,
@@ -290,6 +301,8 @@ path = "src/lib.rs"
 
 [dependencies]
 hicc = {{ version = "0.2" }}
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
 hicc-std = {{ version = "0.2" }}
 
 [build-dependencies]
@@ -620,6 +633,29 @@ mod tests {
         assert!(content.contains("fn main()"));
     }
 
+    // ── write_cargo_toml ──────────────────────
+
+    #[test]
+    fn write_cargo_toml_contains_hicc_and_conditional_hicc_std() {
+        let tmp = TempDir::new().unwrap();
+        write_cargo_toml(tmp.path(), "my_feature").unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        assert!(content.contains("name = \"my_feature\""), "package.name 应为 my_feature");
+        assert!(content.contains("hicc = { version = \"0.2\" }"), "应包含 hicc 依赖");
+        assert!(
+            content.contains("[target.'cfg(not(target_os = \"macos\"))'.dependencies]"),
+            "应包含非 macOS 平台条件段"
+        );
+        assert!(
+            content.contains("hicc-std = { version = \"0.2\" }"),
+            "应在非 macOS 条件段中引入 hicc-std"
+        );
+        // macOS 条件段应在 hicc-std 之前出现
+        let pos_cfg = content.find("cfg(not(target_os = \"macos\"))").unwrap();
+        let pos_std = content.find("hicc-std").unwrap();
+        assert!(pos_cfg < pos_std, "cfg 段应在 hicc-std 条目之前");
+    }
+
     // ── 多 feature 生成 ────────────────────────
 
     #[test]
@@ -631,6 +667,14 @@ mod tests {
         assert!(content.contains("feat1 = []"));
         assert!(content.contains("feat2 = []"));
         assert!(content.contains("name = \"feat1_feat2\""));
+        assert!(
+            content.contains("[target.'cfg(not(target_os = \"macos\"))'.dependencies]"),
+            "多 feature Cargo.toml 应包含非 macOS 平台条件段"
+        );
+        assert!(
+            content.contains("hicc-std = { version = \"0.2\" }"),
+            "多 feature Cargo.toml 应在非 macOS 条件段中引入 hicc-std"
+        );
     }
 
     #[test]

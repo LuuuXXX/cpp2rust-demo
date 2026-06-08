@@ -50,6 +50,12 @@
 #   sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev \
 #                           binutils git curl
 #   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+#
+# 系统要求（macOS / Homebrew）：
+#   brew install llvm cmake git
+#   export LIBCLANG_PATH=$(brew --prefix llvm)/lib
+#   export PATH="$(brew --prefix llvm)/bin:$PATH"
+#   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # =============================================================================
 
 set -euo pipefail
@@ -248,7 +254,7 @@ fi
 echo ""
 info "降级标记统计（cpp2rust-todo）："
 grep -r "cpp2rust-todo" "${RUST_SRC}" 2>/dev/null \
-    | grep -oP '\[.*?\]' | sort | uniq -c | sort -rn \
+    | grep -oE '\[[^]]*\]' | sort | uniq -c | sort -rn \
     || echo "  （无降级标记）"
 
 # =============================================================================
@@ -327,7 +333,7 @@ if [ -d "${RUST_SRC}" ]; then
     echo ""
     echo "──── link_name 一致性检查（不应含路径分隔符 /）────"
     LINK_NAMES=$(grep -roh '#!\[link_name = "[^"]*"\]' "${RUST_SRC}" 2>/dev/null \
-        | grep -oP '"[^"]*"' | tr -d '"' | sort -u)
+        | grep -oE '"[^"]*"' | tr -d '"' | sort -u)
     if [ -n "${LINK_NAMES}" ]; then
         BAD_LINKS=0
         while IFS= read -r ln; do
@@ -365,7 +371,7 @@ fi
 # ── 6c. 交叉比对：cpp2rust-demo 生成的 FFI 函数名 vs. nm 符号 ─────────────────
 echo -e "\n${BOLD}6c. FFI 函数名交叉比对（生成代码 vs. shim 目标文件 nm 符号）${NC}"
 GENERATED_FUNS=$(grep -roh '#\[cpp(func = "[^"]*")\]' "${RUST_SRC}" 2>/dev/null \
-    | grep -oP '"[^"]*"' | tr -d '"' | sort -u)
+    | grep -oE '"[^"]*"' | tr -d '"' | sort -u)
 
 if [ -n "${GENERATED_FUNS}" ]; then
     FUN_COUNT=$(echo "${GENERATED_FUNS}" | wc -l)

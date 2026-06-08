@@ -47,17 +47,22 @@ pub fn run_with_hook(
 //  Unix 实现（LD_PRELOAD + libhook.so）
 // ─────────────────────────────────────────────────────────────────
 
-/// 从 `hook/Makefile` 构建 `libhook.so`。
+/// 从 `hook/Makefile` 构建 `libhook.so`（Linux）或 `libhook.dylib`（macOS）。
 ///
-/// 若 `libhook.so` 已存在且比 `hook.cpp` 更新，则跳过编译（快速路径）。
-/// 返回 `libhook.so` 的路径。
+/// 若产物已是最新则跳过重新构建（快速路径）。返回产物路径。
 #[cfg(unix)]
 fn build_hook_unix() -> Result<PathBuf> {
     let hook_dir = hook_dir()?;
-    let so = hook_dir.join("libhook.so");
+    // macOS 产物为 .dylib；Linux 产物为 .so
+    let lib_name = if cfg!(target_os = "macos") {
+        "libhook.dylib"
+    } else {
+        "libhook.so"
+    };
+    let so = hook_dir.join(lib_name);
     let cpp = hook_dir.join("hook.cpp");
 
-    // 快速路径：若 .so 比 hook.cpp 更新，则跳过重新编译。
+    // 快速路径：若 .so/.dylib 比 hook.cpp 更新，则跳过重新编译。
     // 注意：上方的 hook_dir() 已在最终回退路径中调用 ensure_hook_data_dir()，
     // 因此在此检查之前，hook.cpp 已保证存在于数据目录中。
     if so.exists() && cpp.exists() {
@@ -86,7 +91,8 @@ fn build_hook_unix() -> Result<PathBuf> {
 
     if !so.exists() {
         return Err(anyhow!(
-            "libhook.so not found after build at {}",
+            "{} not found after build at {}",
+            lib_name,
             so.display()
         ));
     }
@@ -95,7 +101,7 @@ fn build_hook_unix() -> Result<PathBuf> {
     Ok(so)
 }
 
-/// 使用 LD_PRELOAD 设置为 libhook.so，执行用户提供的构建命令。
+/// 使用 DYLD_INSERT_LIBRARIES（macOS）或 LD_PRELOAD（Linux）注入 hook 库，执行用户提供的构建命令。
 #[cfg(unix)]
 fn run_with_hook_unix(
     build_dir: &Path,
@@ -118,16 +124,22 @@ fn run_with_hook_unix(
         .canonicalize()
         .map_err(|e| anyhow!("canonicalize {}: {}", hook_so.display(), e))?;
 
+    // macOS 使用 DYLD_INSERT_LIBRARIES；Linux 使用 LD_PRELOAD
+    #[cfg(target_os = "macos")]
+    let inject_var = "DYLD_INSERT_LIBRARIES";
+    #[cfg(not(target_os = "macos"))]
+    let inject_var = "LD_PRELOAD";
+
     println!("Running build command: {}", cmd.join(" "));
     println!("  CPP2RUST_PROJECT_ROOT = {}", abs_project_root.display());
     println!("  CPP2RUST_FEATURE_ROOT = {}", abs_feature_root.display());
-    println!("  LD_PRELOAD            = {}", abs_hook.display());
+    println!("  {}            = {}", inject_var, abs_hook.display());
     println!();
 
     let status = Command::new(&cmd[0])
         .args(&cmd[1..])
         .current_dir(build_dir)
-        .env("LD_PRELOAD", &abs_hook)
+        .env(inject_var, &abs_hook)
         .env("CPP2RUST_PROJECT_ROOT", &abs_project_root)
         .env("CPP2RUST_FEATURE_ROOT", &abs_feature_root)
         .stdout(Stdio::inherit())

@@ -4,6 +4,42 @@
 
 注：`0.2.0`版本为原可能抛出各种异常的调用接口增加入参检查消除异常, 部分这类接口的函数类型发生了变化.
 
+## 平台支持说明
+
+| 平台 | 编译器 | 支持状态 | 说明 |
+|------|--------|----------|------|
+| Linux | GCC / Clang | ✅ 支持 | 链接 `libstdc++` |
+| Windows (MinGW) | GCC | ✅ 支持 | 链接 `libstdc++` |
+| Windows (MSVC) | MSVC | ✅ 支持 | 自动链接 C++ 标准库 |
+| macOS | Apple Clang | ⚠️ 已知编译问题 | 见下方说明 |
+
+### macOS Apple Clang 编译问题
+
+`hicc-std 0.2` 在 macOS Apple Clang 下存在编译问题，**根本原因**：
+
+`build.rs` 在非 MSVC 平台统一链接 `stdc++`（GNU libstdc++）：
+
+```rust
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+println!("cargo::rustc-link-lib=stdc++");
+```
+
+而 macOS 使用 Apple Clang，默认 C++ 标准库为 `libc++`，应链接 `-lc++` 而非 `-lstdc++`。
+在 macOS 上执行 `cargo build` 时会因找不到 `stdc++` 而失败。
+
+**推荐做法**：
+- 在 macOS 上，若需使用 STL 容器类型，建议通过 C++ 侧自定义包装类将其暴露为
+  `extern "C"` 接口，Rust 侧直接绑定包装类，无需依赖 `hicc-std`。
+- 如确需在 macOS 上使用 `hicc-std`，可在 `build.rs` 中根据平台选择正确的 C++ 标准库：
+
+```rust
+// macOS 使用 libc++，其他 Unix/Linux 使用 libstdc++
+#[cfg(target_os = "macos")]
+println!("cargo::rustc-link-lib=c++");
+#[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
+println!("cargo::rustc-link-lib=stdc++");
+```
+
 支持`c++`标准库的全部容器类型:
 
 1. `std::basic_string<charT>` (`hicc/std/string.hpp`)
@@ -68,10 +104,14 @@ fn main() {
 
 3. `build.rs`编译`c++`代码
 
-```
+```rust
 fn main() {
     hicc_build::Build::new().rust_file("src/main.rs").compile("example");
     println!("cargo::rustc-link-lib=example");
+    // 根据平台选择正确的 C++ 标准库（macOS 使用 libc++，Linux/MinGW 使用 libstdc++）
+    #[cfg(target_os = "macos")]
+    println!("cargo::rustc-link-lib=c++");
+    #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
     println!("cargo::rerun-if-changed=src/main.rs");
 }

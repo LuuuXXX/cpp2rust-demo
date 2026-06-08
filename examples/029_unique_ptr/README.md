@@ -65,9 +65,13 @@ unsafe fn uniquebuffer_delete(self_: *mut UniqueBuffer);
 void buffer_delete(Buffer*);  // 释放 unique_ptr
 ```
 
-### 策略 2: 使用 hicc-std
+### 策略 2: 使用 hicc-std（仅限 Linux / Windows）
 
 hicc-std 库提供了 `std::unique_ptr` 的安全 Rust 包装，可以直接使用。
+
+> **注意**：`hicc-std 0.2` 在 macOS Apple Clang 下存在编译问题（链接 `stdc++` 与
+> Apple Clang 使用的 `libc++` 不兼容），仅在 Linux / Windows 平台可用。
+> 跨平台项目推荐使用策略 1（C++ 侧自定义包装类 + `extern "C"` 接口）。
 
 ## 运行结果
 
@@ -93,4 +97,4 @@ hicc-std 提供了 std::unique_ptr 的安全 Rust 包装
 - `unique_ptr` 的 FFI 相对简单（独占所有权）
 - 需要导出 release/delete 函数
 - Rust 侧调用后不再拥有指针
-- 推荐使用 hicc-std 的安全包装
+- 跨平台推荐使用 C++ 侧自定义包装类（策略 1）；在 Linux/Windows 上也可使用 hicc-std 的安全包装（策略 2）

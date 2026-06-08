@@ -78,7 +78,12 @@ fn main() {
 
     build.compile("hicc_std_cc");
     println!("cargo::rustc-link-lib=hicc_std_cc");
-    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    // macOS（Apple Clang）使用 libc++，链接名称为 `c++`；
+    // Linux/MinGW 等 GNU 工具链使用 libstdc++，链接名称为 `stdc++`。
+    // MSVC 自动链接 C++ 标准库，无需显式声明。
+    #[cfg(target_os = "macos")]
+    println!("cargo::rustc-link-lib=c++");
+    #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
     println!("cargo::rerun-if-changed=src/lib.rs");
 }

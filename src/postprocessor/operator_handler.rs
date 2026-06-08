@@ -24,7 +24,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
         // 收集该类的所有 MethodAccessors（第一个参数是该类的指针且参数名为 self/this/thiz）
         let mut accessors: Vec<&FunctionInfo> = functions
             .iter()
-            .filter(|fi| is_class_accessor(&fi.name, &prefix, fi, &ci.name, &class_names))
+            .filter(|fi| is_class_accessor(&fi.name, &prefix, fi, &class_names))
             .copied()
             .collect();
 
@@ -221,7 +221,6 @@ fn is_class_accessor(
     fn_name: &str,
     prefix: &str,
     fi: &FunctionInfo,
-    _class_name: &str,
     class_names: &[&str],
 ) -> bool {
     if !fn_name.starts_with(prefix) {

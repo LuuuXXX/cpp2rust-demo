@@ -21,6 +21,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <crt_externs.h>
+#endif
+
 #include <vector>
 
 #define MAX_PATH_LEN 8192
@@ -107,6 +111,38 @@ static inline char* path_from(const char* env) {
 }
 
 static int read_proc_cmdline(char*** out_argv) {
+#ifdef __APPLE__
+        /* macOS：直接从内核暴露的全局变量获取当前进程的 argv。
+         * _NSGetArgc() / _NSGetArgv() 由 <crt_externs.h> 声明，
+         * 始终可用（不受 SIP 影响），无需读取 /proc。*/
+        int argc = *_NSGetArgc();
+        char** src_argv = *_NSGetArgv();
+        if (argc <= 0 || !src_argv) {
+                DBG("_NSGetArgv returned null or empty\n");
+                return -1;
+        }
+
+        char** argv = static_cast<char**>(malloc((size_t)(argc + 1) * sizeof(char*)));
+        if (!argv) {
+                DBG("malloc failed for argv (%d entries)\n", argc);
+                return -1;
+        }
+
+        for (int i = 0; i < argc; i++) {
+                argv[i] = strdup(src_argv[i] ? src_argv[i] : "");
+                if (!argv[i]) {
+                        DBG("strdup failed at arg %d\n", i);
+                        for (int j = 0; j < i; j++) free(argv[j]);
+                        free(argv);
+                        return -1;
+                }
+        }
+        argv[argc] = NULL;
+
+        *out_argv = argv;
+        return argc;
+#else
+        /* Linux：从 /proc/self/cmdline 读取，参数以 '\0' 分隔。*/
         int fd = open("/proc/self/cmdline", O_RDONLY);
         if (fd < 0) {
                 DBG("open /proc/self/cmdline failed: errno=%d\n", errno);
@@ -152,6 +188,7 @@ static int read_proc_cmdline(char*** out_argv) {
 
         *out_argv = argv;
         return idx;
+#endif
 }
 
 static void free_cmdline(char** argv, int argc) {

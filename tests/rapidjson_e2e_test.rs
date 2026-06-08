@@ -452,8 +452,9 @@ fn rapidjson_merge_phase() {
                     "cargo check 失败（init + merge 生成的 Rust 项目不可编译）:\n{}",
                     stderr
                 );
+            } else {
+                println!("cargo check 通过");
             }
-            println!("cargo check 通过");
         }
         Err(e) => {
             // cargo 未安装或不可用时，跳过检查并打印警告

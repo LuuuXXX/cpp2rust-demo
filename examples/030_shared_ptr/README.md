@@ -107,4 +107,5 @@ weak_ptr 用于缓存，避免循环引用
 - `shared_ptr` 的 FFI 需要导出引用计数操作函数
 - `weak_ptr` 用于缓存和循环引用解决
 - Rust 等价物：`Arc<T>` 和 `Weak<T>`
-- 推荐使用 hicc-std 提供的安全包装
+- 跨平台推荐使用 C++ 侧自定义包装类；在 Linux/Windows 上也可使用 hicc-std 提供的安全包装
+  （hicc-std 0.2 在 macOS Apple Clang 下存在编译问题，暂不支持 macOS）

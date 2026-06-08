@@ -12,7 +12,9 @@ fn main() {
     build.rust_file("src/main.rs").compile("noexcept_basic");
 
     println!("cargo::rustc-link-lib=noexcept_basic");
-    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    #[cfg(target_os = "macos")]
+    println!("cargo::rustc-link-lib=c++");
+    #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
     println!("cargo::rerun-if-changed=src/main.rs");
     println!("cargo::rerun-if-changed=../cpp/noexcept_basic.cpp");

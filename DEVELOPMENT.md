@@ -209,8 +209,10 @@ hicc::import_lib! {
 
 ## 7. 开发环境搭建
 
+### 7.1 Linux（Ubuntu 24.04）
+
 ```bash
-# 系统依赖（Ubuntu 24.04）
+# 系统依赖
 apt-get install clang libclang-dev g++ libstdc++-14-dev
 
 # 构建工具
@@ -233,6 +235,66 @@ cargo test --test l2_compile_tests
 
 # 运行 L3 运行测试
 cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+```
+
+### 7.2 macOS
+
+#### 前提条件
+
+```bash
+# 1. 安装 Xcode Command Line Tools（提供 make、ar、nm 等基础工具）
+xcode-select --install
+
+# 2. 安装 Homebrew LLVM（提供 libclang + clang++；版本不受 SIP 保护）
+brew install llvm
+
+# 3. 设置 LIBCLANG_PATH（建议永久写入 shell 配置文件）
+echo 'export LIBCLANG_PATH=$(brew --prefix llvm)/lib' >> ~/.zprofile
+source ~/.zprofile
+
+# 4. 将 Homebrew LLVM 加入 PATH（让 clang++ 被工具和测试找到）
+echo 'export PATH="$(brew --prefix llvm)/bin:$PATH"' >> ~/.zprofile
+source ~/.zprofile
+```
+
+#### 构建和测试命令（与 Linux 完全一致）
+
+```bash
+# 构建
+cargo build
+
+# 运行 L1 测试
+cargo test --test l1_golden_tests -- --include-ignored --test-threads=1
+
+# 运行 L2 编译测试
+cargo test --test l2_compile_tests
+
+# 运行 L3 运行测试（需要先编译 C++ 共享库）
+for dir in examples/*/cpp; do
+  example=$(basename $(dirname "$dir"))
+  (cd "$dir" && clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") 2>/dev/null || true
+done
+cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+
+# 运行 L5 nm 符号验证测试
+cargo test --test l5_nm_symbol_tests -- --ignored --nocapture --test-threads=4
+```
+
+#### 已知限制：macOS SIP（系统完整性保护）
+
+`DYLD_INSERT_LIBRARIES`（工具用于编译拦截的 macOS 等价 `LD_PRELOAD`）对受 SIP 保护的系统
+二进制（`/usr/bin/g++`、`/usr/bin/clang++`）无效，SIP 会静默忽略注入。
+
+**解决方案**：始终使用 Homebrew 安装的编译器（位于 `/opt/homebrew/bin/` 或
+`/usr/local/bin/`，不受 SIP 保护）：
+
+```bash
+# 推荐：将 Homebrew LLVM 加入 PATH 最前面
+export PATH="$(brew --prefix llvm)/bin:$PATH"
+cpp2rust-demo init -- make -j4
+
+# 或：通过环境变量显式指定编译器
+CPP2RUST_CXX=$(brew --prefix llvm)/bin/clang++ cpp2rust-demo init -- make -j4
 ```
 
 ---

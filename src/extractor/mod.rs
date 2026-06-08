@@ -205,10 +205,10 @@ fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
 
 fn score(fi: &FunctionInfo) -> u8 {
     match (fi.body_offset.is_some(), fi.is_extern_c) {
-        (true, false) => 3, // best: has body, not extern_c
+        (true, false) => 3, // 最优：有函数体且非 extern_c
         (true, true) => 2,
         (false, false) => 1,
-        (false, true) => 0, // worst: declaration in extern "C"
+        (false, true) => 0, // 最差：extern "C" 中的声明
     }
 }
 
@@ -554,7 +554,7 @@ fn emit_method_decls(ci: &ClassInfo, lines: &mut Vec<String>) {
 fn build_method_decl(m: &MethodInfo) -> String {
     // 前缀修饰词
     let qualifier = if m.is_override {
-        // overriding: no virtual prefix
+        // override 方法：不加 virtual 前缀
         String::new()
     } else if m.is_pure_virtual || m.is_virtual {
         "virtual ".to_string()
@@ -941,7 +941,7 @@ fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
 
     // unsafe: 参数中有裸指针（*mut T 或 *const i8），或返回值为裸 C 字符串
     // 例外：*mut ClassType 且返回值是原始类型（i8/u8/i16/u16/i32/u32/i64/u64/f32/f64/bool/isize/usize）
-    //        且参数不含 volatile 限定 → NOT unsafe
+    //        且参数不含 volatile 限定 → 不标记 unsafe
     let primitive_ret = ret_type
         .as_deref()
         .map(|r| {
