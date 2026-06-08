@@ -128,6 +128,8 @@ enum Commands {
     Init(InitArgs),
     /// 将每个符号生成的输出合并到模块级文件
     Merge(MergeArgs),
+    /// 将合并后的 Cargo 项目导出到指定目录（跨平台，可在 CI 中使用）
+    Output(OutputArgs),
 }
 
 #[derive(Args)]
@@ -152,6 +154,134 @@ struct MergeArgs {
     /// 要合并的特性名称（默认："default"；可多次指定以合并多个 feature）
     #[arg(long = "feature", value_name = "FEATURE")]
     features: Vec<String>,
+}
+
+#[derive(Args)]
+struct OutputArgs {
+    /// 要导出的特性名称（默认："default"）
+    #[arg(long, default_value = "default")]
+    feature: String,
+
+    /// 目标目录（不存在则自动创建；已存在则增量覆盖）
+    #[arg(long, value_name = "DIR")]
+    dest: PathBuf,
+}
+
+fn run_output(args: OutputArgs) -> Result<()> {
+    let feature = &args.feature;
+    let dest = &args.dest;
+
+    let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
+    let project_root = layout::find_project_root(&cwd);
+
+    println!("=== cpp2rust-demo output ===");
+    println!("项目根目录 : {}", project_root.display());
+    println!("Feature    : {}", feature);
+    println!("目标目录   : {}", dest.display());
+    println!();
+
+    let lo = FeatureLayout::new(project_root.clone(), feature);
+    if !lo.feature_root.exists() {
+        return Err(anyhow!(
+            "feature '{}' not found at {}; 请先运行 init",
+            feature,
+            lo.feature_root.display()
+        ));
+    }
+
+    // 确定导出用的 src 目录：src.2（merge 输出）优先，否则取 src（init 输出）
+    let rust_dir = &lo.rust_dir;
+    let src2 = rust_dir.join("src.2");
+    let export_src = if src2.is_dir() {
+        src2
+    } else {
+        // 通过 canonicalize 解析可能存在的 symlink（历史遗留或 Unix 平台），
+        // 若解析失败则直接使用原始路径（Windows 上非 symlink 的普通目录）。
+        let src = rust_dir.join("src");
+        if !src.exists() {
+            return Err(anyhow!(
+                "rust/src 不存在于 {}；请先运行 init 和 merge",
+                rust_dir.display()
+            ));
+        }
+        println!(
+            "⚠ 警告：未找到 merge 输出（src.2），将导出 init 原始输出（src/）。\n\
+             建议先运行 'cpp2rust-demo merge --feature {}' 再导出。\n",
+            feature
+        );
+        std::fs::canonicalize(&src)
+            .unwrap_or(src)
+    };
+
+    // 创建目标根目录
+    std::fs::create_dir_all(dest)
+        .map_err(|e| anyhow!("创建目标目录 {}: {}", dest.display(), e))?;
+
+    // 复制 Cargo.toml
+    let cargo_src = rust_dir.join("Cargo.toml");
+    if cargo_src.exists() {
+        let cargo_dst = dest.join("Cargo.toml");
+        std::fs::copy(&cargo_src, &cargo_dst)
+            .map_err(|e| anyhow!("复制 Cargo.toml → {}: {}", cargo_dst.display(), e))?;
+    } else {
+        println!("⚠ 未找到 Cargo.toml，跳过。");
+    }
+
+    // 复制 build.rs
+    let build_rs_src = rust_dir.join("build.rs");
+    if build_rs_src.exists() {
+        let build_rs_dst = dest.join("build.rs");
+        std::fs::copy(&build_rs_src, &build_rs_dst)
+            .map_err(|e| anyhow!("复制 build.rs → {}: {}", build_rs_dst.display(), e))?;
+    } else {
+        println!("⚠ 未找到 build.rs，跳过。");
+    }
+
+    // 复制 src/ 目录（先清理旧内容，再整体复制，防止残留已删除文件）
+    let dest_src = dest.join("src");
+    if dest_src.exists() {
+        std::fs::remove_dir_all(&dest_src)
+            .map_err(|e| anyhow!("清理目标 src/ {}: {}", dest_src.display(), e))?;
+    }
+    merger::copy_dir_all(&export_src, &dest_src)?;
+
+    // 统计复制的 .rs 文件数
+    let rs_count = WalkDir::new(&dest_src)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
+        .count();
+
+    // 复制 meta/ 下的文件到 <dest>/meta/
+    let dest_meta = dest.join("meta");
+    std::fs::create_dir_all(&dest_meta)
+        .map_err(|e| anyhow!("创建 meta 目录 {}: {}", dest_meta.display(), e))?;
+    let mut meta_count = 0usize;
+    if lo.meta_dir.exists() {
+        for entry in std::fs::read_dir(&lo.meta_dir)
+            .map_err(|e| anyhow!("读取 meta 目录 {}: {}", lo.meta_dir.display(), e))?
+        {
+            let entry = entry.map_err(|e| anyhow!("读取 meta 目录项: {}", e))?;
+            let from = entry.path();
+            // 只复制文件，不递归（meta 目录当前仅含文件）
+            if from.is_file() {
+                let to = dest_meta.join(entry.file_name());
+                std::fs::copy(&from, &to)
+                    .map_err(|e| anyhow!("复制 {} → {}: {}", from.display(), to.display(), e))?;
+                meta_count += 1;
+            }
+        }
+    }
+
+    println!("✓ cpp2rust-demo output 完成。");
+    println!();
+    println!("输出目录：{}", dest.display());
+    println!("  ├── Cargo.toml");
+    println!("  ├── build.rs");
+    println!("  ├── src/          （共 {} 个 .rs 文件）", rs_count);
+    println!("  └── meta/         （共 {} 个元数据文件）", meta_count);
+
+    Ok(())
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
@@ -797,6 +927,7 @@ fn main() {
     let result = match cli.command {
         Commands::Init(args) => run_init(args),
         Commands::Merge(args) => run_merge(args),
+        Commands::Output(args) => run_output(args),
     };
     if let Err(e) = result {
         eprintln!("错误：{:#}", e);
@@ -944,5 +1075,40 @@ mod tests {
             preamble.is_empty(),
             "expected empty preamble, got: {preamble:?}"
         );
+    }
+
+    #[test]
+    fn output_requires_dest() {
+        // --dest 缺失时 clap 应报错
+        let result = Cli::try_parse_from(["cpp2rust-demo", "output"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn output_default_feature() {
+        let args =
+            Cli::try_parse_from(["cpp2rust-demo", "output", "--dest", "/tmp/out"]).unwrap();
+        let Commands::Output(output) = args.command else {
+            panic!("expected Output");
+        };
+        assert_eq!(output.feature, "default");
+        assert_eq!(output.dest, PathBuf::from("/tmp/out"));
+    }
+
+    #[test]
+    fn output_custom_feature() {
+        let args = Cli::try_parse_from([
+            "cpp2rust-demo",
+            "output",
+            "--feature",
+            "my_lib",
+            "--dest",
+            "/tmp/out",
+        ])
+        .unwrap();
+        let Commands::Output(output) = args.command else {
+            panic!("expected Output");
+        };
+        assert_eq!(output.feature, "my_lib");
     }
 }
