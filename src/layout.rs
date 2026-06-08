@@ -1,7 +1,57 @@
 use crate::error::Result;
 use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+
+// ─────────────────────────────────────────────
+//  API 接口清单数据结构
+// ─────────────────────────────────────────────
+
+/// merge 阶段生成的 API 接口清单（序列化为 `meta/api-manifest.json`）。
+/// 用于支持 C++ → Rust API 对账：逐条记录 C++ 签名与对应 Rust 绑定。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiManifest {
+    /// feature 名称
+    pub feature: String,
+    /// 类绑定列表（按首次出现顺序排列）
+    pub classes: Vec<ApiClassEntry>,
+    /// 独立函数绑定列表
+    pub functions: Vec<ApiFunctionEntry>,
+}
+
+/// 单个类的绑定信息
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiClassEntry {
+    /// C++ 类名
+    pub name: String,
+    /// 类属性行（如 `#[cpp(class = "Foo")]` 或 `#[interface]`）
+    pub class_attr: String,
+    /// 方法绑定列表
+    pub methods: Vec<ApiMethodEntry>,
+}
+
+/// 单个类方法的绑定信息
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiMethodEntry {
+    /// C++ 方法签名（如 `int get() const`）
+    pub cpp_sig: String,
+    /// Rust 方法签名（如 `fn get(&self) -> i32;`）
+    pub rust_sig: String,
+    /// 是否含降级标记（`cpp2rust-todo`）
+    pub is_degraded: bool,
+}
+
+/// 独立函数绑定信息
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiFunctionEntry {
+    /// C++ 函数签名（如 `Foo* foo_new(int v)`）
+    pub cpp_sig: String,
+    /// Rust 函数签名（如 `fn foo_new(v: i32) -> *mut Foo;`）
+    pub rust_sig: String,
+    /// 是否含降级标记（`cpp2rust-todo`）
+    pub is_degraded: bool,
+}
 
 // ─────────────────────────────────────────────
 //  报告数据结构
@@ -119,6 +169,14 @@ impl FeatureLayout {
         std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
+    /// 写入 `meta/api-manifest.json`，包含 merge 阶段生成的完整 C++ → Rust API 对账清单。
+    pub fn save_api_manifest(&self, manifest: &ApiManifest) -> Result<()> {
+        let json = serde_json::to_string_pretty(manifest)
+            .map_err(|e| anyhow!("serialize api manifest: {}", e))?;
+        let path = self.meta_dir.join("api-manifest.json");
+        std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+    }
+
     /// 写入 `meta/init-report.md`，包含 init 阶段的摘要报告。
     pub fn save_init_report(&self, data: &InitReportData<'_>) -> Result<()> {
         let mut out = String::new();
@@ -184,7 +242,8 @@ impl FeatureLayout {
         out.push_str("    │   ├── build_cmd.txt\n");
         out.push_str("    │   ├── selected_files.json\n");
         out.push_str("    │   ├── init-report.md          （本文件）\n");
-        out.push_str("    │   └── merge-report.md         （由 'cpp2rust-demo merge' 生成）\n");
+        out.push_str("    │   ├── merge-report.md         （由 'cpp2rust-demo merge' 生成）\n");
+        out.push_str("    │   └── api-manifest.json       （由 'cpp2rust-demo merge' 生成，C++ → Rust API 对账清单）\n");
         out.push_str(
             "    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）\n",
         );
@@ -268,6 +327,11 @@ impl FeatureLayout {
         out.push_str("    ├── src.2/  （merge 输出，目录结构与 C++ 项目一致）\n");
         out.push_str("    └── src     （symlink → src.2）\n");
         out.push_str("```\n");
+        out.push('\n');
+        out.push_str(&format!(
+            "API 对账清单：`.cpp2rust/{}/meta/api-manifest.json`\n",
+            data.feature
+        ));
 
         let path = self.meta_dir.join("merge-report.md");
         std::fs::write(&path, out).map_err(|e| anyhow!("write {}: {}", path.display(), e))
@@ -452,5 +516,63 @@ mod tests {
         assert!(content.contains("conflict A"));
         assert!(content.contains("conflict B"));
         assert!(content.contains("⚠"));
+    }
+
+    #[test]
+    fn save_api_manifest_creates_file() {
+        let tmp = TempDir::new().unwrap();
+        let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
+        layout.create_dirs().unwrap();
+
+        let manifest = ApiManifest {
+            feature: "default".into(),
+            classes: vec![ApiClassEntry {
+                name: "Foo".into(),
+                class_attr: "#[cpp(class = \"Foo\")]".into(),
+                methods: vec![ApiMethodEntry {
+                    cpp_sig: "int get() const".into(),
+                    rust_sig: "fn get(&self) -> i32;".into(),
+                    is_degraded: false,
+                }],
+            }],
+            functions: vec![ApiFunctionEntry {
+                cpp_sig: "Foo* foo_new()".into(),
+                rust_sig: "fn foo_new() -> *mut Foo;".into(),
+                is_degraded: false,
+            }],
+        };
+        layout.save_api_manifest(&manifest).unwrap();
+
+        let content =
+            std::fs::read_to_string(layout.meta_dir.join("api-manifest.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["feature"], "default");
+        assert_eq!(parsed["classes"][0]["name"], "Foo");
+        assert_eq!(parsed["classes"][0]["methods"][0]["cpp_sig"], "int get() const");
+        assert_eq!(parsed["functions"][0]["cpp_sig"], "Foo* foo_new()");
+        assert_eq!(parsed["functions"][0]["is_degraded"], false);
+    }
+
+    #[test]
+    fn save_api_manifest_marks_degraded() {
+        let tmp = TempDir::new().unwrap();
+        let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
+        layout.create_dirs().unwrap();
+
+        let manifest = ApiManifest {
+            feature: "default".into(),
+            classes: vec![],
+            functions: vec![ApiFunctionEntry {
+                cpp_sig: "void (*cb)(int)".into(),
+                rust_sig: "fn cb(v: i32);".into(),
+                is_degraded: true,
+            }],
+        };
+        layout.save_api_manifest(&manifest).unwrap();
+
+        let content =
+            std::fs::read_to_string(layout.meta_dir.join("api-manifest.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["functions"][0]["is_degraded"], true);
     }
 }

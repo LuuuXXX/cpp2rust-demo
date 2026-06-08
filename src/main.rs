@@ -189,7 +189,77 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     }
 }
 
-/// 递归复制 `src` 目录到 `dst`，跟随符号链接（follow_links）。
+/// 从属性行（如 `#[cpp(func = "Foo* foo_new()")]`）中提取引号内的 C++ 签名。
+fn extract_attr_sig(line: &str, key: &str) -> Option<String> {
+    let pos = line.find(key)?;
+    let rest = &line[pos + key.len()..];
+    let start = rest.find('"')? + 1;
+    let end = rest[start..].find('"')?;
+    Some(rest[start..start + end].to_string())
+}
+
+/// 从 `MergedSpec` 和降级签名集合构建 `ApiManifest`。
+fn build_api_manifest(
+    feature: &str,
+    spec: &merger::MergedSpec,
+    degraded_sigs: &std::collections::HashSet<String>,
+) -> layout::ApiManifest {
+    let classes: Vec<layout::ApiClassEntry> = spec
+        .class_order
+        .iter()
+        .map(|class_name| {
+            let default_attr = format!("#[cpp(class = \"{}\")]", class_name);
+            let class_attr = spec
+                .class_attrs
+                .get(class_name)
+                .cloned()
+                .unwrap_or(default_attr);
+            let methods: Vec<layout::ApiMethodEntry> = spec
+                .classes
+                .get(class_name)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[])
+                .iter()
+                .map(|m| {
+                    let cpp_sig =
+                        extract_attr_sig(&m.attr, "method = ").unwrap_or_default();
+                    let is_degraded = degraded_sigs.contains(&cpp_sig);
+                    layout::ApiMethodEntry {
+                        cpp_sig,
+                        rust_sig: m.fn_sig.clone(),
+                        is_degraded,
+                    }
+                })
+                .collect();
+            layout::ApiClassEntry {
+                name: class_name.clone(),
+                class_attr,
+                methods,
+            }
+        })
+        .collect();
+
+    let functions: Vec<layout::ApiFunctionEntry> = spec
+        .fn_bindings
+        .iter()
+        .map(|fb| {
+            let cpp_sig = extract_attr_sig(&fb.attr, "func = ").unwrap_or_default();
+            let is_degraded = degraded_sigs.contains(&cpp_sig);
+            layout::ApiFunctionEntry {
+                cpp_sig,
+                rust_sig: fb.fn_sig.clone(),
+                is_degraded,
+            }
+        })
+        .collect();
+
+    layout::ApiManifest {
+        feature: feature.to_string(),
+        classes,
+        functions,
+    }
+}
+
 /// WalkDir 内置循环检测：遇到循环符号链接时跳过，不会无限递归。
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     std::fs::create_dir_all(dst)
@@ -408,11 +478,18 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     };
     lo.save_merge_report(&report_data)?;
 
+    // 生成 meta/api-manifest.json（C++ → Rust API 对账清单）
+    let merged_spec = merger::merge_units(&unit_files);
+    let degraded_sigs = merger::extract_degraded_sigs(&unit_files);
+    let manifest = build_api_manifest(feature, &merged_spec, &degraded_sigs);
+    lo.save_api_manifest(&manifest)?;
+
     println!("\n✓ cpp2rust-demo merge 完成。");
     println!("\n输出：");
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── meta/");
-    println!("    │   └── merge-report.md  （merge 摘要）");
+    println!("    │   ├── merge-report.md  （merge 摘要）");
+    println!("    │   └── api-manifest.json（C++ → Rust API 对账清单）");
     println!("    └── rust/");
     println!("        ├── src.1/  (init 输出备份)");
     println!("        ├── src.2/  （merge 输出，目录结构与 C++ 项目一致）");
@@ -477,6 +554,30 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
         }
     }
 
+    // ── API 对账清单摘要 ─────────────────────────────────────────────────────
+    let degraded_count = manifest
+        .classes
+        .iter()
+        .flat_map(|c| c.methods.iter())
+        .filter(|m| m.is_degraded)
+        .count()
+        + manifest
+            .functions
+            .iter()
+            .filter(|f| f.is_degraded)
+            .count();
+    let total_methods: usize = manifest.classes.iter().map(|c| c.methods.len()).sum();
+    println!();
+    println!("── API 接口清单（api-manifest.json）──");
+    println!("  类数量       : {}", manifest.classes.len());
+    println!("  方法总数     : {}", total_methods);
+    println!("  独立函数数   : {}", manifest.functions.len());
+    if degraded_count == 0 {
+        println!("  降级绑定数   : ✓ 无");
+    } else {
+        println!("  降级绑定数   : ⚠ {} 处（含 cpp2rust-todo 标记）", degraded_count);
+    }
+
     // ── §7 汇总表 ────────────────────────────────────────────────────────────
     println!();
     println!("┌─────────────────────────────────────────────────────────┐");
@@ -499,6 +600,10 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     }
     println!(
         "  报告             : .cpp2rust/{}/meta/merge-report.md",
+        feature
+    );
+    println!(
+        "  API 清单         : .cpp2rust/{}/meta/api-manifest.json",
         feature
     );
 
