@@ -240,10 +240,19 @@ fn build_api_manifest(
         })
         .collect();
 
+    // 模板特化分组：HashMap → 排序后的 Vec（保证报告输出稳定）
+    let mut template_groups: Vec<(String, Vec<String>)> = spec
+        .template_groups
+        .iter()
+        .map(|(base, specs)| (base.clone(), specs.clone()))
+        .collect();
+    template_groups.sort_by(|a, b| a.0.cmp(&b.0));
+
     layout::ApiManifest {
         feature: feature.to_string(),
         classes,
         functions,
+        template_groups,
     }
 }
 

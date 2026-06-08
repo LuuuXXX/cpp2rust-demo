@@ -11,11 +11,10 @@
 //! - 10 个 shim 文件：`references/rapidjson-refactoring/rapidjson_sys/shim/` 中的
 //!   `extern "C"` 包装层，验证工具能生成完整的 import_lib! FFI 绑定
 
-use cpp2rust_demo::{
-    ast_parser, extractor, generator::hicc_codegen, generator::project_generator, merger,
-};
+mod common;
+
+use cpp2rust_demo::{ast_parser, extractor, generator::hicc_codegen, generator::project_generator, merger};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tempfile::TempDir;
 
 const RAPIDJSON_ROOT: &str = "references/rapidjson-refactoring/rapidjson_legacy";
@@ -82,128 +81,6 @@ const UNITTEST_SOURCES: &[&str] = &[
 //  辅助函数
 // ─────────────────────────────────────────────────────────────────
 
-/// 使用 g++ -E -C 预处理 C++ 文件，返回 .cpp2rust 文件路径。
-/// 失败时返回 None（非致命错误，由调用方决定是否跳过）。
-fn preprocess(
-    src: &Path,
-    include_dirs: &[&str],
-    out_dir: &Path,
-    unit_name: &str,
-) -> Option<PathBuf> {
-    let out = out_dir.join(format!("{}.cpp2rust", unit_name));
-    let mut cmd = Command::new("g++");
-    cmd.args(["-E", "-C", "-w"]);
-    for inc in include_dirs {
-        cmd.arg(format!("-I{}", inc));
-    }
-    cmd.arg(src).arg("-o").arg(&out);
-    let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
-    if ok {
-        Some(out)
-    } else {
-        None
-    }
-}
-
-/// 验证生成的 hicc 代码符合三段式格式约束（"最初计划的内容"）：
-///
-/// 1. 必须包含 `hicc::cpp! {` 块（所有输出都有）
-/// 2. 输出文件以 `}` 结束（最后一个宏块正确关闭）
-/// 3. 每个 import_class!/import_lib! 块内部括号平衡（纯 Rust，跳过字符串）
-/// 4. 若存在 `hicc::import_class!` 块，每个类必须有 `#[cpp(class` 或 `#[interface]`
-/// 5. 若存在 `hicc::import_lib!` 块，必须包含 `#![link_name = "`
-/// 6. 类方法绑定必须有 `#[cpp(method = "`
-/// 7. 函数绑定必须有 `#[cpp(func = "`
-fn assert_valid_hicc_format(code: &str, unit_name: &str) {
-    // 1. 必须有 hicc::cpp! 块
-    assert!(
-        code.contains("hicc::cpp! {"),
-        "unit '{}': 缺少 hicc::cpp! 块\n首 400 字符:\n{}",
-        unit_name,
-        &code[..code.len().min(400)]
-    );
-
-    // 2. 文件末尾以 } 结束（确保最后一个宏块正确关闭）
-    assert!(
-        code.trim_end().ends_with('}'),
-        "unit '{}': 输出文件未以 }} 结束（宏块可能未正确关闭）",
-        unit_name
-    );
-
-    // 3. 每个 import_class! / import_lib! 块内部括号平衡（纯 Rust 代码，可靠检查）
-    for macro_prefix in &["hicc::import_class! {", "hicc::import_lib! {"] {
-        let mut search = 0usize;
-        while let Some(rel) = code[search..].find(macro_prefix) {
-            let block_start = search + rel + macro_prefix.len();
-            let mut depth = 1i32;
-            let mut in_str = false;
-            let mut esc = false;
-            let mut closed = false;
-            for c in code[block_start..].chars() {
-                if esc {
-                    esc = false;
-                    continue;
-                }
-                match c {
-                    '\\' if in_str => esc = true,
-                    '"' => in_str = !in_str,
-                    '{' if !in_str => depth += 1,
-                    '}' if !in_str => {
-                        depth -= 1;
-                        if depth == 0 {
-                            closed = true;
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            assert!(
-                closed,
-                "unit '{}': {} 块未正确关闭（括号不平衡）",
-                unit_name, macro_prefix
-            );
-            search = block_start;
-        }
-    }
-
-    // 4. import_class! 块的类注解检查
-    if code.contains("hicc::import_class! {") {
-        assert!(
-            code.contains("#[cpp(class") || code.contains("#[interface]"),
-            "unit '{}': import_class! 块缺少类注解 (#[cpp(class...)] 或 #[interface])",
-            unit_name
-        );
-    }
-
-    // 5. import_lib! 块的 link_name 检查
-    if code.contains("hicc::import_lib! {") {
-        assert!(
-            code.contains("#![link_name = \""),
-            "unit '{}': import_lib! 块缺少 #![link_name = \"...\"]",
-            unit_name
-        );
-    }
-
-    // 6. 方法绑定属性检查
-    if code.contains("hicc::import_class! {") && code.contains("fn ") {
-        assert!(
-            code.contains("#[cpp(method = \""),
-            "unit '{}': import_class! 包含方法但缺少 #[cpp(method = \"...\")]",
-            unit_name
-        );
-    }
-
-    // 7. 函数绑定属性检查
-    if code.contains("hicc::import_lib! {") && code.contains("fn ") {
-        assert!(
-            code.contains("#[cpp(func = \""),
-            "unit '{}': import_lib! 包含函数但缺少 #[cpp(func = \"...\")]",
-            unit_name
-        );
-    }
-}
-
 /// 处理单个 C++ 源文件：预处理 → AST → 提取 → 生成，返回 (unit_name, hicc_code)。
 fn process_source(
     src_rel: &str,
@@ -212,30 +89,7 @@ fn process_source(
     preprocess_dir: &Path,
 ) -> Option<(String, String)> {
     let src_path = rapidjson_root.join(src_rel);
-    if !src_path.exists() {
-        return None;
-    }
-
-    let unit_name = src_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unit")
-        .to_string();
-
-    // 预处理
-    let preprocessed = preprocess(&src_path, include_dirs, preprocess_dir, &unit_name)?;
-
-    // 解析 AST
-    let ast = ast_parser::parse_preprocessed(&preprocessed).ok()?;
-
-    // 提取 FfiSpec
-    let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
-    let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
-
-    // 生成 hicc 代码
-    let code = hicc_codegen::generate(&spec);
-
-    Some((unit_name, code))
+    common::process_cpp_source(&src_path, include_dirs, preprocess_dir)
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -259,7 +113,7 @@ fn rapidjson_init_examples() {
     for src_rel in EXAMPLE_SOURCES {
         match process_source(src_rel, &root, includes, &preprocess_dir) {
             Some((unit_name, code)) => {
-                assert_valid_hicc_format(&code, &unit_name);
+                common::assert_valid_hicc_format(&code, &unit_name);
                 processed += 1;
             }
             None => {
@@ -302,7 +156,7 @@ fn rapidjson_init_unittests() {
     for src_rel in UNITTEST_SOURCES {
         match process_source(src_rel, &root, includes, &preprocess_dir) {
             Some((unit_name, code)) => {
-                assert_valid_hicc_format(&code, &unit_name);
+                common::assert_valid_hicc_format(&code, &unit_name);
                 processed += 1;
             }
             None => {
@@ -412,7 +266,7 @@ fn rapidjson_merge_phase() {
             continue;
         }
         if let Err(e) = std::panic::catch_unwind(|| {
-            assert_valid_hicc_format(&content, rs_path.to_str().unwrap_or("?"));
+            common::assert_valid_hicc_format(&content, rs_path.to_str().unwrap_or("?"));
         }) {
             let msg = if let Some(s) = e.downcast_ref::<String>() {
                 s.clone()
@@ -440,7 +294,7 @@ fn rapidjson_merge_phase() {
     );
 
     // ── cargo check：验证生成的 Rust 项目可编译 ────────────────────
-    let cargo_check_output = Command::new("cargo")
+    let cargo_check_output = std::process::Command::new("cargo")
         .args(["check", "--quiet"])
         .current_dir(&rust_dir)
         .output();
@@ -506,7 +360,7 @@ fn rapidjson_shim_ffi_generates_importlib() {
             .unwrap_or("unit")
             .to_string();
 
-        let preprocessed = match preprocess(&src_path, includes, &preprocess_dir, &unit_name) {
+        let preprocessed = match common::preprocess_cpp(&src_path, includes, &preprocess_dir, &unit_name) {
             Some(p) => p,
             None => {
                 skipped.push(src_name);

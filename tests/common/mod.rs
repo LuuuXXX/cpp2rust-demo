@@ -314,3 +314,235 @@ pub fn parse_readme_run_result(readme_path: &str) -> String {
     }
     result
 }
+
+// ─────────────────────────────────────────────────────────────────
+//  E2E 测试共享辅助函数
+// ─────────────────────────────────────────────────────────────────
+
+/// 使用 C++ 编译器预处理源文件，写出到 `out_dir/<unit_name>.cpp2rust`。
+///
+/// 编译器选择顺序：`CXX` 环境变量 → `g++` → `clang++`。
+/// `include_dirs` 为额外 `-I` 搜索路径列表（相对路径以仓库根目录为基准）。
+/// 成功返回输出文件路径，预处理失败返回 `None`。
+pub fn preprocess_cpp(
+    src: &std::path::Path,
+    include_dirs: &[&str],
+    out_dir: &std::path::Path,
+    unit_name: &str,
+) -> Option<std::path::PathBuf> {
+    let out = out_dir.join(format!("{}.cpp2rust", unit_name));
+
+    let try_cxx = |compiler: &str| -> bool {
+        let mut cmd = Command::new(compiler);
+        cmd.args(["-E", "-C", "-w"]);
+        for inc in include_dirs {
+            cmd.arg(format!("-I{}", inc));
+        }
+        cmd.arg(src).arg("-o").arg(&out);
+        cmd.status().map(|s| s.success()).unwrap_or(false)
+    };
+
+    // 优先使用 CXX 环境变量指定的编译器，否则依次尝试 g++ 和 clang++
+    let cxx_env = std::env::var("CXX").unwrap_or_default();
+    let candidates: &[&str] = if !cxx_env.is_empty() {
+        &[]
+    } else {
+        &["g++", "clang++"]
+    };
+
+    if !cxx_env.is_empty() && try_cxx(&cxx_env) {
+        return Some(out);
+    }
+    for compiler in candidates {
+        if try_cxx(compiler) {
+            return Some(out);
+        }
+    }
+    None
+}
+
+/// 验证生成的 hicc 代码符合三段式格式约束：
+///
+/// 1. 必须包含 `hicc::cpp! {` 块
+/// 2. 输出文件以 `}` 结束（最后一个宏块正确关闭）
+/// 3. 每个 import_class!/import_lib! 块内部括号平衡
+/// 4. 若存在 `hicc::import_class!` 块，每个类必须有 `#[cpp(class` 或 `#[interface]`
+/// 5. 若存在 `hicc::import_lib!` 块，必须包含 `#![link_name = "`
+/// 6. 类方法绑定必须有 `#[cpp(method = "`
+/// 7. 函数绑定必须有 `#[cpp(func = "`
+pub fn assert_valid_hicc_format(code: &str, unit_name: &str) {
+    assert!(
+        code.contains("hicc::cpp! {"),
+        "unit '{}': 缺少 hicc::cpp! 块\n首 400 字符:\n{}",
+        unit_name,
+        &code[..code.len().min(400)]
+    );
+
+    assert!(
+        code.trim_end().ends_with('}'),
+        "unit '{}': 输出文件未以 }} 结束（宏块可能未正确关闭）",
+        unit_name
+    );
+
+    for macro_prefix in &["hicc::import_class! {", "hicc::import_lib! {"] {
+        let mut search = 0usize;
+        while let Some(rel) = code[search..].find(macro_prefix) {
+            let block_start = search + rel + macro_prefix.len();
+            let mut depth = 1i32;
+            let mut in_str = false;
+            let mut esc = false;
+            let mut closed = false;
+            for c in code[block_start..].chars() {
+                if esc {
+                    esc = false;
+                    continue;
+                }
+                match c {
+                    '\\' if in_str => esc = true,
+                    '"' => in_str = !in_str,
+                    '{' if !in_str => depth += 1,
+                    '}' if !in_str => {
+                        depth -= 1;
+                        if depth == 0 {
+                            closed = true;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(
+                closed,
+                "unit '{}': {} 块未正确关闭（括号不平衡）",
+                unit_name, macro_prefix
+            );
+            search = block_start;
+        }
+    }
+
+    if code.contains("hicc::import_class! {") {
+        assert!(
+            code.contains("#[cpp(class") || code.contains("#[interface]"),
+            "unit '{}': import_class! 块缺少类注解 (#[cpp(class...)] 或 #[interface])",
+            unit_name
+        );
+    }
+
+    if code.contains("hicc::import_lib! {") {
+        assert!(
+            code.contains("#![link_name = \""),
+            "unit '{}': import_lib! 块缺少 #![link_name = \"...\"]",
+            unit_name
+        );
+    }
+
+    if code.contains("hicc::import_class! {") && code.contains("fn ") {
+        assert!(
+            code.contains("#[cpp(method = \""),
+            "unit '{}': import_class! 包含方法但缺少 #[cpp(method = \"...\")]",
+            unit_name
+        );
+    }
+
+    if code.contains("hicc::import_lib! {") && code.contains("fn ") {
+        assert!(
+            code.contains("#[cpp(func = \""),
+            "unit '{}': import_lib! 包含函数但缺少 #[cpp(func = \"...\")]",
+            unit_name
+        );
+    }
+}
+
+/// 对单个 C++ 源文件执行完整 init 流程（预处理 → AST → 提取 → 生成），返回 hicc 代码。
+///
+/// 失败时返回 `None`（预处理失败、文件不存在等）。
+pub fn process_cpp_source(
+    src: &std::path::Path,
+    include_dirs: &[&str],
+    preprocess_dir: &std::path::Path,
+) -> Option<(String, String)> {
+    if !src.exists() {
+        return None;
+    }
+    let unit_name = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unit")
+        .to_string();
+
+    let preprocessed = preprocess_cpp(src, include_dirs, preprocess_dir, &unit_name)?;
+    let ast = ast_parser::parse_preprocessed(&preprocessed).ok()?;
+    let (sys_includes, proj_header) = extractor::read_source_includes(src);
+    let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
+    let code = hicc_codegen::generate(&spec);
+    Some((unit_name, code))
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  L3 运行测试辅助函数
+// ─────────────────────────────────────────────────────────────────
+
+/// 确保指定 example 的 C++ 动态库已经编译好。
+///
+/// 库文件若已存在则直接返回（增量编译）；不存在时自动调用编译器编译 `.cpp` 文件。
+/// 若编译失败，会 `panic!` 并给出错误信息，测试会立即失败（比静默跳过更易发现问题）。
+pub fn ensure_cpp_lib(example: &str) {
+    let cpp_dir = format!("examples/{}/cpp", example);
+    // 去掉形如 "013_" 的数字前缀，得到库的短名称
+    let short_name = example
+        .splitn(2, '_')
+        .nth(1)
+        .unwrap_or(example);
+
+    let lib_name = if cfg!(target_os = "macos") {
+        format!("lib{}.dylib", short_name)
+    } else if cfg!(windows) {
+        format!("{}.dll", short_name)
+    } else {
+        format!("lib{}.so", short_name)
+    };
+
+    let lib_path = format!("{}/{}", cpp_dir, lib_name);
+    if std::path::Path::new(&lib_path).exists() {
+        return; // 已存在，快速路径
+    }
+
+    // 收集目录下所有 .cpp 文件
+    let cpp_files: Vec<_> = std::fs::read_dir(&cpp_dir)
+        .unwrap_or_else(|e| panic!("无法读取目录 {}: {}", cpp_dir, e))
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("cpp"))
+        .collect();
+
+    if cpp_files.is_empty() {
+        panic!("ensure_cpp_lib: {} 中没有找到 .cpp 文件", cpp_dir);
+    }
+
+    let (compiler, shared_flag): (&str, &[&str]) = if cfg!(target_os = "macos") {
+        ("clang++", &["-dynamiclib"])
+    } else if cfg!(windows) {
+        ("g++", &["-shared"])
+    } else {
+        ("g++", &["-shared", "-fPIC"])
+    };
+
+    let mut cmd = Command::new(compiler);
+    cmd.args(shared_flag);
+    for f in &cpp_files {
+        cmd.arg(f);
+    }
+    cmd.arg("-o").arg(&lib_path);
+
+    let status = cmd.status().unwrap_or_else(|e| {
+        panic!("ensure_cpp_lib: 启动编译器 {} 失败: {}", compiler, e)
+    });
+
+    if !status.success() {
+        panic!(
+            "ensure_cpp_lib: 编译 {} 失败（退出码: {:?}）",
+            example,
+            status.code()
+        );
+    }
+}

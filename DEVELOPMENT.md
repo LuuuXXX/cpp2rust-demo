@@ -190,6 +190,7 @@ hicc::import_lib! {
 | **Phase 11** | Codegen 精确度修复（Dtor/Ctor 归属、接口类检测、`namespace_class_mode` cpp! 块、枚举重复定义、volatile 方法跳过、`is_from_current_file` 来源追踪） | ✅ 完成 |
 | **Phase 12** | `merge output` 子命令（导出 Cargo 项目结构到任意目录） | ✅ 完成 |
 | **Phase 13** | `api-manifest.md` 生成（merge 阶段生成 C++ → Rust API 对账清单，Markdown 格式，含降级标记） | ✅ 完成 |
+| **Phase 14** | 五大主流开源库 E2E 测试（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib），多平台 CI 覆盖（Linux / macOS / Windows MinGW / Windows MSVC） | ✅ 完成 |
 
 ### 5.3 测试通过率
 
@@ -198,21 +199,13 @@ hicc::import_lib! {
 | **L1**（golden 比对） | ✅ **49 / 49**（全部通过） |
 | **L2**（编译测试）| ✅ **48 / 48**（全部通过）|
 | **L3**（运行测试）| ✅ **48 / 48**（全部通过）|
+| **L4 E2E**（五大库）| ✅ tinyxml2 / pugixml / nlohmann-json / fmtlib 全平台通过；sqlite3 Linux 通过（macOS / Windows 因系统头路径差异自动跳过）|
 
 ---
 
-## 6. 后续计划
+## 6. 开发环境搭建
 
-### 6.1 P2/P3 - 待后续跟进
-
-- 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏；merge 阶段已通过去重部分缓解）
-- L3 运行测试本地化（当前仅 CI 验证，建议补充本地快速运行脚本）
-
----
-
-## 7. 开发环境搭建
-
-### 7.1 Linux（Ubuntu 24.04）
+### 6.1 Linux（Ubuntu 24.04）
 
 ```bash
 # 系统依赖
@@ -236,11 +229,11 @@ cargo run -- merge --feature default
 # 运行 L2 编译测试
 cargo test --test l2_compile_tests
 
-# 运行 L3 运行测试
+# 运行 L3 运行测试（首次自动编译 C++ 库，二次直接运行）
 cargo test --test l3_run_tests -- --include-ignored --test-threads=1
 ```
 
-### 7.2 macOS
+### 6.2 macOS
 
 #### 前提条件
 
@@ -272,12 +265,11 @@ cargo test --test l1_golden_tests -- --include-ignored --test-threads=1
 # 运行 L2 编译测试
 cargo test --test l2_compile_tests
 
-# 运行 L3 运行测试（需要先编译 C++ 共享库）
-for dir in examples/*/cpp; do
-  example=$(basename $(dirname "$dir"))
-  (cd "$dir" && clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") 2>/dev/null || true
-done
+# 运行 L3 运行测试（首次自动编译 C++ 动态库，约 2-4 分钟；二次直接运行）
 cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+
+# 也可通过 make 一步完成（参见 §7.3）
+make l3-test
 
 # 运行 L5 nm 符号验证测试
 cargo test --test l5_nm_symbol_tests -- --ignored --nocapture --test-threads=4
@@ -300,9 +292,44 @@ cpp2rust-demo init -- make -j4
 CPP2RUST_CXX=$(brew --prefix llvm)/bin/clang++ cpp2rust-demo init -- make -j4
 ```
 
+### 6.3 L3 运行测试快速启动
+
+L3 运行测试需要预先编译各示例的 C++ 动态库（每个约 1-3 秒，共 48 个示例）。
+有三种方式准备环境：
+
+#### 方式 A：自动编译（推荐）
+
+```bash
+# 直接运行测试 — 缺少的库会自动编译，首次约 2-4 分钟，二次直接运行
+cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+```
+
+`common::ensure_cpp_lib()` 在每个测试执行前检查库文件是否存在，若不存在则自动调用
+`g++`（Linux）或 `clang++`（macOS）编译。已有库走快速路径，零额外开销。
+
+#### 方式 B：Makefile 快捷命令
+
+```bash
+make l3-setup   # 仅编译所有 C++ 库（不运行测试）
+make l3-test    # 编译库 + 运行所有 L3 测试
+```
+
+#### 方式 C：批量预编译脚本
+
+```bash
+# Linux / macOS
+bash scripts/build_cpp_libs.sh
+
+# 只编译指定示例
+bash scripts/build_cpp_libs.sh 001_hello_world 006_class_basic
+
+# Windows PowerShell
+.\scripts\build_cpp_libs.ps1
+```
+
 ---
 
-## 8. 关键设计决策
+## 7. 关键设计决策
 
 | 决策 | 原因 |
 |------|------|

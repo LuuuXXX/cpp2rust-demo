@@ -16,6 +16,10 @@
 pub struct ParsedUnit {
     /// `hicc::cpp!` 块内的行（不含外层花括号行）
     pub cpp_lines: Vec<String>,
+    /// `hicc::cpp!` 块中识别到的完整模板类体（规范化后的字符串，用于跨翻译单元块级去重）。
+    /// 每个元素对应一个完整的 `template<...> class/struct { ... };` 块，
+    /// 已去掉行尾空白并折叠连续空行。
+    pub template_bodies: Vec<String>,
     /// 所有 `hicc::import_class!` 块
     pub class_blocks: Vec<ParsedClassBlock>,
     /// `hicc::import_lib!` 块（最多一个；多个时取最后一个合并结果不变）
@@ -29,6 +33,9 @@ pub struct ParsedClassBlock {
     /// 完整属性行，如 `#[cpp(class = "Foo")]`、`#[cpp(class = "Foo", destroy = "foo_del")]` 或 `#[interface]`
     pub class_attr: String,
     pub methods: Vec<BlockMethod>,
+    /// 若 `class_name` 为模板特化（如 `"Stack<int>"`），此字段存储模板基类名（如 `"Stack"`）。
+    /// 普通非模板类为 `None`。
+    pub template_base: Option<String>,
 }
 
 /// 类方法
@@ -75,6 +82,7 @@ pub fn parse_unit_rs(src: &str) -> ParsedUnit {
         match rb.kind {
             BlockKind::Cpp => {
                 unit.cpp_lines = parse_cpp_content(&rb.inner_lines);
+                unit.template_bodies = extract_template_bodies(&unit.cpp_lines);
             }
             BlockKind::ImportClass => {
                 if let Some(cb) = parse_class_content(&rb.inner_lines) {
@@ -333,10 +341,24 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
     if class_name.is_empty() {
         None
     } else {
+        // 若类名为模板特化（含 '<'），提取基类名（'<' 之前的部分）
+        let template_base = if class_name.contains('<') {
+            Some(
+                class_name
+                    .split('<')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            )
+        } else {
+            None
+        };
         Some(ParsedClassBlock {
             class_name,
             class_attr,
             methods,
+            template_base,
         })
     }
 }
@@ -422,6 +444,110 @@ fn extract_quoted_value(line: &str, key: &str) -> Option<String> {
     let start = rest.find('"')? + 1;
     let end = rest[start..].find('"')?;
     Some(rest[start..start + end].to_string())
+}
+
+// ─────────────────────────────────────────────
+//  模板类体提取（用于跨翻译单元块级去重）
+// ─────────────────────────────────────────────
+
+/// 从 `hicc::cpp!` 内容行中提取所有完整模板类体的规范化字符串。
+///
+/// 规范化规则：去掉每行行尾空白，过滤空行，用 `\n` 拼接。
+fn extract_template_bodies(lines: &[String]) -> Vec<String> {
+    detect_template_body_ranges(lines)
+        .into_iter()
+        .map(|(_, _, key)| key)
+        .collect()
+}
+
+/// 检测 `cpp_lines` 中完整模板类体的行范围和规范化键。
+///
+/// 返回 `(start_line_idx, end_line_idx_inclusive, normalized_key)`。
+/// 用于块级去重：相同规范化键代表逻辑上等价的模板定义。
+///
+/// # 检测规则
+/// - 以 `template` 开头且包含 `<` 的行为模板起始行
+/// - 其后（同行或向后最多 3 行）出现 `class`/`struct` 时，认定为模板类
+/// - 收集从模板起始行到匹配的闭括号行（`}` 使括号深度归零）
+pub(super) fn detect_template_body_ranges(lines: &[String]) -> Vec<(usize, usize, String)> {
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let t = lines[i].trim();
+
+        // 识别模板起始行：以 "template" 开头且含 "<"
+        if !t.starts_with("template") || !t.contains('<') {
+            i += 1;
+            continue;
+        }
+
+        // 判断是否为模板类/结构体
+        let has_class_same_line = t.contains(" class ") || t.contains(" struct ");
+        let next_has_class = if !has_class_same_line {
+            let mut found = false;
+            for k in (i + 1)..lines.len().min(i + 4) {
+                let nt = lines[k].trim();
+                if !nt.is_empty() {
+                    found = nt.starts_with("class ") || nt.starts_with("struct ");
+                    break;
+                }
+            }
+            found
+        } else {
+            false
+        };
+
+        if !has_class_same_line && !next_has_class {
+            i += 1;
+            continue;
+        }
+
+        // 收集整个模板类体：等待括号深度从 >0 降回 0
+        let start = i;
+        let mut depth = 0i32;
+        let mut entered = false;
+        let mut end_idx = None;
+        let mut j = i;
+
+        while j < lines.len() {
+            for c in lines[j].trim().chars() {
+                match c {
+                    '{' => {
+                        depth += 1;
+                        entered = true;
+                    }
+                    '}' => {
+                        depth -= 1;
+                        if entered && depth == 0 {
+                            end_idx = Some(j);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if end_idx.is_some() {
+                break;
+            }
+            j += 1;
+        }
+
+        if let Some(end) = end_idx {
+            // 规范化：去掉行尾空白，过滤空行，换行拼接
+            let normalized: String = lines[start..=end]
+                .iter()
+                .map(|l| l.trim_end())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            result.push((start, end, normalized));
+            i = end + 1;
+        } else {
+            i += 1;
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
