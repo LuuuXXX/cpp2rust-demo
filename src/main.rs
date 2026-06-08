@@ -189,12 +189,18 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     }
 }
 
-/// 递归复制 `src` 目录到 `dst`，跟随符号链接（follow_links），跳过符号链接条目本身。
+/// 递归复制 `src` 目录到 `dst`，跟随符号链接（follow_links）。
+/// WalkDir 内置循环检测：遇到循环符号链接时跳过，不会无限递归。
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     std::fs::create_dir_all(dst)
         .map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
     for entry in WalkDir::new(src).follow_links(true).into_iter() {
-        let entry = entry.map_err(|e| anyhow!("walk {}: {}", src.display(), e))?;
+        let entry = match entry {
+            Ok(e) => e,
+            // 循环符号链接等可恢复错误：跳过
+            Err(e) if e.loop_ancestor().is_some() => continue,
+            Err(e) => return Err(anyhow!("walk {}: {}", src.display(), e)),
+        };
         // 跳过源目录本身
         if entry.path() == src {
             continue;
@@ -235,7 +241,7 @@ fn run_merge_output(features: Vec<String>, out_args: MergeOutputArgs) -> Result<
     let feature = if features.is_empty() {
         "default".to_string()
     } else {
-        features.into_iter().next().unwrap()
+        features.into_iter().next().expect("features is not empty")
     };
 
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
@@ -312,8 +318,6 @@ fn run_merge_output(features: Vec<String>, out_args: MergeOutputArgs) -> Result<
 
     // 3. build.rs
     let build_rs_dest = out_dir.join("build.rs");
-    std::fs::create_dir_all(out_dir)
-        .map_err(|e| anyhow!("create dir {}: {}", out_dir.display(), e))?;
     std::fs::copy(&build_rs, &build_rs_dest).map_err(|e| anyhow!("copy build.rs: {}", e))?;
 
     // 4. Cargo.toml
