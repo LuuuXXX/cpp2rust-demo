@@ -471,7 +471,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     println!("        ├── src.1/  （init 输出备份，首次运行时 rename from src）");
     println!("        └── src/    （merge 输出，真实目录，与 C++ 项目目录结构一致）");
 
-    // ── §5 生成的 .rs 文件列表 ──────────────────────────────────────────────
+    // ── 生成的 .rs 文件列表 ──────────────────────────────────────────────
     println!();
     println!("── 生成的 .rs 文件（共 {}，前 20 条）──", m.rs_files.len());
     for f in m.rs_files.iter().take(20) {
@@ -486,7 +486,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
         println!("  ...（共 {} 个文件，仅显示前 20 条）", m.rs_files.len());
     }
 
-    // ── §6b FFI 绑定统计 ────────────────────────────────────────────────────
+    // ── FFI 绑定统计 ────────────────────────────────────────────────────
     println!();
     println!("── FFI 绑定统计 ──");
     println!("  import_lib!  绑定文件数：{}", m.import_lib_files);
@@ -519,7 +519,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
         println!("  cpp! 块 #include 指令数：0 （可能未探测到对应头文件）");
     }
 
-    // ── §5 降级标记统计 ─────────────────────────────────────────────────────
+    // ── 降级标记统计 ─────────────────────────────────────────────────────
     println!();
     if m.degraded_tags.is_empty() {
         println!("── 降级标记：✓ 无（所有特性均已完整映射）");
@@ -554,7 +554,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
         println!("  降级绑定数   : ⚠ {} 处（含 cpp2rust-todo 标记）", degraded_count);
     }
 
-    // ── §7 汇总表 ────────────────────────────────────────────────────────────
+    // ── 汇总表 ────────────────────────────────────────────────────────────
     println!();
     println!("┌─────────────────────────────────────────────────────────┐");
     println!("│             cpp2rust-demo Merge 汇总                    │");
@@ -703,7 +703,7 @@ fn run_init(args: InitArgs) -> Result<()> {
         return Ok(());
     }
 
-    // ── §6d 预处理文件行数统计 ─────────────────────────────────────────────────
+    // ── 预处理文件行数统计 ─────────────────────────────────────────────────
     {
         let mut sizes: Vec<(&PathBuf, usize)> =
             captured.iter().map(|p| (p, count_file_lines(p))).collect();

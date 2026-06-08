@@ -10,10 +10,8 @@ use std::collections::HashSet;
 
 /// 对每个类检测菱形虚基类，生成 shim 并修正 FfiSpec。
 pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
-    let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-
     for ci in &ast.classes {
-        apply_class(spec, ast, ci, functions, &class_names);
+        apply_class(spec, ast, ci, functions);
     }
 }
 
@@ -22,7 +20,6 @@ fn apply_class(
     ast: &CppAst,
     ci: &ClassInfo,
     functions: &[&FunctionInfo],
-    _class_names: &[&str],
 ) {
     let diamond_bases = find_diamond_bases(ci, &ast.classes);
     if diamond_bases.is_empty() {

@@ -206,10 +206,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
 /// 返回 `Some(mapped_type)` 当成功解析，`None` 当类型不是合法的顶层 C 函数指针形式。
 pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
     // 必须含有 `(*)(` 模式
-    let star_paren = cpp.find("(*)(").or(
-        // 也接受 `(* )(` 形式（极少见但合法）
-        None,
-    )?;
+    let star_paren = cpp.find("(*)(")?;
 
     // 提取 `(*)` 左边的返回类型
     let ret_cpp = cpp[..star_paren].trim();
