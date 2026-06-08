@@ -902,3 +902,278 @@ jobs:
           cargo test --test l5_nm_symbol_tests -- --ignored --nocapture --test-threads=4
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ════════════════════════════════════════════════════════════════
+  # macOS 系列（macos-latest，Apple Silicon / Intel）
+  # 依赖：brew install llvm（提供 libclang + clang++）
+  # hook 机制：shim 方式（同 Windows），规避 SIP 对 DYLD_INSERT_LIBRARIES 的限制
+  # ════════════════════════════════════════════════════════════════
+
+  # ── Build (macOS) ────────────────────────────────────────────────
+  build-macos:
+    name: Build (cpp2rust-demo, macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM via Homebrew (provides libclang + clang++)
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --all-targets
+
+  # ── Unit tests (macOS) ───────────────────────────────────────────
+  unit-tests-macos:
+    name: Unit tests (macOS)
+    runs-on: macos-latest
+    needs: build-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM via Homebrew
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run unit tests (lib)
+        run: cargo test --lib
+
+  # ── L1 Golden tests (macOS) ──────────────────────────────────────
+  l1-golden-macos:
+    name: L1 Golden tests (macOS)
+    runs-on: macos-latest
+    needs: build-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM via Homebrew
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # L1 测试须单线程运行（clang 全局状态竞争）
+      - name: Run L1 golden tests
+        run: |
+          cargo test --test l1_golden_tests -- \
+            --include-ignored \
+            --test-threads=1
+
+  # ── L2 Compile tests (macOS) ─────────────────────────────────────
+  l2-compile-macos:
+    name: L2 Compile tests (macOS)
+    runs-on: macos-latest
+    needs: build-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM via Homebrew
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run L2 compile tests
+        run: cargo test --test l2_compile_tests
+
+  # ── L3 Run tests (macOS) ─────────────────────────────────────────
+  l3-run-macos:
+    name: L3 Run tests (macOS)
+    runs-on: macos-latest
+    needs: [l1-golden-macos, l2-compile-macos]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM via Homebrew
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # macOS 动态库后缀为 .dylib，使用 -dynamiclib 标志（最佳努力，不影响 L3 主测试）
+      - name: Build C++ dynamic libraries for all examples
+        run: |
+          for dir in examples/*/cpp; do
+            example=$(basename $(dirname "$dir"))
+            echo "Building C++ dylib for $example..."
+            (cd "$dir" && clang++ -dynamiclib -fPIC *.cpp -o "lib${example##*_}.dylib") || echo "⚠ Failed to build C++ dylib for $example (skipping)"
+          done
+
+      - name: Run L3 run tests
+        run: |
+          cargo test --test l3_run_tests -- \
+            --include-ignored \
+            --test-threads=1
+
+  # ── L4 rapidjson E2E (macOS) ─────────────────────────────────────
+  l4-rapidjson-e2e-macos:
+    name: L4 rapidjson E2E (macOS)
+    runs-on: macos-latest
+    needs: build-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM via Homebrew
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # 单线程运行：clang 全局状态 + rapidjson 文件数量多
+      - name: Run L4 rapidjson E2E tests
+        run: |
+          cargo test --test rapidjson_e2e_test -- \
+            --test-threads=1
+
+  # ── L5 nm symbol validation (macOS) ──────────────────────────────
+  l5-nm-symbols-macos:
+    name: L5 nm symbol validation (macOS)
+    runs-on: macos-latest
+    needs: [l2-compile-macos]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM via Homebrew
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # --nocapture：确保符号比对报告在 CI 日志中可见
+      - name: Run L5 nm symbol tests
+        run: |
+          cargo test --test l5_nm_symbol_tests -- \
+            --ignored \
+            --nocapture \
+            --test-threads=4
+
+  # ── Usage: verify-rapidjson-ffi.sh (macOS) ───────────────────────
+  usage-verify-rapidjson-ffi-macos:
+    name: Usage verify-rapidjson-ffi (macOS)
+    runs-on: macos-latest
+    needs: build-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM and build tools via Homebrew
+        run: |
+          brew install llvm cmake git
+          # 将 Homebrew LLVM 的 bin 置于 PATH 最前面，确保 clang++ 是非 SIP 受限版本
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-rapidjson-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh

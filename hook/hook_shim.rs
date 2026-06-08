@@ -1,18 +1,26 @@
-// hook_shim.rs — Windows 编译器 Shim，用于替代 Linux/macOS 的 LD_PRELOAD 捕获机制。
+// hook_shim.rs — 编译器 Shim，用于 macOS 和 Windows 平台的编译拦截。
+//
+// 背景：
+//   Linux 使用 LD_PRELOAD + libhook.so 实现编译拦截。
+//   macOS 因 SIP（System Integrity Protection）会剥离 DYLD_INSERT_LIBRARIES，
+//   导致 LD_PRELOAD 方式不可靠；Windows 无 LD_PRELOAD 机制。
+//   因此 macOS 和 Windows 均使用本 shim 方式替代。
 //
 // 工作原理：
-//   1. capture::build_hook_windows() 将本文件内容写入临时目录并用 rustc 编译为 hook_shim.exe
-//   2. capture::run_with_hook_windows() 将 hook_shim.exe 复制到另一个临时目录，
-//      以真实编译器的基名（如 g++.exe / cl.exe）命名，然后将该目录插入 PATH 最前面。
+//   1. capture::build_hook_{macos,windows}() 将本文件内容写入数据目录并用 rustc 编译：
+//      - macOS：输出 hook_shim（无后缀）
+//      - Windows：输出 hook_shim.exe
+//   2. capture::run_with_hook_{macos,windows}() 将 hook_shim 复制到临时目录，
+//      以真实编译器的基名（如 clang++ / g++.exe / cl.exe）命名，然后将该目录插入 PATH 最前面。
 //   3. 构建系统调用编译器时实际触发本 shim：
 //      a. 将所有参数原样转发给真实编译器（通过 CPP2RUST_REAL_CC 找到）完成正常编译。
 //      b. 若参数含编译标志（GCC: -c；MSVC: /c），额外运行预处理器生成 .cpp2rust 捕获文件。
 //
 // 环境变量：
-//   CPP2RUST_REAL_CC        — 真实编译器的完整路径（如 C:\msys64\mingw64\bin\g++.exe）
+//   CPP2RUST_REAL_CC        — 真实编译器的完整路径（如 /usr/bin/clang++ 或 C:\msys64\mingw64\bin\g++.exe）
 //   CPP2RUST_PROJECT_ROOT   — 用户 C++ 项目根目录（用于计算相对路径）
 //   CPP2RUST_FEATURE_ROOT   — .cpp2rust/<feature>/ 输出目录
-//   CPP2RUST_COMPILER_KIND  — 编译器类型："gnu"（默认）或 "msvc"（cl.exe）
+//   CPP2RUST_COMPILER_KIND  — 编译器类型："gnu"（默认，macOS/Linux/MinGW）或 "msvc"（cl.exe）
 
 use std::env;
 use std::path::{Path, PathBuf};

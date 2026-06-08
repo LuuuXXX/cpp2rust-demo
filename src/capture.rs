@@ -4,24 +4,33 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 // 将 hook 源文件内容直接嵌入 binary，确保 `cargo install` 后无需额外文件。
-#[cfg(unix)]
+//
+// Linux：使用 LD_PRELOAD + libhook.so，需要 hook.cpp 和 Makefile。
+// macOS：SIP 会剥离 DYLD_INSERT_LIBRARIES，故改用与 Windows 相同的 shim 方式。
+// Windows：使用 hook_shim.exe，PATH 注入拦截编译器。
+#[cfg(target_os = "linux")]
 const HOOK_CPP: &str = include_str!("../hook/hook.cpp");
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 const HOOK_MAKEFILE: &str = include_str!("../hook/Makefile");
-#[cfg(windows)]
+#[cfg(any(target_os = "macos", windows))]
 const HOOK_SHIM_RS: &str = include_str!("../hook/hook_shim.rs");
 
-/// 从 `hook/Makefile` 构建 `libhook.so`（Unix），或编译 `hook_shim.exe`（Windows）。
+/// 构建平台对应的 hook 产物：
+/// - Linux：从 `hook/Makefile` 构建 `libhook.so`
+/// - macOS：用 `rustc` 编译 `hook_shim`（规避 SIP 限制）
+/// - Windows：用 `rustc` 编译 `hook_shim.exe`
 ///
 /// 若产物已是最新则跳过重新构建（快速路径）。返回产物路径。
 pub fn build_hook() -> Result<PathBuf> {
-    #[cfg(unix)]
-    return build_hook_unix();
+    #[cfg(target_os = "linux")]
+    return build_hook_linux();
+    #[cfg(target_os = "macos")]
+    return build_hook_macos();
     #[cfg(windows)]
     return build_hook_windows();
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     return Err(anyhow!(
-        "capture hook is not supported on this platform (only Unix and Windows)"
+        "capture hook is not supported on this platform (only Linux, macOS and Windows)"
     ));
 }
 
@@ -33,26 +42,28 @@ pub fn run_with_hook(
     feature_root: &Path,
     hook_artifact: &Path,
 ) -> Result<()> {
-    #[cfg(unix)]
-    return run_with_hook_unix(build_dir, cmd, project_root, feature_root, hook_artifact);
+    #[cfg(target_os = "linux")]
+    return run_with_hook_linux(build_dir, cmd, project_root, feature_root, hook_artifact);
+    #[cfg(target_os = "macos")]
+    return run_with_hook_macos(build_dir, cmd, project_root, feature_root, hook_artifact);
     #[cfg(windows)]
     return run_with_hook_windows(build_dir, cmd, project_root, feature_root, hook_artifact);
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     return Err(anyhow!(
-        "capture hook is not supported on this platform (only Unix and Windows)"
+        "capture hook is not supported on this platform (only Linux, macOS and Windows)"
     ));
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  Unix 实现（LD_PRELOAD + libhook.so）
+//  Linux 实现（LD_PRELOAD + libhook.so）
 // ─────────────────────────────────────────────────────────────────
 
 /// 从 `hook/Makefile` 构建 `libhook.so`。
 ///
 /// 若 `libhook.so` 已存在且比 `hook.cpp` 更新，则跳过编译（快速路径）。
 /// 返回 `libhook.so` 的路径。
-#[cfg(unix)]
-fn build_hook_unix() -> Result<PathBuf> {
+#[cfg(target_os = "linux")]
+fn build_hook_linux() -> Result<PathBuf> {
     let hook_dir = hook_dir()?;
     let so = hook_dir.join("libhook.so");
     let cpp = hook_dir.join("hook.cpp");
@@ -96,8 +107,8 @@ fn build_hook_unix() -> Result<PathBuf> {
 }
 
 /// 使用 LD_PRELOAD 设置为 libhook.so，执行用户提供的构建命令。
-#[cfg(unix)]
-fn run_with_hook_unix(
+#[cfg(target_os = "linux")]
+fn run_with_hook_linux(
     build_dir: &Path,
     cmd: &[String],
     project_root: &Path,
@@ -144,10 +155,10 @@ fn run_with_hook_unix(
     Ok(())
 }
 
-/// 从运行中二进制文件所在目录开始向上查找 `hook/` 目录。
+/// 从运行中二进制文件所在目录开始向上查找 `hook/` 目录（Linux）。
 /// 若找不到，则将嵌入二进制的 hook 源文件解压到用户数据目录，
 /// 以便 `cargo install` 用户无需单独检出代码即可使用。
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn hook_dir() -> Result<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -179,13 +190,10 @@ fn hook_dir() -> Result<PathBuf> {
     ensure_hook_data_dir()
 }
 
-/// 返回用户 hook 数据目录，不存在或文件过时时创建目录并写入嵌入的 `hook.cpp` / `Makefile`。
+/// 返回用户 hook 数据目录，不存在或文件过时时创建目录并写入嵌入的 `hook.cpp` / `Makefile`（Linux）。
 ///
-/// 目录路径：
-/// - Linux / 其他：`$XDG_DATA_HOME/cpp2rust-demo/hook/`
-///   （默认 `~/.local/share/cpp2rust-demo/hook/`）
-/// - macOS：`~/Library/Application Support/cpp2rust-demo/hook/`
-#[cfg(unix)]
+/// 目录路径：`$XDG_DATA_HOME/cpp2rust-demo/hook/`（默认 `~/.local/share/cpp2rust-demo/hook/`）
+#[cfg(target_os = "linux")]
 fn ensure_hook_data_dir() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
     let hook_dir = base.join("cpp2rust-demo").join("hook");
@@ -201,10 +209,10 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
     Ok(hook_dir)
 }
 
-/// 若 `path` 不存在或内容与 `content` 不同，则写入文件。
+/// 若 `path` 不存在或内容与 `content` 不同，则写入文件（Linux）。
 ///
 /// 避免不必要的写入，以免触发文件系统 mtime 变更（影响 `libhook.so` 的快速路径判断）。
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn write_if_changed(path: &Path, content: &str) -> Result<()> {
     let needs_write = match std::fs::read_to_string(path) {
         Ok(existing) => existing != content,
@@ -214,6 +222,179 @@ fn write_if_changed(path: &Path, content: &str) -> Result<()> {
         std::fs::write(path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))?;
     }
     Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  macOS 实现（PATH 注入 + hook_shim）
+//
+//  macOS SIP（System Integrity Protection）会在 exec 系统调用时自动剥离
+//  DYLD_INSERT_LIBRARIES 等 DYLD_* 环境变量（针对启用了 hardened runtime 的
+//  系统 shell，如 /bin/bash、/bin/zsh）。因此无法可靠地使用 DYLD_INSERT_LIBRARIES
+//  拦截编译器，转而采用与 Windows 相同的 shim 方式：将 hook_shim 以编译器真名
+//  复制到临时目录并置于 PATH 最前面。
+// ─────────────────────────────────────────────────────────────────
+
+/// 将 `hook_shim.rs` 写入数据目录并使用 `rustc` 编译为 `hook_shim`（macOS）。
+///
+/// 产物路径：`~/Library/Application Support/cpp2rust-demo/hook/hook_shim`
+/// 若 shim 源码无变化则复用已有产物（快速路径）。
+#[cfg(target_os = "macos")]
+fn build_hook_macos() -> Result<PathBuf> {
+    let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
+    let hook_dir = base.join("cpp2rust-demo").join("hook");
+    std::fs::create_dir_all(&hook_dir)
+        .map_err(|e| anyhow!("create_dir_all {}: {}", hook_dir.display(), e))?;
+
+    let shim_rs = hook_dir.join("hook_shim.rs");
+    let shim_bin = hook_dir.join("hook_shim");
+
+    let needs_write = match std::fs::read_to_string(&shim_rs) {
+        Ok(existing) => existing != HOOK_SHIM_RS,
+        Err(_) => true,
+    };
+    if needs_write {
+        std::fs::write(&shim_rs, HOOK_SHIM_RS)
+            .map_err(|e| anyhow!("write {}: {}", shim_rs.display(), e))?;
+    }
+
+    if shim_bin.exists() && !needs_write {
+        println!("Hook shim up-to-date: {}", shim_bin.display());
+        return Ok(shim_bin);
+    }
+
+    println!("Compiling hook shim from {}...", shim_rs.display());
+    let status = Command::new("rustc")
+        .args(["--edition", "2021", "-o"])
+        .arg(&shim_bin)
+        .arg(&shim_rs)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| anyhow!("failed to run rustc (is Rust installed?): {}", e))?;
+
+    if !status.success() {
+        return Err(anyhow!("rustc failed to compile hook_shim.rs"));
+    }
+    if !shim_bin.exists() {
+        return Err(anyhow!(
+            "hook_shim not found after build at {}",
+            shim_bin.display()
+        ));
+    }
+
+    // 确保 shim 具有执行权限
+    set_executable(&shim_bin)?;
+    println!("Hook shim built: {}", shim_bin.display());
+    Ok(shim_bin)
+}
+
+/// 通过 PATH 注入将 `hook_shim` 伪装成真实编译器，然后执行用户构建命令（macOS）。
+///
+/// 流程：
+///  1. 在临时目录中将 hook_shim 以真实编译器基名（如 `clang++` / `g++`）命名。
+///  2. 将该临时目录插入 PATH 最前面。
+///  3. 设置 `CPP2RUST_REAL_CC`、`CPP2RUST_COMPILER_KIND=gnu`、
+///     `CPP2RUST_PROJECT_ROOT`、`CPP2RUST_FEATURE_ROOT`。
+///  4. 执行构建命令；shim 拦截编译调用并生成 .cpp2rust 文件。
+#[cfg(target_os = "macos")]
+fn run_with_hook_macos(
+    build_dir: &Path,
+    cmd: &[String],
+    project_root: &Path,
+    feature_root: &Path,
+    hook_bin: &Path,
+) -> Result<()> {
+    if cmd.is_empty() {
+        return Err(anyhow!("build command is empty"));
+    }
+
+    let abs_project_root = project_root
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", project_root.display(), e))?;
+    let abs_feature_root = feature_root
+        .canonicalize()
+        .map_err(|e| anyhow!("canonicalize {}: {}", feature_root.display(), e))?;
+
+    let real_cc = detect_macos_cxx_compiler()
+        .ok_or_else(|| anyhow!("no C++ compiler (clang++/g++/c++) found in PATH"))?;
+
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("cpp2rust-shim-")
+        .tempdir()
+        .map_err(|e| anyhow!("tempdir: {}", e))?;
+    let cc_basename = real_cc
+        .file_name()
+        .ok_or_else(|| anyhow!("real_cc has no filename"))?;
+    let shim_alias = tmp_dir.path().join(cc_basename);
+    std::fs::copy(hook_bin, &shim_alias)
+        .map_err(|e| anyhow!("copy shim → {}: {}", shim_alias.display(), e))?;
+    set_executable(&shim_alias)?;
+
+    let old_path = std::env::var_os("PATH").unwrap_or_default();
+    let new_path = std::env::join_paths(
+        std::iter::once(tmp_dir.path().to_path_buf()).chain(std::env::split_paths(&old_path)),
+    )
+    .map_err(|e| anyhow!("join_paths: {}", e))?;
+
+    println!("Running build command: {}", cmd.join(" "));
+    println!("  CPP2RUST_PROJECT_ROOT  = {}", abs_project_root.display());
+    println!("  CPP2RUST_FEATURE_ROOT  = {}", abs_feature_root.display());
+    println!("  CPP2RUST_REAL_CC       = {}", real_cc.display());
+    println!("  CPP2RUST_COMPILER_KIND = gnu");
+    println!();
+
+    let status = Command::new(&cmd[0])
+        .args(&cmd[1..])
+        .current_dir(build_dir)
+        .env("PATH", new_path)
+        .env("CPP2RUST_REAL_CC", &real_cc)
+        .env("CPP2RUST_COMPILER_KIND", "gnu")
+        .env("CPP2RUST_PROJECT_ROOT", &abs_project_root)
+        .env("CPP2RUST_FEATURE_ROOT", &abs_feature_root)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| anyhow!("failed to spawn '{}': {}", cmd[0], e))?;
+
+    if !status.success() {
+        return Err(anyhow!(
+            "build command failed with exit code {}",
+            status.code().unwrap_or(-1)
+        ));
+    }
+    Ok(())
+}
+
+/// 为 hook_shim 副本设置可执行权限位（macOS）。
+#[cfg(target_os = "macos")]
+fn set_executable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path)
+        .map_err(|e| anyhow!("metadata {}: {}", path.display(), e))?
+        .permissions();
+    perms.set_mode(perms.mode() | 0o111);
+    std::fs::set_permissions(path, perms)
+        .map_err(|e| anyhow!("set_permissions {}: {}", path.display(), e))?;
+    Ok(())
+}
+
+/// 在当前 PATH 中搜索 C++ 编译器（macOS）。
+///
+/// 搜索顺序：`clang++` → `g++` → `c++`。
+/// 首个在 PATH 目录中找到的可执行文件即为返回值。
+#[cfg(target_os = "macos")]
+fn detect_macos_cxx_compiler() -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    let candidates = ["clang++", "g++", "c++"];
+    for dir in std::env::split_paths(&path_var) {
+        for &name in &candidates {
+            let full = dir.join(name);
+            if full.is_file() {
+                return Some(full);
+            }
+        }
+    }
+    None
 }
 
 // ─────────────────────────────────────────────────────────────────
