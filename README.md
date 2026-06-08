@@ -171,7 +171,7 @@ FfiSpec
 | 子命令 | 作用 | 典型用法 |
 |--------|------|---------|
 | `init` | 通过 LD_PRELOAD 拦截构建命令，捕获 C++ 预处理文件，解析 AST，生成 hicc 三段式 FFI 脚手架 | `cpp2rust-demo init -- make -j4` |
-| `merge` | 将 `init` 生成的编译单元文件整理为按 C++ 目录结构组织的 Rust 项目，备份原始输出；生成 `api-manifest.json` API 对账清单；支持多 feature 合并为带 `[features]` 的统一项目 | `cpp2rust-demo merge --feature default` |
+| `merge` | 将 `init` 生成的编译单元文件整理为按 C++ 目录结构组织的 Rust 项目，备份原始输出；生成 `api-manifest.md` API 对账清单；支持多 feature 合并为带 `[features]` 的统一项目 | `cpp2rust-demo merge --feature default` |
 | `merge --output-dir` | 将指定 feature 的 Cargo 项目结构导出到任意目录，方便集成到外部工作流 | `cpp2rust-demo merge --output-dir /tmp/out` |
 
 ### `init` — 捕获构建 + 生成 FFI 脚手架
@@ -222,7 +222,7 @@ cpp2rust-demo merge --feature linux_x86 --feature arm_embedded
     └── src/     ← merge 输出，真实目录（维持 C++ 目录结构）
 ```
 
-同时在 `.cpp2rust/<feature>/meta/` 下生成 `api-manifest.json`（C++ → Rust API 对账清单）。
+同时在 `.cpp2rust/<feature>/meta/` 下生成 `api-manifest.md`（C++ → Rust API 对账清单）。
 
 多 feature 合并时，输出到 `.cpp2rust/<feat1>_<feat2>/rust/`，生成含 `[features]` 段的 `Cargo.toml` 和按 feature 条件编译的 `src/lib.rs`、`build.rs`：
 
@@ -254,7 +254,7 @@ cpp2rust-demo merge --feature linux_x86 --output-dir /tmp/linux-out
 
 ```
 /tmp/mylib-out/
-    ├── meta/        （.cpp2rust/ 的完整副本，包含 api-manifest.json 等）
+    ├── meta/        （.cpp2rust/ 的完整副本，包含 api-manifest.md 等）
     ├── src/         （合并后的 Rust 源码）
     ├── build.rs
     └── Cargo.toml
@@ -383,7 +383,7 @@ cpp2rust-demo merge --feature default
 
 同时在 `.cpp2rust/<feature>/meta/` 下生成：
 - `merge-report.md`：merge 阶段汇总报告（.rs 文件数、FFI 绑定统计、降级标记）
-- `api-manifest.json`：C++ → Rust API 对账清单（记录每个类方法和独立函数的 C++ 签名与 Rust 签名，含降级标记）
+- `api-manifest.md`：C++ → Rust API 对账清单（Markdown 格式，记录每个类方法和独立函数的 C++ 签名与 Rust 签名，含降级标记）
 
 - 首次运行：`src/` 重命名为 `src.1/`，merge 输出写入新的 `src/`
 - 重复运行：`src.1/` 保持不变（原始 init 输出），`src/` 重新写入最新 merge 输出

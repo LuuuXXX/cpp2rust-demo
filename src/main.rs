@@ -455,7 +455,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     };
     lo.save_merge_report(&report_data)?;
 
-    // 生成 meta/api-manifest.json（C++ → Rust API 对账清单）
+    // 生成 meta/api-manifest.md（C++ → Rust API 对账清单）
     let merged_spec = merger::merge_units(&unit_files);
     let degraded_sigs = merger::extract_degraded_sigs(&unit_files);
     let manifest = build_api_manifest(feature, &merged_spec, &degraded_sigs);
@@ -466,7 +466,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── meta/");
     println!("    │   ├── merge-report.md  （merge 摘要）");
-    println!("    │   └── api-manifest.json（C++ → Rust API 对账清单）");
+    println!("    │   └── api-manifest.md  （C++ → Rust API 对账清单）");
     println!("    └── rust/");
     println!("        ├── src.1/  （init 输出备份，首次运行时 rename from src）");
     println!("        └── src/    （merge 输出，真实目录，与 C++ 项目目录结构一致）");
@@ -544,7 +544,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
             .count();
     let total_methods: usize = manifest.classes.iter().map(|c| c.methods.len()).sum();
     println!();
-    println!("── API 接口清单（api-manifest.json）──");
+    println!("── API 接口清单（api-manifest.md）──");
     println!("  类数量       : {}", manifest.classes.len());
     println!("  方法总数     : {}", total_methods);
     println!("  独立函数数   : {}", manifest.functions.len());
@@ -579,7 +579,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
         feature
     );
     println!(
-        "  API 清单         : .cpp2rust/{}/meta/api-manifest.json",
+        "  API 清单         : .cpp2rust/{}/meta/api-manifest.md",
         feature
     );
 

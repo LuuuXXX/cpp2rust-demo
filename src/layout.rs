@@ -8,7 +8,7 @@ use walkdir::WalkDir;
 //  API 接口清单数据结构
 // ─────────────────────────────────────────────
 
-/// merge 阶段生成的 API 接口清单（序列化为 `meta/api-manifest.json`）。
+/// merge 阶段生成的 API 接口清单（序列化为 `meta/api-manifest.md`）。
 /// 用于支持 C++ → Rust API 对账：逐条记录 C++ 签名与对应 Rust 绑定。
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiManifest {
@@ -169,12 +169,55 @@ impl FeatureLayout {
         std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
-    /// 写入 `meta/api-manifest.json`，包含 merge 阶段生成的完整 C++ → Rust API 对账清单。
+    /// 写入 `meta/api-manifest.md`，包含 merge 阶段生成的完整 C++ → Rust API 对账清单（Markdown 格式）。
     pub fn save_api_manifest(&self, manifest: &ApiManifest) -> Result<()> {
-        let json = serde_json::to_string_pretty(manifest)
-            .map_err(|e| anyhow!("serialize api manifest: {}", e))?;
-        let path = self.meta_dir.join("api-manifest.json");
-        std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+        let mut out = String::new();
+
+        out.push_str(&format!("# API 接口清单 — feature `{}`\n\n", manifest.feature));
+        out.push_str("由 **cpp2rust-demo merge** 生成。\n\n");
+        out.push_str("本文档记录 C++ → Rust 的完整 API 绑定对账清单。✓ 表示绑定正常，⚠ 表示含降级标记（需人工处理）。\n\n");
+        out.push_str("---\n\n");
+
+        // 类绑定
+        out.push_str("## 类绑定\n\n");
+        if manifest.classes.is_empty() {
+            out.push_str("*（无类绑定）*\n\n");
+        } else {
+            for class in &manifest.classes {
+                out.push_str(&format!("### `{}`\n\n", class.name));
+                out.push_str(&format!("**属性：** `{}`\n\n", class.class_attr));
+                out.push_str("| C++ 签名 | Rust 签名 | 状态 |\n");
+                out.push_str("|---------|-----------|------|\n");
+                for m in &class.methods {
+                    let status = if m.is_degraded { "⚠ 降级" } else { "✓" };
+                    out.push_str(&format!(
+                        "| `{}` | `{}` | {} |\n",
+                        m.cpp_sig, m.rust_sig, status
+                    ));
+                }
+                out.push('\n');
+            }
+        }
+        out.push_str("---\n\n");
+
+        // 独立函数
+        out.push_str("## 独立函数\n\n");
+        if manifest.functions.is_empty() {
+            out.push_str("*（无独立函数绑定）*\n");
+        } else {
+            out.push_str("| C++ 签名 | Rust 签名 | 状态 |\n");
+            out.push_str("|---------|-----------|------|\n");
+            for f in &manifest.functions {
+                let status = if f.is_degraded { "⚠ 降级" } else { "✓" };
+                out.push_str(&format!(
+                    "| `{}` | `{}` | {} |\n",
+                    f.cpp_sig, f.rust_sig, status
+                ));
+            }
+        }
+
+        let path = self.meta_dir.join("api-manifest.md");
+        std::fs::write(&path, out).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
     /// 写入 `meta/init-report.md`，包含 init 阶段的摘要报告。
@@ -243,7 +286,7 @@ impl FeatureLayout {
         out.push_str("    │   ├── selected_files.json\n");
         out.push_str("    │   ├── init-report.md          （本文件）\n");
         out.push_str("    │   ├── merge-report.md         （由 'cpp2rust-demo merge' 生成）\n");
-        out.push_str("    │   └── api-manifest.json       （由 'cpp2rust-demo merge' 生成，C++ → Rust API 对账清单）\n");
+        out.push_str("    │   └── api-manifest.md         （由 'cpp2rust-demo merge' 生成，C++ → Rust API 对账清单）\n");
         out.push_str(
             "    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）\n",
         );
@@ -329,7 +372,7 @@ impl FeatureLayout {
         out.push_str("```\n");
         out.push('\n');
         out.push_str(&format!(
-            "API 对账清单：`.cpp2rust/{}/meta/api-manifest.json`\n",
+            "API 对账清单：`.cpp2rust/{}/meta/api-manifest.md`\n",
             data.feature
         ));
 
@@ -544,13 +587,14 @@ mod tests {
         layout.save_api_manifest(&manifest).unwrap();
 
         let content =
-            std::fs::read_to_string(layout.meta_dir.join("api-manifest.json")).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert_eq!(parsed["feature"], "default");
-        assert_eq!(parsed["classes"][0]["name"], "Foo");
-        assert_eq!(parsed["classes"][0]["methods"][0]["cpp_sig"], "int get() const");
-        assert_eq!(parsed["functions"][0]["cpp_sig"], "Foo* foo_new()");
-        assert_eq!(parsed["functions"][0]["is_degraded"], false);
+            std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
+        assert!(content.contains("# API 接口清单 — feature `default`"));
+        assert!(content.contains("Foo"));
+        assert!(content.contains("int get() const"));
+        assert!(content.contains("fn get(&self) -> i32;"));
+        assert!(content.contains("Foo* foo_new()"));
+        assert!(content.contains("fn foo_new() -> *mut Foo;"));
+        assert!(content.contains("✓"));
     }
 
     #[test]
@@ -571,8 +615,8 @@ mod tests {
         layout.save_api_manifest(&manifest).unwrap();
 
         let content =
-            std::fs::read_to_string(layout.meta_dir.join("api-manifest.json")).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert_eq!(parsed["functions"][0]["is_degraded"], true);
+            std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
+        assert!(content.contains("void (*cb)(int)"));
+        assert!(content.contains("⚠ 降级"));
     }
 }
