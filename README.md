@@ -16,12 +16,12 @@ cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 - 📦 **hicc 三段式代码生成**：`hicc::cpp!`（C++ shim 内联）/ `hicc::import_class!`（类方法绑定）/ `hicc::import_lib!`（全局函数绑定）
 - 🏷️ **多 feature 支持**：`--feature <name>` 将不同平台或构建配置的产物隔离到各自目录，`merge` 命令可将多个 feature 合并为带 `[features]` 段的统一 Rust 项目
 - 🤖 **CI / 非交互环境自动全选**：stdin 非 TTY 时自动全选所有捕获到的 `.cpp2rust` 文件，无需人工干预
-- 🧪 **五层测试体系**：L1 黄金文件比对 / L2 编译测试 / L3 运行输出验证 / L4 rapidjson E2E 转换 / L5 `nm` 符号双向验证
+- 🧪 **五层测试体系**：L1 黄金文件比对 / L2 编译测试 / L3 运行输出验证 / L4 真实项目 E2E 转换（rapidjson + tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib） / L5 `nm` 符号双向验证
 - ⚠️ **降级特性内联提示**：无法完全自动化的 C++ 特性（运算符重载、可变参数模板、有状态 Lambda 等）自动降级并在生成代码中插入 `// cpp2rust-todo[TAG]` 注释，精确定位待手动完善的位置
 
 仓库同时包含 **48 个循序渐进的 C++ 特性示例**，每个示例都有对应的 C++ 源码和可运行的 Rust FFI 参考实现，覆盖从基础函数到模板、STL、虚继承等复杂场景。
 
-**导航**：[工作原理](#工作原理) · [命令参考](#命令参考) · [快速开始](#快速开始) · [生成代码格式](#生成代码格式三段式) · [特性矩阵](#c-特性支持矩阵) · [降级特性](#降级特性详解6-项) · [测试体系](#测试体系) · [局限性](#局限性) · [未来计划](#未来开发计划) · [学习路径](#学习路径示例索引)
+**导航**：[工作原理](#工作原理) · [命令参考](#命令参考) · [快速开始](#快速开始) · [生成代码格式](#生成代码格式三段式) · [特性矩阵](#c-特性支持矩阵) · [降级特性](#降级特性详解6-项) · [测试体系](#测试体系) · [局限性](#局限性) · [学习路径](#学习路径示例索引)
 
 ---
 
@@ -867,7 +867,7 @@ uint32_t hardware_device_read_status(volatile HardwareDevice* self);
 | **L1** 黄金文件测试 | `l1_golden_tests.rs` | 工具生成的 hicc 脚手架与 `rust_hicc/src/main.rs` 中对应块一致 | ✅ **49/49 通过** |
 | **L2** 编译测试 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | ✅ **48/48 通过** |
 | **L3** 运行测试 | `l3_run_tests.rs` | `cargo run` 输出与各示例 README 中"运行结果"一致 | ✅ **48/48 通过** |
-| **L4** E2E 测试 | `rapidjson_e2e_test.rs` | 对 rapidjson shim 文件（`references/rapidjson-refactoring/rapidjson_sys/shim/`）执行完整 init + merge 转换，验证生成真实 `import_lib!` FFI 绑定（而非仅 `cpp!` 块） | ✅ 通过 |
+| **L4** E2E 测试 | `rapidjson_e2e_test.rs` 等 | 对真实开源项目执行完整 init + merge 转换：①rapidjson（10 子系统 shim）验证 `import_lib!` FFI 绑定；②五大库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）验证工具在不同类型项目上的覆盖率与鲁棒性 | ✅ 通过 |
 | **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
 ### 测试命令
@@ -885,8 +885,13 @@ cargo test --test l3_run_tests -- --include-ignored --test-threads=1
 # 运行 L4 rapidjson E2E 测试（须单线程：避免并行磁盘操作冲突）
 cargo test --test rapidjson_e2e_test -- --test-threads=1
 
-# 显式运行需要 libgtest-dev 的 unittest 测试（非 CI 环境）
-# cargo test --test rapidjson_e2e_test -- --ignored --test-threads=1
+# 运行 L4 五大库 E2E 测试（须先初始化对应子模块）
+# git submodule update --init references/tinyxml2 references/pugixml references/nlohmann-json references/fmtlib
+cargo test --test tinyxml2_e2e_test -- --test-threads=1
+cargo test --test pugixml_e2e_test -- --test-threads=1
+cargo test --test sqlite3_e2e_test -- --test-threads=1   # Linux 需安装 libsqlite3-dev
+cargo test --test nlohmann_json_e2e_test -- --test-threads=1
+cargo test --test fmtlib_e2e_test -- --test-threads=1
 
 # 运行 L5 nm 符号验证测试
 cargo test --test l5_nm_symbol_tests -- --include-ignored
@@ -910,18 +915,6 @@ cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 | **可变参数模板** | 按调用点展开有限版本，超出范围的参数组合需手动添加 |
 | **业务逻辑** | 工具只生成 FFI 绑定层（`lib.rs`），`fn main()` 和业务代码需手动编写 |
 | **跨翻译单元模板** | 每个 `.cpp2rust` 独立解析，跨文件模板实例化可能遗漏（`merge` 阶段部分缓解） |
-
----
-
-## 未来开发计划
-
-以下按优先级从高到低排列（P2 最高，P3 最低）：
-
-| 优先级 | 方向 | 现状 | 目标 |
-|--------|------|------|------|
-| **P2** | **跨翻译单元模板合并** | 每个 `.cpp2rust` 独立解析，跨文件模板实例化可能遗漏；`merge` 阶段已部分缓解 | 在 `merge` 阶段实现跨文件模板实例化聚合，消除遗漏 |
-| **P2** | **更多真实项目 E2E 验证** | 已有 rapidjson 完整参考（10 个子系统）+ L4 E2E 测试 | 扩展至更多主流 C++ 开源库（如 Eigen、Abseil、{fmt}），验证工具在复杂项目上的覆盖率和鲁棒性 |
-| **P3** | **L3 运行测试本地化** | L3 运行测试主要在 CI 环境验证，本地运行步骤较繁琐 | 补充本地快速运行脚本，降低开发者验证门槛 |
 
 ---
 
