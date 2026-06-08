@@ -256,6 +256,54 @@ pub fn collect_unit_rs_files(src_dir: &Path) -> Vec<std::path::PathBuf> {
     result
 }
 
+/// 扫描单元 `.rs` 文件，返回紧跟在 `cpp2rust-todo` 注释之后的 C++ 签名集合。
+///
+/// 匹配模式：在 `#[cpp(func = "...")]` 或 `#[cpp(method = "...")]` 属性行的上方
+/// 5 行内存在 `cpp2rust-todo` 注释的，将对应的 C++ 签名加入返回集合。
+pub fn extract_degraded_sigs(unit_files: &[std::path::PathBuf]) -> HashSet<String> {
+    let mut degraded: HashSet<String> = HashSet::new();
+    for path in unit_files {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let lines: Vec<&str> = content.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            // 检测 func 或 method 属性行，提取 C++ 签名
+            let maybe_sig = if trimmed.starts_with("#[cpp(func") {
+                extract_attr_quoted_value(trimmed, "func = ")
+            } else if trimmed.starts_with("#[cpp(method") {
+                extract_attr_quoted_value(trimmed, "method = ")
+            } else {
+                None
+            };
+            if let Some(sig) = maybe_sig {
+                // 向上最多扫描 2 行，看是否存在 cpp2rust-todo 注释。
+                // 代码生成时 todo 注释总是紧邻属性行上方 1 行；
+                // 额外扫描 1 行是为了兼容手工编辑场景下可能存在的微小格式差异。
+                let start = i.saturating_sub(2);
+                if lines[start..i]
+                    .iter()
+                    .any(|l| l.contains("cpp2rust-todo"))
+                {
+                    degraded.insert(sig);
+                }
+            }
+        }
+    }
+    degraded
+}
+
+/// 从形如 `#[cpp(func = "sig")]` 的属性行中提取引号内的值。
+/// 也供 `main` 模块使用，以避免重复实现相同逻辑。
+pub fn extract_attr_quoted_value(line: &str, key: &str) -> Option<String> {
+    let pos = line.find(key)?;
+    let rest = &line[pos + key.len()..];
+    let start = rest.find('"')? + 1;
+    let end = rest[start..].find('"')?;
+    Some(rest[start..start + end].to_string())
+}
+
 // ─────────────────────────────────────────────
 //  目录操作：copy_dir_all + merge_in_place
 // ─────────────────────────────────────────────
@@ -619,5 +667,81 @@ hicc::import_lib! {
         // rust_dir 下既没有 src 也没有 src.1
         let result = merge_in_place(tmp.path());
         assert!(result.is_err(), "should error when src does not exist");
+    }
+
+    // ── extract_degraded_sigs ──────────────────
+
+    #[test]
+    fn extract_degraded_sigs_detects_fn_todo() {
+        let src = r#"hicc::import_lib! {
+    #![link_name = "foo"]
+
+    // cpp2rust-todo[FP]: 含函数指针参数
+    #[cpp(func = "void cb(void (*fn)(int))")]
+    fn cb(fn_: usize);
+
+    #[cpp(func = "Foo* foo_new()")]
+    fn foo_new() -> *mut Foo;
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("unit.rs");
+        std::fs::write(&p, src).unwrap();
+
+        let degraded = extract_degraded_sigs(&[p]);
+        assert!(
+            degraded.contains("void cb(void (*fn)(int))"),
+            "fn with todo comment should be degraded"
+        );
+        assert!(
+            !degraded.contains("Foo* foo_new()"),
+            "fn without todo comment should not be degraded"
+        );
+    }
+
+    #[test]
+    fn extract_degraded_sigs_detects_method_todo() {
+        let src = r#"hicc::import_class! {
+    #[cpp(class = "Bar")]
+    class Bar {
+        // cpp2rust-todo[FP]: fn ptr method
+        #[cpp(method = "void set_cb(void (*f)(int))")]
+        fn set_cb(&mut self, f: usize);
+
+        #[cpp(method = "int get() const")]
+        fn get(&self) -> i32;
+    }
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("unit.rs");
+        std::fs::write(&p, src).unwrap();
+
+        let degraded = extract_degraded_sigs(&[p]);
+        assert!(
+            degraded.contains("void set_cb(void (*f)(int))"),
+            "method with todo should be degraded"
+        );
+        assert!(
+            !degraded.contains("int get() const"),
+            "method without todo should not be degraded"
+        );
+    }
+
+    #[test]
+    fn extract_degraded_sigs_empty_when_no_todos() {
+        let src = r#"hicc::import_lib! {
+    #![link_name = "foo"]
+
+    #[cpp(func = "int add(int a, int b)")]
+    fn add(a: i32, b: i32) -> i32;
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("unit.rs");
+        std::fs::write(&p, src).unwrap();
+
+        let degraded = extract_degraded_sigs(&[p]);
+        assert!(degraded.is_empty(), "no todos means no degraded sigs");
     }
 }

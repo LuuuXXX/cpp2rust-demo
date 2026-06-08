@@ -171,7 +171,8 @@ FfiSpec
 | 子命令 | 作用 | 典型用法 |
 |--------|------|---------|
 | `init` | 通过 LD_PRELOAD 拦截构建命令，捕获 C++ 预处理文件，解析 AST，生成 hicc 三段式 FFI 脚手架 | `cpp2rust-demo init -- make -j4` |
-| `merge` | 将 `init` 生成的编译单元文件整理为按 C++ 目录结构组织的 Rust 项目，备份原始输出；支持多 feature 合并为带 `[features]` 的统一项目 | `cpp2rust-demo merge --feature default` |
+| `merge` | 将 `init` 生成的编译单元文件整理为按 C++ 目录结构组织的 Rust 项目，备份原始输出；生成 `api-manifest.md` API 对账清单；支持多 feature 合并为带 `[features]` 的统一项目 | `cpp2rust-demo merge --feature default` |
+| `merge --output-dir` | 将指定 feature 的 Cargo 项目结构导出到任意目录，方便集成到外部工作流 | `cpp2rust-demo merge --output-dir /tmp/out` |
 
 ### `init` — 捕获构建 + 生成 FFI 脚手架
 
@@ -218,9 +219,10 @@ cpp2rust-demo merge --feature linux_x86 --feature arm_embedded
 ```
 .cpp2rust/<feature>/rust/
     ├── src.1/   ← init 输出原始备份（首次运行时 rename from src）
-    ├── src.2/   ← merge 输出（每次运行重写，维持子目录结构）
-    └── src      ← symlink → src.2
+    └── src/     ← merge 输出，真实目录（维持 C++ 目录结构）
 ```
+
+同时在 `.cpp2rust/<feature>/meta/` 下生成 `api-manifest.md`（C++ → Rust API 对账清单）。
 
 多 feature 合并时，输出到 `.cpp2rust/<feat1>_<feat2>/rust/`，生成含 `[features]` 段的 `Cargo.toml` 和按 feature 条件编译的 `src/lib.rs`、`build.rs`：
 
@@ -235,6 +237,37 @@ cargo build --features arm_embedded
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`）；**可重复指定**，≥2 个时进入多 feature 合并模式 |
+
+### `merge --output-dir` — 导出项目结构到任意目录
+
+`--output-dir` 是 `merge` 命令的可选参数，将完成 `init` + `merge` 后的 Cargo 项目结构导出到指定目录，方便将生成产物复制到其他位置或集成到外部工作流：
+
+```bash
+# 将 default feature 的项目结构导出到 /tmp/mylib-out
+cpp2rust-demo merge --output-dir /tmp/mylib-out
+
+# 导出指定 feature
+cpp2rust-demo merge --feature linux_x86 --output-dir /tmp/linux-out
+```
+
+导出后目录结构：
+
+```
+/tmp/mylib-out/
+    ├── meta/        （.cpp2rust/ 的完整副本，包含 api-manifest.md 等）
+    ├── src/         （合并后的 Rust 源码）
+    ├── build.rs
+    └── Cargo.toml
+```
+
+> **前提**：`merge --output-dir` 须在 `init` + `merge`（不带 `--output-dir`）均执行完毕后运行，因为它需要读取 `merge` 生成的 `Cargo.toml`、`build.rs` 和 `src/`。
+
+**参数说明：**
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--output-dir <DIR>` | ❌ | 导出目标目录（不存在时自动创建）；不指定时走普通 merge 流程 |
+| `--feature <name>` | ❌ | 要导出的 feature（默认 `default`）；`--output-dir` 只支持单 feature |
 
 ### 环境变量
 
@@ -344,13 +377,16 @@ cpp2rust-demo merge --feature default
 
 ```
 .cpp2rust/default/rust/
-    ├── src.1/   ← init 输出的原始备份（rename from src）
-    ├── src.2/   ← merge 输出（维持 C++ 目录结构）
-    └── src      ← symlink → src.2
+    ├── src.1/   ← init 输出的原始备份（首次运行时 rename from src）
+    └── src/     ← merge 输出，真实目录（维持 C++ 目录结构）
 ```
 
-- 首次运行：`src/` 重命名为 `src.1/`，输出写入 `src.2/`，建立 `src → src.2` symlink
-- 重复运行：`src.1/` 保持不变，仅更新 `src.2/` 并重建 symlink
+同时在 `.cpp2rust/<feature>/meta/` 下生成：
+- `merge-report.md`：merge 阶段汇总报告（.rs 文件数、FFI 绑定统计、降级标记）
+- `api-manifest.md`：C++ → Rust API 对账清单（Markdown 格式，记录每个类方法和独立函数的 C++ 签名与 Rust 签名，含降级标记）
+
+- 首次运行：`src/` 重命名为 `src.1/`，merge 输出写入新的 `src/`
+- 重复运行：`src.1/` 保持不变（原始 init 输出），`src/` 重新写入最新 merge 输出
 
 ### Step 2b — `merge`（多 feature 合并）：生成统一 Rust 项目 <a name="step-2b"></a>
 
