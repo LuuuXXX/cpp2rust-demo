@@ -190,8 +190,8 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 
 `init` 自动完成以下步骤：
 
-1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（后续调用自动跳过）
-2. 通过 LD_PRELOAD 注入构建过程，捕获 `.cpp2rust` 预处理文件
+1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（Linux）/ `libhook.dylib`（macOS）（后续调用自动跳过）
+2. 通过 `LD_PRELOAD`（Linux）/ `DYLD_INSERT_LIBRARIES`（macOS）注入构建过程，捕获 `.cpp2rust` 预处理文件
 3. 交互式选择参与转换的文件（非交互/CI 环境自动全选）
 4. libclang 解析 AST，提取类 / 函数 / 枚举 / 模板实例化
 5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
@@ -282,8 +282,10 @@ cpp2rust-demo merge --feature linux_x86 --output-dir /tmp/linux-out
 
 ### 安装依赖
 
+#### Linux（Ubuntu / Debian）
+
 ```bash
-# 系统依赖（Ubuntu/Debian）
+# 系统依赖
 sudo apt-get install clang libclang-dev g++ libstdc++-14-dev
 
 # 从 GitHub 安装（无需克隆仓库）
@@ -292,6 +294,50 @@ cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
 # 或从本地源码安装（开发者）
 cargo install --path .
 ```
+
+#### macOS
+
+```bash
+# 安装 Homebrew LLVM（提供 libclang 和 clang++）
+brew install llvm
+
+# 设置 LIBCLANG_PATH（使工具能找到 libclang.dylib）
+# 建议写入 ~/.zprofile 或 ~/.bash_profile 永久生效
+export LIBCLANG_PATH=$(brew --prefix llvm)/lib
+
+# 确认 Xcode Command Line Tools 已安装（提供 make、ar 等基础工具）
+xcode-select --install  # 若已安装会提示跳过
+
+# 从 GitHub 安装（无需克隆仓库）
+cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
+
+# 或从本地源码安装（开发者）
+cargo install --path .
+```
+
+> **macOS SIP（系统完整性保护）注意事项**：`DYLD_INSERT_LIBRARIES`（macOS 上的编译拦截机制）
+> 对受系统保护的二进制（如 `/usr/bin/g++`、`/usr/bin/clang++`）无效，SIP 会静默忽略注入。
+>
+> **解决方案**：使用 Homebrew 安装的编译器，它们位于 `/opt/homebrew/bin/` 或 `/usr/local/bin/`，
+> 不受 SIP 保护：
+>
+> ```bash
+> brew install gcc    # 提供 g++-14 等版本化编译器
+> # 或
+> brew install llvm   # 提供 $(brew --prefix llvm)/bin/clang++
+> ```
+>
+> 调用 `cpp2rust-demo init` 时，将 Homebrew 编译器路径置于 PATH 最前面，或通过 `CPP2RUST_CXX`
+> 环境变量显式指定：
+>
+> ```bash
+> # 方式一：调整 PATH（推荐）
+> export PATH="$(brew --prefix llvm)/bin:$PATH"
+> cpp2rust-demo init -- make -j4
+>
+> # 方式二：通过环境变量显式指定
+> CPP2RUST_CXX=$(brew --prefix llvm)/bin/clang++ cpp2rust-demo init -- make -j4
+> ```
 
 > **注意**：`hook/hook.cpp` 已内嵌进 binary，无需额外文件。首次执行 `init` 时工具
 > 自动将 hook 源码解压到 `~/.local/share/cpp2rust-demo/hook/`（Linux）或
@@ -330,8 +376,8 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 
 
 `init` 自动完成：
-1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（后续调用自动跳过）
-2. 通过 LD_PRELOAD 注入构建过程，捕获 `.cpp2rust` 预处理文件
+1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（Linux）/ `libhook.dylib`（macOS）（后续调用自动跳过）
+2. 通过 `LD_PRELOAD`（Linux）/ `DYLD_INSERT_LIBRARIES`（macOS）注入构建过程，捕获 `.cpp2rust` 预处理文件
 3. 交互式选择参与转换的文件（非交互环境自动全选）
 4. libclang 解析 AST，提取类/函数/枚举/模板实例化
 5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
@@ -908,8 +954,11 @@ STL：034_vector_basic → 035_map_basic → 036_string_basic
 ```bash
 cd examples/001_hello_world
 
-# 编译 C++ 共享库
+# 编译 C++ 共享库（Linux）
 cd cpp && g++ -shared -fPIC hello_world.cpp -o libhello_world.so && cd ..
+
+# 编译 C++ 共享库（macOS）
+cd cpp && clang++ -dynamiclib hello_world.cpp -o libhello_world.dylib && cd ..
 
 # 编译并运行 Rust FFI
 cd rust_hicc && cargo run

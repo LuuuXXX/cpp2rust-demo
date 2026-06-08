@@ -50,6 +50,12 @@
 #   sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev \
 #                           binutils git curl
 #   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+#
+# 系统要求（macOS / Homebrew）：
+#   brew install llvm cmake git
+#   export LIBCLANG_PATH=$(brew --prefix llvm)/lib
+#   export PATH="$(brew --prefix llvm)/bin:$PATH"
+#   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # =============================================================================
 
 set -euo pipefail
