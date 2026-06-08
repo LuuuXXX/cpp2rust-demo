@@ -27,7 +27,7 @@ serde_json = "1"
 walkdir = "2"
 dialoguer = "0.11"
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
 tempfile = "3"
 
 [dev-dependencies]
