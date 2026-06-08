@@ -276,6 +276,18 @@ fn preprocess_file_gnu(
             cmd.arg(a);
         }
     }
+    // macOS：Homebrew LLVM 在 -E 模式下无法自动定位系统 SDK 头文件，
+    // 需要显式传入 -isysroot 参数。通过 xcrun 获取当前 SDK 路径。
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = Command::new("xcrun").arg("--show-sdk-path").output() {
+            let sdk = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !sdk.is_empty() {
+                cmd.arg("-isysroot").arg(sdk);
+            }
+        }
+    }
+
     cmd.arg(&abs_src).arg("-o").arg(&out_path);
 
     let _ = cmd.status(); // 预处理失败不影响正常构建

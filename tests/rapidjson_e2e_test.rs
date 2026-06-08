@@ -443,6 +443,10 @@ fn rapidjson_merge_phase() {
     let cargo_check_output = Command::new("cargo")
         .args(["check", "--quiet"])
         .current_dir(&rust_dir)
+        // macOS 上 MACOSX_DEPLOYMENT_TARGET 若被继承，hicc-0.2.4 的旧版 cc-rs
+        // 会生成 --target=arm64-apple-macosx + -mmacosx-version-min=<ver> 两个分离
+        // 参数，Apple clang 不接受此组合；unset 后 cc-rs 使用平台默认值。
+        .env_remove("MACOSX_DEPLOYMENT_TARGET")
         .output();
     match cargo_check_output {
         Ok(output) => {
