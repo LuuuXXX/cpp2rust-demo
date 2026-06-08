@@ -28,11 +28,12 @@ use walkdir::WalkDir;
 pub struct MergedSpec {
     /// hicc::cpp! 块的有序内容行（已去重）
     pub cpp_lines: Vec<String>,
-    /// 每个类名对应的合并后方法列表
+    /// 每个类名对应的合并后方法列表（key 为规范化类名）
     pub classes: HashMap<String, Vec<ParsedMethod>>,
     /// 每个类名对应的完整属性行（如 `#[cpp(class = "Foo")]` / `#[interface]`）
+    /// key 为规范化类名
     pub class_attrs: HashMap<String, String>,
-    /// 类名出现顺序（保持稳定输出）
+    /// 类名出现顺序（保持稳定输出，使用规范化类名）
     pub class_order: Vec<String>,
     /// import_lib! 中的前向声明（已去重）
     pub fwd_decls: Vec<String>,
@@ -40,6 +41,12 @@ pub struct MergedSpec {
     pub fn_bindings: Vec<ParsedFnBinding>,
     /// 冲突警告列表
     pub conflicts: Vec<String>,
+    /// 已见过的模板块签名（第一行规范化形式），用于 cpp! 块中模板定义的块级去重
+    pub template_block_seen: HashSet<String>,
+    /// 各模板类来源 unit 列表（供调试注释，key 为模板签名规范化形式）
+    pub template_class_units: HashMap<String, Vec<String>>,
+    /// 跨 unit 合并的类名集合（key 为规范化类名），用于 emit 时生成调试注释
+    pub cross_unit_classes: HashMap<String, Vec<String>>,
 }
 
 /// 已合并的单个方法
@@ -62,7 +69,7 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
     // (cpp_sig → rust fn line)：冲突检测
     let mut fn_attr_to_sig: HashMap<String, String> = HashMap::new();
     let mut fwd_decl_seen: HashSet<String> = HashSet::new();
-    // (class_name, method_attr) → fn_sig：方法去重 & 冲突检测
+    // (规范化类名, method_attr) → fn_sig：方法去重 & 冲突检测
     let mut method_seen: HashMap<(String, String), String> = HashMap::new();
 
     for path in unit_rs_paths {
@@ -74,21 +81,111 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
             }
         };
 
+        // 从路径中提取 unit 名（用于跨 unit 合并注释）
+        let unit_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string();
+
         let unit = parse_unit_rs(&src);
-        merge_cpp_lines(&mut spec, &unit, &mut cpp_line_seen);
-        merge_classes(&mut spec, &unit, &mut method_seen);
+        merge_cpp_lines(&mut spec, &unit, &mut cpp_line_seen, &unit_stem);
+        merge_classes(&mut spec, &unit, &mut method_seen, &unit_stem);
         merge_lib(&mut spec, &unit, &mut fn_attr_to_sig, &mut fwd_decl_seen);
     }
 
     spec
 }
 
-fn merge_cpp_lines(spec: &mut MergedSpec, unit: &ParsedUnit, seen: &mut HashSet<String>) {
-    for line in &unit.cpp_lines {
-        // include 行去重；shim 函数行保留全部（可能有相同内容，但简单起见也去重）
-        if !seen.contains(line) {
-            seen.insert(line.clone());
-            spec.cpp_lines.push(line.clone());
+fn merge_cpp_lines(
+    spec: &mut MergedSpec,
+    unit: &ParsedUnit,
+    seen: &mut HashSet<String>,
+    unit_stem: &str,
+) {
+    let lines = &unit.cpp_lines;
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+
+        // 检测模板类定义块的开始（以 template 开头且包含 <）
+        if trimmed.starts_with("template") && trimmed.contains('<') {
+            let block_start = i;
+            let mut block: Vec<String> = Vec::new();
+            let mut depth = 0i32;
+            let mut j = i;
+            let mut block_complete = false;
+
+            while j < lines.len() {
+                let l = &lines[j];
+                block.push(l.clone());
+                for c in l.chars() {
+                    match c {
+                        '{' => depth += 1,
+                        '}' => depth -= 1,
+                        _ => {}
+                    }
+                }
+                let tl = l.trim();
+                // 块结束：depth 归零且行以 }; 结尾（或为空行之后遇到 };）
+                if depth <= 0 && j > block_start {
+                    if tl == "};" || tl.ends_with("};") || tl == "}" {
+                        block_complete = true;
+                        break;
+                    }
+                }
+                // 单行前向声明（如 template<> class Foo;）
+                if j == block_start && tl.ends_with(';') && !tl.ends_with(">;") {
+                    block_complete = true;
+                    break;
+                }
+                j += 1;
+            }
+
+            if !block_complete {
+                // 未能完整收集块，回退到逐行去重
+                for bl in &block {
+                    if !seen.contains(bl) {
+                        seen.insert(bl.clone());
+                        spec.cpp_lines.push(bl.clone());
+                    }
+                }
+                i = j + 1;
+                continue;
+            }
+
+            // 用第一行的规范化形式作为模板块签名（去重 key）
+            let sig = normalize_template_sig(trimmed);
+
+            if !spec.template_block_seen.contains(&sig) {
+                spec.template_block_seen.insert(sig.clone());
+                spec.template_class_units
+                    .entry(sig)
+                    .or_default()
+                    .push(unit_stem.to_string());
+                // 首次出现：写入输出
+                for bl in &block {
+                    if !seen.contains(bl) {
+                        seen.insert(bl.clone());
+                        spec.cpp_lines.push(bl.clone());
+                    }
+                }
+            } else {
+                // 后续出现：仅记录来源 unit，不再重复输出
+                spec.template_class_units
+                    .entry(sig)
+                    .or_default()
+                    .push(unit_stem.to_string());
+            }
+
+            i = j + 1;
+        } else {
+            // 普通行：逐行去重
+            if !seen.contains(&lines[i]) {
+                seen.insert(lines[i].clone());
+                spec.cpp_lines.push(lines[i].clone());
+            }
+            i += 1;
         }
     }
 }
@@ -97,27 +194,43 @@ fn merge_classes(
     spec: &mut MergedSpec,
     unit: &ParsedUnit,
     method_seen: &mut HashMap<(String, String), String>,
+    unit_stem: &str,
 ) {
     for cb in &unit.class_blocks {
-        let methods = match spec.classes.entry(cb.class_name.clone()) {
+        // 用规范化类名作为 map 键，避免 `vector<int>` vs `std::vector<int>` 重复
+        let canonical = canonicalize_class_name(&cb.class_name);
+        let methods = match spec.classes.entry(canonical.clone()) {
             std::collections::hash_map::Entry::Vacant(e) => {
-                spec.class_order.push(cb.class_name.clone());
+                spec.class_order.push(canonical.clone());
                 // 首次遇到时记录完整属性行
                 if !cb.class_attr.is_empty() {
                     spec.class_attrs
-                        .insert(cb.class_name.clone(), cb.class_attr.clone());
+                        .insert(canonical.clone(), cb.class_attr.clone());
                 }
+                // 记录此类来自哪个 unit
+                spec.cross_unit_classes
+                    .entry(canonical.clone())
+                    .or_default()
+                    .push(unit_stem.to_string());
                 e.insert(Vec::new())
             }
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Occupied(e) => {
+                // 已存在的类：记录来源 unit（用于跨 unit 注释）
+                spec.cross_unit_classes
+                    .entry(canonical.clone())
+                    .or_default()
+                    .push(unit_stem.to_string());
+                e.into_mut()
+            }
         };
         for method in &cb.methods {
-            let key = (cb.class_name.clone(), method.attr.clone());
+            // 方法去重 key 也使用规范化类名
+            let key = (canonical.clone(), method.attr.clone());
             if let Some(existing_sig) = method_seen.get(&key) {
                 if existing_sig != &method.fn_sig {
                     spec.conflicts.push(format!(
                         "Class {} method conflict:\n  existing: {}\n  new:      {}",
-                        cb.class_name, existing_sig, method.fn_sig
+                        canonical, existing_sig, method.fn_sig
                     ));
                 }
                 // 已存在，跳过
@@ -164,6 +277,33 @@ fn merge_lib(
 }
 
 // ─────────────────────────────────────────────
+//  辅助函数：类名规范化 & 模板签名规范化
+// ─────────────────────────────────────────────
+
+/// 规范化模板类名，用于跨翻译单元的 `import_class!` 去重。
+///
+/// 处理规则：
+/// - 去除 `std::` 命名空间前缀（`std::vector<int>` → `vector<int>`）
+/// - 折叠多余空格
+///
+/// 目的：避免同一模板实例化因命名空间写法不同被视为两个不同类。
+fn canonicalize_class_name(name: &str) -> String {
+    let s = name.trim();
+    // 去除 std:: 前缀（只去最外层，不递归处理类型参数内部）
+    let s = s.strip_prefix("std::").unwrap_or(s);
+    // 折叠多余空格
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// 规范化模板块第一行签名，用于 cpp! 块中模板定义的块级去重。
+///
+/// 将形如 `template<typename T>` 或 `template <class T, typename U>` 的行
+/// 折叠多余空格后作为去重 key。
+fn normalize_template_sig(line: &str) -> String {
+    line.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+// ─────────────────────────────────────────────
 //  代码生成：MergedSpec → Rust 源代码字符串
 // ─────────────────────────────────────────────
 
@@ -185,6 +325,21 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
         };
         if methods.is_empty() {
             continue;
+        }
+        // 若该类来自多个翻译单元，添加调试注释
+        if let Some(units) = spec.cross_unit_classes.get(class_name) {
+            // 去重 unit 名列表
+            let mut unique_units: Vec<&String> = units.iter().collect();
+            unique_units.dedup();
+            if unique_units.len() > 1 {
+                let unit_list: Vec<&str> = unique_units.iter().map(|s| s.as_str()).collect();
+                out.push_str(&format!(
+                    "// cpp2rust-merged-template: {} found in {} units [{}]\n",
+                    class_name,
+                    unique_units.len(),
+                    unit_list.join(", ")
+                ));
+            }
         }
         // 使用解析时记录的完整属性行，正确保留 destroy= 和 #[interface]
         let default_attr = format!("#[cpp(class = \"{}\")]", class_name);
@@ -743,5 +898,160 @@ hicc::import_lib! {
 
         let degraded = extract_degraded_sigs(&[p]);
         assert!(degraded.is_empty(), "no todos means no degraded sigs");
+    }
+
+    // ── 跨翻译单元模板合并 ─────────────────────
+
+    #[test]
+    fn merge_deduplicates_template_blocks() {
+        // 两个 unit 都有相同的模板类定义（cpp! 块内联）
+        let src_with_template = r#"hicc::cpp! {
+    #include "vec.h"
+    template<typename T>
+    class MyVec {
+        T* data_;
+    };
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p1 = dir.path().join("unit1.rs");
+        let p2 = dir.path().join("unit2.rs");
+        std::fs::write(&p1, src_with_template).unwrap();
+        std::fs::write(&p2, src_with_template).unwrap();
+
+        let spec = merge_units(&[p1, p2]);
+        // 模板定义应只出现一次
+        let template_count = spec
+            .cpp_lines
+            .iter()
+            .filter(|l| l.trim().starts_with("template"))
+            .count();
+        assert_eq!(template_count, 1, "template definition should be deduped");
+        // include 行也应只出现一次
+        let inc_count = spec
+            .cpp_lines
+            .iter()
+            .filter(|l| l.contains("vec.h"))
+            .count();
+        assert_eq!(inc_count, 1, "include should be deduped");
+    }
+
+    #[test]
+    fn merge_template_block_seen_records_units() {
+        let src = r#"hicc::cpp! {
+    template<typename T>
+    class Box {
+        T val;
+    };
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p1 = dir.path().join("fileA.rs");
+        let p2 = dir.path().join("fileB.rs");
+        std::fs::write(&p1, src).unwrap();
+        std::fs::write(&p2, src).unwrap();
+
+        let spec = merge_units(&[p1, p2]);
+        // template_block_seen 应包含该签名
+        assert!(
+            !spec.template_block_seen.is_empty(),
+            "template_block_seen should record the template signature"
+        );
+        // template_class_units 应记录两个 unit
+        let units: Vec<Vec<String>> = spec.template_class_units.values().cloned().collect();
+        assert!(
+            units.iter().any(|v| v.len() == 2),
+            "template class should be seen in 2 units"
+        );
+    }
+
+    #[test]
+    fn merge_classes_uses_canonical_name() {
+        // unit1 使用 std::vector<int>，unit2 使用 vector<int>——应合并为同一类
+        let src1 = r#"hicc::cpp! {
+    #include <vector>
+}
+
+hicc::import_class! {
+    #[cpp(class = "std::vector<int>")]
+    class std::vector<int> {
+        #[cpp(method = "int size() const")]
+        fn size(&self) -> i32;
+
+    }
+}
+"#;
+        let src2 = r#"hicc::cpp! {
+    #include <vector>
+}
+
+hicc::import_class! {
+    #[cpp(class = "vector<int>")]
+    class vector<int> {
+        #[cpp(method = "void push_back(int v)")]
+        fn push_back(&mut self, v: i32);
+
+    }
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p1 = dir.path().join("unit1.rs");
+        let p2 = dir.path().join("unit2.rs");
+        std::fs::write(&p1, src1).unwrap();
+        std::fs::write(&p2, src2).unwrap();
+
+        let spec = merge_units(&[p1, p2]);
+        // 应只有一个规范化类名 "vector<int>"
+        assert_eq!(spec.class_order.len(), 1, "std::vector<int> and vector<int> should be one class");
+        let canonical = &spec.class_order[0];
+        assert_eq!(canonical, "vector<int>", "canonical name should drop std::");
+        // 合并后应有两个方法
+        let methods = spec.classes.get("vector<int>").unwrap();
+        assert_eq!(methods.len(), 2, "methods from both units should be merged");
+    }
+
+    #[test]
+    fn emit_merged_rs_adds_cross_unit_comment() {
+        // 同一类来自两个不同 unit
+        let src = r#"hicc::cpp! {
+    #include "foo.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Tmpl")]
+    class Tmpl {
+        #[cpp(method = "int get() const")]
+        fn get(&self) -> i32;
+
+    }
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p1 = dir.path().join("unitA.rs");
+        let p2 = dir.path().join("unitB.rs");
+        std::fs::write(&p1, src).unwrap();
+        // unit2 has an additional method to force a merge
+        let src2 = r#"hicc::cpp! {
+    #include "foo.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Tmpl")]
+    class Tmpl {
+        #[cpp(method = "void set(int v)")]
+        fn set(&mut self, v: i32);
+
+    }
+}
+"#;
+        std::fs::write(&p2, src2).unwrap();
+
+        let spec = merge_units(&[p1, p2]);
+        let output = emit_merged_rs(&spec, "foo");
+        // 因为 Tmpl 来自两个不同 unit，应包含合并注释
+        assert!(
+            output.contains("cpp2rust-merged-template"),
+            "output should contain cross-unit merge comment when class comes from multiple units"
+        );
     }
 }
