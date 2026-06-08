@@ -482,9 +482,8 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     println!("    │   ├── merge-report.md  （merge 摘要）");
     println!("    │   └── api-manifest.json（C++ → Rust API 对账清单）");
     println!("    └── rust/");
-    println!("        ├── src.1/  (init 输出备份)");
-    println!("        ├── src.2/  （merge 输出，目录结构与 C++ 项目一致）");
-    println!("        └── src     （符号链接 → src.2）");
+    println!("        ├── src.1/  （init 输出备份，首次运行时 rename from src）");
+    println!("        └── src/    （merge 输出，真实目录，与 C++ 项目目录结构一致）");
 
     // ── §5 生成的 .rs 文件列表 ──────────────────────────────────────────────
     println!();
@@ -1279,5 +1278,209 @@ mod tests {
             preamble.is_empty(),
             "expected empty preamble, got: {preamble:?}"
         );
+    }
+
+    // ── count_file_lines ────────────────────────────────────────────────────
+
+    #[test]
+    fn count_file_lines_counts_correctly() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("test.txt");
+        std::fs::write(&p, "line1\nline2\nline3\n").unwrap();
+        assert_eq!(count_file_lines(&p), 3);
+    }
+
+    #[test]
+    fn count_file_lines_empty_file() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("empty.txt");
+        std::fs::write(&p, "").unwrap();
+        assert_eq!(count_file_lines(&p), 0);
+    }
+
+    #[test]
+    fn count_file_lines_missing_file() {
+        let p = std::path::Path::new("/nonexistent/file.txt");
+        assert_eq!(count_file_lines(p), 0);
+    }
+
+    // ── collect_rust_src_metrics ────────────────────────────────────────────
+
+    #[test]
+    fn collect_rust_src_metrics_counts_fn_bindings() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("unit.rs");
+        std::fs::write(
+            &src,
+            r#"hicc::import_lib! {
+    #![link_name = "foo"]
+    #[cpp(func = "int add(int a, int b)")]
+    fn add(a: i32, b: i32) -> i32;
+    #[cpp(func = "void reset()")]
+    fn reset();
+}
+"#,
+        )
+        .unwrap();
+        let m = collect_rust_src_metrics(tmp.path());
+        assert_eq!(m.fn_binding_count, 2);
+        assert_eq!(m.import_lib_files, 1);
+    }
+
+    #[test]
+    fn collect_rust_src_metrics_detects_include() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("unit.rs");
+        std::fs::write(
+            &src,
+            r#"hicc::cpp! {
+    #include "foo.h"
+    #include "bar.h"
+}
+"#,
+        )
+        .unwrap();
+        let m = collect_rust_src_metrics(tmp.path());
+        assert_eq!(m.include_count, 2);
+    }
+
+    #[test]
+    fn collect_rust_src_metrics_detects_bad_link_name() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("unit.rs");
+        std::fs::write(
+            &src,
+            r#"hicc::import_lib! {
+    #![link_name = "some/path/lib"]
+}
+"#,
+        )
+        .unwrap();
+        let m = collect_rust_src_metrics(tmp.path());
+        assert_eq!(m.bad_link_names.len(), 1);
+        assert_eq!(m.bad_link_names[0], "some/path/lib");
+    }
+
+    #[test]
+    fn collect_rust_src_metrics_counts_todo_tags() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("unit.rs");
+        std::fs::write(
+            &src,
+            r#"    // cpp2rust-todo[OP]: operator
+    // cpp2rust-todo[FP]: fn ptr
+    // cpp2rust-todo[OP]: another operator
+"#,
+        )
+        .unwrap();
+        let m = collect_rust_src_metrics(tmp.path());
+        assert_eq!(m.todo_count, 3);
+        // degraded_tags 按 tag 字母序排序
+        let op_count = m
+            .degraded_tags
+            .iter()
+            .find(|(t, _)| t == "OP")
+            .map(|(_, c)| *c)
+            .unwrap_or(0);
+        assert_eq!(op_count, 2);
+    }
+
+    // ── build_api_manifest ──────────────────────────────────────────────────
+
+    #[test]
+    fn build_api_manifest_basic() {
+        use merger::{MergedSpec, ParsedMethod};
+        use std::collections::HashSet;
+
+        let mut spec = MergedSpec::default();
+        spec.class_order.push("Foo".to_string());
+        spec.class_attrs.insert(
+            "Foo".to_string(),
+            "#[cpp(class = \"Foo\")]".to_string(),
+        );
+        spec.classes.insert(
+            "Foo".to_string(),
+            vec![ParsedMethod {
+                attr: "#[cpp(method = \"int get() const\")]".to_string(),
+                fn_sig: "fn get(&self) -> i32;".to_string(),
+            }],
+        );
+
+        let degraded_sigs: HashSet<String> = HashSet::new();
+        let manifest = build_api_manifest("default", &spec, &degraded_sigs);
+
+        assert_eq!(manifest.feature, "default");
+        assert_eq!(manifest.classes.len(), 1);
+        assert_eq!(manifest.classes[0].name, "Foo");
+        assert_eq!(manifest.classes[0].methods.len(), 1);
+        assert_eq!(manifest.classes[0].methods[0].cpp_sig, "int get() const");
+        assert_eq!(manifest.classes[0].methods[0].rust_sig, "fn get(&self) -> i32;");
+        assert!(!manifest.classes[0].methods[0].is_degraded);
+    }
+
+    #[test]
+    fn build_api_manifest_marks_degraded_method() {
+        use merger::{MergedSpec, ParsedMethod};
+        use std::collections::HashSet;
+
+        let mut spec = MergedSpec::default();
+        spec.class_order.push("Bar".to_string());
+        spec.class_attrs.insert(
+            "Bar".to_string(),
+            "#[cpp(class = \"Bar\")]".to_string(),
+        );
+        spec.classes.insert(
+            "Bar".to_string(),
+            vec![ParsedMethod {
+                attr: "#[cpp(method = \"void set_cb(void (*f)(int))\")]".to_string(),
+                fn_sig: "fn set_cb(&mut self, f: usize);".to_string(),
+            }],
+        );
+
+        let mut degraded_sigs: HashSet<String> = HashSet::new();
+        degraded_sigs.insert("void set_cb(void (*f)(int))".to_string());
+
+        let manifest = build_api_manifest("default", &spec, &degraded_sigs);
+        assert!(manifest.classes[0].methods[0].is_degraded);
+    }
+
+    #[test]
+    fn build_api_manifest_marks_degraded_function() {
+        use merger::block_parser::ParsedFnBinding;
+        use merger::MergedSpec;
+        use std::collections::HashSet;
+
+        let mut spec = MergedSpec::default();
+        spec.fn_bindings.push(ParsedFnBinding {
+            attr: "#[cpp(func = \"void cb(void (*fn)(int))\")]".to_string(),
+            fn_sig: "fn cb(fn_: usize);".to_string(),
+        });
+
+        let mut degraded_sigs: HashSet<String> = HashSet::new();
+        degraded_sigs.insert("void cb(void (*fn)(int))".to_string());
+
+        let manifest = build_api_manifest("myfeature", &spec, &degraded_sigs);
+        assert_eq!(manifest.feature, "myfeature");
+        assert_eq!(manifest.functions.len(), 1);
+        assert_eq!(manifest.functions[0].cpp_sig, "void cb(void (*fn)(int))");
+        assert!(manifest.functions[0].is_degraded);
+    }
+
+    #[test]
+    fn build_api_manifest_empty_spec() {
+        use merger::MergedSpec;
+        use std::collections::HashSet;
+
+        let spec = MergedSpec::default();
+        let degraded_sigs: HashSet<String> = HashSet::new();
+        let manifest = build_api_manifest("default", &spec, &degraded_sigs);
+        assert!(manifest.classes.is_empty());
+        assert!(manifest.functions.is_empty());
     }
 }

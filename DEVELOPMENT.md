@@ -71,12 +71,21 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 .cpp2rust/<feature>/
 ├── c/                   # 预处理文件（.cpp2rust 后缀）
 ├── meta/                # build_cmd.txt、selected_files.json
+│   ├── init-report.md   # init 阶段摘要报告（由 init 生成）
+│   ├── merge-report.md  # merge 阶段摘要报告（由 merge 生成）
+│   └── api-manifest.json# C++ → Rust API 对账清单（由 merge 生成）
 └── rust/                # 生成的 Rust 项目
-    └── src/
+    ├── src.1/           # init 输出原始备份（merge 后生成）
+    └── src/             # merge 输出，真实目录（与 C++ 项目目录结构一致）
         ├── lib.rs
         ├── <unit>.rs         # 扁平文件（C++ 项目根目录下的编译单元）
         └── <subdir>/<unit>.rs# 带子目录（C++ 源文件位于 src/ 等子目录时）
 ```
+
+`api-manifest.json` 是 merge 阶段生成的 C++ → Rust API 对账清单，包含：
+- `classes`：每个类的 `class_attr`、方法列表（`cpp_sig` + `rust_sig` + `is_degraded`）
+- `functions`：独立函数列表（`cpp_sig` + `rust_sig` + `is_degraded`）
+- `is_degraded`：布尔标记，表示该绑定含 `cpp2rust-todo` 注释，需人工完善
 
 ### 2.3 生成代码格式（三段式）
 
@@ -157,7 +166,7 @@ hicc::import_lib! {
 
 ---
 
-## 5. 当前进度（截至 2026-06-02，最新更新）
+## 5. 当前进度（截至 2026-06-08，最新更新）
 
 ### 5.1 Phase 完成状态
 
@@ -176,6 +185,8 @@ hicc::import_lib! {
 | **Phase 9** | L3 运行测试修复（`compare_run_output`、030 SIGSEGV、14 个 README 对齐） | ✅ 完成 |
 | **Phase 10** | 路径生成修复（`derive_unit_path` 消除双重 `src/` 前缀） | ✅ 完成 |
 | **Phase 11** | Codegen 精确度修复（Dtor/Ctor 归属、接口类检测、`namespace_class_mode` cpp! 块、枚举重复定义、volatile 方法跳过、`is_from_current_file` 来源追踪） | ✅ 完成 |
+| **Phase 12** | `merge output` 子命令（导出 Cargo 项目结构到任意目录） | ✅ 完成 |
+| **Phase 13** | `api-manifest.json` 生成（merge 阶段生成 C++ → Rust API 对账清单，含降级标记） | ✅ 完成 |
 
 ### 5.3 测试通过率
 
