@@ -174,8 +174,12 @@ pub fn derive_unit_path(c_dir: &Path, cpp2rust_file: &Path) -> String {
 /// 保留前缀的 lex 错误。在 hicc::cpp! 中 C++ 代码以 token stream 传入，Rust 2021
 /// 会在 proc macro 执行前就报 lex error；2018 则将其 tokenize 为标识符 `L` + 字符字面量。
 ///
-/// 包含 `hicc-std`：当 C++ API 使用 STL 类型（`std::string`、`std::vector<T>` 等）时，
-/// 生成代码需要 `hicc_std::` 类型别名；始终声明该依赖可确保生成的项目开箱即用。
+/// **不引入 `hicc-std` 依赖**：`hicc-std 0.2` 在 macOS Apple Clang 下存在编译问题——
+/// 其 `build.rs` 在非 MSVC 平台统一链接 `stdc++`，而 Apple Clang 使用 `libc++`（`-lc++`），
+/// 导致 `cargo check/build` 在 macOS 上失败。工具生成的 Rust FFI 代码本身不直接依赖
+/// `hicc_std::` 类型，STL 容器均通过 C++ 侧自定义包装类暴露为普通 `extern "C"` 接口，
+/// 因此无需将 `hicc-std` 作为运行时依赖引入。如需在 Linux/Windows 上使用 `hicc_std::`
+/// 类型别名（如 `hicc_std::string`、`hicc_std::vector` 等），可由用户在生成项目中手动添加。
 pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
     let content = format!(
         r#"[package]
@@ -189,7 +193,6 @@ path = "src/lib.rs"
 
 [dependencies]
 hicc = {{ version = "0.2" }}
-hicc-std = {{ version = "0.2" }}
 
 [build-dependencies]
 hicc-build = {{ version = "0.2" }}
@@ -263,6 +266,8 @@ fn main() {{
 /// 用作 `package.name` 和 `[lib] name`。
 /// 生成的项目在 `[features]` 中列出每个 feature，
 /// 支持 `cargo build --features <feature>` 按需构建对应代码。
+///
+/// 同 [`write_cargo_toml`]，不引入 `hicc-std` 依赖（macOS Apple Clang 兼容性问题，见上方说明）。
 pub fn write_multi_feature_cargo_toml(
     rust_dir: &Path,
     combined_name: &str,
@@ -290,7 +295,6 @@ path = "src/lib.rs"
 
 [dependencies]
 hicc = {{ version = "0.2" }}
-hicc-std = {{ version = "0.2" }}
 
 [build-dependencies]
 hicc-build = {{ version = "0.2" }}

@@ -573,8 +573,14 @@ references/rapidjson-refactoring/rapidjson_sys/shim/
 bash usage/verify-rapidjson-ffi.sh
 ```
 
-> **生成 Cargo.toml 包含 `hicc-std` 依赖**：工具在生成的 `Cargo.toml` 中自动添加
-> `hicc-std` 依赖（STL 容器绑定所需的辅助宏），无需手动添加。
+> **生成 Cargo.toml 不引入 `hicc-std` 依赖**：工具生成的 Rust FFI 代码通过 C++ 侧自定义包装类
+> 将 STL 类型暴露为普通 `extern "C"` 接口，Rust 侧无需直接使用 `hicc_std::` 类型，因此不自动引入该依赖。
+>
+> **平台支持说明**：`hicc-std 0.2` 在 macOS Apple Clang 下存在编译问题。根本原因是其
+> `build.rs` 在非 MSVC 平台统一链接 `stdc++`（GNU libstdc++），而 Apple Clang 默认使用
+> `libc++`（需链接 `-lc++`），导致 `cargo build` 在 macOS 上失败。如需在 Linux / Windows
+> (MinGW/MSVC) 上使用 `hicc_std::` 类型别名操作 STL 容器（如 `std::string`、`std::vector` 等），
+> 可在生成项目的 `Cargo.toml` 中手动添加 `hicc-std = { version = "0.2" }`。
 
 ---
 
