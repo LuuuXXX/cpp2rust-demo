@@ -381,6 +381,9 @@ fn set_executable(path: &Path) -> Result<()> {
 /// 在当前 PATH 中搜索 C++ 编译器（macOS）。
 ///
 /// 搜索顺序：`clang++` → `g++` → `c++`。
+/// - `clang++`：优先使用 Homebrew LLVM（已由调用方置于 PATH 最前）；
+/// - `g++`：备选 Homebrew GCC；
+/// - `c++`：最终后备（macOS 上通常是 Xcode/CommandLineTools 提供的 Apple Clang 别名）。
 /// 首个在 PATH 目录中找到的可执行文件即为返回值。
 #[cfg(target_os = "macos")]
 fn detect_macos_cxx_compiler() -> Option<PathBuf> {
