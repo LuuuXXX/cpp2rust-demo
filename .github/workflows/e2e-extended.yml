@@ -1,0 +1,124 @@
+name: E2E Extended
+
+# 扩展 E2E 测试：验证工具在主流 C++ 开源库（{fmt} / Abseil / Eigen）上的覆盖率和鲁棒性。
+#
+# 触发条件：
+#   - 仅在 PR 被标注 `e2e` 标签时触发（避免增加日常 CI 耗时）
+#   - 可手动通过 workflow_dispatch 触发
+#
+# 验证范围：
+#   - {fmt}：header-only + extern-C shim 模式，验证模板实例化密集场景下的 import_lib! 生成
+#   - Abseil：命名空间类 + void* opaque 指针，验证 namespace_class_mode 路径
+#   - Eigen：纯模板矩阵库，验证大量 ClassTemplateSpecialization 展开下工具的鲁棒性
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ── {fmt} E2E 测试 ────────────────────────────────────────────────
+  fmt-e2e:
+    name: L4-Extended fmt E2E
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev \
+            libfmt-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-e2e-
+
+      - name: Run fmt E2E tests
+        run: |
+          cargo test --test fmt_e2e_test -- --ignored --nocapture
+
+  # ── Abseil E2E 测试 ───────────────────────────────────────────────
+  abseil-e2e:
+    name: L4-Extended Abseil E2E
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev \
+            libabsl-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-e2e-
+
+      - name: Run Abseil E2E tests
+        run: |
+          cargo test --test abseil_e2e_test -- --ignored --nocapture
+
+  # ── Eigen E2E 测试 ────────────────────────────────────────────────
+  eigen-e2e:
+    name: L4-Extended Eigen E2E
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev \
+            libeigen3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-e2e-
+
+      - name: Run Eigen E2E tests
+        run: |
+          cargo test --test eigen_e2e_test -- --ignored --nocapture
