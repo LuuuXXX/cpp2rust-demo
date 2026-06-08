@@ -295,11 +295,7 @@ fn run_merge_output(features: Vec<String>, out_dir: PathBuf) -> Result<()> {
             "--output-dir 不支持多 feature，请只指定一个 --feature"
         ));
     }
-    let feature = if features.is_empty() {
-        "default".to_string()
-    } else {
-        features.into_iter().next().unwrap_or_else(|| "default".to_string())
-    };
+    let feature = features.into_iter().next().unwrap_or_else(|| "default".to_string());
 
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
