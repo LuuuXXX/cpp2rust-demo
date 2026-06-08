@@ -190,6 +190,9 @@ hicc::import_lib! {
 | **Phase 11** | Codegen 精确度修复（Dtor/Ctor 归属、接口类检测、`namespace_class_mode` cpp! 块、枚举重复定义、volatile 方法跳过、`is_from_current_file` 来源追踪） | ✅ 完成 |
 | **Phase 12** | `merge output` 子命令（导出 Cargo 项目结构到任意目录） | ✅ 完成 |
 | **Phase 13** | `api-manifest.md` 生成（merge 阶段生成 C++ → Rust API 对账清单，Markdown 格式，含降级标记） | ✅ 完成 |
+| **Phase 14** | 跨翻译单元模板合并（`merger/mod.rs` 增加模板块级去重、类名规范化、跨 unit 方法聚合、合并注释）| ✅ 完成 |
+| **Phase 15** | 扩展 E2E 验证（{fmt} / Abseil / Eigen shim + 测试 + `.github/workflows/e2e-extended.yml`）| ✅ 完成 |
+| **Phase 16** | L3 运行测试本地化（`scripts/run_l3_local.sh` / `.ps1`、`Makefile`、`cargo_run` 自动库路径）| ✅ 完成 |
 
 ### 5.3 测试通过率
 
@@ -203,10 +206,13 @@ hicc::import_lib! {
 
 ## 6. 后续计划
 
-### 6.1 P2/P3 - 待后续跟进
+### 6.1 P2/P3 - 已实现（Phase 14-16）
 
-- 模板跨翻译单元合并（当前每个 `.cpp2rust` 文件独立解析，跨文件的模板实例化可能遗漏；merge 阶段已通过去重部分缓解）
-- L3 运行测试本地化（当前仅 CI 验证，建议补充本地快速运行脚本）
+所有"未来开发计划"均已完成：
+
+- **P2 跨翻译单元模板合并**（Phase 14）：`merger/mod.rs` 实现模板签名块级去重、`canonicalize_class_name` 规范化（去 `std::` 前缀）、跨 unit 方法集合聚合、`// cpp2rust-merged-template` 调试注释。
+- **P2 更多真实项目 E2E 验证**（Phase 15）：为 {fmt} / Abseil / Eigen 创建 `extern "C"` shim 层（`references/*/shim/`）和 `#[ignore]` 测试（`tests/fmt_e2e_test.rs` 等）。新建独立 CI 工作流（`.github/workflows/e2e-extended.yml`，仅在 PR 标注 `e2e` label 时触发）。
+- **P3 L3 运行测试本地化**（Phase 16）：`scripts/run_l3_local.sh`（Linux/macOS）和 `scripts/run_l3_local.ps1`（Windows）一键编译共享库并运行 L3 测试；根目录 `Makefile` 提供 `make test-l1/l2/l3/l4` 统一入口；`tests/common/mod.rs` 的 `cargo_run` 函数自动设置 `LD_LIBRARY_PATH`/`DYLD_LIBRARY_PATH`。
 
 ---
 
@@ -236,7 +242,10 @@ cargo run -- merge --feature default
 # 运行 L2 编译测试
 cargo test --test l2_compile_tests
 
-# 运行 L3 运行测试
+# 运行 L3 运行测试（方式一：使用本地化脚本，自动编译共享库）
+./scripts/run_l3_local.sh
+
+# 运行 L3 运行测试（方式二：手动编译后运行，仅 CI/Linux 环境）
 cargo test --test l3_run_tests -- --include-ignored --test-threads=1
 ```
 
@@ -299,6 +308,66 @@ cpp2rust-demo init -- make -j4
 # 或：通过环境变量显式指定编译器
 CPP2RUST_CXX=$(brew --prefix llvm)/bin/clang++ cpp2rust-demo init -- make -j4
 ```
+
+### 7.3 L3 运行测试本地化
+
+L3 测试（`l3_run_tests.rs`）需要在运行前编译各示例的 C++ 共享库。以下是三种运行方式：
+
+#### 方式一：一键脚本（推荐）
+
+```bash
+# Linux / macOS：自动编译所有示例共享库并运行 L3 测试
+./scripts/run_l3_local.sh
+
+# 只运行包含 "001" 的示例
+./scripts/run_l3_local.sh --filter 001
+
+# 只编译共享库，不运行测试
+./scripts/run_l3_local.sh --compile-only
+
+# Windows PowerShell
+.\scripts\run_l3_local.ps1
+.\scripts\run_l3_local.ps1 -Filter "001"
+```
+
+#### 方式二：通过 Makefile
+
+```bash
+# 运行所有 L3 测试
+make test-l3
+
+# 只运行含 "001" 的示例
+make test-l3 FILTER=001
+
+# 运行全套（L1 + L2）
+make test-all
+```
+
+#### 方式三：手动步骤
+
+1. **编译共享库**（Linux 示例）：
+   ```bash
+   # 编译单个示例
+   cd examples/001_hello_world/cpp
+   g++ -std=c++17 -shared -fPIC hello_world.cpp -o libhello_world.so
+
+   # 批量编译所有示例（Linux）
+   for dir in examples/*/cpp; do
+     name=$(basename $(dirname "$dir"))
+     libname="${name#*_}"
+     (cd "$dir" && g++ -std=c++17 -shared -fPIC *.cpp -o "lib${libname}.so" 2>/dev/null || true)
+   done
+   ```
+
+2. **运行 L3 测试**：
+   ```bash
+   # cargo_run 会自动将 ../cpp 目录加入 LD_LIBRARY_PATH（无需手动设置）
+   cargo test --test l3_run_tests -- --include-ignored --test-threads=4
+   ```
+
+> **注意**：`tests/common/mod.rs` 中的 `cargo_run` 函数会自动从 `rust_hicc/` 目录推导出
+> `../cpp/` 路径并设置 `LD_LIBRARY_PATH`（Linux）/ `DYLD_LIBRARY_PATH`（macOS），
+> 因此只需确保 `.so`/`.dylib` 文件已在 `cpp/` 目录中即可。
 
 ---
 

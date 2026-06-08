@@ -221,12 +221,50 @@ pub fn cargo_build(dir: &str) -> bool {
 }
 
 /// Run cargo run in a directory. Returns stdout output.
+///
+/// 自动将同级 `../cpp/` 目录加入动态库搜索路径：
+/// - Linux：`LD_LIBRARY_PATH`
+/// - macOS：`DYLD_LIBRARY_PATH`
+///
+/// 这样开发者只需提前在 `cpp/` 目录中编译好 `.so`/`.dylib`，
+/// 就能直接运行 L3 测试，无需手动设置环境变量。
 pub fn cargo_run(dir: &str) -> String {
-    let output = Command::new("cargo")
-        .args(["run"])
-        .current_dir(dir)
-        .output()
-        .expect("Failed to run cargo run");
+    // 从 rust_hicc 目录推导 cpp 目录：examples/NNN_name/rust_hicc -> examples/NNN_name/cpp
+    let cpp_dir = std::path::Path::new(dir)
+        .parent()
+        .map(|p| p.join("cpp"))
+        .filter(|p| p.exists());
+
+    let mut cmd = Command::new("cargo");
+    cmd.args(["run"]).current_dir(dir);
+
+    if let Some(cpp_path) = cpp_dir {
+        let cpp_abs = std::fs::canonicalize(&cpp_path).unwrap_or(cpp_path);
+        let lib_path = cpp_abs.to_string_lossy().to_string();
+
+        #[cfg(target_os = "macos")]
+        {
+            let existing = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+            let new_path = if existing.is_empty() {
+                lib_path
+            } else {
+                format!("{}:{}", lib_path, existing)
+            };
+            cmd.env("DYLD_LIBRARY_PATH", new_path);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+            let new_path = if existing.is_empty() {
+                lib_path
+            } else {
+                format!("{}:{}", lib_path, existing)
+            };
+            cmd.env("LD_LIBRARY_PATH", new_path);
+        }
+    }
+
+    let output = cmd.output().expect("Failed to run cargo run");
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
