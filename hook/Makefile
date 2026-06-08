@@ -1,10 +1,10 @@
-CXX ?= g++
-
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
+    CXX     ?= clang++
     TARGET   = libhook.dylib
     CXXFLAGS = -Wall -dynamiclib
 else
+    CXX     ?= g++
     TARGET   = libhook.so
     CXXFLAGS = -Wall -fPIC -shared
     LDFLAGS  = -ldl
