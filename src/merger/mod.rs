@@ -278,8 +278,9 @@ pub fn extract_degraded_sigs(unit_files: &[std::path::PathBuf]) -> HashSet<Strin
                 None
             };
             if let Some(sig) = maybe_sig {
-                // 向上最多扫描 2 行，看是否存在 cpp2rust-todo 注释
-                // （代码生成时 todo 注释总是紧邻属性行上方 1 行）
+                // 向上最多扫描 2 行，看是否存在 cpp2rust-todo 注释。
+                // 代码生成时 todo 注释总是紧邻属性行上方 1 行；
+                // 额外扫描 1 行是为了兼容手工编辑场景下可能存在的微小格式差异。
                 let start = i.saturating_sub(2);
                 if lines[start..i]
                     .iter()
@@ -294,7 +295,8 @@ pub fn extract_degraded_sigs(unit_files: &[std::path::PathBuf]) -> HashSet<Strin
 }
 
 /// 从形如 `#[cpp(func = "sig")]` 的属性行中提取引号内的值。
-fn extract_attr_quoted_value(line: &str, key: &str) -> Option<String> {
+/// 也供 `main` 模块使用，以避免重复实现相同逻辑。
+pub fn extract_attr_quoted_value(line: &str, key: &str) -> Option<String> {
     let pos = line.find(key)?;
     let rest = &line[pos + key.len()..];
     let start = rest.find('"')? + 1;

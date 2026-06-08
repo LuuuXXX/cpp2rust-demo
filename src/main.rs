@@ -189,15 +189,6 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     }
 }
 
-/// 从属性行（如 `#[cpp(func = "Foo* foo_new()")]`）中提取引号内的 C++ 签名。
-fn extract_attr_sig(line: &str, key: &str) -> Option<String> {
-    let pos = line.find(key)?;
-    let rest = &line[pos + key.len()..];
-    let start = rest.find('"')? + 1;
-    let end = rest[start..].find('"')?;
-    Some(rest[start..start + end].to_string())
-}
-
 /// 从 `MergedSpec` 和降级签名集合构建 `ApiManifest`。
 fn build_api_manifest(
     feature: &str,
@@ -222,7 +213,7 @@ fn build_api_manifest(
                 .iter()
                 .map(|m| {
                     let cpp_sig =
-                        extract_attr_sig(&m.attr, "method = ").unwrap_or_default();
+                        merger::extract_attr_quoted_value(&m.attr, "method = ").unwrap_or_default();
                     let is_degraded = degraded_sigs.contains(&cpp_sig);
                     layout::ApiMethodEntry {
                         cpp_sig,
@@ -243,7 +234,7 @@ fn build_api_manifest(
         .fn_bindings
         .iter()
         .map(|fb| {
-            let cpp_sig = extract_attr_sig(&fb.attr, "func = ").unwrap_or_default();
+            let cpp_sig = merger::extract_attr_quoted_value(&fb.attr, "func = ").unwrap_or_default();
             let is_degraded = degraded_sigs.contains(&cpp_sig);
             layout::ApiFunctionEntry {
                 cpp_sig,
