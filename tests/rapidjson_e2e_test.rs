@@ -440,15 +440,23 @@ fn rapidjson_merge_phase() {
     );
 
     // ── cargo check：验证生成的 Rust 项目可编译 ────────────────────
-    let cargo_check_output = Command::new("cargo")
-        .args(["check", "--quiet"])
-        .current_dir(&rust_dir)
-        // macOS 上 MACOSX_DEPLOYMENT_TARGET 若被继承，hicc-0.2.4 的旧版 cc-rs
-        // 会生成 --target=arm64-apple-macosx + -mmacosx-version-min=<ver> 两个分离
-        // 参数，Apple clang 不接受此组合；unset 后 cc-rs 使用平台默认值。
-        .env_remove("MACOSX_DEPLOYMENT_TARGET")
-        .output();
-    match cargo_check_output {
+    // macOS 上 cc-rs 在 Apple Silicon 生成 split form：
+    //   --target=arm64-apple-macosx + -mmacosx-version-min=<ver>
+    // Apple clang 16+ 在某些文件（如 hicc-std 的 std_vector.rs.cpp）会失败。
+    // 解决方案：通过 CXX 包装脚本将 split form 转换为 combined form：
+    //   --target=arm64-apple-macosx<ver>
+    // 同时动态获取当前 SDK 版本作为 MACOSX_DEPLOYMENT_TARGET，
+    // 确保 SDK 头文件的 API_AVAILABLE 检查通过。
+    let mut cargo_check_cmd = Command::new("cargo");
+    cargo_check_cmd.args(["check", "--quiet"]).current_dir(&rust_dir);
+
+    #[cfg(target_os = "macos")]
+    setup_macos_cargo_check(&mut cargo_check_cmd);
+
+    #[cfg(not(target_os = "macos"))]
+    cargo_check_cmd.env_remove("MACOSX_DEPLOYMENT_TARGET");
+
+    match cargo_check_cmd.output() {
         Ok(output) => {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -467,8 +475,65 @@ fn rapidjson_merge_phase() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  L4-Shim FFI 验证测试
+//  macOS 辅助：CXX wrapper 修复 split target form
 // ─────────────────────────────────────────────────────────────────
+
+/// macOS 上为 cargo check 命令配置 CXX 包装器。
+///
+/// 背景：cc-rs 在 Apple Silicon 上会生成 split form：
+///   --target=arm64-apple-macosx + -mmacosx-version-min=<ver>
+/// Apple clang 16+ 对特定文件（如 hicc-std 的 std_vector.rs.cpp）以 exit code 1
+/// 失败且无 stderr 输出。解决方案：
+/// 1. 动态获取当前 macOS SDK 版本（xcrun --sdk macosx --show-sdk-version）
+/// 2. 创建 Python CXX 包装脚本，将 split form 转换为 combined form：
+///    --target=arm64-apple-macosx<ver>（去掉独立的 -mmacosx-version-min）
+/// 3. 通过 CXX 和 MACOSX_DEPLOYMENT_TARGET 环境变量应用到 cargo check
+#[cfg(target_os = "macos")]
+fn setup_macos_cargo_check(cmd: &mut Command) {
+    // 获取当前 SDK 版本（如 "15.5"）
+    let sdk_ver = std::process::Command::new("xcrun")
+        .args(["--sdk", "macosx", "--show-sdk-version"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "15.0".to_string());
+
+    // 将 CXX 包装脚本写入临时文件
+    let wrapper_path = std::env::temp_dir().join("cpp2rust_test_macos_cxx_wrapper.py");
+    let wrapper_script = r#"#!/usr/bin/env python3
+# cpp2rust-demo test helper: convert cc-rs split macOS target form to combined form.
+# Split form: --target=arm64-apple-macosx + -mmacosx-version-min=<ver>
+# Combined form: --target=arm64-apple-macosx<ver>  (accepted by Apple clang 16+)
+import sys, subprocess, shutil
+
+args = list(sys.argv[1:])
+target_idx = next((i for i, a in enumerate(args) if a == '--target=arm64-apple-macosx'), None)
+min_idx = next((i for i, a in enumerate(args) if a.startswith('-mmacosx-version-min=')), None)
+
+if target_idx is not None and min_idx is not None:
+    ver = args[min_idx].split('=', 1)[1]
+    args[target_idx] = '--target=arm64-apple-macosx' + ver
+    args = [a for a in args if not a.startswith('-mmacosx-version-min=')]
+
+# Call the real c++ compiler (via PATH; this script is invoked via CXX=, not via PATH)
+real_cxx = shutil.which('c++') or '/usr/bin/c++'
+sys.exit(subprocess.run([real_cxx] + args).returncode)
+"#;
+    std::fs::write(&wrapper_path, wrapper_script).expect("写入 CXX wrapper 脚本失败");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&wrapper_path, std::fs::Permissions::from_mode(0o755))
+            .expect("设置 CXX wrapper 可执行权限失败");
+    }
+
+    cmd.env("CXX", &wrapper_path)
+        .env("MACOSX_DEPLOYMENT_TARGET", &sdk_ver);
+}
+
+
 
 /// L4-Shim-FFI：对 rapidjson_sys/shim/ 中的 extern-C 包装文件执行 init 阶段转换，
 /// 验证工具能从含 `extern "C"` 函数的 C++ 文件生成完整的三段式 hicc Rust FFI 绑定。

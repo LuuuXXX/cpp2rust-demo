@@ -125,7 +125,9 @@ fn main() {
         }
 
         // 跳过 MSVC 风格选项（以 '/' 开头，且不是文件路径）
-        if arg.starts_with('/') && !looks_like_file_path(arg) {
+        // 注意：仅在 MSVC 模式下检测 '/' 前缀选项；在 GCC/Clang 模式（macOS/Linux）下，
+        // '/' 开头的参数均为绝对路径（如 /Users/...、/opt/...），不是 MSVC 选项。
+        if matches!(kind, CompilerKind::Msvc) && arg.starts_with('/') && !looks_like_file_path(arg) {
             // 带值的 MSVC 选项：/I <dir>、/D <macro>、/FI <file>、/Fo <obj>
             if matches!(arg.as_str(), "/I" | "/D" | "/FI" | "/Fo" | "/Fe" | "/Fd") {
                 i += 2;
