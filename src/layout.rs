@@ -18,6 +18,10 @@ pub struct ApiManifest {
     pub classes: Vec<ApiClassEntry>,
     /// 独立函数绑定列表
     pub functions: Vec<ApiFunctionEntry>,
+    /// 模板特化分组：`(base_template_name, [specialization_names…])`
+    /// 例如 `("Stack", ["Stack<int>", "Stack<double>"])`。
+    #[serde(default)]
+    pub template_groups: Vec<(String, Vec<String>)>,
 }
 
 /// 单个类的绑定信息
@@ -213,6 +217,16 @@ impl FeatureLayout {
                     "| `{}` | `{}` | {} |\n",
                     f.cpp_sig, f.rust_sig, status
                 ));
+            }
+        }
+
+        // 模板特化汇总（仅在有数据时生成）
+        if !manifest.template_groups.is_empty() {
+            out.push_str("\n\n---\n\n## 模板特化汇总\n\n");
+            out.push_str("| 基类模板 | 已捕获特化 |\n");
+            out.push_str("|---------|----------|\n");
+            for (base, specs) in &manifest.template_groups {
+                out.push_str(&format!("| `{}` | {} |\n", base, specs.join(", ")));
             }
         }
 
@@ -583,6 +597,7 @@ mod tests {
                 rust_sig: "fn foo_new() -> *mut Foo;".into(),
                 is_degraded: false,
             }],
+            template_groups: vec![],
         };
         layout.save_api_manifest(&manifest).unwrap();
 
@@ -611,6 +626,7 @@ mod tests {
                 rust_sig: "fn cb(v: i32);".into(),
                 is_degraded: true,
             }],
+            template_groups: vec![],
         };
         layout.save_api_manifest(&manifest).unwrap();
 

@@ -40,6 +40,11 @@ pub struct MergedSpec {
     pub fn_bindings: Vec<ParsedFnBinding>,
     /// 冲突警告列表
     pub conflicts: Vec<String>,
+    /// 跨翻译单元去重后保留的模板类体（规范化字符串，供报告使用）
+    pub template_bodies: Vec<String>,
+    /// 模板特化分组：base template name → 特化类名列表
+    /// 例如 `"Stack"` → `["Stack<int>", "Stack<double>"]`
+    pub template_groups: HashMap<String, Vec<String>>,
 }
 
 /// 已合并的单个方法
@@ -59,6 +64,7 @@ pub struct ParsedMethod {
 pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
     let mut spec = MergedSpec::default();
     let mut cpp_line_seen: HashSet<String> = HashSet::new();
+    let mut template_body_seen: HashSet<String> = HashSet::new();
     // (cpp_sig → rust fn line)：冲突检测
     let mut fn_attr_to_sig: HashMap<String, String> = HashMap::new();
     let mut fwd_decl_seen: HashSet<String> = HashSet::new();
@@ -75,7 +81,7 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
         };
 
         let unit = parse_unit_rs(&src);
-        merge_cpp_lines(&mut spec, &unit, &mut cpp_line_seen);
+        merge_cpp_lines(&mut spec, &unit, &mut cpp_line_seen, &mut template_body_seen);
         merge_classes(&mut spec, &unit, &mut method_seen);
         merge_lib(&mut spec, &unit, &mut fn_attr_to_sig, &mut fwd_decl_seen);
     }
@@ -83,12 +89,50 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
     spec
 }
 
-fn merge_cpp_lines(spec: &mut MergedSpec, unit: &ParsedUnit, seen: &mut HashSet<String>) {
-    for line in &unit.cpp_lines {
-        // include 行去重；shim 函数行保留全部（可能有相同内容，但简单起见也去重）
-        if !seen.contains(line) {
-            seen.insert(line.clone());
-            spec.cpp_lines.push(line.clone());
+fn merge_cpp_lines(
+    spec: &mut MergedSpec,
+    unit: &ParsedUnit,
+    seen: &mut HashSet<String>,
+    template_body_seen: &mut HashSet<String>,
+) {
+    // 先计算本 unit cpp_lines 中所有模板体的行范围
+    let template_ranges = block_parser::detect_template_body_ranges(&unit.cpp_lines);
+
+    // 构建被模板体覆盖的行索引集合（用于跳过已由块级去重处理的行）
+    let mut template_line_idxs: HashSet<usize> = HashSet::new();
+    // 同时决定哪些模板体需要保留（未在 seen 中）
+    let mut ranges_to_keep: Vec<(usize, usize, String)> = Vec::new();
+    for (start, end, key) in template_ranges {
+        for idx in start..=end {
+            template_line_idxs.insert(idx);
+        }
+        if template_body_seen.contains(&key) {
+            // 此模板体在之前的 TU 中已有相同规范化内容，跳过
+        } else {
+            template_body_seen.insert(key.clone());
+            spec.template_bodies.push(key.clone());
+            ranges_to_keep.push((start, end, key));
+        }
+    }
+
+    // 逐行处理：模板体范围内的行按块整体决定，其他行逐行去重
+    for (idx, line) in unit.cpp_lines.iter().enumerate() {
+        if template_line_idxs.contains(&idx) {
+            // 检查此行所属的模板体是否在 ranges_to_keep 中
+            let in_kept = ranges_to_keep
+                .iter()
+                .any(|(s, e, _)| idx >= *s && idx <= *e);
+            if in_kept {
+                // 模板体内的行直接追加（不做逐行 seen 检查，整体块已去重）
+                spec.cpp_lines.push(line.clone());
+            }
+            // 否则整个模板块已被跳过
+        } else {
+            // 非模板行：逐行去重
+            if !seen.contains(line) {
+                seen.insert(line.clone());
+                spec.cpp_lines.push(line.clone());
+            }
         }
     }
 }
@@ -111,6 +155,13 @@ fn merge_classes(
             }
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
         };
+        // 模板特化分组
+        if let Some(base) = &cb.template_base {
+            spec.template_groups
+                .entry(base.clone())
+                .or_default()
+                .push(cb.class_name.clone());
+        }
         for method in &cb.methods {
             let key = (cb.class_name.clone(), method.attr.clone());
             if let Some(existing_sig) = method_seen.get(&key) {

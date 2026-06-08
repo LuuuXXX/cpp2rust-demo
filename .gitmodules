@@ -1,3 +1,15 @@
 [submodule "references/tinyxml2"]
 	path = references/tinyxml2
 	url = https://github.com/leethomason/tinyxml2.git
+[submodule "references/pugixml"]
+	path = references/pugixml
+	url = https://github.com/zeux/pugixml.git
+[submodule "references/sqlite"]
+	path = references/sqlite
+	url = https://github.com/sqlite/sqlite.git
+[submodule "references/nlohmann-json"]
+	path = references/nlohmann-json
+	url = https://github.com/nlohmann/json.git
+[submodule "references/fmtlib"]
+	path = references/fmtlib
+	url = https://github.com/fmtlib/fmt.git
