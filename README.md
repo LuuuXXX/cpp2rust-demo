@@ -172,7 +172,7 @@ FfiSpec
 |--------|------|---------|
 | `init` | 通过 LD_PRELOAD 拦截构建命令，捕获 C++ 预处理文件，解析 AST，生成 hicc 三段式 FFI 脚手架 | `cpp2rust-demo init -- make -j4` |
 | `merge` | 将 `init` 生成的编译单元文件整理为按 C++ 目录结构组织的 Rust 项目，备份原始输出；生成 `api-manifest.json` API 对账清单；支持多 feature 合并为带 `[features]` 的统一项目 | `cpp2rust-demo merge --feature default` |
-| `merge output` | 将指定 feature 的 Cargo 项目结构导出到任意目录，方便集成到外部工作流 | `cpp2rust-demo merge output --output-dir /tmp/out` |
+| `merge --output-dir` | 将指定 feature 的 Cargo 项目结构导出到任意目录，方便集成到外部工作流 | `cpp2rust-demo merge --output-dir /tmp/out` |
 
 ### `init` — 捕获构建 + 生成 FFI 脚手架
 
@@ -238,16 +238,16 @@ cargo build --features arm_embedded
 |------|------|------|
 | `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`）；**可重复指定**，≥2 个时进入多 feature 合并模式 |
 
-### `merge output` — 导出项目结构到任意目录
+### `merge --output-dir` — 导出项目结构到任意目录
 
-`merge output` 是 `merge` 的子命令，将完成 `init` + `merge` 后的 Cargo 项目结构导出到指定目录，方便将生成产物复制到其他位置或集成到外部工作流：
+`--output-dir` 是 `merge` 命令的可选参数，将完成 `init` + `merge` 后的 Cargo 项目结构导出到指定目录，方便将生成产物复制到其他位置或集成到外部工作流：
 
 ```bash
 # 将 default feature 的项目结构导出到 /tmp/mylib-out
-cpp2rust-demo merge output --output-dir /tmp/mylib-out
+cpp2rust-demo merge --output-dir /tmp/mylib-out
 
 # 导出指定 feature
-cpp2rust-demo merge --feature linux_x86 output --output-dir /tmp/linux-out
+cpp2rust-demo merge --feature linux_x86 --output-dir /tmp/linux-out
 ```
 
 导出后目录结构：
@@ -260,14 +260,14 @@ cpp2rust-demo merge --feature linux_x86 output --output-dir /tmp/linux-out
     └── Cargo.toml
 ```
 
-> **前提**：`merge output` 须在 `init` + `merge` 均执行完毕后运行，因为它需要读取 `merge` 生成的 `Cargo.toml`、`build.rs` 和 `src/`。
+> **前提**：`merge --output-dir` 须在 `init` + `merge`（不带 `--output-dir`）均执行完毕后运行，因为它需要读取 `merge` 生成的 `Cargo.toml`、`build.rs` 和 `src/`。
 
 **参数说明：**
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `--output-dir <DIR>` | ✅ | 导出目标目录（不存在时自动创建） |
-| `--feature <name>` | ❌ | 要导出的 feature（默认 `default`）；`output` 子命令只支持单 feature |
+| `--output-dir <DIR>` | ❌ | 导出目标目录（不存在时自动创建）；不指定时走普通 merge 流程 |
+| `--feature <name>` | ❌ | 要导出的 feature（默认 `default`）；`--output-dir` 只支持单 feature |
 
 ### 环境变量
 
