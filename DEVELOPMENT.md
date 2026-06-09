@@ -62,7 +62,7 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 │   ├── merge-report.md  # merge 阶段摘要报告（由 merge 生成）
 │   └── api-manifest.md  # C++ → Rust API 对账清单（由 merge 生成，Markdown 格式）
 └── rust/                # 生成的 Rust 项目
-    ├── src.1/           # init 输出原始备份（merge 后生成）
+    ├── src.1/           # merge 阶段备份的 init 原始输出（首次 merge 时由 src/ rename 而来）
     └── src/             # merge 输出，真实目录（与 C++ 项目目录结构一致）
         ├── lib.rs
         ├── <unit>.rs         # 扁平文件（C++ 项目根目录下的编译单元）
@@ -138,6 +138,19 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 **L4 merge 阶段**：各 E2E 测试均包含 `<lib>_merge_phase` 测试函数，执行 init → merge → `cargo check` 完整链路，确保生成的 Rust 项目在无 `build.rs` 情形下可通过类型检查。依赖外部子模块或系统头文件时自动跳过（graceful skip）。
 
 **重要**：L1 测试须单线程运行（`--test-threads=1`），多线程下 clang 全局状态存在竞争。
+
+### 分层快速运行命令
+
+```sh
+# L2 编译测试（无需 libclang，最快）
+cargo test
+
+# L1/L3 golden + 运行测试（需要 libclang 和系统 g++/clang++）
+cargo test --features full-test -- --test-threads=1
+
+# L5 nm 符号测试（需要 nm 工具）
+cargo test -- --ignored
+```
 
 ---
 

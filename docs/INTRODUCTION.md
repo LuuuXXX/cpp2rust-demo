@@ -191,6 +191,17 @@ cpp2rust-demo merge --feature <name>
 
 **Lambda**：无状态 → 函数指针直接导出；有状态 → 包装成 class 再导出
 
+### 类型映射的已知局限
+
+工具在 `src/extractor/type_mapper.rs` 中对 C++ 基础类型做静态映射，以下情况存在已知精度或平台差异：
+
+| C++ 类型 | 默认映射 | 说明 |
+|----------|---------|------|
+| `long` / `unsigned long` | `i64` / `u64` | 基于 LP64（Linux/macOS 64 位）。Windows MSVC（LLP64）中 `long` 为 32 位，工具在 Windows 下会自动改为 `i32`/`u32` |
+| `long double` | `f64` | x86-64 Linux 的 `long double` 是 80 位扩展浮点（`f80`），映射为 `f64` **有精度损失**。带 `cpp2rust-todo[LONG_DOUBLE]` 标注，需手工处理 |
+| `void *` | `*mut u8` | 通用指针映射；实际语义依上下文而定 |
+| C 函数指针 `T (*)(...)` | `unsafe extern "C" fn(...)` | 嵌套函数指针（参数中含 `(*)`）不支持，回退为原始字符串 |
+
 ---
 
 ## Part 3：降级特性详解

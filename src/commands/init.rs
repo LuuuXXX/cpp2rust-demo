@@ -12,6 +12,13 @@ use crate::capture;
 use crate::error::Result;
 use crate::extractor;
 use crate::ffi_model::FfiSpec;
+
+/// `run_init` 内部使用的每单元数据，将第一趟解析结果传递到第二趟代码生成。
+struct UnitData {
+    unit_path: String,
+    spec: FfiSpec,
+}
+
 use crate::generator::{hicc_codegen, project_generator, smoke_test_gen};
 use crate::layout::{self, FeatureLayout, InitReportData, InitUnitStat};
 use crate::metrics::{count_file_lines, TODO_MARKER_PREFIX};
@@ -82,10 +89,6 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     let mut seen_unit_paths: HashMap<String, PathBuf> = HashMap::new();
 
     // ── 第一趟：解析所有文件，收集 (unit_path, spec, stats) ──────────────────
-    struct UnitData {
-        unit_path: String,
-        spec: FfiSpec,
-    }
     let mut all_units: Vec<UnitData> = Vec::new();
 
     for path in &selected {
@@ -384,5 +387,107 @@ fn count_degraded_tags(
                     .or_insert(0) += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── is_valid_identifier ───────────────────
+
+    #[test]
+    fn valid_identifiers() {
+        assert!(is_valid_identifier("Foo"));
+        assert!(is_valid_identifier("foo_bar"));
+        assert!(is_valid_identifier("_priv"));
+        assert!(is_valid_identifier("FooBar123"));
+        assert!(is_valid_identifier("a"));
+    }
+
+    #[test]
+    fn invalid_identifiers_empty() {
+        assert!(!is_valid_identifier(""));
+    }
+
+    #[test]
+    fn invalid_identifiers_starts_with_digit() {
+        assert!(!is_valid_identifier("1foo"));
+        assert!(!is_valid_identifier("0_"));
+    }
+
+    #[test]
+    fn invalid_identifiers_contain_special_chars() {
+        assert!(!is_valid_identifier("foo-bar"));
+        assert!(!is_valid_identifier("foo bar"));
+        assert!(!is_valid_identifier("foo::bar"));
+        assert!(!is_valid_identifier("foo.bar"));
+    }
+
+    // ── parse_fwd_decl ────────────────────────
+
+    #[test]
+    fn parse_fwd_decl_valid() {
+        let result = parse_fwd_decl("class Foo;", "test");
+        assert_eq!(result, Some("Foo"));
+    }
+
+    #[test]
+    fn parse_fwd_decl_with_spaces() {
+        // strip_prefix + strip_suffix + trim 应能处理带空格的形式
+        let result = parse_fwd_decl("class  MyClass ;", "test");
+        assert_eq!(result, Some("MyClass"));
+    }
+
+    #[test]
+    fn parse_fwd_decl_empty_name_returns_none() {
+        // "class ;" → 名称为空
+        let result = parse_fwd_decl("class ;", "test");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_fwd_decl_invalid_identifier_returns_none() {
+        // "class 1Foo;" → 非法标识符
+        let result = parse_fwd_decl("class 1Foo;", "test");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_fwd_decl_wrong_format_returns_none() {
+        // 不以 "class " 开头
+        assert!(parse_fwd_decl("struct Foo;", "test").is_none());
+        // 不以 ";" 结尾
+        assert!(parse_fwd_decl("class Foo", "test").is_none());
+    }
+
+    // ── count_degraded_tags ───────────────────
+
+    #[test]
+    fn count_degraded_tags_basic() {
+        let code = "// cpp2rust-todo[FP] some\n// cpp2rust-todo[OP] other\n// cpp2rust-todo[FP] again\n";
+        let mut tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        count_degraded_tags(code, "unit/foo", &mut tags);
+        assert_eq!(tags["FP"]["unit/foo"], 2);
+        assert_eq!(tags["OP"]["unit/foo"], 1);
+    }
+
+    #[test]
+    fn count_degraded_tags_no_tags() {
+        let code = "fn foo() {}\n// just a comment\n";
+        let mut tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        count_degraded_tags(code, "unit/bar", &mut tags);
+        assert!(tags.is_empty());
+    }
+
+    #[test]
+    fn count_degraded_tags_accumulates_across_units() {
+        let code = "// cpp2rust-todo[VA] here\n";
+        let mut tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        count_degraded_tags(code, "unit/a", &mut tags);
+        count_degraded_tags(code, "unit/b", &mut tags);
+        assert_eq!(tags["VA"].len(), 2);
+        assert_eq!(tags["VA"]["unit/a"], 1);
+        assert_eq!(tags["VA"]["unit/b"], 1);
     }
 }
