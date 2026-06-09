@@ -19,5 +19,5 @@
 - **菱形继承处理**：自动去重菱形继承场景下的重复方法绑定。
 - **运算符重载处理**：自动识别并标注比较运算符、赋值运算符等绑定类别。
 - **冒烟测试生成**：`init` 阶段自动生成 `tests/smoke_test.rs`，验证 FFI 符号可链接。
-- **API manifest 输出**：`merge` 后在 Rust 项目根目录生成 `api_manifest.json`，汇总所有导出接口。
+- **API manifest 输出**：`merge` 后生成 `meta/api-manifest.md`，汇总所有导出接口（Markdown 格式）。
 - **完整 README / INTRODUCTION 文档**：包含快速入门、类型映射规则、流水线架构说明和 10+ 个示例。

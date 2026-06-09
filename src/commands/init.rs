@@ -168,12 +168,10 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
 
     // ── 跨模块类型映射：class_name → 定义该类型的 unit_path ──────────────────
     // 只有实际生成了 import_class! 块的类（即不被 hicc_codegen 跳过的 ClassSpec）才加入映射。
-    // 与 hicc_codegen::generate 的跳过条件保持一致：methods/associated_fns/destroy_fn 全空则跳过。
+    // 与 hicc_codegen::generate 的跳过条件保持一致：ClassSpec::is_empty() 为 true 则跳过。
     let mut class_to_module: HashMap<String, String> = HashMap::new();
     for ud in &all_units {
-        for cs in ud.spec.class_specs.iter().filter(|cs| {
-            !(cs.methods.is_empty() && cs.associated_fns.is_empty() && cs.destroy_fn.is_none())
-        }) {
+        for cs in ud.spec.class_specs.iter().filter(|cs| !cs.is_empty()) {
             if let Some(existing) = class_to_module.get(&cs.name) {
                 eprintln!(
                     "  警告：类 '{}' 同时定义于 '{}' 和 '{}'；\
@@ -334,9 +332,7 @@ fn build_cross_module_preamble(
     let local_class_names: HashSet<&str> = spec
         .class_specs
         .iter()
-        .filter(|cs| {
-            !(cs.methods.is_empty() && cs.associated_fns.is_empty() && cs.destroy_fn.is_none())
-        })
+        .filter(|cs| !cs.is_empty())
         .map(|cs| cs.name.as_str())
         .collect();
 
