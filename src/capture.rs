@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{Cpp2RustError, Result};
 use anyhow::{anyhow, Context as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -161,28 +161,28 @@ fn run_with_hook_unix(
 /// 以便 `cargo install` 用户无需单独检出代码即可使用。
 #[cfg(unix)]
 fn hook_dir() -> Result<PathBuf> {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let candidate = parent.join("hook");
+    // 从 exe 所在目录与当前工作目录分别向上搜索，最多 5 层。
+    let search_roots: Vec<PathBuf> = [
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())),
+        std::env::current_dir().ok(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    const MAX_DEPTH: usize = 5;
+    for start in search_roots {
+        let mut dir: &std::path::Path = &start;
+        for _ in 0..=MAX_DEPTH {
+            let candidate = dir.join("hook");
             if candidate.join("Makefile").exists() {
                 return Ok(candidate);
             }
-            if let Some(workspace) = parent
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.parent())
-            {
-                let candidate = workspace.join("hook");
-                if candidate.join("Makefile").exists() {
-                    return Ok(candidate);
-                }
+            match dir.parent() {
+                Some(p) => dir = p,
+                None => break,
             }
         }
-    }
-
-    let cwd_candidate = std::env::current_dir().context("current_dir")?.join("hook");
-    if cwd_candidate.join("Makefile").exists() {
-        return Ok(cwd_candidate);
     }
 
     // 最终回退：将嵌入的源文件解压到用户数据目录。
@@ -201,7 +201,7 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
     let hook_dir = base.join("cpp2rust-demo").join("hook");
 
     std::fs::create_dir_all(&hook_dir)
-        .with_context(|| format!("create_dir_all {}", hook_dir.display()))?;
+        .map_err(|e| Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display())))?;
 
     // 若 hook.cpp 不存在或内容有变化，则写入（二进制更新时自动升级）。
     write_if_changed(&hook_dir.join("hook.cpp"), HOOK_CPP)?;
@@ -221,7 +221,8 @@ fn write_if_changed(path: &Path, content: &str) -> Result<()> {
         Err(_) => true,
     };
     if needs_write {
-        std::fs::write(path, content).with_context(|| format!("write {}", path.display()))?;
+        std::fs::write(path, content)
+            .map_err(|e| Cpp2RustError::IoError(format!("write {}: {e}", path.display())))?;
     }
     Ok(())
 }
@@ -243,7 +244,7 @@ fn build_hook_windows() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
     let hook_dir = base.join("cpp2rust-demo").join("hook");
     std::fs::create_dir_all(&hook_dir)
-        .with_context(|| format!("create_dir_all {}", hook_dir.display()))?;
+        .map_err(|e| Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display())))?;
 
     let shim_rs = hook_dir.join("hook_shim.rs");
     let shim_exe = hook_dir.join("hook_shim.exe");
@@ -255,7 +256,7 @@ fn build_hook_windows() -> Result<PathBuf> {
     };
     if needs_write {
         std::fs::write(&shim_rs, HOOK_SHIM_RS)
-            .with_context(|| format!("write {}", shim_rs.display()))?;
+            .map_err(|e| Cpp2RustError::IoError(format!("write {}: {e}", shim_rs.display())))?;
     }
 
     // 快速路径：若 .exe 比 .rs 更新则跳过编译

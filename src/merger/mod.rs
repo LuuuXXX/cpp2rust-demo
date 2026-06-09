@@ -804,4 +804,118 @@ hicc::import_lib! {
         let degraded = extract_degraded_sigs(&[p]);
         assert!(degraded.is_empty(), "no todos means no degraded sigs");
     }
+
+    // ── merge_units 边界用例 ───────────────────
+
+    #[test]
+    fn merge_units_empty_input_returns_default_spec() {
+        let spec = merge_units(&[]);
+        assert!(spec.cpp_lines.is_empty());
+        assert!(spec.classes.is_empty());
+        assert!(spec.fn_bindings.is_empty());
+        assert!(spec.fwd_decls.is_empty());
+        assert!(spec.conflicts.is_empty());
+        assert!(spec.degraded_sigs.is_empty());
+    }
+
+    #[test]
+    fn merge_units_single_file_preserves_content() {
+        let src = r#"hicc::cpp! {
+    #include "foo.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "Foo")]
+    class Foo {
+        #[cpp(method = "int get() const")]
+        fn get(&self) -> i32;
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "foo"]
+    #[cpp(func = "Foo* foo_new()")]
+    fn foo_new() -> *mut Foo;
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("unit.rs");
+        std::fs::write(&p, src).unwrap();
+
+        let spec = merge_units(&[p]);
+        assert_eq!(spec.cpp_lines.len(), 1, "cpp_lines should contain 1 include");
+        assert!(spec.cpp_lines[0].contains("foo.h"));
+        assert!(spec.classes.contains_key("Foo"));
+        assert_eq!(spec.classes["Foo"].len(), 1, "Foo should have 1 method");
+        assert_eq!(spec.fn_bindings.len(), 1);
+        assert!(spec.fn_bindings[0].attr.contains("foo_new"));
+    }
+
+    #[test]
+    fn merge_units_conflict_warning_on_method_sig_mismatch() {
+        // 两个文件中相同 class 的相同方法但返回类型不同 → 应生成冲突警告
+        let src1 = r#"hicc::import_class! {
+    #[cpp(class = "Bar")]
+    class Bar {
+        #[cpp(method = "int compute() const")]
+        fn compute(&self) -> i32;
+    }
+}
+"#;
+        let src2 = r#"hicc::import_class! {
+    #[cpp(class = "Bar")]
+    class Bar {
+        #[cpp(method = "int compute() const")]
+        fn compute(&self) -> i64;
+    }
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p1 = dir.path().join("unit1.rs");
+        let p2 = dir.path().join("unit2.rs");
+        std::fs::write(&p1, src1).unwrap();
+        std::fs::write(&p2, src2).unwrap();
+
+        let spec = merge_units(&[p1, p2]);
+        // 冲突：相同 method attr 但 fn_sig 不一致
+        assert!(
+            !spec.conflicts.is_empty(),
+            "应检测到方法签名冲突：{:?}",
+            spec.conflicts
+        );
+    }
+
+    #[test]
+    fn merge_units_cpp_lines_dedup_across_files() {
+        // 三个文件中 cpp 内容有重叠，合并后应去重
+        let make_src = |extra: &str| {
+            format!(
+                r#"hicc::cpp! {{
+    #include "common.h"
+    {}
+}}
+"#,
+                extra
+            )
+        };
+        let src1 = make_src("#include \"a.h\"");
+        let src2 = make_src("#include \"common.h\""); // 重复
+        let src3 = make_src("#include \"b.h\"");
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let p1 = dir.path().join("u1.rs");
+        let p2 = dir.path().join("u2.rs");
+        let p3 = dir.path().join("u3.rs");
+        std::fs::write(&p1, src1).unwrap();
+        std::fs::write(&p2, src2).unwrap();
+        std::fs::write(&p3, src3).unwrap();
+
+        let spec = merge_units(&[p1, p2, p3]);
+        let common_count = spec
+            .cpp_lines
+            .iter()
+            .filter(|l| l.contains("common.h"))
+            .count();
+        assert_eq!(common_count, 1, "common.h 应只出现一次，实际 cpp_lines: {:?}", spec.cpp_lines);
+    }
 }

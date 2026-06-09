@@ -116,3 +116,84 @@ pub fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
         degraded_tags,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_file(dir: &std::path::Path, name: &str, content: &str) {
+        std::fs::write(dir.join(name), content).unwrap();
+    }
+
+    #[test]
+    fn metrics_basic_counts() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_file(
+            dir.path(),
+            "unit1.rs",
+            r#"hicc::import_lib! {
+    #![link_name = "foo"]
+    #[cpp(func = "void bar()")]
+    fn bar();
+    #[cpp(func = "void baz()")]
+    fn baz();
+}
+"#,
+        );
+        write_file(
+            dir.path(),
+            "unit2.rs",
+            r#"hicc::import_class! {
+    #[cpp(class = "Foo")]
+    class Foo {}
+}
+// cpp2rust-todo[FP] skipped
+// cpp2rust-todo[OP] another
+"#,
+        );
+
+        let m = collect_rust_src_metrics(dir.path());
+        assert_eq!(m.import_lib_files, 1);
+        assert_eq!(m.import_class_files, 1);
+        assert_eq!(m.fn_binding_count, 2);
+        assert_eq!(m.todo_count, 2);
+        let tags: std::collections::HashMap<_, _> = m.degraded_tags.iter().cloned().collect();
+        assert_eq!(tags["FP"], 1);
+        assert_eq!(tags["OP"], 1);
+    }
+
+    #[test]
+    fn metrics_empty_directory() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let m = collect_rust_src_metrics(dir.path());
+        assert_eq!(m.rs_files.len(), 0);
+        assert_eq!(m.import_lib_files, 0);
+        assert_eq!(m.fn_binding_count, 0);
+        assert_eq!(m.todo_count, 0);
+    }
+
+    #[test]
+    fn metrics_bad_link_name_detected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_file(
+            dir.path(),
+            "unit.rs",
+            r#"hicc::import_lib! {
+    #![link_name = "sub/foo"]
+    #[cpp(func = "void go()")]
+    fn go();
+}
+"#,
+        );
+        let m = collect_rust_src_metrics(dir.path());
+        assert_eq!(m.bad_link_names, vec!["sub/foo"]);
+    }
+
+    #[test]
+    fn count_file_lines_correct() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("test.rs");
+        std::fs::write(&p, "line1\nline2\nline3\n").unwrap();
+        assert_eq!(count_file_lines(&p), 3);
+    }
+}

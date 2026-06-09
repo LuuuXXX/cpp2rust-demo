@@ -84,12 +84,22 @@ fn cpp_to_rust_inner(cpp: &str, depth: u8) -> String {
         "unsigned short" | "unsigned short int" => return "u16".to_string(),
         "int" | "signed int" | "signed" => return "i32".to_string(),
         "unsigned int" | "unsigned" => return "u32".to_string(),
+        // LP64（Linux / macOS 64 位）: long = 64 位
+        // LLP64（Windows MSVC）: long = 32 位，由下方 cfg 分支处理
+        #[cfg(not(target_os = "windows"))]
         "long" | "long int" | "signed long" => return "i64".to_string(),
+        #[cfg(not(target_os = "windows"))]
         "unsigned long" | "unsigned long int" => return "u64".to_string(),
+        #[cfg(target_os = "windows")]
+        "long" | "long int" | "signed long" => return "i32".to_string(),
+        #[cfg(target_os = "windows")]
+        "unsigned long" | "unsigned long int" => return "u32".to_string(),
         "long long" | "long long int" | "signed long long" => return "i64".to_string(),
         "unsigned long long" | "unsigned long long int" => return "u64".to_string(),
         "float" => return "f32".to_string(),
         "double" => return "f64".to_string(),
+        // x86-64 Linux 的 `long double` 是 80 位扩展浮点，映射为 f64 有精度损失。
+        // cpp2rust-todo[LONG_DOUBLE]
         "long double" => return "f64".to_string(),
         "size_t" => return "usize".to_string(),
         "ptrdiff_t" => return "isize".to_string(),
@@ -487,6 +497,23 @@ mod tests {
         // `struct Foo *` → 剥除 struct 前缀后映射为指针
         assert_eq!(cpp_to_rust("struct Foo *"), "*mut Foo");
         assert_eq!(cpp_to_rust("const struct Foo *"), "*const Foo");
+    }
+
+    #[test]
+    fn long_double_maps_to_f64() {
+        // long double 映射为 f64（精度降级，x86-64 上原为 80 位扩展浮点）
+        assert_eq!(cpp_to_rust("long double"), "f64");
+        assert_eq!(cpp_to_rust("long double *"), "*mut f64");
+        assert_eq!(cpp_to_rust("const long double *"), "*const f64");
+    }
+
+    #[test]
+    fn fn_ptr_with_double_params() {
+        // void (*)(int, double) → unsafe extern "C" fn(i32, f64)
+        assert_eq!(
+            cpp_to_rust("void (*)(int, double)"),
+            "unsafe extern \"C\" fn(i32, f64)"
+        );
     }
 
     #[test]

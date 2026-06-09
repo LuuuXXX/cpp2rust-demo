@@ -30,6 +30,14 @@ pub struct ClassSpec {
     pub is_interface: bool,
 }
 
+impl ClassSpec {
+    /// 若 methods、associated_fns 均为空且没有 destroy_fn，则返回 `true`。
+    /// 与 `hicc_codegen::generate` 的跳过条件一致：空 `ClassSpec` 不生成 `import_class!` 块。
+    pub fn is_empty(&self) -> bool {
+        self.methods.is_empty() && self.associated_fns.is_empty() && self.destroy_fn.is_none()
+    }
+}
+
 /// 类方法绑定
 #[derive(Debug)]
 pub struct MethodBinding {

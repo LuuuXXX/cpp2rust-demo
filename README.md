@@ -716,6 +716,52 @@ cd rust_hicc && cargo run
 
 ---
 
+## 故障排查
+
+### `libclang not found` / `Unable to find libclang`
+
+libclang 未找到时工具会在 init 阶段报错。解决方法：
+
+```sh
+# Ubuntu / Debian
+sudo apt-get install libclang-dev
+export LIBCLANG_PATH=/usr/lib/llvm-14/lib   # 替换为实际版本路径
+
+# macOS（Homebrew）
+brew install llvm
+export LIBCLANG_PATH=$(brew --prefix llvm)/lib
+
+# 永久生效：将 export 行写入 ~/.bashrc 或 ~/.zshrc
+```
+
+### `make failed in hook/`
+
+表明 hook 构建失败，通常是缺少 C++ 编译器：
+
+```sh
+# Ubuntu / Debian
+sudo apt-get install g++
+
+# macOS
+xcode-select --install    # 或安装 Xcode
+```
+
+### macOS SIP 导致捕获失败
+
+`DYLD_INSERT_LIBRARIES` 对受 SIP（系统完整性保护）保护的系统二进制（如 `/usr/bin/g++`）无效，注入会被静默忽略。
+
+解决方法：使用不受 SIP 保护的编译器（如 Homebrew 安装的 `g++` 或 `clang++`）执行构建命令。详见 [前置条件说明](#前置条件)。
+
+### 生成的 Rust 项目 `cargo check` 失败
+
+常见原因：
+
+- **缺少 `hicc`/`hicc-build` 依赖**：确保 `Cargo.toml` 中包含 `hicc = "0.2"` 和 `[build-dependencies] hicc-build = "0.2"`
+- **libclang 版本与 clang-sys 不兼容**：升级 libclang 或添加 `LIBCLANG_PATH` 指向正确路径
+- **降级类型（`cpp2rust-todo[TAG]`）**：生成代码中带 `cpp2rust-todo` 注释的函数需要手动补全类型映射
+
+---
+
 ## 仓库结构
 
 ```

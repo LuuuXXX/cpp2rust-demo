@@ -67,7 +67,7 @@ pub fn generate(spec: &FfiSpec) -> String {
     // ── hicc::import_class! (所有有方法的类都生成独立块) ────
     for cs in &spec.class_specs {
         // P2-1：跳过空块（无方法、无关联函数、且无 destroy 属性）
-        if cs.methods.is_empty() && cs.associated_fns.is_empty() && cs.destroy_fn.is_none() {
+        if cs.is_empty() {
             continue;
         }
         out.push('\n');
