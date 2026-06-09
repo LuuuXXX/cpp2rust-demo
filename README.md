@@ -139,6 +139,8 @@ cargo build --features arm_embedded
     └── Cargo.toml
 ```
 
+多 feature 配合 `--output-dir` 时，导出目录中的 `src/` 包含按 feature 条件编译的子目录结构（与 `.cpp2rust/<feat1>_<feat2>/rust/src/` 一致），`Cargo.toml` 含 `[features]` 段。
+
 **参数说明：**
 
 | 参数 | 必填 | 说明 |

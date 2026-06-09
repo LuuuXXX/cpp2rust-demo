@@ -184,8 +184,9 @@ fn run_merge(args: MergeArgs) -> Result<()> {
     if let Some(out_dir) = args.output_dir {
         let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
         let project_root = layout::find_project_root(&cwd);
-        let feature_label = features.join("_");
-        run_merge_output(&rust_dir, &out_dir, &feature_label, &project_root)?;
+        // 多 feature 时为 "feat1_feat2"，单 feature 时直接使用 feature 名
+        let merged_feature_name = features.join("_");
+        run_merge_output(&rust_dir, &out_dir, &merged_feature_name, &project_root)?;
     }
 
     Ok(())
@@ -304,9 +305,12 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 }
 
 /// 执行 `merge --output-dir` 后处理：将 merge 生成的 Cargo 项目结构导出到指定目录。
-fn run_merge_output(rust_dir: &Path, out_dir: &Path, feature_label: &str, project_root: &Path) -> Result<()> {
+///
+/// 此函数始终在普通 merge 完成后调用，因此 `rust_dir/src` 保证是真实目录
+/// （`merge_in_place` 将暂存的 `src.2` rename 为 `src`，不使用 symlink）。
+fn run_merge_output(rust_dir: &Path, out_dir: &Path, merged_feature_name: &str, project_root: &Path) -> Result<()> {
     println!("\n=== cpp2rust-demo merge --output-dir ===");
-    println!("Feature    : {}", feature_label);
+    println!("Feature    : {}", merged_feature_name);
     println!("输出目录   : {}", out_dir.display());
     println!();
 
