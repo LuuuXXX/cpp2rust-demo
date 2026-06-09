@@ -1,4 +1,4 @@
-//! 运算符重载处理器（Phase 2）
+//! 运算符重载处理器（Phase 4）
 //!
 //! 将 C++ 运算符重载对应的 MethodAccessor 转换为 const-ptr shim 函数，
 //! 并将有类类型参数的方法从 `import_class!` 中移除。
@@ -32,26 +32,12 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
             continue;
         }
 
-        // 检查是否有任何运算符相关 accessor（必须验证完整签名）
+        // 检查是否有任何运算符相关 accessor（不含 Getter：getter-only 类不应触发 shim 生成）
         let has_ops = accessors.iter().any(|fi| {
-            let stripped = match fi.name.strip_prefix(&prefix) {
-                Some(s) => s,
-                None => return false,
-            };
-            let extra_params = &fi.params[1..];
-            let ret_is_class = fi.return_type.contains(ci.name.as_str());
-            let ret_is_void = fi.return_type.is_empty() || fi.return_type == "void";
-
-            // 二元运算符：名称匹配 + 1 个额外参数 + 返回类类型
-            let is_binary = BINARY_OPS.iter().any(|(n, _)| *n == stripped)
-                && extra_params.len() == 1
-                && ret_is_class;
-            // 一元运算符：名称匹配 + 0 个额外参数 + 返回类类型
-            let is_unary = UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class;
-            // 比较方法：1 个额外类类型参数 + 返回基础类型
-            let is_compare = !ret_is_class && !ret_is_void && is_compare_accessor(fi, &ci.name);
-
-            is_binary || is_unary || is_compare
+            matches!(
+                classify_accessor(fi, &prefix, &ci.name),
+                AccessorKind::BinaryOp | AccessorKind::UnaryOp | AccessorKind::Compare
+            )
         });
         if !has_ops {
             continue;
@@ -70,122 +56,107 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                 Some(s) => s,
                 None => continue,
             };
-            let extra_params = &fi.params[1..];
-            let ret_is_class = fi.return_type.contains(&ci.name);
-            let ret_is_void = fi.return_type.is_empty() || fi.return_type == "void";
             let shim_fn_name = to_snake_case(&fi.name);
 
-            // 1. Getter（0 个额外参数，基础类型返回值）
-            if extra_params.is_empty() && !ret_is_class && !ret_is_void {
-                let ret_cpp = clean_type(&fi.return_type).to_string();
-                let ret_rust = cpp_to_rust(&fi.return_type);
+            match classify_accessor(fi, &prefix, &ci.name) {
+                AccessorKind::Getter => {
+                    let ret_cpp = clean_type(&fi.return_type).to_string();
+                    let ret_rust = cpp_to_rust(&fi.return_type);
 
-                cpp_shims.push(format!(
-                    "{} {}(const {}* self) {{",
-                    ret_cpp, shim_fn_name, ci.name
-                ));
-                cpp_shims.push(format!("    return self->{}();", stripped));
-                cpp_shims.push("}".to_string());
-                cpp_shims.push(String::new());
-
-                new_bindings.push(FnBinding {
-                    cpp_sig: format!("{} {}(const {}*)", ret_cpp, shim_fn_name, ci.name),
-                    rust_name: fi.name.clone(),
-                    params: vec![("self_".to_string(), format!("*const {}", ci.name))],
-                    ret_type: Some(ret_rust),
-                    is_unsafe: false,
-                    has_fn_ptr_param: false,
-                });
-                continue;
-            }
-
-            // 2. 二元运算符（1 个额外参数，返回该类指针）
-            if extra_params.len() == 1 && ret_is_class {
-                if let Some((_, op_sym)) = BINARY_OPS.iter().find(|(n, _)| *n == stripped) {
                     cpp_shims.push(format!(
-                        "{}* {}(const {}* a, const {}* b) {{",
-                        ci.name, shim_fn_name, ci.name, ci.name
+                        "{} {}(const {}* self) {{",
+                        ret_cpp, shim_fn_name, ci.name
                     ));
-                    cpp_shims.push(format!("    return new {}(*a {} *b);", ci.name, op_sym));
+                    cpp_shims.push(format!("    return self->{}();", stripped));
+                    cpp_shims.push("}".to_string());
+                    cpp_shims.push(String::new());
+
+                    new_bindings.push(FnBinding {
+                        cpp_sig: format!("{} {}(const {}*)", ret_cpp, shim_fn_name, ci.name),
+                        rust_name: fi.name.clone(),
+                        params: vec![("self_".to_string(), format!("*const {}", ci.name))],
+                        ret_type: Some(ret_rust),
+                        is_unsafe: false,
+                        has_fn_ptr_param: false,
+                    });
+                }
+                AccessorKind::BinaryOp => {
+                    if let Some((_, op_sym)) = BINARY_OPS.iter().find(|(n, _)| *n == stripped) {
+                        cpp_shims.push(format!(
+                            "{}* {}(const {}* a, const {}* b) {{",
+                            ci.name, shim_fn_name, ci.name, ci.name
+                        ));
+                        cpp_shims.push(format!("    return new {}(*a {} *b);", ci.name, op_sym));
+                        cpp_shims.push("}".to_string());
+                        cpp_shims.push(String::new());
+
+                        new_bindings.push(FnBinding {
+                            cpp_sig: format!(
+                                "{}* {}(const {}*, const {}*)",
+                                ci.name, shim_fn_name, ci.name, ci.name
+                            ),
+                            rust_name: fi.name.clone(),
+                            params: vec![
+                                ("a".to_string(), format!("*const {}", ci.name)),
+                                ("b".to_string(), format!("*const {}", ci.name)),
+                            ],
+                            ret_type: Some(format!("*mut {}", ci.name)),
+                            is_unsafe: false,
+                            has_fn_ptr_param: false,
+                        });
+                    }
+                }
+                AccessorKind::UnaryOp => {
+                    let body = match stripped {
+                        "negate" => format!("return new {}(-*a);", ci.name),
+                        _ => continue,
+                    };
+
+                    cpp_shims.push(format!(
+                        "{}* {}(const {}* a) {{",
+                        ci.name, shim_fn_name, ci.name
+                    ));
+                    cpp_shims.push(format!("    {}", body));
+                    cpp_shims.push("}".to_string());
+                    cpp_shims.push(String::new());
+
+                    new_bindings.push(FnBinding {
+                        cpp_sig: format!("{}* {}(const {}*)", ci.name, shim_fn_name, ci.name),
+                        rust_name: fi.name.clone(),
+                        params: vec![("a".to_string(), format!("*const {}", ci.name))],
+                        ret_type: Some(format!("*mut {}", ci.name)),
+                        is_unsafe: false,
+                        has_fn_ptr_param: false,
+                    });
+                }
+                AccessorKind::Compare => {
+                    let ret_cpp = clean_type(&fi.return_type).to_string();
+                    let ret_rust = cpp_to_rust(&fi.return_type);
+
+                    cpp_shims.push(format!(
+                        "{} {}(const {}* a, const {}* b) {{",
+                        ret_cpp, shim_fn_name, ci.name, ci.name
+                    ));
+                    cpp_shims.push(format!("    return a->{}(*b);", stripped));
                     cpp_shims.push("}".to_string());
                     cpp_shims.push(String::new());
 
                     new_bindings.push(FnBinding {
                         cpp_sig: format!(
-                            "{}* {}(const {}*, const {}*)",
-                            ci.name, shim_fn_name, ci.name, ci.name
+                            "{} {}(const {}*, const {}*)",
+                            ret_cpp, shim_fn_name, ci.name, ci.name
                         ),
                         rust_name: fi.name.clone(),
                         params: vec![
                             ("a".to_string(), format!("*const {}", ci.name)),
                             ("b".to_string(), format!("*const {}", ci.name)),
                         ],
-                        ret_type: Some(format!("*mut {}", ci.name)),
+                        ret_type: Some(ret_rust),
                         is_unsafe: false,
                         has_fn_ptr_param: false,
                     });
                 }
-                continue;
-            }
-
-            // 3. 一元运算符（0 个额外参数，返回该类指针，名称在 UNARY_OPS 中）
-            if extra_params.is_empty() && ret_is_class && UNARY_OPS.contains(&stripped) {
-                let body = match stripped {
-                    "negate" => format!("return new {}(-*a);", ci.name),
-                    _ => continue,
-                };
-
-                cpp_shims.push(format!(
-                    "{}* {}(const {}* a) {{",
-                    ci.name, shim_fn_name, ci.name
-                ));
-                cpp_shims.push(format!("    {}", body));
-                cpp_shims.push("}".to_string());
-                cpp_shims.push(String::new());
-
-                new_bindings.push(FnBinding {
-                    cpp_sig: format!("{}* {}(const {}*)", ci.name, shim_fn_name, ci.name),
-                    rust_name: fi.name.clone(),
-                    params: vec![("a".to_string(), format!("*const {}", ci.name))],
-                    ret_type: Some(format!("*mut {}", ci.name)),
-                    is_unsafe: false,
-                    has_fn_ptr_param: false,
-                });
-                continue;
-            }
-
-            // 4. 比较类方法（1 个额外类类型参数，返回基础类型）
-            if extra_params.len() == 1
-                && !ret_is_class
-                && !ret_is_void
-                && !BINARY_OPS.iter().any(|(n, _)| *n == stripped)
-                && is_compare_accessor(fi, &ci.name)
-            {
-                let ret_cpp = clean_type(&fi.return_type).to_string();
-                let ret_rust = cpp_to_rust(&fi.return_type);
-
-                cpp_shims.push(format!(
-                    "{} {}(const {}* a, const {}* b) {{",
-                    ret_cpp, shim_fn_name, ci.name, ci.name
-                ));
-                cpp_shims.push(format!("    return a->{}(*b);", stripped));
-                cpp_shims.push("}".to_string());
-                cpp_shims.push(String::new());
-
-                new_bindings.push(FnBinding {
-                    cpp_sig: format!(
-                        "{} {}(const {}*, const {}*)",
-                        ret_cpp, shim_fn_name, ci.name, ci.name
-                    ),
-                    rust_name: fi.name.clone(),
-                    params: vec![
-                        ("a".to_string(), format!("*const {}", ci.name)),
-                        ("b".to_string(), format!("*const {}", ci.name)),
-                    ],
-                    ret_type: Some(ret_rust),
-                    is_unsafe: false,
-                    has_fn_ptr_param: false,
-                });
+                AccessorKind::Other => {}
             }
         }
 
@@ -214,6 +185,41 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
             });
         }
     }
+}
+
+/// accessor 的功能类别（用于排序和逻辑分支）
+#[derive(Debug, PartialEq, Eq)]
+enum AccessorKind {
+    Getter,    // 0 个额外参数，基础类型返回值
+    BinaryOp,  // 1 个额外参数，返回类类型，名称在 BINARY_OPS 中
+    UnaryOp,   // 0 个额外参数，返回类类型，名称在 UNARY_OPS 中
+    Compare,   // 1 个额外类类型参数，返回基础类型
+    Other,     // 不属于以上任何类别
+}
+
+/// 对给定 accessor 函数进行分类，消除 `apply` 和 `accessor_category` 的重复逻辑。
+fn classify_accessor(fi: &FunctionInfo, prefix: &str, class_name: &str) -> AccessorKind {
+    let stripped = match fi.name.strip_prefix(prefix) {
+        Some(s) => s,
+        None => return AccessorKind::Other,
+    };
+    let extra_params = &fi.params[1..];
+    let ret_is_class = fi.return_type.contains(class_name);
+    let ret_is_void = fi.return_type.is_empty() || fi.return_type == "void";
+
+    if extra_params.is_empty() && !ret_is_class && !ret_is_void {
+        return AccessorKind::Getter;
+    }
+    if BINARY_OPS.iter().any(|(n, _)| *n == stripped) && extra_params.len() == 1 && ret_is_class {
+        return AccessorKind::BinaryOp;
+    }
+    if UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class {
+        return AccessorKind::UnaryOp;
+    }
+    if extra_params.len() == 1 && !ret_is_class && !ret_is_void && is_compare_accessor(fi, class_name) {
+        return AccessorKind::Compare;
+    }
+    AccessorKind::Other
 }
 
 /// 判断函数是否是指定类的 MethodAccessor
@@ -247,29 +253,11 @@ fn is_compare_accessor(fi: &FunctionInfo, class_name: &str) -> bool {
 /// 返回 accessor 的类别优先级，用于排序：
 /// 0 = Getter, 1 = 二元运算符, 2 = 一元运算符, 3 = 比较方法, 4 = 其他
 fn accessor_category(fi: &FunctionInfo, prefix: &str, class_name: &str) -> u8 {
-    let stripped = match fi.name.strip_prefix(prefix) {
-        Some(s) => s,
-        None => return 4,
-    };
-    let extra_params = &fi.params[1..];
-    let ret_is_class = fi.return_type.contains(class_name);
-    let ret_is_void = fi.return_type.is_empty() || fi.return_type == "void";
-
-    // Getter：0 个额外参数，基础类型返回值
-    if extra_params.is_empty() && !ret_is_class && !ret_is_void {
-        return 0;
+    match classify_accessor(fi, prefix, class_name) {
+        AccessorKind::Getter => 0,
+        AccessorKind::BinaryOp => 1,
+        AccessorKind::UnaryOp => 2,
+        AccessorKind::Compare => 3,
+        AccessorKind::Other => 4,
     }
-    // 二元运算符：名称在 BINARY_OPS 中 + 1 个额外参数 + 返回类类型
-    if BINARY_OPS.iter().any(|(n, _)| *n == stripped) && extra_params.len() == 1 && ret_is_class {
-        return 1;
-    }
-    // 一元运算符：名称在 UNARY_OPS 中 + 0 个额外参数 + 返回类类型
-    if UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class {
-        return 2;
-    }
-    // 比较方法：1 个额外类类型参数 + 返回基础类型
-    if extra_params.len() == 1 && !ret_is_class && !ret_is_void {
-        return 3;
-    }
-    4
 }

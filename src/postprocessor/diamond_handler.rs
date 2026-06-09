@@ -1,4 +1,4 @@
-//! 菱形继承处理器（Phase 2）
+//! 菱形继承处理器（Phase 4）
 //!
 //! 检测菱形虚继承结构，将菱形基类方法从 `import_class!` 中移除，
 //! 并生成独立的 snake_case shim 函数插入 `cpp!` 块和 `import_lib!`。

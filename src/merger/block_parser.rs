@@ -71,6 +71,40 @@ pub struct ParsedFnBinding {
 //  解析入口
 // ─────────────────────────────────────────────
 
+/// 从 Rust 源文件中提取所有顶层 hicc 宏调用块（`hicc::cpp!`、`hicc::import_class!`、
+/// `hicc::import_lib!`）的原始文本，包含开头宏调用行和末尾 `}`。
+///
+/// 使用与生产代码相同的字符串感知花括号计数逻辑（`count_brace_delta`），
+/// 确保测试使用的块边界检测与实际合并器完全一致。
+pub fn extract_block_texts(src: &str) -> Vec<String> {
+    let mut result: Vec<String> = Vec::new();
+    let mut in_block = false;
+    let mut depth: i32 = 0;
+    let mut block_lines: Vec<String> = Vec::new();
+
+    for line in src.lines() {
+        let trimmed = line.trim();
+        if !in_block {
+            if detect_block_start(trimmed).is_some() {
+                in_block = true;
+                depth = 0;
+                block_lines.clear();
+                block_lines.push(line.to_string());
+                depth += count_brace_delta(trimmed);
+            }
+        } else {
+            block_lines.push(line.to_string());
+            depth += count_brace_delta(trimmed);
+            if depth <= 0 {
+                result.push(block_lines.join("\n"));
+                in_block = false;
+                depth = 0;
+            }
+        }
+    }
+    result
+}
+
 /// 解析一个 unit `.rs` 文件的内容，提取三类 hicc 块。
 pub fn parse_unit_rs(src: &str) -> ParsedUnit {
     let mut unit = ParsedUnit::default();
