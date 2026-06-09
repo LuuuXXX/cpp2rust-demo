@@ -30,7 +30,7 @@ cpp2rust-demo (bin)
     ├── selector.rs              # 交互式文件选择
     ├── ffi_model.rs             # FFI 中间表示（FfiSpec / ClassSpec / FnBinding 等）
     ├── error.rs                 # 统一错误类型
-    ├── ast_parser/              # C++ AST 解析（clang crate → CppAst）
+    ├── ast_parser/              # Phase 2：C++ AST 解析（clang crate → CppAst）
     │   ├── mod.rs               # 公共入口 parse_preprocessed()
     │   ├── collector.rs         # 类/函数/枚举收集逻辑
     │   └── range_scanner.rs     # 文件字节范围扫描（区分用户代码 vs 头文件）
@@ -47,17 +47,18 @@ cpp2rust-demo (bin)
     └── generator/               # Phase 5：FfiSpec → Rust 代码
         ├── mod.rs
         ├── hicc_codegen.rs      # hicc 三段式代码生成
-        └── project_generator.rs # Cargo.toml / lib.rs 生成
+        ├── project_generator.rs # Cargo.toml / lib.rs / build.rs 生成
+        └── smoke_test_gen.rs    # FFI 冒烟测试（tests/smoke_test.rs）生成
 ```
 
 ### 2.1 六阶段处理流程
 
 ```
-Phase 1              Phase 2+3               Phase 4              Phase 5              Phase 6
-编译拦截 (hook.cpp)   AST 提取 + IR 提取       后处理              代码生成              合并整理
-LD_PRELOAD           clang crate 解析         postprocessor/      generator/           merger/
-→ g++ -E -C          .cpp2rust → CppAst      FfiSpec 特殊情况    FfiSpec → hicc       merge_in_place()
-→ .cpp2rust   →      extractor/ → FfiSpec  →  处理（菱形继承）→   三段式 Rust 代码  →  src/ 整理 + 报告
+Phase 1              Phase 2                 Phase 3              Phase 4              Phase 5              Phase 6
+编译拦截 (hook.cpp)   AST 解析                IR 提取              后处理              代码生成              合并整理
+LD_PRELOAD           ast_parser/             extractor/           postprocessor/      generator/           merger/
+→ g++ -E -C          clang crate 解析        CppAst → FfiSpec     FfiSpec 特殊情况    FfiSpec → hicc       merge_in_place()
+→ .cpp2rust   →      .cpp2rust → CppAst →   FfiSpec IR       →   处理（菱形继承）→   三段式 Rust 代码  →  src/ 整理 + 报告
 ```
 
 ### 2.2 输出目录结构

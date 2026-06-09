@@ -30,10 +30,29 @@ pub struct RustSrcMetrics {
     pub degraded_tags: Vec<(String, usize)>,
 }
 
-/// 统计文件行数（逐行读取，内存高效）。
+/// 从单行代码中提取 `cpp2rust-todo[TAG]` 标签字符串（若存在）。
+///
+/// 返回的切片借用自入参 `line`，调用方可选择 `.to_string()` 持有或直接比较。
+pub fn parse_todo_tag_from_line(line: &str) -> Option<&str> {
+    let start = line.find(TODO_MARKER_PREFIX)?;
+    let rest = &line[start + TODO_MARKER_PREFIX.len()..];
+    let end = rest.find(']')?;
+    Some(&rest[..end])
+}
+
+/// 统计文件行数。
+///
+/// 通过统计字节流中 `\n` 数量实现，避免为大文件（如 SQLite 展开后的数万行）
+/// 分配 UTF-8 字符串切片，比 `BufReader::lines().count()` 开销更低。
 pub fn count_file_lines(path: &Path) -> usize {
+    use std::io::Read;
     std::fs::File::open(path)
-        .map(|f| BufReader::new(f).lines().count())
+        .map(|f| {
+            BufReader::new(f)
+                .bytes()
+                .filter(|b| matches!(b, Ok(b'\n')))
+                .count()
+        })
         .unwrap_or(0)
 }
 
@@ -84,13 +103,9 @@ pub fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
                     }
                 }
             }
-            // cpp2rust-todo[TAG] 统计
-            if let Some(start) = line.find(TODO_MARKER_PREFIX) {
-                let rest = &line[start + TODO_MARKER_PREFIX.len()..];
-                if let Some(end) = rest.find(']') {
-                    let tag = rest[..end].to_string();
-                    *todo_tags.entry(tag).or_insert(0) += 1;
-                }
+            // cpp2rust-todo[TAG] 统计（复用公共解析函数）
+            if let Some(tag) = parse_todo_tag_from_line(line) {
+                *todo_tags.entry(tag.to_string()).or_insert(0) += 1;
             }
         }
         if found_import_lib {
@@ -195,5 +210,32 @@ mod tests {
         let p = dir.path().join("test.rs");
         std::fs::write(&p, "line1\nline2\nline3\n").unwrap();
         assert_eq!(count_file_lines(&p), 3);
+    }
+
+    // ── parse_todo_tag_from_line ──────────────────────────────────────────────
+
+    #[test]
+    fn parse_todo_tag_from_line_detects_tag() {
+        assert_eq!(
+            parse_todo_tag_from_line("// cpp2rust-todo[FP]: 需手动处理"),
+            Some("FP")
+        );
+        assert_eq!(
+            parse_todo_tag_from_line("    // cpp2rust-todo[LONG_DOUBLE] comment"),
+            Some("LONG_DOUBLE")
+        );
+    }
+
+    #[test]
+    fn parse_todo_tag_from_line_returns_none_when_absent() {
+        assert_eq!(parse_todo_tag_from_line("// 普通注释"), None);
+        assert_eq!(parse_todo_tag_from_line("let x = 1;"), None);
+        assert_eq!(parse_todo_tag_from_line(""), None);
+    }
+
+    #[test]
+    fn parse_todo_tag_from_line_unclosed_bracket_returns_none() {
+        // 未闭合的 `[` 不应匹配
+        assert_eq!(parse_todo_tag_from_line("// cpp2rust-todo[OPEN"), None);
     }
 }

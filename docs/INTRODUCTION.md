@@ -202,6 +202,18 @@ cpp2rust-demo merge --feature <name>
 | `void *` | `*mut u8` | 通用指针映射；实际语义依上下文而定 |
 | C 函数指针 `T (*)(...)` | `unsafe extern "C" fn(...)` | 嵌套函数指针（参数中含 `(*)`）不支持，回退为原始字符串 |
 
+#### Windows（LLP64）平台差异补充说明
+
+在 64 位 Linux/macOS 上，C++ 的数据模型是 **LP64**（`long` 和指针均为 64 位）；而 Windows 64 位（MSVC & MinGW）采用 **LLP64**（`long` 仍为 32 位，只有 `long long` 和指针为 64 位）。工具在编译时通过 `#[cfg(target_os = "windows")]` 分支自动切换以下映射：
+
+| C++ 类型 | LP64（Linux/macOS） | LLP64（Windows 64 位） |
+|----------|--------------------|-----------------------|
+| `long` | `i64` | `i32` |
+| `unsigned long` | `u64` | `u32` |
+| `long double` | `f64`（精度损失，标注 `[LONG_DOUBLE]`） | `f64`（同上） |
+
+> **注意**：捕获阶段（`LD_PRELOAD` hook）目前仅支持 Linux/macOS。Windows 上运行 `cpp2rust init` 时，若需处理含 `long` 的接口，应确认目标平台的数据模型与工具运行时一致，避免类型宽度不匹配。
+
 ---
 
 ## Part 3：降级特性详解

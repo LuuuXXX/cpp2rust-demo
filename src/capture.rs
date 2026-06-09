@@ -204,18 +204,18 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
         .map_err(|e| Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display())))?;
 
     // 若 hook.cpp 不存在或内容有变化，则写入（二进制更新时自动升级）。
-    write_if_changed(&hook_dir.join("hook.cpp"), HOOK_CPP)?;
+    let _ = write_if_changed(&hook_dir.join("hook.cpp"), HOOK_CPP)?;
     // 若 Makefile 不存在或内容有变化，则写入。
-    write_if_changed(&hook_dir.join("Makefile"), HOOK_MAKEFILE)?;
+    let _ = write_if_changed(&hook_dir.join("Makefile"), HOOK_MAKEFILE)?;
 
     Ok(hook_dir)
 }
 
-/// 若 `path` 不存在或内容与 `content` 不同，则写入文件。
+/// 若 `path` 不存在或内容与 `content` 不同，则写入文件；返回是否真正写入。
 ///
 /// 避免不必要的写入，以免触发文件系统 mtime 变更（影响 `libhook.so` 的快速路径判断）。
-/// Unix 和 Windows 均可使用。
-fn write_if_changed(path: &Path, content: &str) -> Result<()> {
+/// Unix 和 Windows 均可使用。返回 `true` 表示文件已被写入，`false` 表示内容相同未写入。
+fn write_if_changed(path: &Path, content: &str) -> Result<bool> {
     let needs_write = match std::fs::read_to_string(path) {
         Ok(existing) => existing != content,
         Err(_) => true,
@@ -224,7 +224,7 @@ fn write_if_changed(path: &Path, content: &str) -> Result<()> {
         std::fs::write(path, content)
             .map_err(|e| Cpp2RustError::IoError(format!("write {}: {e}", path.display())))?;
     }
-    Ok(())
+    Ok(needs_write)
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -249,17 +249,11 @@ fn build_hook_windows() -> Result<PathBuf> {
     let shim_rs = hook_dir.join("hook_shim.rs");
     let shim_exe = hook_dir.join("hook_shim.exe");
 
-    // 若源码有变化则写入（触发重新编译）
-    let needs_write = !shim_rs.exists()
-        || std::fs::read_to_string(&shim_rs)
-            .map(|existing| existing != HOOK_SHIM_RS)
-            .unwrap_or(true);
-    if needs_write {
-        write_if_changed(&shim_rs, HOOK_SHIM_RS)?;
-    }
+    // 若源码有变化则写入（触发重新编译）；was_written = true 表示 shim 源码已更新。
+    let was_written = write_if_changed(&shim_rs, HOOK_SHIM_RS)?;
 
-    // 快速路径：若 .exe 比 .rs 更新则跳过编译
-    if shim_exe.exists() && !needs_write {
+    // 快速路径：若 .exe 存在且 shim 源码无变化则跳过编译
+    if shim_exe.exists() && !was_written {
         println!("Hook shim up-to-date: {}", shim_exe.display());
         return Ok(shim_exe);
     }
@@ -503,4 +497,56 @@ fn dirs_home() -> Option<PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // ── write_if_changed ────────────────────────────────────────────────────────
+
+    #[test]
+    fn write_if_changed_creates_file_when_not_exists() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("file.txt");
+        let written = write_if_changed(&path, "hello").unwrap();
+        assert!(written, "文件不存在时应返回 true（已写入）");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello");
+    }
+
+    #[test]
+    fn write_if_changed_returns_false_when_content_same() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, "same").unwrap();
+        let mtime_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+
+        let written = write_if_changed(&path, "same").unwrap();
+        assert!(!written, "内容相同时应返回 false（未写入）");
+
+        let mtime_after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(mtime_before, mtime_after, "内容相同时不应修改 mtime");
+    }
+
+    #[test]
+    fn write_if_changed_overwrites_when_content_differs() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, "old").unwrap();
+
+        let written = write_if_changed(&path, "new").unwrap();
+        assert!(written, "内容不同时应返回 true（已写入）");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+    }
+
+    // ── dirs_home ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn dirs_home_returns_some_on_standard_env() {
+        // 在标准 CI 环境（HOME 已设置）下应返回 Some
+        if std::env::var_os("HOME").is_some() || std::env::var_os("USERPROFILE").is_some() {
+            assert!(dirs_home().is_some(), "标准环境下 dirs_home() 应返回 Some");
+        }
+    }
 }

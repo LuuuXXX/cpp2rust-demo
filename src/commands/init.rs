@@ -21,7 +21,7 @@ struct UnitData {
 
 use crate::generator::{hicc_codegen, project_generator, smoke_test_gen};
 use crate::layout::{self, FeatureLayout, InitReportData, InitUnitStat};
-use crate::metrics::{count_file_lines, TODO_MARKER_PREFIX};
+use crate::metrics::{count_file_lines, parse_todo_tag_from_line};
 use crate::selector::{FileSelector, InteractiveSelector};
 
 /// 执行 `init` 命令：编译拦截 → AST 解析 → 代码生成。
@@ -51,24 +51,7 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    // ── 预处理文件行数统计 ─────────────────────────────────────────────────
-    {
-        use std::cmp::Reverse;
-        let mut sizes: Vec<(&PathBuf, usize)> =
-            captured.iter().map(|p| (p, count_file_lines(p))).collect();
-        sizes.sort_by_key(|b| Reverse(b.1));
-        let total: usize = sizes.iter().map(|(_, n)| n).sum();
-        println!("\n── 捕获的 .cpp2rust 文件（行数，降序）──");
-        for (path, lines) in sizes.iter().take(15) {
-            let name = path.file_name().unwrap_or_default().to_string_lossy();
-            println!("  {:>8} 行  {}", lines, name);
-        }
-        if sizes.len() > 15 {
-            println!("  ...（共 {} 个文件，仅显示前 15 条）", sizes.len());
-        }
-        println!("  ────────────────────────────────────────");
-        println!("  {:>8} 行  合计", total);
-    }
+    print_capture_stats(&captured);
 
     let sel = InteractiveSelector;
     let selected = sel.select(&captured)?;
@@ -82,23 +65,107 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     }
 
     println!("\n正在对选定文件运行 AST 解析与代码生成...");
+
+    let (all_units, unit_stats) = first_pass_parse(&selected, &lo.c_dir, &project_root)?;
+    let class_to_module = collect_class_map(&all_units);
+    let (unit_paths, sorted_tags) = second_pass_generate(&all_units, &class_to_module, &lo.rust_dir)?;
+
+    print_degraded_summary(&sorted_tags);
+
+    // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
+    project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
+    let lib_name = feature.replace('-', "_");
+    project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
+    project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
+
+    // 生成 tests/smoke_test.rs（冒烟测试）
+    let smoke_units: Vec<(&str, &FfiSpec)> = all_units
+        .iter()
+        .map(|ud| (ud.unit_path.as_str(), &ud.spec))
+        .collect();
+    let smoke_content = smoke_test_gen::generate(&smoke_units, &lib_name);
+    project_generator::write_smoke_test(&lo.rust_dir, &smoke_content)?;
+
+    // 生成 meta/init-report.md
+    let report_data = InitReportData {
+        feature,
+        build_cmd: &build_cmd.join(" "),
+        captured_count: captured.len(),
+        selected_count: selected.len(),
+        units: &unit_stats,
+        degraded_tags: &sorted_tags,
+    };
+    lo.save_init_report(&report_data)?;
+
+    println!("\n✓ cpp2rust-demo init 完成。");
+    println!("\n输出目录结构:");
+    println!("  .cpp2rust/{}/", feature);
+    println!("    ├── c/          （捕获的 .cpp2rust 文件，目录结构与 C++ 项目一致）");
+    println!("    ├── meta/       （build_cmd.txt、selected_files.json、init-report.md）");
+    println!("    └── rust/       （生成的 Rust 项目）");
+    println!("        ├── Cargo.toml");
+    println!("        ├── build.rs");
+    println!("        ├── src/        （lib.rs + 各编译单元 .rs 文件）");
+    println!("        └── tests/smoke_test.rs  （FFI 冒烟测试）");
+    println!();
+    println!(
+        "已在 .cpp2rust/{}/rust/src/ 生成 {} 个单元文件",
+        feature,
+        unit_paths.len()
+    );
+    if unit_paths.iter().any(|p| p.contains('/')) {
+        println!("  （目录结构与 C++ 项目一致）");
+    }
+    println!(
+        "  → 运行 'cpp2rust-demo merge --feature {}' 整理输出结构。",
+        feature
+    );
+
+    Ok(())
+}
+
+// ─── 内部辅助函数 ─────────────────────────────────────────────────────────────
+
+/// 打印捕获的 `.cpp2rust` 文件行数统计（降序排列，最多显示 15 条）。
+fn print_capture_stats(captured: &[PathBuf]) {
+    use std::cmp::Reverse;
+    let mut sizes: Vec<(&PathBuf, usize)> =
+        captured.iter().map(|p| (p, count_file_lines(p))).collect();
+    sizes.sort_by_key(|b| Reverse(b.1));
+    let total: usize = sizes.iter().map(|(_, n)| n).sum();
+    println!("\n── 捕获的 .cpp2rust 文件（行数，降序）──");
+    for (path, lines) in sizes.iter().take(15) {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        println!("  {:>8} 行  {}", lines, name);
+    }
+    if sizes.len() > 15 {
+        println!("  ...（共 {} 个文件，仅显示前 15 条）", sizes.len());
+    }
+    println!("  ────────────────────────────────────────");
+    println!("  {:>8} 行  合计", total);
+}
+
+/// 第一趟：对所有选定文件执行 AST 解析与 FFI 提取。
+///
+/// 返回 `(all_units, unit_stats)`，其中 `all_units` 包含每个编译单元的 IR 数据，
+/// `unit_stats` 用于写入 `init-report.md`。
+fn first_pass_parse(
+    selected: &[PathBuf],
+    c_dir: &std::path::Path,
+    project_root: &std::path::Path,
+) -> Result<(Vec<UnitData>, Vec<InitUnitStat>)> {
+    let mut all_units: Vec<UnitData> = Vec::new();
     let mut unit_stats: Vec<InitUnitStat> = Vec::new();
-    // 降级特性统计：tag → (unit_path → 出现次数)
-    let mut degraded_tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
-    // unit_path → 首次注册该路径的源文件（用于冲突诊断）
     let mut seen_unit_paths: HashMap<String, PathBuf> = HashMap::new();
 
-    // ── 第一趟：解析所有文件，收集 (unit_path, spec, stats) ──────────────────
-    let mut all_units: Vec<UnitData> = Vec::new();
-
-    for path in &selected {
+    for path in selected {
         let file_start = Instant::now();
 
         // 从 `.cpp2rust` 路径推导原始 `.cpp` 路径
         // hook 命名规则：<c_dir>/<relative_from_project_root>.cpp2rust
         // 例：<c_dir>/src/foo.cpp.cpp2rust → project_root/src/foo.cpp
         let original_cpp = {
-            let rel = path.strip_prefix(&lo.c_dir).unwrap_or(path.as_path());
+            let rel = path.strip_prefix(c_dir).unwrap_or(path.as_path());
             let rel_str = rel.to_string_lossy();
             let cpp_rel = rel_str
                 .strip_suffix(".cpp2rust")
@@ -111,7 +178,7 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
         // 仅去掉首级 "src" 目录（避免双重 src），其余目录名（tests/、shim/ 等）完整保留
         // 例：<c_dir>/src/utils/foo.cpp.cpp2rust → "utils/foo"
         //     <c_dir>/tests/bar.cpp.cpp2rust     → "tests/bar"
-        let unit_path = project_generator::derive_unit_path(&lo.c_dir, path);
+        let unit_path = project_generator::derive_unit_path(c_dir, path);
 
         // 冲突检测：两个不同源文件映射到同一 unit_path，显示两个文件路径便于排查
         if let Some(first) = seen_unit_paths.get(&unit_path) {
@@ -169,16 +236,20 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
         }
     }
 
-    // ── 跨模块类型映射：class_name → 定义该类型的 unit_path ──────────────────
-    // 只有实际生成了 import_class! 块的类（即不被 hicc_codegen 跳过的 ClassSpec）才加入映射。
-    // 与 hicc_codegen::generate 的跳过条件保持一致：ClassSpec::is_empty() 为 true 则跳过。
+    Ok((all_units, unit_stats))
+}
+
+/// 建立跨模块类型映射：`class_name → 定义该类型的 unit_path`。
+///
+/// 只有实际生成了 `import_class!` 块的类（即 `ClassSpec::is_empty()` 为 false）才加入映射，
+/// 与 `hicc_codegen::generate` 的跳过条件保持一致。
+fn collect_class_map(all_units: &[UnitData]) -> HashMap<String, String> {
     let mut class_to_module: HashMap<String, String> = HashMap::new();
-    for ud in &all_units {
+    for ud in all_units {
         for cs in ud.spec.class_specs.iter().filter(|cs| !cs.is_empty()) {
             if let Some(existing) = class_to_module.get(&cs.name) {
                 eprintln!(
-                    "  警告：类 '{}' 同时定义于 '{}' 和 '{}'；\
-跨模块引用将使用第一个定义",
+                    "  警告：类 '{}' 同时定义于 '{}' 和 '{}'；跨模块引用将使用第一个定义",
                     cs.name, existing, ud.unit_path
                 );
             } else {
@@ -186,22 +257,31 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
             }
         }
     }
+    class_to_module
+}
 
-    // ── 第二趟：生成代码（附加跨模块 use / opaque 声明）并写入文件 ──────────
+/// 第二趟：生成代码（附加跨模块 `use` / opaque 声明）并写入文件，同时统计降级特性。
+///
+/// 返回 `(unit_paths, sorted_tags)`，其中 `sorted_tags` 是按 tag 字典序排列的
+/// `(tag, Vec<(unit_path, count)>)` 列表，供打印摘要和写入报告使用。
+fn second_pass_generate(
+    all_units: &[UnitData],
+    class_to_module: &HashMap<String, String>,
+    rust_dir: &std::path::Path,
+) -> Result<(Vec<String>, Vec<(String, Vec<(String, usize)>)>)> {
     let mut unit_paths: Vec<String> = Vec::new();
+    let mut degraded_tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
-    for ud in &all_units {
-        let preamble = build_cross_module_preamble(&ud.spec, &ud.unit_path, &class_to_module);
+    for ud in all_units {
+        let preamble = build_cross_module_preamble(&ud.spec, &ud.unit_path, class_to_module);
         let code = format!("{}{}", preamble, hicc_codegen::generate(&ud.spec));
 
-        // 统计降级特性（扫描生成代码中的 cpp2rust-todo 标签）
         count_degraded_tags(&code, &ud.unit_path, &mut degraded_tags);
 
-        project_generator::write_unit_rs(&lo.rust_dir, &ud.unit_path, &code)?;
+        project_generator::write_unit_rs(rust_dir, &ud.unit_path, &code)?;
         unit_paths.push(ud.unit_path.clone());
     }
 
-    // 降级特性汇总
     let mut sorted_tags: Vec<(String, Vec<(String, usize)>)> = degraded_tags
         .into_iter()
         .map(|(tag, unit_map)| {
@@ -211,73 +291,26 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
         })
         .collect();
     sorted_tags.sort_by(|a, b| a.0.cmp(&b.0));
-    if !sorted_tags.is_empty() {
-        println!("\n⚠ 降级特性（需要人工处理）：");
-        for (tag, units) in &sorted_tags {
-            let total: usize = units.iter().map(|(_, c)| c).sum();
-            println!("  [{}] × {} 次", tag, total);
-            for (unit_path, count) in units {
-                println!("      {} （{} 次）", unit_path, count);
-            }
-        }
-        println!("  → 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。");
-    }
 
-    // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
-    project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
-    let lib_name = feature.replace('-', "_");
-    project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
-    project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
-
-    // 生成 tests/smoke_test.rs（冒烟测试）
-    let smoke_units: Vec<(&str, &FfiSpec)> = all_units
-        .iter()
-        .map(|ud| (ud.unit_path.as_str(), &ud.spec))
-        .collect();
-    let smoke_content = smoke_test_gen::generate(&smoke_units, &lib_name);
-    project_generator::write_smoke_test(&lo.rust_dir, &smoke_content)?;
-
-    // 生成 meta/init-report.md
-    let report_data = InitReportData {
-        feature,
-        build_cmd: &build_cmd.join(" "),
-        captured_count: captured.len(),
-        selected_count: selected.len(),
-        units: &unit_stats,
-        degraded_tags: &sorted_tags,
-    };
-    lo.save_init_report(&report_data)?;
-
-    println!("\n✓ cpp2rust-demo init 完成。");
-    println!("\n输出目录结构:");
-    println!("  .cpp2rust/{}/", feature);
-    println!("    ├── c/          （捕获的 .cpp2rust 文件，目录结构与 C++ 项目一致）");
-    println!("    ├── meta/       （build_cmd.txt、selected_files.json、init-report.md）");
-    println!("    └── rust/       （生成的 Rust 项目）");
-    println!("        ├── Cargo.toml");
-    println!("        ├── build.rs");
-    println!("        ├── src/        （lib.rs + 各编译单元 .rs 文件）");
-    println!("        └── tests/smoke_test.rs  （FFI 冒烟测试）");
-    println!();
-    println!(
-        "已在 .cpp2rust/{}/rust/src/ 生成 {} 个单元文件",
-        feature,
-        unit_paths.len()
-    );
-    if unit_paths.iter().any(|p| p.contains('/')) {
-        println!("  （目录结构与 C++ 项目一致）");
-    }
-    println!(
-        "  → 运行 'cpp2rust-demo merge --feature {}' 整理输出结构。",
-        feature
-    );
-
-    Ok(())
+    Ok((unit_paths, sorted_tags))
 }
 
-// ─── 内部辅助函数 ─────────────────────────────────────────────────────────────
+/// 打印降级特性汇总（若无降级特性则静默）。
+fn print_degraded_summary(sorted_tags: &[(String, Vec<(String, usize)>)]) {
+    if sorted_tags.is_empty() {
+        return;
+    }
+    println!("\n⚠ 降级特性（需要人工处理）：");
+    for (tag, units) in sorted_tags {
+        let total: usize = units.iter().map(|(_, c)| c).sum();
+        println!("  [{}] × {} 次", tag, total);
+        for (unit_path, count) in units {
+            println!("      {} （{} 次）", unit_path, count);
+        }
+    }
+    println!("  → 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。");
+}
 
-/// 为无任何模块定义的 C typedef struct 生成 `hicc::import_class!` opaque 声明块，
 /// 使该类型自动实现 `AbiClass`，满足 `import_lib!` 中 `class TypeName;` 的 trait 约束。
 fn opaque_import_class_block(type_name: &str) -> String {
     format!(
@@ -306,14 +339,14 @@ fn parse_fwd_decl<'a>(fwd_decl: &'a str, unit_path: &str) -> Option<&'a str> {
 
     if type_name.is_empty() {
         eprintln!(
-            "  Warning: malformed fwd_decl {:?} in unit '{}'; expected format 'class TypeName;'",
+            "  警告：fwd_decl {:?} 格式不合法（单元 '{}'），期望格式为 'class TypeName;'",
             fwd_decl, unit_path
         );
         return None;
     }
     if !is_valid_identifier(type_name) {
         eprintln!(
-            "  Warning: fwd_decl {:?} in unit '{}' contains an invalid identifier '{}'; skipping",
+            "  警告：fwd_decl {:?} 在单元 '{}' 中含无效标识符 '{}'，已跳过",
             fwd_decl, unit_path, type_name
         );
         return None;
@@ -376,16 +409,12 @@ fn count_degraded_tags(
     tags: &mut HashMap<String, HashMap<String, usize>>,
 ) {
     for line in code.lines() {
-        if let Some(start) = line.find(TODO_MARKER_PREFIX) {
-            let rest = &line[start + TODO_MARKER_PREFIX.len()..];
-            if let Some(end) = rest.find(']') {
-                let tag = rest[..end].to_string();
-                *tags
-                    .entry(tag)
-                    .or_default()
-                    .entry(unit_path.to_string())
-                    .or_insert(0) += 1;
-            }
+        if let Some(tag) = parse_todo_tag_from_line(line) {
+            *tags
+                .entry(tag.to_string())
+                .or_default()
+                .entry(unit_path.to_string())
+                .or_insert(0) += 1;
         }
     }
 }

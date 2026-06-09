@@ -152,11 +152,15 @@ pub fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
     let rust_src = lo.rust_dir.join("src");
     let m = collect_rust_src_metrics(&rust_src);
 
+    // 生成 meta/api-manifest.md（C++ → Rust API 对账清单）
+    let merged_spec = merger::merge_units(&unit_files);
+
     // 生成 meta/merge-report.md
+    // 注：merge_units 需在 save_merge_report 之前调用，以便将冲突信息写入报告
     let report_data = MergeReportData {
         feature,
         unit_count: unit_files.len(),
-        conflicts: &[],
+        conflicts: &merged_spec.conflicts,
         rs_file_count: m.rs_files.len(),
         import_lib_files: m.import_lib_files,
         import_class_files: m.import_class_files,
@@ -166,8 +170,6 @@ pub fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
     };
     lo.save_merge_report(&report_data)?;
 
-    // 生成 meta/api-manifest.md（C++ → Rust API 对账清单）
-    let merged_spec = merger::merge_units(&unit_files);
     let mut manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
 
     // 读取已生成的 smoke_test.rs，解析冒烟测试清单并附加到 manifest
@@ -189,113 +191,9 @@ pub fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
     println!("        ├── src.1/  （init 输出备份，首次运行时 rename from src）");
     println!("        └── src/    （merge 输出，真实目录，与 C++ 项目目录结构一致）");
 
-    // ── 生成的 .rs 文件列表 ──────────────────────────────────────────────
-    println!();
-    println!("── 生成的 .rs 文件（共 {}，前 20 条）──", m.rs_files.len());
-    for f in m.rs_files.iter().take(20) {
-        let display = f
-            .strip_prefix(&rust_src)
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| f.display().to_string());
-        println!("  {}", display);
-    }
-    if m.rs_files.len() > 20 {
-        println!("  ...（共 {} 个文件，仅显示前 20 条）", m.rs_files.len());
-    }
-
-    // ── FFI 绑定统计 ────────────────────────────────────────────────────
-    println!();
-    println!("── FFI 绑定统计 ──");
-    println!("  import_lib!  绑定文件数：{}", m.import_lib_files);
-    println!("  import_class! 绑定文件数：{}", m.import_class_files);
-    println!(
-        "  FFI 函数绑定总数（#[cpp(func=...)]）：{}",
-        m.fn_binding_count
-    );
-
-    if m.bad_link_names.is_empty() {
-        println!("  link_name 一致性：✓ 全部通过（无路径分隔符）");
-    } else {
-        println!(
-            "  link_name 一致性：⚠ {} 处含路径分隔符：",
-            m.bad_link_names.len()
-        );
-        for name in &m.bad_link_names {
-            println!("    ✗ {}", name);
-        }
-    }
-
-    if m.include_count > 0 {
-        println!(
-            "  cpp! 块 #include 指令数：{} （头文件探测已生效）",
-            m.include_count
-        );
-    } else {
-        println!("  cpp! 块 #include 指令数：0 （可能未探测到对应头文件）");
-    }
-
-    // ── 降级标记统计 ─────────────────────────────────────────────────────
-    println!();
-    if m.degraded_tags.is_empty() {
-        println!("── 降级标记：✓ 无（所有特性均已完整映射）");
-    } else {
-        println!("── 降级标记（需人工处理，搜索 'cpp2rust-todo'）：");
-        for (tag, count) in &m.degraded_tags {
-            println!("  [{}] × {} 次", tag, count);
-        }
-    }
-
-    // ── API 对账清单摘要 ─────────────────────────────────────────────────────
-    let degraded_count = manifest
-        .classes
-        .iter()
-        .flat_map(|c| c.methods.iter())
-        .filter(|m| m.is_degraded)
-        .count()
-        + manifest.functions.iter().filter(|f| f.is_degraded).count();
-    let total_methods: usize = manifest.classes.iter().map(|c| c.methods.len()).sum();
-    println!();
-    println!("── API 接口清单（api-manifest.md）──");
-    println!("  类数量       : {}", manifest.classes.len());
-    println!("  方法总数     : {}", total_methods);
-    println!("  独立函数数   : {}", manifest.functions.len());
-    if degraded_count == 0 {
-        println!("  降级绑定数   : ✓ 无");
-    } else {
-        println!(
-            "  降级绑定数   : ⚠ {} 处（含 cpp2rust-todo 标记）",
-            degraded_count
-        );
-    }
-
-    // ── 汇总表 ────────────────────────────────────────────────────────────
-    println!();
-    println!("┌─────────────────────────────────────────────────────────┐");
-    println!("│             cpp2rust-demo Merge 汇总                    │");
-    println!("└─────────────────────────────────────────────────────────┘");
-    println!("  feature          : {}", feature);
-    println!("  合并单元文件数   : {}", unit_files.len());
-    println!("  生成 .rs 文件数  : {}", m.rs_files.len());
-    println!("  import_lib! 文件 : {}", m.import_lib_files);
-    println!("  FFI 函数绑定数   : {}", m.fn_binding_count);
-    if m.bad_link_names.is_empty() {
-        println!("  link_name 检查   : ✓ 通过");
-    } else {
-        println!("  link_name 检查   : ⚠ {} 处异常", m.bad_link_names.len());
-    }
-    if m.todo_count == 0 {
-        println!("  降级标记         : ✓ 无");
-    } else {
-        println!("  降级标记         : ⚠ {} 处（需人工完善）", m.todo_count);
-    }
-    println!(
-        "  报告             : .cpp2rust/{}/meta/merge-report.md",
-        feature
-    );
-    println!(
-        "  API 清单         : .cpp2rust/{}/meta/api-manifest.md",
-        feature
-    );
+    print_ffi_stats(&m, &rust_src);
+    print_manifest_summary(&manifest);
+    print_merge_summary_table(feature, unit_files.len(), &m);
 
     Ok(lo.rust_dir)
 }
@@ -462,4 +360,125 @@ fn build_api_manifest(
         template_groups,
         smoke_tests: vec![],
     }
+}
+
+// ─── 打印辅助函数 ─────────────────────────────────────────────────────────────
+
+/// 打印 merge 后生成的 `.rs` 文件列表及 FFI 绑定统计，包含降级标记汇总。
+fn print_ffi_stats(m: &crate::metrics::RustSrcMetrics, rust_src: &Path) {
+    // ── 生成的 .rs 文件列表 ──────────────────────────────────────────────
+    println!();
+    println!("── 生成的 .rs 文件（共 {}，前 20 条）──", m.rs_files.len());
+    for f in m.rs_files.iter().take(20) {
+        let display = f
+            .strip_prefix(rust_src)
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| f.display().to_string());
+        println!("  {}", display);
+    }
+    if m.rs_files.len() > 20 {
+        println!("  ...（共 {} 个文件，仅显示前 20 条）", m.rs_files.len());
+    }
+
+    // ── FFI 绑定统计 ────────────────────────────────────────────────────
+    println!();
+    println!("── FFI 绑定统计 ──");
+    println!("  import_lib!  绑定文件数：{}", m.import_lib_files);
+    println!("  import_class! 绑定文件数：{}", m.import_class_files);
+    println!(
+        "  FFI 函数绑定总数（#[cpp(func=...)]）：{}",
+        m.fn_binding_count
+    );
+
+    if m.bad_link_names.is_empty() {
+        println!("  link_name 一致性：✓ 全部通过（无路径分隔符）");
+    } else {
+        println!(
+            "  link_name 一致性：⚠ {} 处含路径分隔符：",
+            m.bad_link_names.len()
+        );
+        for name in &m.bad_link_names {
+            println!("    ✗ {}", name);
+        }
+    }
+
+    if m.include_count > 0 {
+        println!(
+            "  cpp! 块 #include 指令数：{} （头文件探测已生效）",
+            m.include_count
+        );
+    } else {
+        println!("  cpp! 块 #include 指令数：0 （可能未探测到对应头文件）");
+    }
+
+    // ── 降级标记统计 ─────────────────────────────────────────────────────
+    println!();
+    if m.degraded_tags.is_empty() {
+        println!("── 降级标记：✓ 无（所有特性均已完整映射）");
+    } else {
+        println!("── 降级标记（需人工处理，搜索 'cpp2rust-todo'）：");
+        for (tag, count) in &m.degraded_tags {
+            println!("  [{}] × {} 次", tag, count);
+        }
+    }
+}
+
+/// 打印 API 接口清单摘要（类数、方法数、降级绑定数）。
+fn print_manifest_summary(manifest: &ApiManifest) {
+    let degraded_count = manifest
+        .classes
+        .iter()
+        .flat_map(|c| c.methods.iter())
+        .filter(|m| m.is_degraded)
+        .count()
+        + manifest.functions.iter().filter(|f| f.is_degraded).count();
+    let total_methods: usize = manifest.classes.iter().map(|c| c.methods.len()).sum();
+    println!();
+    println!("── API 接口清单（api-manifest.md）──");
+    println!("  类数量       : {}", manifest.classes.len());
+    println!("  方法总数     : {}", total_methods);
+    println!("  独立函数数   : {}", manifest.functions.len());
+    if degraded_count == 0 {
+        println!("  降级绑定数   : ✓ 无");
+    } else {
+        println!(
+            "  降级绑定数   : ⚠ {} 处（含 cpp2rust-todo 标记）",
+            degraded_count
+        );
+    }
+}
+
+/// 打印 merge 完成后的汇总表格。
+fn print_merge_summary_table(
+    feature: &str,
+    unit_count: usize,
+    m: &crate::metrics::RustSrcMetrics,
+) {
+    println!();
+    println!("┌─────────────────────────────────────────────────────────┐");
+    println!("│             cpp2rust-demo Merge 汇总                    │");
+    println!("└─────────────────────────────────────────────────────────┘");
+    println!("  feature          : {}", feature);
+    println!("  合并单元文件数   : {}", unit_count);
+    println!("  生成 .rs 文件数  : {}", m.rs_files.len());
+    println!("  import_lib! 文件 : {}", m.import_lib_files);
+    println!("  FFI 函数绑定数   : {}", m.fn_binding_count);
+    if m.bad_link_names.is_empty() {
+        println!("  link_name 检查   : ✓ 通过");
+    } else {
+        println!("  link_name 检查   : ⚠ {} 处异常", m.bad_link_names.len());
+    }
+    if m.todo_count == 0 {
+        println!("  降级标记         : ✓ 无");
+    } else {
+        println!("  降级标记         : ⚠ {} 处（需人工完善）", m.todo_count);
+    }
+    println!(
+        "  报告             : .cpp2rust/{}/meta/merge-report.md",
+        feature
+    );
+    println!(
+        "  API 清单         : .cpp2rust/{}/meta/api-manifest.md",
+        feature
+    );
 }
