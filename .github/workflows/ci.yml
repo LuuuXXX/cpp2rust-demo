@@ -70,6 +70,9 @@ jobs:
       - name: Run unit tests (lib)
         run: cargo test --lib
 
+      - name: Run unit tests (bin) – multi-feature merge & output-dir
+        run: cargo test --bin cpp2rust-demo
+
   # ── 单元测试（Windows MinGW）────────────────────────────────────
   unit-tests-windows:
     name: Unit tests (Windows MinGW)
@@ -113,6 +116,11 @@ jobs:
 
       - name: Run unit tests (lib)
         run: cargo test --lib
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run unit tests (bin) – multi-feature merge & output-dir
+        run: cargo test --bin cpp2rust-demo
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
@@ -751,6 +759,11 @@ jobs:
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
+      - name: Run unit tests (bin) – multi-feature merge & output-dir
+        run: cargo test --bin cpp2rust-demo
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
   # ── L2 Compile tests (MSVC) ──────────────────────────────────────
   l2-compile-msvc:
     name: L2 Compile tests (Windows MSVC)
@@ -1013,6 +1026,9 @@ jobs:
 
       - name: Run unit tests (lib)
         run: cargo test --lib
+
+      - name: Run unit tests (bin) – multi-feature merge & output-dir
+        run: cargo test --bin cpp2rust-demo
 
   # ── L1 Golden tests (macOS) ───────────────────────────────────────
   l1-golden-macos:
