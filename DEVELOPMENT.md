@@ -119,12 +119,21 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 | 层 | 文件 | 验证内容 | 运行命令 |
 |----|------|---------|---------|
 | L1 | `l1_golden_tests.rs` | 工具生成的 FFI 脚手架与 `rust_hicc/src/main.rs` 中对应段落一致 | `cargo test --test l1_golden_tests -- --include-ignored --test-threads=1` |
+| L1 | `l1_smoke_test_gen_tests.rs` | `smoke_test_gen::generate` + `write_smoke_test` 在真实 C++ 示例上的端到端集成 | `cargo test --test l1_smoke_test_gen_tests -- --include-ignored --test-threads=1` |
 | L2 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | `cargo test --test l2_compile_tests` |
 | L3 | `l3_run_tests.rs` | `cargo run` 输出与 README 中"运行结果"一致 | `cargo test --test l3_run_tests -- --include-ignored --test-threads=1` |
-| L4 | `rapidjson_e2e_test.rs` | 对 rapidjson 开源项目执行完整 init + merge 转换，验证 hicc 三段式格式 | `cargo test --test rapidjson_e2e_test -- --include-ignored` |
-| L5 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | `cargo test --test l5_nm_symbol_tests -- --include-ignored` |
+| L4 | `rapidjson_e2e_test.rs` | 对 rapidjson 开源项目执行完整 init + merge 转换，验证 hicc 三段式格式；merge 阶段同时执行 `cargo check` | `cargo test --test rapidjson_e2e_test -- --test-threads=1` |
+| L4 | `tinyxml2_e2e_test.rs` | tinyxml2 单文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test tinyxml2_e2e_test -- --test-threads=1` |
+| L4 | `pugixml_e2e_test.rs` | pugixml 单文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test pugixml_e2e_test -- --test-threads=1` |
+| L4 | `sqlite3_e2e_test.rs` | sqlite3 extern-C 接口 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test sqlite3_e2e_test -- --test-threads=1` |
+| L4 | `nlohmann_json_e2e_test.rs` | nlohmann/json 超大头文件 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test nlohmann_json_e2e_test -- --test-threads=1` |
+| L4 | `fmtlib_e2e_test.rs` | fmtlib 多文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test fmtlib_e2e_test -- --test-threads=1` |
+| L4 | `multi_feature_e2e_test.rs` | 多 feature 合并 & output-dir 导出完整流程验证 | `cargo test --test multi_feature_e2e_test -- --test-threads=1` |
+| L5 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | `cargo test --test l5_nm_symbol_tests -- --ignored` |
 
 **L1 核心逻辑**：从 `rust_hicc/src/main.rs` 提取 `hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三种块作为黄金片段，与工具生成的 `lib.rs` 对应块比对，忽略 `fn main()` 和注释差异。
+
+**L4 merge 阶段**：各 E2E 测试均包含 `<lib>_merge_phase` 测试函数，执行 init → merge → `cargo check` 完整链路，确保生成的 Rust 项目在无 `build.rs` 情形下可通过类型检查。依赖外部子模块或系统头文件时自动跳过（graceful skip）。
 
 **重要**：L1 测试须单线程运行（`--test-threads=1`），多线程下 clang 全局状态存在竞争。
 
@@ -152,6 +161,7 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 | **Phase 12** | `merge output` 子命令（导出 Cargo 项目结构到任意目录） | ✅ 完成 |
 | **Phase 13** | `api-manifest.md` 生成（merge 阶段生成 C++ → Rust API 对账清单，Markdown 格式，含降级标记） | ✅ 完成 |
 | **Phase 14** | 五大主流开源库 E2E 测试（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib），多平台 CI 覆盖（Linux / macOS / Windows MinGW / Windows MSVC） | ✅ 完成 |
+| **Phase 15** | 举一反三：为全部 E2E 测试补充 merge 阶段 + `cargo check` 验证（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib），完整覆盖 init→merge→编译可达性三段链路 | ✅ 完成 |
 
 ### 5.3 测试通过率
 
@@ -161,6 +171,7 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 | **L2**（编译测试）| ✅ **48 / 48**（全部通过）|
 | **L3**（运行测试）| ✅ **48 / 48**（全部通过）|
 | **L4 E2E**（五大库）| ✅ tinyxml2 / pugixml / nlohmann-json / fmtlib 全平台通过；sqlite3 Linux 通过（macOS / Windows 因系统头路径差异自动跳过）|
+| **L4 merge + cargo check** | ✅ tinyxml2 / pugixml / fmtlib / nlohmann-json / sqlite3（Linux）全部 merge 阶段 + `cargo check` 通过 |
 
 ---
 
