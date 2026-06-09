@@ -16,7 +16,7 @@ pub struct FfiSpec {
 }
 
 /// 单个类的绑定规格
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ClassSpec {
     /// C++ 类名
     pub name: String,
@@ -28,18 +28,6 @@ pub struct ClassSpec {
     pub destroy_fn: Option<String>,
     /// 是否为纯虚接口类（所有 public 方法均为纯虚）；true 时生成 #[interface]
     pub is_interface: bool,
-}
-
-impl Default for ClassSpec {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            methods: Vec::new(),
-            associated_fns: Vec::new(),
-            destroy_fn: None,
-            is_interface: false,
-        }
-    }
 }
 
 /// 类方法绑定

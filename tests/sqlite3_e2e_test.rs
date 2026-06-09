@@ -27,7 +27,9 @@ extern "C" {
 #[test]
 fn sqlite3_init_extern_c() {
     if !Path::new(SQLITE3_HEADER).exists() {
-        eprintln!("sqlite3_e2e: 系统 sqlite3.h 未安装，跳过（sudo apt-get install libsqlite3-dev）");
+        eprintln!(
+            "sqlite3_e2e: 系统 sqlite3.h 未安装，跳过（sudo apt-get install libsqlite3-dev）"
+        );
         return;
     }
 

@@ -177,7 +177,10 @@ impl FeatureLayout {
     pub fn save_api_manifest(&self, manifest: &ApiManifest) -> Result<()> {
         let mut out = String::new();
 
-        out.push_str(&format!("# API 接口清单 — feature `{}`\n\n", manifest.feature));
+        out.push_str(&format!(
+            "# API 接口清单 — feature `{}`\n\n",
+            manifest.feature
+        ));
         out.push_str("由 **cpp2rust-demo merge** 生成。\n\n");
         out.push_str("本文档记录 C++ → Rust 的完整 API 绑定对账清单。✓ 表示绑定正常，⚠ 表示含降级标记（需人工处理）。\n\n");
         out.push_str("---\n\n");
@@ -601,8 +604,7 @@ mod tests {
         };
         layout.save_api_manifest(&manifest).unwrap();
 
-        let content =
-            std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
+        let content = std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
         assert!(content.contains("# API 接口清单 — feature `default`"));
         assert!(content.contains("Foo"));
         assert!(content.contains("int get() const"));
@@ -630,8 +632,7 @@ mod tests {
         };
         layout.save_api_manifest(&manifest).unwrap();
 
-        let content =
-            std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
+        let content = std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
         assert!(content.contains("void (*cb)(int)"));
         assert!(content.contains("⚠ 降级"));
     }

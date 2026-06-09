@@ -146,10 +146,10 @@ fn extract_raw_blocks(src: &str) -> Vec<RawBlock> {
                 if let Some(kind) = current_kind.take() {
                     blocks.push(RawBlock {
                         kind,
-                        inner_lines: inner_lines.clone(),
+                        // mem::take 将 inner_lines 的所有权移入 RawBlock，避免克隆后再清空
+                        inner_lines: std::mem::take(&mut inner_lines),
                     });
                 }
-                inner_lines.clear();
                 depth = 0;
             } else {
                 inner_lines.push(line.to_string());
@@ -486,8 +486,10 @@ pub(super) fn detect_template_body_ranges(lines: &[String]) -> Vec<(usize, usize
         let has_class_same_line = t.contains(" class ") || t.contains(" struct ");
         let next_has_class = if !has_class_same_line {
             let mut found = false;
-            for k in (i + 1)..lines.len().min(i + 4) {
-                let nt = lines[k].trim();
+            for nt in lines[(i + 1)..lines.len().min(i + 4)]
+                .iter()
+                .map(|l| l.trim())
+            {
                 if !nt.is_empty() {
                     found = nt.starts_with("class ") || nt.starts_with("struct ");
                     break;

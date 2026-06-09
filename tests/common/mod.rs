@@ -90,7 +90,13 @@ fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
     // 通用辅助：尝试用指定编译器执行 -E -C 预处理
     let try_cxx = |compiler: &str| -> bool {
         Command::new(compiler)
-            .args(["-E", "-C", src.to_str().unwrap(), "-o", out.to_str().unwrap()])
+            .args([
+                "-E",
+                "-C",
+                src.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+            ])
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
@@ -489,10 +495,7 @@ pub fn process_cpp_source(
 pub fn ensure_cpp_lib(example: &str) {
     let cpp_dir = format!("examples/{}/cpp", example);
     // 去掉形如 "013_" 的数字前缀，得到库的短名称
-    let short_name = example
-        .splitn(2, '_')
-        .nth(1)
-        .unwrap_or(example);
+    let short_name = example.splitn(2, '_').nth(1).unwrap_or(example);
 
     let lib_name = if cfg!(target_os = "macos") {
         format!("lib{}.dylib", short_name)
@@ -534,9 +537,9 @@ pub fn ensure_cpp_lib(example: &str) {
     }
     cmd.arg("-o").arg(&lib_path);
 
-    let status = cmd.status().unwrap_or_else(|e| {
-        panic!("ensure_cpp_lib: 启动编译器 {} 失败: {}", compiler, e)
-    });
+    let status = cmd
+        .status()
+        .unwrap_or_else(|e| panic!("ensure_cpp_lib: 启动编译器 {} 失败: {}", compiler, e));
 
     if !status.success() {
         panic!(

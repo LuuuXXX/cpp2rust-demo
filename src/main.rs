@@ -70,16 +70,18 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
         let Ok(content) = std::fs::read_to_string(path) else {
             continue;
         };
-        if content.contains(IMPORT_LIB_MARKER) {
-            import_lib_files += 1;
-        }
-        if content.contains(IMPORT_CLASS_MARKER) {
-            import_class_files += 1;
-        }
-        fn_binding_count += content.matches(FN_BINDING_MARKER).count();
-
+        // 对每个文件做单趟 line 循环，合并原来的 contains/matches 预扫描与 lines() 遍历
+        let mut found_import_lib = false;
+        let mut found_import_class = false;
         for line in content.lines() {
             let trimmed = line.trim();
+            if !found_import_lib && trimmed.contains(IMPORT_LIB_MARKER) {
+                found_import_lib = true;
+            }
+            if !found_import_class && trimmed.contains(IMPORT_CLASS_MARKER) {
+                found_import_class = true;
+            }
+            fn_binding_count += trimmed.matches(FN_BINDING_MARKER).count();
             // 仅统计行首 #include（trimmed 以 "#include" 开头即不是注释行）
             if trimmed.starts_with("#include") {
                 include_count += 1;
@@ -102,6 +104,12 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
                     *todo_tags.entry(tag).or_insert(0) += 1;
                 }
             }
+        }
+        if found_import_lib {
+            import_lib_files += 1;
+        }
+        if found_import_class {
+            import_class_files += 1;
         }
     }
 
@@ -167,22 +175,29 @@ struct MergeArgs {
 }
 
 fn run_merge(args: MergeArgs) -> Result<()> {
-    match args.output_dir {
-        Some(out_dir) => run_merge_output(args.features, out_dir),
-        None => {
-            let features = if args.features.is_empty() {
-                vec!["default".to_string()]
-            } else {
-                args.features
-            };
+    let features = if args.features.is_empty() {
+        vec!["default".to_string()]
+    } else {
+        args.features
+    };
 
-            if features.len() == 1 {
-                run_single_feature_merge(&features[0])
-            } else {
-                run_multi_feature_merge(&features)
-            }
-        }
+    // 先执行普通 merge（单/多 feature）
+    let rust_dir = if features.len() == 1 {
+        run_single_feature_merge(&features[0])?
+    } else {
+        run_multi_feature_merge(&features)?
+    };
+
+    // 若指定了 --output-dir，merge 完成后追加导出步骤
+    if let Some(out_dir) = args.output_dir {
+        let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
+        let project_root = layout::find_project_root(&cwd);
+        // 多 feature 时为 "feat1_feat2"，单 feature 时直接使用 feature 名
+        let merged_feature_name = features.join("_");
+        run_merge_output(&rust_dir, &out_dir, &merged_feature_name, &project_root)?;
     }
+
+    Ok(())
 }
 
 /// 从 `MergedSpec` 和降级签名集合构建 `ApiManifest`。
@@ -230,7 +245,8 @@ fn build_api_manifest(
         .fn_bindings
         .iter()
         .map(|fb| {
-            let cpp_sig = merger::extract_attr_quoted_value(&fb.attr, "func = ").unwrap_or_default();
+            let cpp_sig =
+                merger::extract_attr_quoted_value(&fb.attr, "func = ").unwrap_or_default();
             let is_degraded = degraded_sigs.contains(&cpp_sig);
             layout::ApiFunctionEntry {
                 cpp_sig,
@@ -256,111 +272,26 @@ fn build_api_manifest(
     }
 }
 
-/// WalkDir 内置循环检测：遇到循环符号链接时跳过，不会无限递归。
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)
-        .map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
-    for entry in WalkDir::new(src).follow_links(true).into_iter() {
-        let entry = match entry {
-            Ok(e) => e,
-            // 循环符号链接等可恢复错误：跳过
-            Err(e) if e.loop_ancestor().is_some() => continue,
-            Err(e) => return Err(anyhow!("walk {}: {}", src.display(), e)),
-        };
-        // 跳过源目录本身
-        if entry.path() == src {
-            continue;
-        }
-        let rel = entry
-            .path()
-            .strip_prefix(src)
-            .map_err(|e| anyhow!("strip_prefix: {}", e))?;
-        let target = dst.join(rel);
-        if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&target)
-                .map_err(|e| anyhow!("create dir {}: {}", target.display(), e))?;
-        } else {
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| anyhow!("create dir {}: {}", parent.display(), e))?;
-            }
-            std::fs::copy(entry.path(), &target).map_err(|e| {
-                anyhow!(
-                    "copy {} → {}: {}",
-                    entry.path().display(),
-                    target.display(),
-                    e
-                )
-            })?;
-        }
-    }
-    Ok(())
-}
-
-/// 执行 `merge --output-dir` 选项：将 Cargo 项目结构输出到指定目录。
-fn run_merge_output(features: Vec<String>, out_dir: PathBuf) -> Result<()> {
-    if features.len() > 1 {
-        return Err(anyhow!(
-            "--output-dir 不支持多 feature，请只指定一个 --feature"
-        ));
-    }
-    let feature = features.into_iter().next().unwrap_or_else(|| "default".to_string());
-
-    let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
-    let project_root = layout::find_project_root(&cwd);
-    let lo = FeatureLayout::new(project_root.clone(), &feature);
-
-    println!("=== cpp2rust-demo merge output ===");
-    println!("项目根目录 : {}", project_root.display());
-    println!("Feature    : {}", feature);
+/// 执行 `merge --output-dir` 后处理：将 merge 生成的 Cargo 项目结构导出到指定目录。
+///
+/// 此函数始终在普通 merge 完成后调用，因此 `rust_dir/src` 保证是真实目录
+/// （`merge_in_place` 将暂存的 `src.2` rename 为 `src`，不使用 symlink）。
+fn run_merge_output(
+    rust_dir: &Path,
+    out_dir: &Path,
+    merged_feature_name: &str,
+    project_root: &Path,
+) -> Result<()> {
+    println!("\n=== cpp2rust-demo merge --output-dir ===");
+    println!("Feature    : {}", merged_feature_name);
     println!("输出目录   : {}", out_dir.display());
     println!();
 
-    if !lo.feature_root.exists() {
-        return Err(anyhow!(
-            "feature '{}' 不存在于 {}；请先运行 init",
-            feature,
-            lo.feature_root.display()
-        ));
-    }
-
-    // 检查 Cargo.toml 和 build.rs 是否已生成（需要先运行 merge）
-    let cargo_toml = lo.rust_dir.join("Cargo.toml");
-    let build_rs = lo.rust_dir.join("build.rs");
-    if !cargo_toml.exists() || !build_rs.exists() {
-        return Err(anyhow!(
-            "未找到 Cargo.toml 或 build.rs（位于 {}）；请先运行 'cpp2rust-demo merge --feature {}'",
-            lo.rust_dir.display(),
-            feature
-        ));
-    }
-
-    // 确定 src 来源：优先 src.2，否则取 src（解引用 symlink）
-    let src_path = {
-        let src2 = lo.rust_dir.join("src.2");
-        if src2.is_dir() {
-            src2
-        } else {
-            let src_link = lo.rust_dir.join("src");
-            // 若 src 是 symlink，解引用到真实路径
-            if src_link.is_symlink() {
-                let target = std::fs::read_link(&src_link)
-                    .map_err(|e| anyhow!("read_link {}: {}", src_link.display(), e))?;
-                // symlink 可能是相对路径，需拼上父目录
-                if target.is_absolute() {
-                    target
-                } else {
-                    lo.rust_dir.join(target)
-                }
-            } else {
-                src_link
-            }
-        }
-    };
+    let src_path = rust_dir.join("src");
 
     if !src_path.is_dir() {
         return Err(anyhow!(
-            "src 目录不存在于 {}；请先运行 merge",
+            "src 目录不存在于 {}；merge 阶段可能未成功",
             src_path.display()
         ));
     }
@@ -369,23 +300,29 @@ fn run_merge_output(features: Vec<String>, out_dir: PathBuf) -> Result<()> {
     let cpp2rust_dir = project_root.join(".cpp2rust");
     let meta_dest = out_dir.join("meta");
     println!("复制 .cpp2rust/ → meta/ ...");
-    copy_dir_all(&cpp2rust_dir, &meta_dest)?;
+    merger::copy_dir_all(&cpp2rust_dir, &meta_dest)?;
 
-    // 2. src/ ← 复制 rust/src（或 src.2）内容
+    // 2. src/ ← 复制 rust/src 内容
     let src_dest = out_dir.join("src");
     println!("复制 src → src/ ...");
-    copy_dir_all(&src_path, &src_dest)?;
+    merger::copy_dir_all(&src_path, &src_dest)?;
 
     // 3. build.rs
-    let build_rs_dest = out_dir.join("build.rs");
-    std::fs::copy(&build_rs, &build_rs_dest).map_err(|e| anyhow!("copy build.rs: {}", e))?;
+    let build_rs = rust_dir.join("build.rs");
+    if build_rs.exists() {
+        let build_rs_dest = out_dir.join("build.rs");
+        std::fs::copy(&build_rs, &build_rs_dest).map_err(|e| anyhow!("copy build.rs: {}", e))?;
+    }
 
     // 4. Cargo.toml
-    let cargo_toml_dest = out_dir.join("Cargo.toml");
-    std::fs::copy(&cargo_toml, &cargo_toml_dest)
-        .map_err(|e| anyhow!("copy Cargo.toml: {}", e))?;
+    let cargo_toml = rust_dir.join("Cargo.toml");
+    if cargo_toml.exists() {
+        let cargo_toml_dest = out_dir.join("Cargo.toml");
+        std::fs::copy(&cargo_toml, &cargo_toml_dest)
+            .map_err(|e| anyhow!("copy Cargo.toml: {}", e))?;
+    }
 
-    println!("\n✓ cpp2rust-demo merge output 完成。");
+    println!("\n✓ cpp2rust-demo merge --output-dir 完成。");
     println!("\n输出目录结构：");
     println!("  {}/", out_dir.display());
     println!("    ├── meta/        （.cpp2rust/ 的副本）");
@@ -396,7 +333,7 @@ fn run_merge_output(features: Vec<String>, out_dir: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn run_single_feature_merge(feature: &str) -> Result<()> {
+fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
 
@@ -438,7 +375,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
 
     if unit_files.is_empty() {
         println!("\n未找到任何单元 .rs 文件，请先运行 'init'。");
-        return Ok(());
+        return Ok(lo.rust_dir);
     }
 
     println!("\n正在合并 {} 个单元文件...", unit_files.len());
@@ -446,12 +383,8 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     merger::merge_in_place(&lo.rust_dir)?;
 
     // ── post-merge FFI 统计 ────────────────────────────────────────────────
-    let final_src = lo.rust_dir.join("src.2");
-    let rust_src = if final_src.is_dir() {
-        final_src
-    } else {
-        lo.rust_dir.join("src")
-    };
+    // merge_in_place 完成后，src.2 已原子性 rename 为 src，此处直接使用 src。
+    let rust_src = lo.rust_dir.join("src");
     let m = collect_rust_src_metrics(&rust_src);
 
     // 生成 meta/merge-report.md
@@ -470,8 +403,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
 
     // 生成 meta/api-manifest.md（C++ → Rust API 对账清单）
     let merged_spec = merger::merge_units(&unit_files);
-    let degraded_sigs = merger::extract_degraded_sigs(&unit_files);
-    let manifest = build_api_manifest(feature, &merged_spec, &degraded_sigs);
+    let manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
     lo.save_api_manifest(&manifest)?;
 
     println!("\n✓ cpp2rust-demo merge 完成。");
@@ -550,11 +482,7 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
         .flat_map(|c| c.methods.iter())
         .filter(|m| m.is_degraded)
         .count()
-        + manifest
-            .functions
-            .iter()
-            .filter(|f| f.is_degraded)
-            .count();
+        + manifest.functions.iter().filter(|f| f.is_degraded).count();
     let total_methods: usize = manifest.classes.iter().map(|c| c.methods.len()).sum();
     println!();
     println!("── API 接口清单（api-manifest.md）──");
@@ -564,7 +492,10 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
     if degraded_count == 0 {
         println!("  降级绑定数   : ✓ 无");
     } else {
-        println!("  降级绑定数   : ⚠ {} 处（含 cpp2rust-todo 标记）", degraded_count);
+        println!(
+            "  降级绑定数   : ⚠ {} 处（含 cpp2rust-todo 标记）",
+            degraded_count
+        );
     }
 
     // ── 汇总表 ────────────────────────────────────────────────────────────
@@ -596,10 +527,10 @@ fn run_single_feature_merge(feature: &str) -> Result<()> {
         feature
     );
 
-    Ok(())
+    Ok(lo.rust_dir)
 }
 
-fn run_multi_feature_merge(features: &[String]) -> Result<()> {
+fn run_multi_feature_merge(features: &[String]) -> Result<PathBuf> {
     let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
     let project_root = layout::find_project_root(&cwd);
 
@@ -684,7 +615,7 @@ fn run_multi_feature_merge(features: &[String]) -> Result<()> {
     println!();
     println!("单独构建某个 feature：  cargo build --features <feature>");
 
-    Ok(())
+    Ok(combined_rust_dir)
 }
 
 fn run_init(args: InitArgs) -> Result<()> {
@@ -1040,8 +971,8 @@ fn count_degraded_tags(
     tags: &mut std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
 ) {
     for line in code.lines() {
-        if let Some(start) = line.find("cpp2rust-todo[") {
-            let rest = &line[start + "cpp2rust-todo[".len()..];
+        if let Some(start) = line.find(TODO_MARKER_PREFIX) {
+            let rest = &line[start + TODO_MARKER_PREFIX.len()..];
             if let Some(end) = rest.find(']') {
                 let tag = rest[..end].to_string();
                 *tags
@@ -1117,13 +1048,8 @@ mod tests {
 
     #[test]
     fn merge_output_dir_default_feature() {
-        let args = Cli::try_parse_from([
-            "cpp2rust-demo",
-            "merge",
-            "--output-dir",
-            "/tmp/out",
-        ])
-        .unwrap();
+        let args =
+            Cli::try_parse_from(["cpp2rust-demo", "merge", "--output-dir", "/tmp/out"]).unwrap();
         let Commands::Merge(merge) = args.command else {
             panic!("expected Merge");
         };
@@ -1160,6 +1086,105 @@ mod tests {
     }
 
     #[test]
+    fn merge_multi_features_with_output_dir() {
+        let args = Cli::try_parse_from([
+            "cpp2rust-demo",
+            "merge",
+            "--feature",
+            "linux_x86",
+            "--feature",
+            "arm_embedded",
+            "--output-dir",
+            "/tmp/multi-out",
+        ])
+        .unwrap();
+        let Commands::Merge(merge) = args.command else {
+            panic!("expected Merge");
+        };
+        assert_eq!(merge.features, vec!["linux_x86", "arm_embedded"]);
+        assert_eq!(merge.output_dir, Some(PathBuf::from("/tmp/multi-out")));
+    }
+
+    // ── run_merge_output ────────────────────────────────────────────────────
+
+    #[test]
+    fn run_merge_output_copies_files() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+
+        // 构造合法的 rust_dir（含 Cargo.toml、build.rs、src/）
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(rust_dir.join("src")).unwrap();
+        std::fs::write(rust_dir.join("Cargo.toml"), "[package]\nname = \"test\"").unwrap();
+        std::fs::write(rust_dir.join("build.rs"), "fn main() {}").unwrap();
+        std::fs::write(rust_dir.join("src").join("lib.rs"), "// lib").unwrap();
+
+        // 构造 project_root（含 .cpp2rust/）
+        let project_root = tmp.path().join("project");
+        std::fs::create_dir_all(project_root.join(".cpp2rust")).unwrap();
+        std::fs::write(
+            project_root.join(".cpp2rust").join("api-manifest.md"),
+            "# API",
+        )
+        .unwrap();
+
+        let out_dir = tmp.path().join("out");
+        run_merge_output(&rust_dir, &out_dir, "myfeature", &project_root).unwrap();
+
+        assert!(out_dir.join("Cargo.toml").exists(), "Cargo.toml missing");
+        assert!(out_dir.join("build.rs").exists(), "build.rs missing");
+        assert!(
+            out_dir.join("src").join("lib.rs").exists(),
+            "src/lib.rs missing"
+        );
+        assert!(
+            out_dir.join("meta").join("api-manifest.md").exists(),
+            "meta/api-manifest.md missing"
+        );
+    }
+
+    #[test]
+    fn run_merge_output_creates_out_dir_if_missing() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(rust_dir.join("src")).unwrap();
+        std::fs::write(rust_dir.join("Cargo.toml"), "[package]").unwrap();
+        std::fs::write(rust_dir.join("build.rs"), "fn main() {}").unwrap();
+
+        let project_root = tmp.path().join("project");
+        std::fs::create_dir_all(project_root.join(".cpp2rust")).unwrap();
+
+        // out_dir 不存在，应自动创建
+        let out_dir = tmp.path().join("does_not_exist").join("nested");
+        run_merge_output(&rust_dir, &out_dir, "default", &project_root).unwrap();
+        assert!(out_dir.exists(), "out_dir should have been created");
+    }
+
+    #[test]
+    fn run_merge_output_errors_on_missing_src() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+
+        // rust_dir 存在但没有 src/
+        let rust_dir = tmp.path().join("rust");
+        std::fs::create_dir_all(&rust_dir).unwrap();
+
+        let project_root = tmp.path().join("project");
+        std::fs::create_dir_all(project_root.join(".cpp2rust")).unwrap();
+
+        let out_dir = tmp.path().join("out");
+        let result = run_merge_output(&rust_dir, &out_dir, "default", &project_root);
+        assert!(result.is_err(), "expected error when src/ is missing");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("src 目录不存在"),
+            "unexpected error message: {msg}"
+        );
+    }
+
+    #[test]
     fn copy_dir_all_copies_files() {
         use tempfile::TempDir;
         let src_tmp = TempDir::new().unwrap();
@@ -1170,7 +1195,7 @@ mod tests {
         std::fs::write(src_tmp.path().join("a.txt"), "hello").unwrap();
         std::fs::write(src_tmp.path().join("sub/b.txt"), "world").unwrap();
 
-        copy_dir_all(src_tmp.path(), dst_tmp.path()).unwrap();
+        merger::copy_dir_all(src_tmp.path(), dst_tmp.path()).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(dst_tmp.path().join("a.txt")).unwrap(),
@@ -1395,10 +1420,8 @@ mod tests {
 
         let mut spec = MergedSpec::default();
         spec.class_order.push("Foo".to_string());
-        spec.class_attrs.insert(
-            "Foo".to_string(),
-            "#[cpp(class = \"Foo\")]".to_string(),
-        );
+        spec.class_attrs
+            .insert("Foo".to_string(), "#[cpp(class = \"Foo\")]".to_string());
         spec.classes.insert(
             "Foo".to_string(),
             vec![ParsedMethod {
@@ -1415,7 +1438,10 @@ mod tests {
         assert_eq!(manifest.classes[0].name, "Foo");
         assert_eq!(manifest.classes[0].methods.len(), 1);
         assert_eq!(manifest.classes[0].methods[0].cpp_sig, "int get() const");
-        assert_eq!(manifest.classes[0].methods[0].rust_sig, "fn get(&self) -> i32;");
+        assert_eq!(
+            manifest.classes[0].methods[0].rust_sig,
+            "fn get(&self) -> i32;"
+        );
         assert!(!manifest.classes[0].methods[0].is_degraded);
     }
 
@@ -1426,10 +1452,8 @@ mod tests {
 
         let mut spec = MergedSpec::default();
         spec.class_order.push("Bar".to_string());
-        spec.class_attrs.insert(
-            "Bar".to_string(),
-            "#[cpp(class = \"Bar\")]".to_string(),
-        );
+        spec.class_attrs
+            .insert("Bar".to_string(), "#[cpp(class = \"Bar\")]".to_string());
         spec.classes.insert(
             "Bar".to_string(),
             vec![ParsedMethod {

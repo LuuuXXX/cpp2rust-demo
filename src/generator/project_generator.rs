@@ -640,8 +640,14 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         write_cargo_toml(tmp.path(), "my_feature").unwrap();
         let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
-        assert!(content.contains("name = \"my_feature\""), "package.name 应为 my_feature");
-        assert!(content.contains("hicc = { version = \"0.2\" }"), "应包含 hicc 依赖");
+        assert!(
+            content.contains("name = \"my_feature\""),
+            "package.name 应为 my_feature"
+        );
+        assert!(
+            content.contains("hicc = { version = \"0.2\" }"),
+            "应包含 hicc 依赖"
+        );
         assert!(
             content.contains("[target.'cfg(not(target_os = \"macos\"))'.dependencies]"),
             "应包含非 macOS 平台条件段"

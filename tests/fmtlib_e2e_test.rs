@@ -18,10 +18,7 @@ const FMT_INCLUDE: &str = "references/fmtlib/include";
 const FMT_SRC: &str = "references/fmtlib/src";
 
 /// 要测试的 {fmt} 源文件（相对 PROJECT_ROOT）
-const SOURCES: &[&str] = &[
-    "src/format.cc",
-    "src/os.cc",
-];
+const SOURCES: &[&str] = &["src/format.cc", "src/os.cc"];
 
 #[test]
 fn fmtlib_init_sources() {
