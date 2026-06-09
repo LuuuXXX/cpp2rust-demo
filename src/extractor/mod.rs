@@ -161,7 +161,7 @@ fn compute_used_classes(
     };
     for fi in &candidate_fns {
         for cn in &all_cn {
-            if fi.return_type.contains(cn) || fi.params.iter().any(|p: &ParamInfo| p.type_name.contains(cn))
+            if fi.return_type.contains(cn) || fi.params.iter().any(|p| p.type_name.contains(cn))
             {
                 set.insert(cn.to_string());
             }

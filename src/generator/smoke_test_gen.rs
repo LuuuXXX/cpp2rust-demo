@@ -655,7 +655,9 @@ mod tests {
         let out = generate(&[("complex", &spec)], "mylib");
         // ctor 有指针参数，应生成注释桩
         assert!(out.contains("cpp2rust-todo[SMOKE]"), "ctor 有指针参数时应生成注释桩，实际：\n{}", out);
-        assert!(!out.contains("#[test]\nfn smoke_complex_complex_lifecycle"), "ctor 有指针参数时不应生成可运行测试");
+        // stub 中 #[test] 与 fn 之间有 // 注释行隔开，故 "#[test]\nfn" 不会相邻出现
+        let normalized = out.replace("\r\n", "\n");
+        assert!(!normalized.contains("#[test]\nfn smoke_complex_complex_lifecycle"), "ctor 有指针参数时不应生成可运行测试");
     }
 
     // ── 新增：接口类（类别 D）工厂函数测试 ──────────────────────────────────────
@@ -744,7 +746,8 @@ mod tests {
         let out = generate(&[("callbacks", &spec)], "mylib");
         assert!(out.contains("含函数指针参数"), "has_fn_ptr_param=true 应生成函数指针注释桩，实际：\n{}", out);
         assert!(out.contains("cpp2rust-todo[SMOKE]"), "应含 SMOKE 占位符，实际：\n{}", out);
-        // 不应生成可运行测试
-        assert!(!out.contains("#[test]\nfn smoke_callbacks_fn_register"), "不应生成可运行测试，实际：\n{}", out);
+        // 不应生成可运行测试（stub 中 #[test] 与 fn 之间有注释行隔开）
+        let normalized = out.replace("\r\n", "\n");
+        assert!(!normalized.contains("#[test]\nfn smoke_callbacks_fn_register"), "不应生成可运行测试，实际：\n{}", out);
     }
 }
