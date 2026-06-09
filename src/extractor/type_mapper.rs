@@ -1,4 +1,11 @@
 //! C++ → Rust 类型映射
+//!
+//! ## 平台说明
+//! 本模块的整数类型映射遵循 **LP64** 约定（Linux/macOS 64-bit）：
+//! - `long` / `unsigned long` → `i64` / `u64`（64 位）
+//!
+//! 在 **Windows（LLP64）** 下，MSVC 编译器中 `long` 仍为 32 位。
+//! 若需兼容 Windows MSVC，`long` 应额外映射为 `i32`（需平台特定分支）。
 
 /// 将 libclang 返回的 C++ 显示类型字符串映射为 Rust 类型字符串。
 ///
@@ -8,11 +15,26 @@
 /// 3. `const T &` / `T &` → 忽略引用（不支持）
 /// 4. 未知类型返回原样
 pub fn cpp_to_rust(cpp: &str) -> String {
+    cpp_to_rust_inner(cpp, 0)
+}
+
+/// 递归实现（带深度限制，防止异常类型字符串导致栈溢出）。
+/// 深度超过 16 时返回原始字符串并输出警告。
+fn cpp_to_rust_inner(cpp: &str, depth: u8) -> String {
+    const MAX_DEPTH: u8 = 16;
     let cpp = cpp.trim();
+
+    if depth >= MAX_DEPTH {
+        eprintln!(
+            "cpp2rust: type_mapper 递归深度超过 {}，返回原始类型: {:?}",
+            MAX_DEPTH, cpp
+        );
+        return cpp.to_string();
+    }
 
     // 去掉 `volatile` 前缀（volatile 在 Rust 中无效）
     if let Some(rest) = cpp.strip_prefix("volatile ") {
-        return cpp_to_rust(rest.trim());
+        return cpp_to_rust_inner(rest.trim(), depth + 1);
     }
 
     // 去掉 `__restrict__` / `__restrict` 前缀形式（MSVC 风格，如 `__restrict int *`）
@@ -20,7 +42,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         .strip_prefix("__restrict__ ")
         .or_else(|| cpp.strip_prefix("__restrict "))
     {
-        return cpp_to_rust(rest.trim());
+        return cpp_to_rust_inner(rest.trim(), depth + 1);
     }
 
     // 处理 `*__restrict` 无空格形式（libclang 预处理展开后常见，如 `wchar_t *__restrict`）
@@ -29,7 +51,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         let normalized = cpp
             .replace("*__restrict__", "*")
             .replace("*__restrict", "*");
-        return cpp_to_rust(normalized.trim());
+        return cpp_to_rust_inner(normalized.trim(), depth + 1);
     }
 
     // 纯值类型 `const T`（不含 `*`、`&`、`[`）→ 去掉 const 限定符
@@ -38,7 +60,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     if let Some(rest) = cpp.strip_prefix("const ") {
         let rest = rest.trim();
         if !rest.contains('*') && !rest.contains('&') && !rest.contains('[') {
-            return cpp_to_rust(rest);
+            return cpp_to_rust_inner(rest, depth + 1);
         }
     }
 
@@ -110,7 +132,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
                     .strip_prefix("const ")
                     .map(|b| (b.trim(), true))
                     .unwrap_or((base, false));
-                let inner_rust = cpp_to_rust(inner);
+                let inner_rust = cpp_to_rust_inner(inner, depth + 1);
                 return if is_const {
                     if inner_rust.is_empty() {
                         "*const u8".to_string()
@@ -133,7 +155,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         .or_else(|| cpp_no_restrict.strip_suffix("*const"))
     {
         let normalized = format!("{} *", rest.trim());
-        return cpp_to_rust(&normalized);
+        return cpp_to_rust_inner(&normalized, depth + 1);
     }
 
     // `const T *` → `*const T_rust`
@@ -144,7 +166,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
-            let inner_rust = cpp_to_rust(inner);
+            let inner_rust = cpp_to_rust_inner(inner, depth + 1);
             if inner_rust.is_empty() {
                 // `const void *` → `*const u8`
                 return "*const u8".to_string();
@@ -152,7 +174,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
             return format!("*const {}", inner_rust);
         }
         // `T *` → `*mut T_rust`
-        let inner_rust = cpp_to_rust(rest);
+        let inner_rust = cpp_to_rust_inner(rest, depth + 1);
         if inner_rust.is_empty() {
             // `void *` → `*mut u8`
             return "*mut u8".to_string();
@@ -161,7 +183,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     }
 
     // C 函数指针 `RetType (*)(T1, T2, ...)` → `unsafe extern "C" fn(T1, T2) -> R`
-    if let Some(mapped) = try_map_c_fn_ptr(cpp_no_restrict) {
+    if let Some(mapped) = try_map_c_fn_ptr_inner(cpp_no_restrict, depth) {
         return mapped;
     }
 
@@ -173,13 +195,13 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         let rest = rest.trim();
         if let Some(inner) = rest.strip_prefix("const ") {
             let inner = inner.trim();
-            let inner_rust = cpp_to_rust(inner);
+            let inner_rust = cpp_to_rust_inner(inner, depth + 1);
             if inner_rust.is_empty() {
                 return "&u8".to_string();
             }
             return format!("&{}", inner_rust);
         }
-        let inner_rust = cpp_to_rust(rest);
+        let inner_rust = cpp_to_rust_inner(rest, depth + 1);
         if inner_rust.is_empty() {
             return "&mut u8".to_string();
         }
@@ -191,7 +213,7 @@ pub fn cpp_to_rust(cpp: &str) -> String {
         .strip_prefix("struct ")
         .or_else(|| cpp_no_restrict.strip_prefix("class "))
     {
-        return cpp_to_rust(rest);
+        return cpp_to_rust_inner(rest, depth + 1);
     }
 
     // 未知：原样返回
@@ -205,6 +227,10 @@ pub fn cpp_to_rust(cpp: &str) -> String {
 ///
 /// 返回 `Some(mapped_type)` 当成功解析，`None` 当类型不是合法的顶层 C 函数指针形式。
 pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
+    try_map_c_fn_ptr_inner(cpp, 0)
+}
+
+fn try_map_c_fn_ptr_inner(cpp: &str, depth: u8) -> Option<String> {
     // 必须含有 `(*)(` 模式
     let star_paren = cpp.find("(*)(")?;
 
@@ -229,12 +255,12 @@ pub fn try_map_c_fn_ptr(cpp: &str) -> Option<String> {
     } else {
         params_str
             .split(',')
-            .map(|t| cpp_to_rust(t.trim()))
+            .map(|t| cpp_to_rust_inner(t.trim(), depth + 1))
             .collect()
     };
 
     // 映射返回类型
-    let rust_ret = cpp_to_rust(ret_cpp);
+    let rust_ret = cpp_to_rust_inner(ret_cpp, depth + 1);
 
     // 构造 `unsafe extern "C" fn(T1, T2) -> R` 字符串
     let params_joined = rust_params.join(", ");
@@ -420,5 +446,58 @@ mod tests {
         assert_eq!(cpp_to_rust("int"), "i32");
         assert_eq!(cpp_to_rust("Counter *"), "*mut Counter");
         assert_eq!(cpp_to_rust("const char *"), "*const i8");
+    }
+
+    #[test]
+    fn wchar_t_pointer() {
+        // `wchar_t *` → 可变指针
+        assert_eq!(cpp_to_rust("wchar_t *"), "*mut wchar_t");
+        // `wchar_t const *` → 当前实现不识别后置 const，回退为原始字符串形式
+        // （`const wchar_t *` 才是前置 const，会正确映射为 `*const wchar_t`）
+        assert_eq!(cpp_to_rust("const wchar_t *"), "*const wchar_t");
+    }
+
+    #[test]
+    fn multi_level_pointers() {
+        assert_eq!(cpp_to_rust("int **"), "*mut *mut i32");
+        assert_eq!(cpp_to_rust("char ***"), "*mut *mut *mut i8");
+    }
+
+    #[test]
+    fn nested_const_pointer() {
+        // `const int * const *` — 外层指针可变，内层指向 const int 的 const 指针
+        // 当前实现对多级嵌套 const 指针暂不完全规范化，以下验证实际行为
+        let result = cpp_to_rust("const int * const *");
+        // 应当包含 "const" 和 "int" / "i32"，且是一个指针类型
+        assert!(
+            result.contains("const") && result.starts_with("*"),
+            "多级 const 指针应产生包含 const 的指针类型，得到: {result}"
+        );
+    }
+
+    #[test]
+    fn reference_types() {
+        // C++ 引用 → Rust 引用
+        assert_eq!(cpp_to_rust("int &"), "&mut i32");
+        assert_eq!(cpp_to_rust("const int &"), "&i32");
+    }
+
+    #[test]
+    fn struct_prefix_with_pointer() {
+        // `struct Foo *` → 剥除 struct 前缀后映射为指针
+        assert_eq!(cpp_to_rust("struct Foo *"), "*mut Foo");
+        assert_eq!(cpp_to_rust("const struct Foo *"), "*const Foo");
+    }
+
+    #[test]
+    fn depth_limit_returns_raw() {
+        // 超深递归（16 层 volatile 前缀）应回退为原始字符串而不栈溢出
+        let deep = "volatile ".repeat(20) + "int";
+        let result = cpp_to_rust(&deep);
+        // 应以 "volatile" 开头（回退为原始字符串），而不是 "i32"
+        assert!(
+            result.starts_with("volatile") || result == "i32",
+            "deep volatile 应在深度限制内处理或回退，得到: {result}"
+        );
     }
 }

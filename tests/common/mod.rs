@@ -321,16 +321,13 @@ pub fn preprocess_cpp(
 
     // 优先使用 CXX 环境变量指定的编译器，否则依次尝试 g++ 和 clang++
     let cxx_env = std::env::var("CXX").unwrap_or_default();
-    let candidates: &[&str] = if !cxx_env.is_empty() {
-        &[]
+    let candidates: Vec<&str> = if !cxx_env.is_empty() {
+        vec![cxx_env.as_str()]
     } else {
-        &["g++", "clang++"]
+        vec!["g++", "clang++"]
     };
 
-    if !cxx_env.is_empty() && try_cxx(&cxx_env) {
-        return Some(out);
-    }
-    for compiler in candidates {
+    for compiler in &candidates {
         if try_cxx(compiler) {
             return Some(out);
         }
