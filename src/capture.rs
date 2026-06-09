@@ -180,9 +180,7 @@ fn hook_dir() -> Result<PathBuf> {
         }
     }
 
-    let cwd_candidate = std::env::current_dir()
-        .context("current_dir")?
-        .join("hook");
+    let cwd_candidate = std::env::current_dir().context("current_dir")?.join("hook");
     if cwd_candidate.join("Makefile").exists() {
         return Ok(cwd_candidate);
     }
@@ -223,8 +221,7 @@ fn write_if_changed(path: &Path, content: &str) -> Result<()> {
         Err(_) => true,
     };
     if needs_write {
-        std::fs::write(path, content)
-            .with_context(|| format!("write {}", path.display()))?;
+        std::fs::write(path, content).with_context(|| format!("write {}", path.display()))?;
     }
     Ok(())
 }

@@ -217,12 +217,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
 }
 
 /// 判断函数是否是指定类的 MethodAccessor
-fn is_class_accessor(
-    fn_name: &str,
-    prefix: &str,
-    fi: &FunctionInfo,
-    class_names: &[&str],
-) -> bool {
+fn is_class_accessor(fn_name: &str, prefix: &str, fi: &FunctionInfo, class_names: &[&str]) -> bool {
     if !fn_name.starts_with(prefix) {
         return false;
     }

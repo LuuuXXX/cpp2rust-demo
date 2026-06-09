@@ -81,7 +81,12 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
         };
 
         let unit = parse_unit_rs(&src);
-        merge_cpp_lines(&mut spec, &unit, &mut cpp_line_seen, &mut template_body_seen);
+        merge_cpp_lines(
+            &mut spec,
+            &unit,
+            &mut cpp_line_seen,
+            &mut template_body_seen,
+        );
         merge_classes(&mut spec, &unit, &mut method_seen);
         merge_lib(&mut spec, &unit, &mut fn_attr_to_sig, &mut fwd_decl_seen);
     }
@@ -333,10 +338,7 @@ pub fn extract_degraded_sigs(unit_files: &[std::path::PathBuf]) -> HashSet<Strin
                 // 代码生成时 todo 注释总是紧邻属性行上方 1 行；
                 // 额外扫描 1 行是为了兼容手工编辑场景下可能存在的微小格式差异。
                 let start = i.saturating_sub(2);
-                if lines[start..i]
-                    .iter()
-                    .any(|l| l.contains("cpp2rust-todo"))
-                {
+                if lines[start..i].iter().any(|l| l.contains("cpp2rust-todo")) {
                     degraded.insert(sig);
                 }
             }

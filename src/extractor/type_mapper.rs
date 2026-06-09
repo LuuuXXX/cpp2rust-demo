@@ -26,7 +26,9 @@ pub fn cpp_to_rust(cpp: &str) -> String {
     // 处理 `*__restrict` 无空格形式（libclang 预处理展开后常见，如 `wchar_t *__restrict`）
     // 必须在后缀形式处理之前，因为 `*__restrict` 不以 ` ` 开始无法被 strip_suffix 匹配
     if cpp.contains("*__restrict") {
-        let normalized = cpp.replace("*__restrict__", "*").replace("*__restrict", "*");
+        let normalized = cpp
+            .replace("*__restrict__", "*")
+            .replace("*__restrict", "*");
         return cpp_to_rust(normalized.trim());
     }
 
@@ -267,7 +269,11 @@ pub fn to_snake_case(s: &str) -> String {
             if !result.is_empty() && (!prev_upper || next_lower) {
                 result.push('_');
             }
-            result.push(ch.to_lowercase().next().expect("to_lowercase() always yields at least one char"));
+            result.push(
+                ch.to_lowercase()
+                    .next()
+                    .expect("to_lowercase() always yields at least one char"),
+            );
             prev_upper = true;
         } else {
             result.push(ch);

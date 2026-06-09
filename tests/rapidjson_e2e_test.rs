@@ -13,7 +13,9 @@
 
 mod common;
 
-use cpp2rust_demo::{ast_parser, extractor, generator::hicc_codegen, generator::project_generator, merger};
+use cpp2rust_demo::{
+    ast_parser, extractor, generator::hicc_codegen, generator::project_generator, merger,
+};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
@@ -360,13 +362,14 @@ fn rapidjson_shim_ffi_generates_importlib() {
             .unwrap_or("unit")
             .to_string();
 
-        let preprocessed = match common::preprocess_cpp(&src_path, includes, &preprocess_dir, &unit_name) {
-            Some(p) => p,
-            None => {
-                skipped.push(src_name);
-                continue;
-            }
-        };
+        let preprocessed =
+            match common::preprocess_cpp(&src_path, includes, &preprocess_dir, &unit_name) {
+                Some(p) => p,
+                None => {
+                    skipped.push(src_name);
+                    continue;
+                }
+            };
 
         let ast = match ast_parser::parse_preprocessed(&preprocessed) {
             Ok(a) => a,

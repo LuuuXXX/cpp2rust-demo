@@ -15,12 +15,7 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
     }
 }
 
-fn apply_class(
-    spec: &mut FfiSpec,
-    ast: &CppAst,
-    ci: &ClassInfo,
-    functions: &[&FunctionInfo],
-) {
+fn apply_class(spec: &mut FfiSpec, ast: &CppAst, ci: &ClassInfo, functions: &[&FunctionInfo]) {
     let diamond_bases = find_diamond_bases(ci, &ast.classes);
     if diamond_bases.is_empty() {
         return;

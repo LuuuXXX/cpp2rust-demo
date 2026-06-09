@@ -237,7 +237,8 @@ fn build_api_manifest(
         .fn_bindings
         .iter()
         .map(|fb| {
-            let cpp_sig = merger::extract_attr_quoted_value(&fb.attr, "func = ").unwrap_or_default();
+            let cpp_sig =
+                merger::extract_attr_quoted_value(&fb.attr, "func = ").unwrap_or_default();
             let is_degraded = degraded_sigs.contains(&cpp_sig);
             layout::ApiFunctionEntry {
                 cpp_sig,
@@ -265,8 +266,7 @@ fn build_api_manifest(
 
 /// WalkDir 内置循环检测：遇到循环符号链接时跳过，不会无限递归。
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)
-        .map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
+    std::fs::create_dir_all(dst).map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
     for entry in WalkDir::new(src).follow_links(true).into_iter() {
         let entry = match entry {
             Ok(e) => e,
@@ -308,7 +308,12 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 ///
 /// 此函数始终在普通 merge 完成后调用，因此 `rust_dir/src` 保证是真实目录
 /// （`merge_in_place` 将暂存的 `src.2` rename 为 `src`，不使用 symlink）。
-fn run_merge_output(rust_dir: &Path, out_dir: &Path, merged_feature_name: &str, project_root: &Path) -> Result<()> {
+fn run_merge_output(
+    rust_dir: &Path,
+    out_dir: &Path,
+    merged_feature_name: &str,
+    project_root: &Path,
+) -> Result<()> {
     println!("\n=== cpp2rust-demo merge --output-dir ===");
     println!("Feature    : {}", merged_feature_name);
     println!("输出目录   : {}", out_dir.display());
@@ -514,11 +519,7 @@ fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
         .flat_map(|c| c.methods.iter())
         .filter(|m| m.is_degraded)
         .count()
-        + manifest
-            .functions
-            .iter()
-            .filter(|f| f.is_degraded)
-            .count();
+        + manifest.functions.iter().filter(|f| f.is_degraded).count();
     let total_methods: usize = manifest.classes.iter().map(|c| c.methods.len()).sum();
     println!();
     println!("── API 接口清单（api-manifest.md）──");
@@ -528,7 +529,10 @@ fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
     if degraded_count == 0 {
         println!("  降级绑定数   : ✓ 无");
     } else {
-        println!("  降级绑定数   : ⚠ {} 处（含 cpp2rust-todo 标记）", degraded_count);
+        println!(
+            "  降级绑定数   : ⚠ {} 处（含 cpp2rust-todo 标记）",
+            degraded_count
+        );
     }
 
     // ── 汇总表 ────────────────────────────────────────────────────────────
@@ -1081,13 +1085,8 @@ mod tests {
 
     #[test]
     fn merge_output_dir_default_feature() {
-        let args = Cli::try_parse_from([
-            "cpp2rust-demo",
-            "merge",
-            "--output-dir",
-            "/tmp/out",
-        ])
-        .unwrap();
+        let args =
+            Cli::try_parse_from(["cpp2rust-demo", "merge", "--output-dir", "/tmp/out"]).unwrap();
         let Commands::Merge(merge) = args.command else {
             panic!("expected Merge");
         };
@@ -1171,7 +1170,10 @@ mod tests {
 
         assert!(out_dir.join("Cargo.toml").exists(), "Cargo.toml missing");
         assert!(out_dir.join("build.rs").exists(), "build.rs missing");
-        assert!(out_dir.join("src").join("lib.rs").exists(), "src/lib.rs missing");
+        assert!(
+            out_dir.join("src").join("lib.rs").exists(),
+            "src/lib.rs missing"
+        );
         assert!(
             out_dir.join("meta").join("api-manifest.md").exists(),
             "meta/api-manifest.md missing"
@@ -1455,10 +1457,8 @@ mod tests {
 
         let mut spec = MergedSpec::default();
         spec.class_order.push("Foo".to_string());
-        spec.class_attrs.insert(
-            "Foo".to_string(),
-            "#[cpp(class = \"Foo\")]".to_string(),
-        );
+        spec.class_attrs
+            .insert("Foo".to_string(), "#[cpp(class = \"Foo\")]".to_string());
         spec.classes.insert(
             "Foo".to_string(),
             vec![ParsedMethod {
@@ -1475,7 +1475,10 @@ mod tests {
         assert_eq!(manifest.classes[0].name, "Foo");
         assert_eq!(manifest.classes[0].methods.len(), 1);
         assert_eq!(manifest.classes[0].methods[0].cpp_sig, "int get() const");
-        assert_eq!(manifest.classes[0].methods[0].rust_sig, "fn get(&self) -> i32;");
+        assert_eq!(
+            manifest.classes[0].methods[0].rust_sig,
+            "fn get(&self) -> i32;"
+        );
         assert!(!manifest.classes[0].methods[0].is_degraded);
     }
 
@@ -1486,10 +1489,8 @@ mod tests {
 
         let mut spec = MergedSpec::default();
         spec.class_order.push("Bar".to_string());
-        spec.class_attrs.insert(
-            "Bar".to_string(),
-            "#[cpp(class = \"Bar\")]".to_string(),
-        );
+        spec.class_attrs
+            .insert("Bar".to_string(), "#[cpp(class = \"Bar\")]".to_string());
         spec.classes.insert(
             "Bar".to_string(),
             vec![ParsedMethod {
