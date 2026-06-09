@@ -86,6 +86,8 @@ fn cpp_to_rust_inner(cpp: &str, depth: u8) -> String {
         "unsigned int" | "unsigned" => return "u32".to_string(),
         // LP64（Linux / macOS 64 位）: long = 64 位
         // LLP64（Windows MSVC）: long = 32 位，由下方 cfg 分支处理
+        // 注：本文件统一使用 `target_os = "windows"` 形式（而非简写 `windows`），
+        // 两者语义相同，但 `target_os = "windows"` 更明确，与 Rust Reference 示例一致。
         #[cfg(not(target_os = "windows"))]
         "long" | "long int" | "signed long" => return "i64".to_string(),
         #[cfg(not(target_os = "windows"))]

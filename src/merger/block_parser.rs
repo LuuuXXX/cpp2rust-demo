@@ -327,20 +327,23 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
                 class_attr = trimmed.to_string();
                 continue;
             }
-            // `class Foo {` 行
-            if trimmed.starts_with("class ") && trimmed.contains('{') {
+            // `class Foo {` 或 `pub class Foo {` 行（codegen 会生成 pub class）
+            let class_part = trimmed
+                .strip_prefix("pub ")
+                .unwrap_or(trimmed);
+            if class_part.starts_with("class ") && trimmed.contains('{') {
                 // 若是 interface 类，从这里提取类名
                 if class_name.is_empty() {
-                    class_name = extract_class_name_from_line(trimmed);
+                    class_name = extract_class_name_from_line(class_part);
                 }
                 in_class_body = true;
                 class_body_depth = 1;
                 continue;
             }
-            // `class Foo {}` 空类
-            if trimmed.starts_with("class ") && trimmed.ends_with('}') {
+            // `class Foo {}` 或 `pub class Foo {}` 空类
+            if class_part.starts_with("class ") && trimmed.ends_with('}') {
                 if class_name.is_empty() {
-                    class_name = extract_class_name_from_line(trimmed);
+                    class_name = extract_class_name_from_line(class_part);
                 }
                 break;
             }

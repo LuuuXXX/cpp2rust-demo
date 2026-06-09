@@ -959,6 +959,69 @@ uint32_t hardware_device_read_status(volatile HardwareDevice* self);
 
 ---
 
+## Part 3.5：Phase 6 — merge 阶段技术细节
+
+### `merge_in_place` 的原子性 rename 机制
+
+`init` 命令将每个翻译单元生成到 `.cpp2rust/<feature>/rust/src/<相对路径>.rs`，输出结构是扁平目录。`merge_in_place` 在此基础上执行以下原子性重组：
+
+```
+首次运行：
+  src/  (init 输出)  →  src.1/  (永久备份，只创建一次)
+  src.2/ (merge 输出) →  src/  (原子 rename)
+
+重复运行：
+  src.1/ 已存在  →  直接用 src.1/ 作为输入源（不再覆盖）
+  src/  →  src.2/  →  src/  (原子 rename 覆盖旧 merge 结果)
+```
+
+核心设计原则：
+- **幂等性**：重复运行不破坏 `src.1/` 备份，始终保留最初的 init 原始输出
+- **原子性**：`std::fs::rename` 在同一文件系统内是原子操作，中途失败不会留下不完整状态
+- **可追溯性**：`src.1/` 保存的是 init 阶段未经整理的单元文件，方便比对 merge 前后差异
+
+### 跨翻译单元 `cpp_lines` 去重策略
+
+`init` 阶段每个翻译单元的 `hicc::cpp!` 块都会独立生成一份 `#include` 行。多翻译单元合并时若不去重，同一个头文件的 `#include` 会出现数十次，导致 C++ 编译报重定义错误。
+
+`merge_units`（`merger/mod.rs`）的去重逻辑：
+
+```
+merge_units(paths) →
+  for each unit .rs file:
+    parse_unit_rs → ParsedUnit { cpp_lines, class_blocks, lib_block, ... }
+    for each cpp_line:
+      if not in seen_cpp_lines set:
+        append to merged_cpp_lines
+        insert into seen_cpp_lines
+```
+
+去重以**行为单位**（`String` 精确匹配），不进行语义分析。这意味着：
+- `#include "foo.h"` 和 `  #include "foo.h"` 视为不同行（实际上 codegen 输出格式固定，不会有缩进差异）
+- 模板类体（`template<class T> class Stack { ... }`）采用**块级去重**：将整个类体规范化为字符串后加入 `template_bodies` set，跨翻译单元重复的模板定义只保留一份
+
+### 模板特化分组逻辑
+
+当同一个模板类在多个翻译单元有不同实例化（如 `Stack<int>` 和 `Stack<float>`），`merge_units` 通过 `template_base` 字段将它们归组：
+
+- `block_parser.rs` 在解析 `import_class!` 块时，若类名含 `<`（如 `Stack<int>`），自动提取 `template_base = "Stack"`
+- `merge_units` 按 `template_base` 分组，同一基类的所有特化 `import_class!` 块在最终输出中相邻排列
+- `lib_block` 中的前向声明（`class Stack<int>;`）按特化实例分别生成，不合并
+
+### 冲突检测与报告生成
+
+`merge_units` 在合并类方法时检测**方法签名冲突**：若同一类的同名方法在不同翻译单元有不同的 `#[cpp(method = "...")]` 属性（C++ 签名不同），则：
+
+1. 记录到 `MergedSpec::conflicts` 列表
+2. 在 `api-manifest.md` 中以 `⚠️ CONFLICT` 标记该方法
+3. 取**最后出现**的版本写入合并结果（保守策略）
+
+`merge` 命令完成后在 `.cpp2rust/<feature>/meta/` 生成两份报告：
+- `api-manifest.md`：汇总所有导出接口，格式为 Markdown 表格，按类/函数分节，含 C++ 签名和 Rust 对应声明
+- `merge-report.md`：合并统计（翻译单元数、去重前后 cpp 行数、类/函数绑定数、冲突数）
+
+---
+
 ## Part 4：约束与限制
 
 ### 核心约束

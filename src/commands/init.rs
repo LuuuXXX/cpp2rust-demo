@@ -149,6 +149,9 @@ fn print_capture_stats(captured: &[PathBuf]) {
 ///
 /// 返回 `(all_units, unit_stats)`，其中 `all_units` 包含每个编译单元的 IR 数据，
 /// `unit_stats` 用于写入 `init-report.md`。
+///
+/// 解析失败的文件记录为警告并跳过（收集式策略），流程继续处理剩余文件。
+/// 若所有文件均解析失败，则返回错误，并汇总全部失败文件列表。
 fn first_pass_parse(
     selected: &[PathBuf],
     c_dir: &std::path::Path,
@@ -157,6 +160,7 @@ fn first_pass_parse(
     let mut all_units: Vec<UnitData> = Vec::new();
     let mut unit_stats: Vec<InitUnitStat> = Vec::new();
     let mut seen_unit_paths: HashMap<String, PathBuf> = HashMap::new();
+    let mut failed_files: Vec<String> = Vec::new();
 
     for path in selected {
         let file_start = Instant::now();
@@ -226,13 +230,29 @@ fn first_pass_parse(
             }
             Err(err) => {
                 let elapsed_ms = file_start.elapsed().as_millis();
-                return Err(anyhow!(
-                    "parse failed for {} [{} ms]: {:#}",
-                    path.display(),
-                    elapsed_ms,
-                    err
-                ));
+                let msg = format!("{} [{} ms]: {:#}", path.display(), elapsed_ms, err);
+                eprintln!("  警告：解析失败，已跳过 — {}", msg);
+                failed_files.push(path.display().to_string());
             }
+        }
+    }
+
+    // 若存在解析失败的文件，汇总打印但不中断（只要有成功的文件即可继续）
+    if !failed_files.is_empty() {
+        eprintln!(
+            "\n⚠ {} 个文件解析失败（已跳过）：",
+            failed_files.len()
+        );
+        for f in &failed_files {
+            eprintln!("    ✗ {}", f);
+        }
+        // 若所有文件均失败，则返回错误，避免生成空项目
+        if all_units.is_empty() {
+            return Err(anyhow!(
+                "全部 {} 个文件均处理失败:\n{}",
+                failed_files.len(),
+                failed_files.join("\n")
+            ));
         }
     }
 
@@ -518,5 +538,31 @@ mod tests {
         assert_eq!(tags["VA"].len(), 2);
         assert_eq!(tags["VA"]["unit/a"], 1);
         assert_eq!(tags["VA"]["unit/b"], 1);
+    }
+
+    // ── print_capture_stats ──────────────────────
+    // print_capture_stats 写入 stdout，测试边界值：空列表不应 panic
+
+    #[test]
+    fn print_capture_stats_empty_list() {
+        // 传入空列表时应正常完成，不 panic
+        print_capture_stats(&[]);
+    }
+
+    #[test]
+    fn print_capture_stats_more_than_15() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        // 构造 20 个临时文件（内容各不相同以确保不同行数）
+        let paths: Vec<PathBuf> = (0..20)
+            .map(|i| {
+                let p = tmp.path().join(format!("f{}.cpp2rust", i));
+                // 写入 i+1 行内容
+                std::fs::write(&p, "x\n".repeat(i + 1)).unwrap();
+                p
+            })
+            .collect();
+        // 超过 15 个文件时应正常完成，且只显示前 15 条
+        print_capture_stats(&paths);
     }
 }

@@ -96,3 +96,26 @@ golden_test_unix_only!(test_045_union_basic, "045_union_basic");
 golden_test!(test_046_constexpr_basic, "046_constexpr_basic");
 golden_test_unix_only!(test_047_noexcept_basic, "047_noexcept_basic");
 golden_test!(test_048_summary, "048_summary");
+
+// ── 降级标记断言：直接验证 cpp2rust-todo[TAG] 是否被正确生成 ──────────────────
+//
+// 以下测试不依赖 normalize 的注释剥除逻辑，直接检查原始生成代码是否包含
+// 对应的降级标记，以防生成器逻辑回归导致标记被静默丢失。
+
+macro_rules! todo_tag_test {
+    ($name:ident, $example:literal, $tag:literal) => {
+        #[test]
+        #[cfg_attr(not(feature = "full-test"), ignore = "requires libclang; run with --features full-test --test-threads=1")]
+        fn $name() {
+            let example_dir = concat!("examples/", $example);
+            let generated = common::run_tool_on(example_dir);
+            common::assert_contains_todo_tag(&generated, $tag, $example);
+        }
+    };
+}
+
+todo_tag_test!(test_031_todo_fp, "031_custom_deleter", "FP");
+todo_tag_test!(test_039_todo_fp, "039_lambda_basic", "FP");
+todo_tag_test!(test_040_todo_fp, "040_std_function", "FP");
+#[cfg(not(windows))]
+todo_tag_test!(test_047_todo_fp, "047_noexcept_basic", "FP");
