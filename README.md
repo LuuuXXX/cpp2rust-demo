@@ -64,8 +64,7 @@ cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 | 子命令 | 作用 | 典型用法 |
 |--------|------|---------|
 | `init` | 通过 LD_PRELOAD 拦截构建命令，捕获 C++ 预处理文件，解析 AST，生成 hicc 三段式 FFI 脚手架 | `cpp2rust-demo init -- make -j4` |
-| `merge` | 将 `init` 生成的编译单元文件整理为按 C++ 目录结构组织的 Rust 项目，备份原始输出；生成 `api-manifest.md` API 对账清单；支持多 feature 合并为带 `[features]` 的统一项目 | `cpp2rust-demo merge --feature default` |
-| `merge --output-dir` | 将指定 feature 的 Cargo 项目结构导出到任意目录，方便集成到外部工作流 | `cpp2rust-demo merge --output-dir /tmp/out` |
+| `merge` | 将 `init` 生成的编译单元文件整理为按 C++ 目录结构组织的 Rust 项目，备份原始输出；生成 `api-manifest.md` API 对账清单；支持多 feature 合并为带 `[features]` 的统一项目；可配合 `--output-dir` 在 merge 完成后同时导出到任意目录 | `cpp2rust-demo merge --feature default` |
 
 ### `init` — 捕获构建 + 生成 FFI 脚手架
 
@@ -105,6 +104,11 @@ cpp2rust-demo merge --feature linux_x86
 
 # 多 feature 合并为支持 cargo build --features 的统一 Rust 项目
 cpp2rust-demo merge --feature linux_x86 --feature arm_embedded
+
+# merge 完成后同时导出到任意目录（单/多 feature 均支持）
+cpp2rust-demo merge --output-dir /tmp/mylib-out
+cpp2rust-demo merge --feature linux_x86 --output-dir /tmp/linux-out
+cpp2rust-demo merge --feature linux_x86 --feature arm_embedded --output-dir /tmp/multi-out
 ```
 
 `merge` 将 `init` 的扁平输出整理为按 C++ 目录结构组织的 Rust 项目，并提供备份机制：
@@ -125,25 +129,7 @@ cargo build --features linux_x86
 cargo build --features arm_embedded
 ```
 
-**参数说明：**
-
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`）；**可重复指定**，≥2 个时进入多 feature 合并模式 |
-
-### `merge --output-dir` — 导出项目结构到任意目录
-
-`--output-dir` 是 `merge` 命令的可选参数，将完成 `init` + `merge` 后的 Cargo 项目结构导出到指定目录，方便将生成产物复制到其他位置或集成到外部工作流：
-
-```bash
-# 将 default feature 的项目结构导出到 /tmp/mylib-out
-cpp2rust-demo merge --output-dir /tmp/mylib-out
-
-# 导出指定 feature
-cpp2rust-demo merge --feature linux_x86 --output-dir /tmp/linux-out
-```
-
-导出后目录结构：
+指定 `--output-dir` 时，merge 完成后自动将产物导出到该目录：
 
 ```
 /tmp/mylib-out/
@@ -153,14 +139,12 @@ cpp2rust-demo merge --feature linux_x86 --output-dir /tmp/linux-out
     └── Cargo.toml
 ```
 
-> **前提**：`merge --output-dir` 须在 `init` + `merge`（不带 `--output-dir`）均执行完毕后运行，因为它需要读取 `merge` 生成的 `Cargo.toml`、`build.rs` 和 `src/`。
-
 **参数说明：**
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `--output-dir <DIR>` | ❌ | 导出目标目录（不存在时自动创建）；不指定时走普通 merge 流程 |
-| `--feature <name>` | ❌ | 要导出的 feature（默认 `default`）；`--output-dir` 只支持单 feature |
+| `--feature <name>` | ❌ | 要操作的构建目标（默认 `default`）；**可重复指定**，≥2 个时进入多 feature 合并模式 |
+| `--output-dir <DIR>` | ❌ | 导出目标目录（不存在时自动创建）；指定时在 merge 完成后追加导出步骤，不指定则走普通 merge 流程 |
 
 ### 环境变量
 
