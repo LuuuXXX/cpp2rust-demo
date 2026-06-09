@@ -7,6 +7,7 @@ use cpp2rust_demo::extractor;
 use cpp2rust_demo::ffi_model::FfiSpec;
 use cpp2rust_demo::generator::hicc_codegen;
 use cpp2rust_demo::generator::project_generator;
+use cpp2rust_demo::generator::smoke_test_gen;
 use cpp2rust_demo::layout::{self, FeatureLayout, InitReportData, InitUnitStat, MergeReportData};
 use cpp2rust_demo::merger;
 use cpp2rust_demo::selector::{FileSelector, InteractiveSelector};
@@ -269,6 +270,7 @@ fn build_api_manifest(
         classes,
         functions,
         template_groups,
+        smoke_tests: vec![],
     }
 }
 
@@ -403,7 +405,15 @@ fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
 
     // 生成 meta/api-manifest.md（C++ → Rust API 对账清单）
     let merged_spec = merger::merge_units(&unit_files);
-    let manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
+    let mut manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
+
+    // 读取已生成的 smoke_test.rs，解析冒烟测试清单并附加到 manifest
+    let smoke_test_rs = lo.rust_dir.join("tests").join("smoke_test.rs");
+    if smoke_test_rs.exists() {
+        let smoke_content = std::fs::read_to_string(&smoke_test_rs).unwrap_or_default();
+        manifest.smoke_tests = layout::parse_smoke_test_entries(&smoke_content);
+    }
+
     lo.save_api_manifest(&manifest)?;
 
     println!("\n✓ cpp2rust-demo merge 完成。");
@@ -830,6 +840,14 @@ fn run_init(args: InitArgs) -> Result<()> {
     project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
+    // 生成 tests/smoke_test.rs（冒烟测试）
+    let smoke_units: Vec<(&str, &FfiSpec)> = all_units
+        .iter()
+        .map(|ud| (ud.unit_path.as_str(), &ud.spec))
+        .collect();
+    let smoke_content = smoke_test_gen::generate(&smoke_units, &lib_name);
+    project_generator::write_smoke_test(&lo.rust_dir, &smoke_content)?;
+
     // 生成 meta/init-report.md
     let report_data = InitReportData {
         feature,
@@ -846,7 +864,11 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── c/          （捕获的 .cpp2rust 文件，目录结构与 C++ 项目一致）");
     println!("    ├── meta/       （build_cmd.txt、selected_files.json、init-report.md）");
-    println!("    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）");
+    println!("    └── rust/       （生成的 Rust 项目）");
+    println!("        ├── Cargo.toml");
+    println!("        ├── build.rs");
+    println!("        ├── src/        （lib.rs + 各编译单元 .rs 文件）");
+    println!("        └── tests/smoke_test.rs  （FFI 冒烟测试）");
     println!();
     println!(
         "已在 .cpp2rust/{}/rust/src/ 生成 {} 个单元文件",

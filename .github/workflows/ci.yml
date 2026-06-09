@@ -976,10 +976,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1006,10 +1008,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1039,10 +1043,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1073,10 +1079,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1103,10 +1111,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1126,7 +1136,8 @@ jobs:
           for dir in examples/*/cpp; do
             example=$(basename $(dirname "$dir"))
             echo "Building C++ dylib for $example..."
-            (cd "$dir" && clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") || echo "⚠ Failed to build C++ dylib for $example (skipping)"
+            # 使用系统 Apple Clang，避免 LLVM clang++ 使用其自带头文件与 macOS SDK 不兼容
+            (cd "$dir" && /usr/bin/clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") || echo "⚠ Failed to build C++ dylib for $example (skipping)"
           done
 
       - name: Run L3 run tests
@@ -1143,11 +1154,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM and cmake (for libclang + rapidjson build)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm cmake
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install cmake
+        run: brew install cmake
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1176,11 +1192,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM and cmake
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm cmake
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install cmake
+        run: brew install cmake
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1212,10 +1233,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1310,11 +1333,16 @@ jobs:
             references/nlohmann-json \
             references/fmtlib
 
-      - name: Install LLVM and sqlite3
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm sqlite3
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install sqlite3
+        run: brew install sqlite3
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1532,10 +1560,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1636,6 +1666,171 @@ jobs:
       - name: Run multi-feature & output-dir E2E tests
         run: |
           cargo test --test multi_feature_e2e_test -- `
+            --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ════════════════════════════════════════════════════════════════
+  # L1 smoke_test_gen 集成测试（四平台）
+  # 验证 smoke_test_gen::generate 与 project_generator::write_smoke_test
+  # 在真实 C++ 示例上的端到端集成（预处理 → AST → FfiSpec → 生成文件）。
+  # ════════════════════════════════════════════════════════════════
+
+  # ── L1 smoke_test_gen (Linux) ────────────────────────────────────
+  l1-smoke-test-gen:
+    name: L1 smoke_test_gen integration
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # 单线程运行：clang 全局状态竞争
+      - name: Run L1 smoke_test_gen integration tests
+        run: |
+          cargo test --test l1_smoke_test_gen_tests -- \
+            --include-ignored \
+            --test-threads=1
+
+  # ── L1 smoke_test_gen (macOS) ────────────────────────────────────
+  l1-smoke-test-gen-macos:
+    name: L1 smoke_test_gen integration (macOS)
+    runs-on: macos-latest
+    needs: build-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Set LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # 单线程运行：clang 全局状态竞争
+      - name: Run L1 smoke_test_gen integration tests
+        run: |
+          cargo test --test l1_smoke_test_gen_tests -- \
+            --include-ignored \
+            --test-threads=1
+
+  # ── L1 smoke_test_gen (Windows MinGW) ────────────────────────────
+  l1-smoke-test-gen-windows:
+    name: L1 smoke_test_gen integration (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      # 单线程运行：clang 全局状态竞争
+      - name: Run L1 smoke_test_gen integration tests
+        run: |
+          cargo test --test l1_smoke_test_gen_tests -- `
+            --include-ignored `
+            --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── L1 smoke_test_gen (Windows MSVC) ─────────────────────────────
+  l1-smoke-test-gen-msvc:
+    name: L1 smoke_test_gen integration (Windows MSVC)
+    runs-on: windows-latest
+    needs: build-msvc
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (MSVC ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-msvc-cargo-
+
+      # 单线程运行：clang 全局状态竞争
+      - name: Run L1 smoke_test_gen integration tests
+        run: |
+          cargo test --test l1_smoke_test_gen_tests -- `
+            --include-ignored `
             --test-threads=1
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin

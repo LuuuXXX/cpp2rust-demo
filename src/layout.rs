@@ -22,6 +22,20 @@ pub struct ApiManifest {
     /// 例如 `("Stack", ["Stack<int>", "Stack<double>"])`。
     #[serde(default)]
     pub template_groups: Vec<(String, Vec<String>)>,
+    /// 冒烟测试清单（从 `tests/smoke_test.rs` 解析，供用户对比验证）
+    #[serde(default)]
+    pub smoke_tests: Vec<SmokeTestEntry>,
+}
+
+/// 单条冒烟测试记录（用于 `api-manifest.md` 的冒烟测试章节）
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SmokeTestEntry {
+    /// 测试函数名（如 `smoke_class_basic_foo_lifecycle`）
+    pub fn_name: String,
+    /// 测试说明（来自文档注释或桩注释）
+    pub description: String,
+    /// true 表示该测试为桩（含指针参数，需人工补充）
+    pub is_stub: bool,
 }
 
 /// 单个类的绑定信息
@@ -233,6 +247,22 @@ impl FeatureLayout {
             }
         }
 
+        // 冒烟测试清单（仅在有数据时生成）
+        if !manifest.smoke_tests.is_empty() {
+            out.push_str("\n\n---\n\n## 冒烟测试\n\n");
+            out.push_str("以下为 `tests/smoke_test.rs` 中对应的冒烟测试函数，可用于验证 FFI 绑定正常工作。\n");
+            out.push_str("运行：`cargo test -- --nocapture --include-ignored`\n\n");
+            out.push_str("| 测试函数 | 说明 | 状态 |\n");
+            out.push_str("|---------|------|------|\n");
+            for t in &manifest.smoke_tests {
+                let status = if t.is_stub { "⚠ 桩（需人工补充）" } else { "✓ 可运行" };
+                out.push_str(&format!(
+                    "| `{}` | {} | {} |\n",
+                    t.fn_name, t.description, status
+                ));
+            }
+        }
+
         let path = self.meta_dir.join("api-manifest.md");
         std::fs::write(&path, out).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
@@ -396,6 +426,74 @@ impl FeatureLayout {
         let path = self.meta_dir.join("merge-report.md");
         std::fs::write(&path, out).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
+}
+
+/// 从 `tests/smoke_test.rs` 文件内容中解析冒烟测试条目清单。
+///
+/// 支持两种形式：
+/// - 有效测试：紧跟在 `/// 冒烟测试` 文档注释之后的 `fn smoke_*()` 函数
+/// - 桩注释：`// smoke_*: <description>` 格式的注释行
+///
+/// 每个测试函数名仅输出一次（去重）。
+pub fn parse_smoke_test_entries(content: &str) -> Vec<SmokeTestEntry> {
+    let mut entries: Vec<SmokeTestEntry> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut pending_description: Option<String> = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // 文档注释：`/// 冒烟测试 A：Foo 类完整生命周期`
+        if let Some(rest) = trimmed.strip_prefix("/// 冒烟测试") {
+            // 保留 " A：Foo 类完整生命周期" 形式的说明（含分类标记，便于阅读）
+            pending_description = Some(rest.trim().to_string());
+            continue;
+        }
+
+        // 有效测试函数行：`fn smoke_<name>() {`
+        if let Some(rest) = trimmed.strip_prefix("fn smoke_") {
+            let fn_name_part = rest.split('(').next().unwrap_or("").trim();
+            let fn_name = format!("smoke_{}", fn_name_part);
+            if !seen.contains(&fn_name) {
+                seen.insert(fn_name.clone());
+                entries.push(SmokeTestEntry {
+                    fn_name,
+                    description: pending_description.take().unwrap_or_default(),
+                    is_stub: false,
+                });
+            }
+            pending_description = None;
+            continue;
+        }
+
+        // 桩注释：`// smoke_<name>: <description>`
+        if let Some(rest) = trimmed.strip_prefix("// smoke_") {
+            if let Some((name_part, desc_part)) = rest.split_once(": ") {
+                let fn_name = format!("smoke_{}", name_part.trim());
+                if !seen.contains(&fn_name) {
+                    seen.insert(fn_name.clone());
+                    entries.push(SmokeTestEntry {
+                        fn_name,
+                        description: desc_part.trim().to_string(),
+                        is_stub: true,
+                    });
+                }
+            }
+            pending_description = None;
+            continue;
+        }
+
+        // 非文档注释行重置待处理说明，但属性行（#[…]）和空白行不重置，
+        // 因为 smoke_test.rs 中文档注释后紧跟 #[test] / #[ignore = "…"] 属性，再是 fn 行
+        if !trimmed.starts_with("///")
+            && !trimmed.starts_with("#[")
+            && !trimmed.is_empty()
+        {
+            pending_description = None;
+        }
+    }
+
+    entries
 }
 
 /// 扫描 `.cpp2rust/<feature>/c/` 目录下所有 `*.cpp2rust` 文件。
@@ -601,6 +699,7 @@ mod tests {
                 is_degraded: false,
             }],
             template_groups: vec![],
+            smoke_tests: vec![],
         };
         layout.save_api_manifest(&manifest).unwrap();
 
@@ -629,11 +728,110 @@ mod tests {
                 is_degraded: true,
             }],
             template_groups: vec![],
+            smoke_tests: vec![],
         };
         layout.save_api_manifest(&manifest).unwrap();
 
         let content = std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
         assert!(content.contains("void (*cb)(int)"));
         assert!(content.contains("⚠ 降级"));
+    }
+
+    #[test]
+    fn save_api_manifest_renders_smoke_tests() {
+        let tmp = TempDir::new().unwrap();
+        let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
+        layout.create_dirs().unwrap();
+
+        let manifest = ApiManifest {
+            feature: "default".into(),
+            classes: vec![],
+            functions: vec![],
+            template_groups: vec![],
+            smoke_tests: vec![
+                SmokeTestEntry {
+                    fn_name: "smoke_class_basic_foo_lifecycle".into(),
+                    description: "Foo 类完整生命周期".into(),
+                    is_stub: false,
+                },
+                SmokeTestEntry {
+                    fn_name: "smoke_class_basic_fn_foo_new".into(),
+                    description: "含指针参数，需人工补充测试".into(),
+                    is_stub: true,
+                },
+            ],
+        };
+        layout.save_api_manifest(&manifest).unwrap();
+
+        let content = std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
+        assert!(content.contains("## 冒烟测试"));
+        assert!(content.contains("smoke_class_basic_foo_lifecycle"));
+        assert!(content.contains("✓ 可运行"));
+        assert!(content.contains("smoke_class_basic_fn_foo_new"));
+        assert!(content.contains("⚠ 桩（需人工补充）"));
+    }
+
+    #[test]
+    fn parse_smoke_test_entries_active_and_stub() {
+        let content = r#"// 自动生成的 FFI 冒烟测试
+use mylib::class_basic::*;
+
+// ═══ 单元：class_basic ═══
+
+/// 冒烟测试 A：Foo 类完整生命周期（构造 → 方法调用 → 析构）
+#[test]
+#[ignore = "Requires runtime environment"]
+fn smoke_class_basic_foo_lifecycle() {
+    let mut obj = foo_new();
+    drop(obj);
+}
+
+/// 冒烟测试 B：自由函数 foo_new
+#[test]
+#[ignore = "Requires runtime environment"]
+fn smoke_class_basic_fn_foo_create() {
+    let _ = foo_create();
+}
+
+// smoke_class_basic_fn_bar_ptr: 含指针参数，需人工补充测试
+// 函数签名：void* bar_ptr(void*)
+// cpp2rust-todo[SMOKE]: 补充安全的入参后取消注释
+// #[test]
+// fn smoke_class_basic_fn_bar_ptr() { /* TODO */ }
+"#;
+
+        let entries = parse_smoke_test_entries(content);
+        assert_eq!(entries.len(), 3);
+
+        assert_eq!(entries[0].fn_name, "smoke_class_basic_foo_lifecycle");
+        assert!(!entries[0].is_stub);
+        assert!(entries[0].description.contains("Foo 类完整生命周期"));
+
+        assert_eq!(entries[1].fn_name, "smoke_class_basic_fn_foo_create");
+        assert!(!entries[1].is_stub);
+
+        assert_eq!(entries[2].fn_name, "smoke_class_basic_fn_bar_ptr");
+        assert!(entries[2].is_stub);
+        assert!(entries[2].description.contains("含指针参数"));
+    }
+
+    #[test]
+    fn parse_smoke_test_entries_deduplicates() {
+        let content = r#"/// 冒烟测试 A：Foo 类
+#[test]
+fn smoke_foo_lifecycle() {}
+
+/// 冒烟测试 A：Foo 类（重复）
+#[test]
+fn smoke_foo_lifecycle() {}
+"#;
+        let entries = parse_smoke_test_entries(content);
+        assert_eq!(entries.len(), 1, "重复的测试函数名应去重");
+    }
+
+    #[test]
+    fn parse_smoke_test_entries_empty() {
+        let entries = parse_smoke_test_entries("// 仅注释，无测试");
+        assert!(entries.is_empty());
     }
 }
