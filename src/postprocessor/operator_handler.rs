@@ -32,11 +32,11 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
             continue;
         }
 
-        // 检查是否有任何运算符相关 accessor
+        // 检查是否有任何运算符相关 accessor（不含 Getter：getter-only 类不应触发 shim 生成）
         let has_ops = accessors.iter().any(|fi| {
-            !matches!(
+            matches!(
                 classify_accessor(fi, &prefix, &ci.name),
-                AccessorKind::Other
+                AccessorKind::BinaryOp | AccessorKind::UnaryOp | AccessorKind::Compare
             )
         });
         if !has_ops {
