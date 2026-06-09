@@ -1,6 +1,6 @@
-//! import_class! ブロック構築（Phase 3）
+//! `import_class!` 块构建（Phase 3）
 //!
-//! ClassInfo から hicc の `import_class! { ... }` ブロックの ClassSpec を生成する。
+//! 从 ClassInfo 生成 hicc 的 `import_class! { ... }` 块所需的 ClassSpec。
 
 use super::type_mapper::{clean_type, cpp_to_rust, to_snake_case};
 use super::{

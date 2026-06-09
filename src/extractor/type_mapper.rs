@@ -168,6 +168,18 @@ fn cpp_to_rust_inner(cpp: &str, depth: u8) -> String {
         return cpp_to_rust_inner(&normalized, depth + 1);
     }
 
+    // `T const *` → 后置 const（East const）规范化为前置 const，便于后续统一处理
+    // 例：`wchar_t const *` → `const wchar_t *` → `*const wchar_t`
+    if let Some(rest_no_star) = cpp_no_restrict
+        .strip_suffix(" *")
+        .or_else(|| cpp_no_restrict.strip_suffix("*"))
+    {
+        if let Some(base) = rest_no_star.trim().strip_suffix(" const") {
+            let normalized = format!("const {} *", base.trim());
+            return cpp_to_rust_inner(&normalized, depth + 1);
+        }
+    }
+
     // `const T *` → `*const T_rust`
     if let Some(rest) = cpp_no_restrict
         .strip_suffix(" *")
@@ -462,8 +474,9 @@ mod tests {
     fn wchar_t_pointer() {
         // `wchar_t *` → 可变指针
         assert_eq!(cpp_to_rust("wchar_t *"), "*mut wchar_t");
-        // `wchar_t const *` → 当前实现不识别后置 const，回退为原始字符串形式
-        // （`const wchar_t *` 才是前置 const，会正确映射为 `*const wchar_t`）
+        // `wchar_t const *` → 后置 const（East const）已规范化，正确映射为 `*const wchar_t`
+        assert_eq!(cpp_to_rust("wchar_t const *"), "*const wchar_t");
+        // `const wchar_t *` → 前置 const，同样映射为 `*const wchar_t`
         assert_eq!(cpp_to_rust("const wchar_t *"), "*const wchar_t");
     }
 
@@ -559,5 +572,35 @@ mod tests {
             result.contains("int"),
             "volatile int * const 应包含 int 的映射（volatile 已被剥除），得到: {result}"
         );
+    }
+
+    // ── 东置 const（East const / postfix const）─────────────────────────────
+
+    #[test]
+    fn east_const_pointer_normalized() {
+        // `T const *` 与 `const T *` 语义等价，均应映射为 `*const T_rust`
+        assert_eq!(cpp_to_rust("int const *"), "*const i32");
+        assert_eq!(cpp_to_rust("char const *"), "*const i8");
+        assert_eq!(cpp_to_rust("wchar_t const *"), "*const wchar_t");
+        assert_eq!(cpp_to_rust("unsigned char const *"), "*const u8");
+        assert_eq!(cpp_to_rust("double const *"), "*const f64");
+    }
+
+    // ── 模板类型（STL 容器）──────────────────────────────────────────────────
+
+    #[test]
+    fn template_types_returned_as_raw_string() {
+        // STL 模板类型无法自动映射为 Rust FFI 类型，应原样返回（供后续人工处理）
+        let v = cpp_to_rust("std::vector<int>");
+        assert_eq!(v, "std::vector<int>", "模板类型应原样返回：{v}");
+
+        let s = cpp_to_rust("std::string");
+        assert_eq!(s, "std::string", "std::string 应原样返回：{s}");
+
+        let m = cpp_to_rust("std::map<int, double>");
+        assert_eq!(m, "std::map<int, double>", "std::map 应原样返回：{m}");
+
+        let u = cpp_to_rust("std::unique_ptr<Foo>");
+        assert_eq!(u, "std::unique_ptr<Foo>", "std::unique_ptr 应原样返回：{u}");
     }
 }

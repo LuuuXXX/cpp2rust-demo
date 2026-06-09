@@ -886,6 +886,40 @@ hicc::import_lib! {
     }
 
     #[test]
+    fn merge_units_fn_binding_conflict_detected() {
+        // 两个文件中相同函数 attr 但 fn_sig 不同 → 应生成函数绑定冲突
+        let src1 = r#"hicc::import_lib! {
+    #![link_name = "mylib"]
+    #[cpp(func = "int add(int a, int b)")]
+    fn add(a: i32, b: i32) -> i32;
+}
+"#;
+        let src2 = r#"hicc::import_lib! {
+    #![link_name = "mylib"]
+    #[cpp(func = "int add(int a, int b)")]
+    fn add(a: i64, b: i64) -> i64;
+}
+"#;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p1 = dir.path().join("unit1.rs");
+        let p2 = dir.path().join("unit2.rs");
+        std::fs::write(&p1, src1).unwrap();
+        std::fs::write(&p2, src2).unwrap();
+
+        let spec = merge_units(&[p1, p2]);
+        assert!(
+            !spec.conflicts.is_empty(),
+            "应检测到函数绑定冲突：{:?}",
+            spec.conflicts
+        );
+        assert!(
+            spec.conflicts[0].contains("Function binding conflict"),
+            "冲突消息应包含 'Function binding conflict'，实际：{}",
+            spec.conflicts[0]
+        );
+    }
+
+    #[test]
     fn merge_units_cpp_lines_dedup_across_files() {
         // 三个文件中 cpp 内容有重叠，合并后应去重
         let make_src = |extra: &str| {
