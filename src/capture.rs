@@ -167,7 +167,7 @@ fn hook_dir() -> Result<PathBuf> {
         std::env::current_dir().ok(),
     ]
     .into_iter()
-    .flatten()
+    .filter_map(|opt| opt)
     .collect();
 
     const MAX_DEPTH: usize = 5;

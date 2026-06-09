@@ -355,3 +355,139 @@ pub fn parse_smoke_test_entries(content: &str) -> Vec<SmokeTestEntry> {
 
     entries
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::types::{InitUnitStat, MergeReportData};
+    use tempfile::TempDir;
+
+    fn make_layout(tmp: &TempDir) -> FeatureLayout {
+        let root = tmp.path().to_path_buf();
+        let feature_root = root.join(".cpp2rust").join("test");
+        let meta_dir = feature_root.join("meta");
+        std::fs::create_dir_all(&meta_dir).unwrap();
+        FeatureLayout {
+            project_root: root.clone(),
+            feature_root: feature_root.clone(),
+            c_dir: feature_root.join("c"),
+            rust_dir: feature_root.join("rust"),
+            meta_dir,
+        }
+    }
+
+    // ── save_init_report ─────────────────────────────────────────────────────
+
+    #[test]
+    fn save_init_report_empty_units() {
+        let tmp = TempDir::new().unwrap();
+        let lo = make_layout(&tmp);
+        let data = InitReportData {
+            feature: "test",
+            build_cmd: "make",
+            captured_count: 0,
+            selected_count: 0,
+            units: &[],
+            degraded_tags: &[],
+        };
+        lo.save_init_report(&data).unwrap();
+        let content = std::fs::read_to_string(lo.meta_dir.join("init-report.md")).unwrap();
+        assert!(content.contains("feature `test`"));
+        assert!(content.contains("未生成任何编译单元"));
+        assert!(content.contains("无 — 所有特性均已完整映射"));
+    }
+
+    #[test]
+    fn save_init_report_with_units_and_tags() {
+        let tmp = TempDir::new().unwrap();
+        let lo = make_layout(&tmp);
+        let units = vec![InitUnitStat {
+            cpp2rust_path: "c/foo.cpp.cpp2rust".to_string(),
+            unit_path: "foo".to_string(),
+            class_count: 1,
+            fn_count: 2,
+            enum_count: 0,
+            elapsed_ms: 42,
+        }];
+        let tags = vec![("FP".to_string(), vec![("foo".to_string(), 3usize)])];
+        let data = InitReportData {
+            feature: "myfeature",
+            build_cmd: "cmake --build .",
+            captured_count: 1,
+            selected_count: 1,
+            units: &units,
+            degraded_tags: &tags,
+        };
+        lo.save_init_report(&data).unwrap();
+        let content = std::fs::read_to_string(lo.meta_dir.join("init-report.md")).unwrap();
+        assert!(content.contains("myfeature"));
+        assert!(content.contains("foo.cpp.cpp2rust"));
+        assert!(content.contains("FP"));
+        assert!(content.contains("3"));
+    }
+
+    // ── save_merge_report ────────────────────────────────────────────────────
+
+    #[test]
+    fn save_merge_report_no_conflicts() {
+        let tmp = TempDir::new().unwrap();
+        let lo = make_layout(&tmp);
+        let data = MergeReportData {
+            feature: "default",
+            unit_count: 5,
+            conflicts: &[],
+            rs_file_count: 3,
+            import_lib_files: 2,
+            import_class_files: 1,
+            fn_binding_count: 10,
+            todo_count: 0,
+            bad_link_name_count: 0,
+        };
+        lo.save_merge_report(&data).unwrap();
+        let content = std::fs::read_to_string(lo.meta_dir.join("merge-report.md")).unwrap();
+        assert!(content.contains("default"));
+        assert!(content.contains("无"));
+        assert!(content.contains("✓ 全部通过"));
+    }
+
+    #[test]
+    fn save_merge_report_with_conflicts_and_todos() {
+        let tmp = TempDir::new().unwrap();
+        let lo = make_layout(&tmp);
+        let conflicts = vec!["method Foo::bar 在两个翻译单元中定义不一致".to_string()];
+        let data = MergeReportData {
+            feature: "multi",
+            unit_count: 3,
+            conflicts: &conflicts,
+            rs_file_count: 4,
+            import_lib_files: 1,
+            import_class_files: 2,
+            fn_binding_count: 7,
+            todo_count: 2,
+            bad_link_name_count: 1,
+        };
+        lo.save_merge_report(&data).unwrap();
+        let content = std::fs::read_to_string(lo.meta_dir.join("merge-report.md")).unwrap();
+        assert!(content.contains("Foo::bar"));
+        assert!(content.contains("⚠ 2 处"));
+        assert!(content.contains("⚠ 1 处异常"));
+    }
+
+    // ── parse_smoke_test_entries ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_smoke_empty_content() {
+        let entries = parse_smoke_test_entries("");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn parse_smoke_stub_comments() {
+        let content = "// smoke_foo_basic: 基础测试\n// smoke_bar_lifecycle: 生命周期\n";
+        let entries = parse_smoke_test_entries(content);
+        assert_eq!(entries.len(), 2);
+        assert!(entries[0].is_stub);
+        assert_eq!(entries[0].fn_name, "smoke_foo_basic");
+        assert_eq!(entries[0].description, "基础测试");
+    }
+}

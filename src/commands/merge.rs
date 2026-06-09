@@ -19,17 +19,19 @@ pub fn run_merge(features: Vec<String>, output_dir: Option<PathBuf>) -> Result<(
         features
     };
 
+    // 在顶层获取一次，传入子函数，避免重复调用
+    let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
+    let project_root = layout::find_project_root(&cwd);
+
     // 先执行普通 merge（单/多 feature）
     let rust_dir = if features.len() == 1 {
-        run_single_feature_merge(&features[0])?
+        run_single_feature_merge(&features[0], &project_root)?
     } else {
-        run_multi_feature_merge(&features)?
+        run_multi_feature_merge(&features, &project_root)?
     };
 
     // 若指定了 --output-dir，merge 完成后追加导出步骤
     if let Some(out_dir) = output_dir {
-        let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
-        let project_root = layout::find_project_root(&cwd);
         let merged_feature_name = features.join("_");
         run_merge_output(&rust_dir, &out_dir, &merged_feature_name, &project_root)?;
     }
@@ -98,16 +100,13 @@ fn run_merge_output(
 }
 
 /// 执行单 feature merge。
-pub fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
-    let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
-    let project_root = layout::find_project_root(&cwd);
-
+pub fn run_single_feature_merge(feature: &str, project_root: &std::path::Path) -> Result<PathBuf> {
     println!("=== cpp2rust-demo merge ===");
     println!("项目根目录 : {}", project_root.display());
     println!("Feature    : {}", feature);
     println!();
 
-    let lo = FeatureLayout::new(project_root.clone(), feature);
+    let lo = FeatureLayout::new(project_root.to_path_buf(), feature);
     if !lo.feature_root.exists() {
         return Err(anyhow!(
             "feature '{}' not found at {}; run init first",
@@ -199,10 +198,7 @@ pub fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
 }
 
 /// 执行多 feature merge。
-fn run_multi_feature_merge(features: &[String]) -> Result<PathBuf> {
-    let cwd = std::env::current_dir().map_err(|e| anyhow!("current_dir: {}", e))?;
-    let project_root = layout::find_project_root(&cwd);
-
+fn run_multi_feature_merge(features: &[String], project_root: &std::path::Path) -> Result<PathBuf> {
     println!("=== cpp2rust-demo merge（多 feature）===");
     println!("项目根目录 : {}", project_root.display());
     println!("Features   : {}", features.join(", "));
@@ -211,7 +207,7 @@ fn run_multi_feature_merge(features: &[String]) -> Result<PathBuf> {
     // 验证每个 feature 存在，并确定其 canonical src 目录
     let mut feature_srcs: Vec<(&str, PathBuf)> = Vec::new();
     for feature in features {
-        let lo = FeatureLayout::new(project_root.clone(), feature);
+        let lo = FeatureLayout::new(project_root.to_path_buf(), feature);
         if !lo.feature_root.exists() {
             return Err(anyhow!(
                 "feature '{}' not found at {}; run init first",

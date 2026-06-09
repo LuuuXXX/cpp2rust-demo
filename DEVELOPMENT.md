@@ -36,7 +36,10 @@ cpp2rust-demo (bin)
     │   └── range_scanner.rs     # 文件字节范围扫描（区分用户代码 vs 头文件）
     ├── extractor/               # Phase 3：CppAst → FfiSpec IR 提取
     │   ├── mod.rs               # 公共入口 extract()、命名空间模式检测、类/函数/枚举提取
-    │   └── type_mapper.rs       # C++ 类型 → Rust 类型映射
+    │   ├── type_mapper.rs       # C++ 类型 → Rust 类型映射
+    │   ├── class_spec.rs        # ClassSpec 构建：方法/构造器/析构器/关联函数归属
+    │   ├── lib_spec.rs          # import_lib! 块构建：全局函数绑定与前向声明生成
+    │   └── cpp_block.rs         # hicc::cpp! 块的 #include 行提取与 C++ shim 内联片段构造
     ├── postprocessor/           # Phase 4：特殊情况后处理
     │   ├── mod.rs
     │   ├── operator_handler.rs  # 运算符重载 [OP]

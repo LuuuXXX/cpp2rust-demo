@@ -28,3 +28,39 @@ impl std::fmt::Display for Cpp2RustError {
 }
 
 impl std::error::Error for Cpp2RustError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_libclang_init() {
+        let e = Cpp2RustError::LibclangInit("libclang.so not found".to_string());
+        assert_eq!(e.to_string(), "libclang 初始化失败: libclang.so not found");
+    }
+
+    #[test]
+    fn display_parse_failed() {
+        let e = Cpp2RustError::ParseFailed("unexpected token".to_string());
+        assert_eq!(e.to_string(), "AST 解析失败: unexpected token");
+    }
+
+    #[test]
+    fn display_preprocess_failed() {
+        let e = Cpp2RustError::PreprocessFailed("g++ not found".to_string());
+        assert_eq!(e.to_string(), "C++ 预处理失败: g++ not found");
+    }
+
+    #[test]
+    fn display_io_error() {
+        let e = Cpp2RustError::IoError("file not found".to_string());
+        assert_eq!(e.to_string(), "I/O 错误: file not found");
+    }
+
+    #[test]
+    fn implements_std_error() {
+        let e: Box<dyn std::error::Error> =
+            Box::new(Cpp2RustError::IoError("test".to_string()));
+        assert!(!e.to_string().is_empty());
+    }
+}

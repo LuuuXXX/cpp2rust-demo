@@ -146,9 +146,14 @@ pub fn extract_hicc_blocks(src: &str) -> String {
 }
 
 /// Normalize source for comparison: collapse whitespace, remove blank lines, strip // comments.
+/// Exception: lines containing `cpp2rust-todo` are preserved as-is (they carry degradation markers).
 pub fn normalize(src: &str) -> String {
     src.lines()
         .map(|l| {
+            // cpp2rust-todo 降级标记注释行不参与注释剥除，保留完整内容（含标记）
+            if l.contains("cpp2rust-todo") {
+                return collapse_spaces(l.trim());
+            }
             // Strip // line comments (but not inside strings — good enough for golden comparison)
             let l = if let Some(pos) = l.find("//") {
                 l[..pos].trim_end()
@@ -342,8 +347,8 @@ pub fn preprocess_cpp(
 /// 3. 每个 import_class!/import_lib! 块内部括号平衡
 /// 4. 若存在 `hicc::import_class!` 块，每个类必须有 `#[cpp(class` 或 `#[interface]`
 /// 5. 若存在 `hicc::import_lib!` 块，必须包含 `#![link_name = "`
-/// 6. 类方法绑定必须有 `#[cpp(method = "`
-/// 7. 函数绑定必须有 `#[cpp(func = "`
+/// 6. 类方法绑定在 import_class! 块内必须有 `#[cpp(method = "`
+/// 7. 函数绑定在 import_lib! 块内必须有 `#[cpp(func = "`
 pub fn assert_valid_hicc_format(code: &str, unit_name: &str) {
     assert!(
         code.contains("hicc::cpp! {"),
@@ -358,7 +363,9 @@ pub fn assert_valid_hicc_format(code: &str, unit_name: &str) {
         unit_name
     );
 
-    for macro_prefix in &["hicc::import_class! {", "hicc::import_lib! {"] {
+    // 从源码中提取每个宏块的文本内容，用于块级精确检查（避免跨块误判）
+    let extract_blocks = |macro_prefix: &str| -> Vec<String> {
+        let mut blocks = Vec::new();
         let mut search = 0usize;
         while let Some(rel) = code[search..].find(macro_prefix) {
             let block_start = search + rel + macro_prefix.len();
@@ -366,7 +373,10 @@ pub fn assert_valid_hicc_format(code: &str, unit_name: &str) {
             let mut in_str = false;
             let mut esc = false;
             let mut closed = false;
-            for c in code[block_start..].chars() {
+            // `end` 在 closed == true 时被设为块末尾；若循环结束仍为 false，
+            // 下方 assert!(closed, ...) 会捕获该错误，此时 end 值不再被使用。
+            let mut end = block_start;
+            for (i, c) in code[block_start..].char_indices() {
                 if esc {
                     esc = false;
                     continue;
@@ -378,6 +388,7 @@ pub fn assert_valid_hicc_format(code: &str, unit_name: &str) {
                     '}' if !in_str => {
                         depth -= 1;
                         if depth == 0 {
+                            end = block_start + i + 1;
                             closed = true;
                             break;
                         }
@@ -390,40 +401,45 @@ pub fn assert_valid_hicc_format(code: &str, unit_name: &str) {
                 "unit '{}': {} 块未正确关闭（括号不平衡）",
                 unit_name, macro_prefix
             );
+            blocks.push(code[block_start..end].to_string());
             search = block_start;
         }
-    }
+        blocks
+    };
 
-    if code.contains("hicc::import_class! {") {
+    let class_blocks = extract_blocks("hicc::import_class! {");
+    let lib_blocks = extract_blocks("hicc::import_lib! {");
+
+    for block in &class_blocks {
         assert!(
-            code.contains("#[cpp(class") || code.contains("#[interface]"),
+            block.contains("#[cpp(class") || block.contains("#[interface]"),
             "unit '{}': import_class! 块缺少类注解 (#[cpp(class...)] 或 #[interface])",
             unit_name
         );
+        // 仅在当前 import_class! 块内检查方法绑定
+        if block.contains("fn ") {
+            assert!(
+                block.contains("#[cpp(method = \""),
+                "unit '{}': import_class! 块包含方法但缺少 #[cpp(method = \"...\")]",
+                unit_name
+            );
+        }
     }
 
-    if code.contains("hicc::import_lib! {") {
+    for block in &lib_blocks {
         assert!(
-            code.contains("#![link_name = \""),
+            block.contains("#![link_name = \""),
             "unit '{}': import_lib! 块缺少 #![link_name = \"...\"]",
             unit_name
         );
-    }
-
-    if code.contains("hicc::import_class! {") && code.contains("fn ") {
-        assert!(
-            code.contains("#[cpp(method = \""),
-            "unit '{}': import_class! 包含方法但缺少 #[cpp(method = \"...\")]",
-            unit_name
-        );
-    }
-
-    if code.contains("hicc::import_lib! {") && code.contains("fn ") {
-        assert!(
-            code.contains("#[cpp(func = \""),
-            "unit '{}': import_lib! 包含函数但缺少 #[cpp(func = \"...\")]",
-            unit_name
-        );
+        // 仅在当前 import_lib! 块内检查函数绑定
+        if block.contains("fn ") {
+            assert!(
+                block.contains("#[cpp(func = \""),
+                "unit '{}': import_lib! 块包含函数但缺少 #[cpp(func = \"...\")]",
+                unit_name
+            );
+        }
     }
 }
 
@@ -518,4 +534,18 @@ pub fn ensure_cpp_lib(example: &str) {
             status.code()
         );
     }
+}
+
+/// 断言生成代码中包含指定 TAG 的降级标记注释（`cpp2rust-todo[TAG]`）。
+///
+/// 用于在 L1 golden 测试中直接验证降级标记是否被正确生成，
+/// 而不依赖 normalize 的注释剥除行为来隐含地放过这类差异。
+pub fn assert_contains_todo_tag(code: &str, tag: &str, unit_name: &str) {
+    let marker = format!("cpp2rust-todo[{}]", tag);
+    assert!(
+        code.contains(&marker),
+        "unit '{}': 期望生成降级标记 {} 但未找到",
+        unit_name,
+        marker
+    );
 }

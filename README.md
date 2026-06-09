@@ -139,7 +139,39 @@ cargo build --features arm_embedded
     └── Cargo.toml
 ```
 
-多 feature 配合 `--output-dir` 时，导出目录中的 `src/` 包含按 feature 条件编译的子目录结构（与 `.cpp2rust/<feat1>_<feat2>/rust/src/` 一致），`Cargo.toml` 含 `[features]` 段。
+多 feature 配合 `--output-dir` 时，导出目录结构：
+
+```
+/tmp/multi-out/
+    ├── meta/            （包含各 feature 的 api-manifest.md 等）
+    ├── src/
+    │   ├── lib.rs       （顶层 #[cfg(feature = "linux_x86")] / #[cfg(feature = "arm_embedded")] 路由）
+    │   ├── linux_x86/   （linux_x86 feature 的绑定文件）
+    │   └── arm_embedded/（arm_embedded feature 的绑定文件）
+    ├── build.rs         （含 #[cfg(feature = ...)] 条件编译段）
+    └── Cargo.toml       （含 [features] 段）
+```
+
+**典型使用场景：**
+
+```bash
+# 场景一：CI/CD 流水线中将 FFI 脚手架发布为独立 crate
+#   在 CMake/Make 构建完成后自动生成并导出到 Rust workspace
+cpp2rust-demo init -- cmake --build build -j8
+cpp2rust-demo merge --output-dir ../rust-ffi/mylib
+
+# 场景二：交叉编译多平台同时导出
+cpp2rust-demo init -- make ARCH=x86_64 # 生成 linux_x86 feature
+cpp2rust-demo init -- make ARCH=aarch64 --feature arm_embedded
+cpp2rust-demo merge --feature linux_x86 --feature arm_embedded --output-dir dist/
+
+# 场景三：GitHub Actions 工件上传
+- run: cpp2rust-demo merge --output-dir ${{ runner.temp }}/ffi-out
+- uses: actions/upload-artifact@v4
+  with:
+    name: rust-ffi-scaffold
+    path: ${{ runner.temp }}/ffi-out
+```
 
 **参数说明：**
 

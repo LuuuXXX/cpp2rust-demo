@@ -1,5 +1,42 @@
 # Changelog
 
+本文件遵循 [Keep a Changelog](https://keepachangelog.com/) 格式。
+
+## [Unreleased]
+
+### 修复
+
+- **`block_parser.rs`**：`parse_class_content` 现在正确处理 `pub class Foo {` 形式（codegen 生成的标准格式），修复跳过所有方法绑定的 bug。
+
+### 优化（源码）
+
+- **`lib_spec.rs`**：将文件头模块注释从日语改为中文，与代码库其他文件保持一致。
+- **`init.rs`**：`first_pass_parse` 改为"收集所有失败"策略，解析失败的文件记录为警告并跳过，最终汇总打印失败文件列表，而非遇到第一个失败就中止。
+- **`merge.rs`**：消除 `run_single_feature_merge` / `run_multi_feature_merge` 中重复的 `current_dir()` + `find_project_root()` 两行代码，统一在 `run_merge` 中获取后传入各子函数。
+- **`hicc_codegen.rs`**：用索引判断代替 `out.ends_with("\n\n") { out.pop() }` 的字符串末尾 hack，通过 `if i + 1 < methods.len()` 有条件添加方法间空行。
+- **`type_mapper.rs`**：统一使用 `#[cfg(target_os = "windows")]` 并添加注释说明与 `#[cfg(windows)]` 等价，选择前者以保持平台 cfg 写法一致性。
+- **`capture.rs`**：将 `hook_dir()` 中 `[Option; 2].into_iter().flatten()` 改写为 `filter_map(|opt| opt)`，提升可读性。
+
+### 优化（测试）
+
+- **`tests/common/mod.rs`**：`normalize` 函数保留含 `cpp2rust-todo` 的降级标记注释行，不再将其当作普通注释剥除；`assert_valid_hicc_format` 改为块级精确检查，避免跨块的 `fn ` 误判；新增 `assert_contains_todo_tag` 辅助断言。
+- **`tests/l1_golden_tests.rs`**：新增 `todo_tag_test!` 宏和 4 个降级标记专项断言（031/039/040/047），直接验证 `cpp2rust-todo[FP]` 注释是否正确生成。
+- **`tests/l2_compile_tests.rs`**：`compile_test!` 宏加入 `#[cfg_attr(not(feature = "full-test"), ignore)]` 保护，在无 C++ 工具链的 CI 环境中自动忽略，与 L1 保护策略一致。
+- **`tests/l4_merge_integration_tests.rs`**（新增）：新增 merge 集成测试，覆盖 `merge_in_place` 备份/rename、重复运行幂等性、`merge_units` 去重与类提取、降级签名收集以及 `collect_unit_rs_files` 目录扫描，无需 C++ 工具链。
+
+### 优化（错误路径测试）
+
+- **`src/error.rs`**：新增 5 个 `Cpp2RustError::Display` 格式测试，覆盖所有错误变体。
+- **`src/layout/io.rs`**：新增 7 个单元测试，覆盖 `save_init_report`、`save_merge_report`、`parse_smoke_test_entries` 的正常路径和边界情况。
+
+### 优化（文档）
+
+- **`README.md`**：补充 `--output-dir` 多 feature 输出目录结构说明及 CI/CD 集成典型使用场景示例（CMake 构建后导出、交叉编译多平台、GitHub Actions 工件上传）。
+- **`docs/INTRODUCTION.md`**：补充 Phase 6（merger）技术细节：`merge_in_place` 原子性 rename 机制、跨翻译单元 `cpp_lines` 去重策略、模板特化分组、冲突检测与报告生成。
+- **`DEVELOPMENT.md`**：目录树补全 `extractor/lib_spec.rs`、`extractor/class_spec.rs`、`extractor/cpp_block.rs` 三个子模块；六阶段描述与 CHANGELOG 统一。
+
+---
+
 ## [0.1.0] — 2026-06-01
 
 ### 新增

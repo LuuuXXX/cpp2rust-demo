@@ -91,7 +91,8 @@ pub fn generate(spec: &FfiSpec) -> String {
             out.push_str(&format!("    pub class {} {{}}\n", cs.name));
         } else {
             out.push_str(&format!("    pub class {} {{\n", cs.name));
-            for mb in &cs.methods {
+            let methods = &cs.methods;
+            for (i, mb) in methods.iter().enumerate() {
                 if mb.has_fn_ptr_param {
                     out.push_str("        // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern \"C\" 调用约定\n");
                 }
@@ -119,11 +120,10 @@ pub fn generate(spec: &FfiSpec) -> String {
                     mb.rust_name, self_ref, params_str, ret_str
                 ));
                 out.push('\n');
-                out.push('\n');
-            }
-            // 去掉最后一个方法后多余的空行
-            if out.ends_with("\n\n") {
-                out.pop();
+                // 方法间插入空行，最后一个方法后不加
+                if i + 1 < methods.len() {
+                    out.push('\n');
+                }
             }
             out.push_str("    }\n");
         }

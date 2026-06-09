@@ -1,7 +1,7 @@
-//! import_lib! ブロック構築（Phase 3）
+//! `import_lib!` 块构建（Phase 3）
 //!
-//! FunctionInfo から hicc の `import_lib! { ... }` ブロックの LibSpec を生成し、
-//! ctor/dtor/factory 関数を対応する ClassSpec::associated_fns へ割り当てる。
+//! 从 `FunctionInfo` 生成 hicc 的 `import_lib! { ... }` 块对应的 `LibSpec`，
+//! 并将 ctor/dtor/factory 函数分配到对应 `ClassSpec::associated_fns`。
 
 use super::type_mapper::{clean_type, cpp_to_rust};
 use super::{
