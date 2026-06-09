@@ -118,10 +118,10 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 
 | 层 | 文件 | 验证内容 | 运行命令 |
 |----|------|---------|---------|
-| L1 | `l1_golden_tests.rs` | 工具生成的 FFI 脚手架与 `rust_hicc/src/main.rs` 中对应段落一致 | `cargo test --test l1_golden_tests -- --include-ignored --test-threads=1` |
-| L1 | `l1_smoke_test_gen_tests.rs` | `smoke_test_gen::generate` + `write_smoke_test` 在真实 C++ 示例上的端到端集成 | `cargo test --test l1_smoke_test_gen_tests -- --include-ignored --test-threads=1` |
+| L1 | `l1_golden_tests.rs` | 工具生成的 FFI 脚手架与 `rust_hicc/src/main.rs` 中对应段落一致 | `cargo test --test l1_golden_tests --features full-test -- --test-threads=1` |
+| L1 | `l1_smoke_test_gen_tests.rs` | `smoke_test_gen::generate` + `write_smoke_test` 在真实 C++ 示例上的端到端集成 | `cargo test --test l1_smoke_test_gen_tests --features full-test -- --test-threads=1` |
 | L2 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | `cargo test --test l2_compile_tests` |
-| L3 | `l3_run_tests.rs` | `cargo run` 输出与 README 中"运行结果"一致 | `cargo test --test l3_run_tests -- --include-ignored --test-threads=1` |
+| L3 | `l3_run_tests.rs` | `cargo run` 输出与 README 中"运行结果"一致 | `cargo test --test l3_run_tests --features full-test -- --test-threads=1` |
 | L4 | `rapidjson_e2e_test.rs` | 对 rapidjson 开源项目执行完整 init + merge 转换，验证 hicc 三段式格式；merge 阶段同时执行 `cargo check` | `cargo test --test rapidjson_e2e_test -- --test-threads=1` |
 | L4 | `tinyxml2_e2e_test.rs` | tinyxml2 单文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test tinyxml2_e2e_test -- --test-threads=1` |
 | L4 | `pugixml_e2e_test.rs` | pugixml 单文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test pugixml_e2e_test -- --test-threads=1` |
@@ -130,6 +130,8 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 | L4 | `fmtlib_e2e_test.rs` | fmtlib 多文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test fmtlib_e2e_test -- --test-threads=1` |
 | L4 | `multi_feature_e2e_test.rs` | 多 feature 合并 & output-dir 导出完整流程验证 | `cargo test --test multi_feature_e2e_test -- --test-threads=1` |
 | L5 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | `cargo test --test l5_nm_symbol_tests -- --ignored` |
+
+**L1/L3 测试控制**：L1 和 L3 测试通过 `full-test` feature flag 控制。不加 `--features full-test` 时，这两类测试会被自动跳过（ignored）；加上后则正常运行。这比 `--include-ignored` 语义更清晰，也不会误触其他被标记为 ignored 的测试。
 
 **L1 核心逻辑**：从 `rust_hicc/src/main.rs` 提取 `hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三种块作为黄金片段，与工具生成的 `lib.rs` 对应块比对，忽略 `fn main()` 和注释差异。
 
@@ -187,13 +189,13 @@ apt-get install clang libclang-dev g++ libstdc++-14-dev
 cargo build
 
 # 运行 L1 测试（必须单线程）
-cargo test --test l1_golden_tests -- --include-ignored --test-threads=1
+cargo test --test l1_golden_tests --features full-test -- --test-threads=1
 
 # 运行单个示例测试
-cargo test --test l1_golden_tests test_006_class_basic -- --include-ignored
+cargo test --test l1_golden_tests test_006_class_basic --features full-test
 
 # 更新 golden 文件（工具输出有意变更时使用）
-cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
+cargo test --test l1_golden_tests update_all_goldens --features full-test
 
 # 合并单个 feature 的输出
 cargo run -- merge --feature default
@@ -202,7 +204,7 @@ cargo run -- merge --feature default
 cargo test --test l2_compile_tests
 
 # 运行 L3 运行测试（首次自动编译 C++ 库，二次直接运行）
-cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+cargo test --test l3_run_tests --features full-test -- --test-threads=1
 ```
 
 ### 6.2 macOS
@@ -232,13 +234,13 @@ source ~/.zprofile
 cargo build
 
 # 运行 L1 测试
-cargo test --test l1_golden_tests -- --include-ignored --test-threads=1
+cargo test --test l1_golden_tests --features full-test -- --test-threads=1
 
 # 运行 L2 编译测试
 cargo test --test l2_compile_tests
 
 # 运行 L3 运行测试（首次自动编译 C++ 动态库，约 2-4 分钟；二次直接运行）
-cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+cargo test --test l3_run_tests --features full-test -- --test-threads=1
 
 # 也可通过 make 一步完成（参见 §7.3）
 make l3-test

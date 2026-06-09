@@ -3,7 +3,7 @@ mod common;
 macro_rules! run_test {
     ($name:ident, $example:literal) => {
         #[test]
-        #[ignore = "Requires full runtime environment"]
+        #[cfg_attr(not(feature = "full-test"), ignore = "Requires full runtime environment; run with --features full-test")]
         fn $name() {
             common::ensure_cpp_lib($example);
             let dir = concat!("examples/", $example, "/rust_hicc");
@@ -28,7 +28,7 @@ macro_rules! run_test {
 macro_rules! run_test_skip_macos_virtual {
     ($name:ident, $example:literal) => {
         #[test]
-        #[ignore = "Requires full runtime environment"]
+        #[cfg_attr(not(feature = "full-test"), ignore = "Requires full runtime environment; run with --features full-test")]
         #[cfg(not(target_os = "macos"))]
         fn $name() {
             common::ensure_cpp_lib($example);
