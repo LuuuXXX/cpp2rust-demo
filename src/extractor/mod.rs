@@ -280,7 +280,7 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         || fi.name.ends_with("_new")
         || fi.name.contains("_new_")
         || fi.name.find("_new").map_or(false, |p| {
-            fi.name[p + 4..].starts_with(|c: char| c.is_uppercase())
+            fi.name.get(p + 4..).map_or(false, |rest| rest.starts_with(|c: char| c.is_uppercase()))
         });
 
     if ret_is_class_ptr && name_has_new {
