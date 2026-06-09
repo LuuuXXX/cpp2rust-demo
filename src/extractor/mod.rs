@@ -272,17 +272,17 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         })
         .unwrap_or(false);
 
-    if ret_is_class_ptr && (name_lower.contains("_new") || name_lower == "new") {
+    if ret_is_class_ptr && (name_lower.ends_with("_new") || name_lower == "new") {
         return ShimKind::Ctor;
     }
     if first_param_is_class_ptr
-        && (name_lower.contains("_delete")
+        && (name_lower.ends_with("_delete")
             || name_lower == "delete"
-            || name_lower.contains("_free")
+            || name_lower.ends_with("_free")
             || name_lower == "free"
-            || name_lower.contains("_destroy")
+            || name_lower.ends_with("_destroy")
             || name_lower == "destroy"
-            || name_lower.contains("_release")
+            || name_lower.ends_with("_release")
             || name_lower == "release")
     {
         return ShimKind::Dtor;
