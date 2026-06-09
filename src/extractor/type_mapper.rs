@@ -605,4 +605,102 @@ mod tests {
         let u = cpp_to_rust("std::unique_ptr<Foo>");
         assert_eq!(u, "std::unique_ptr<Foo>", "std::unique_ptr 应原样返回：{u}");
     }
+
+    // ── 缺失覆盖：T *const（指针本身 const）──────────────────────────────────
+
+    #[test]
+    fn ptr_const_int_maps_to_mut_ptr() {
+        // `int *const`：指针本身不可变，但在 Rust FFI 中等同于可变指针
+        assert_eq!(cpp_to_rust("int *const"), "*mut i32");
+        assert_eq!(cpp_to_rust("double *const"), "*mut f64");
+        assert_eq!(cpp_to_rust("unsigned int *const"), "*mut u32");
+    }
+
+    // ── 缺失覆盖：East const（T const *）变体 ──────────────────────────────────
+
+    #[test]
+    fn east_const_more_variants() {
+        // `void const *` → `*const u8`
+        assert_eq!(cpp_to_rust("void const *"), "*const u8");
+        // `int const *` → `*const i32`
+        assert_eq!(cpp_to_rust("int const *"), "*const i32");
+        // `float const *` → `*const f32`
+        assert_eq!(cpp_to_rust("float const *"), "*const f32");
+        // `long long const *` → `*const i64`
+        assert_eq!(cpp_to_rust("long long const *"), "*const i64");
+    }
+
+    // ── 缺失覆盖：C 函数指针变体 ─────────────────────────────────────────────
+
+    #[test]
+    fn fn_ptr_returns_pointer() {
+        // `void* (*)(int)` → 返回 *mut u8 的函数指针
+        assert_eq!(
+            cpp_to_rust("void *(*)(int)"),
+            "unsafe extern \"C\" fn(i32) -> *mut u8"
+        );
+    }
+
+    #[test]
+    fn fn_ptr_multiple_params() {
+        // `int (*)(int, double, unsigned int)` → 多参数函数指针
+        assert_eq!(
+            cpp_to_rust("int (*)(int, double, unsigned int)"),
+            "unsafe extern \"C\" fn(i32, f64, u32) -> i32"
+        );
+    }
+
+    #[test]
+    fn fn_ptr_with_ptr_param() {
+        // `int (*)(int *, const char *)` → 带指针参数的函数指针
+        assert_eq!(
+            cpp_to_rust("int (*)(int *, const char *)"),
+            "unsafe extern \"C\" fn(*mut i32, *const i8) -> i32"
+        );
+    }
+
+    // ── 缺失覆盖：__restrict__ 组合类型 ──────────────────────────────────────
+
+    #[test]
+    fn restrict_with_various_types() {
+        // `int * __restrict__`：整型指针带 restrict 后缀
+        assert_eq!(cpp_to_rust("int * __restrict__"), "*mut i32");
+        // `double * __restrict`
+        assert_eq!(cpp_to_rust("double * __restrict"), "*mut f64");
+        // `const int * __restrict`：const 限定指针带 restrict
+        assert_eq!(cpp_to_rust("const int * __restrict"), "*const i32");
+        // `__restrict__ int *`：前缀形式
+        assert_eq!(cpp_to_rust("__restrict__ int *"), "*mut i32");
+    }
+
+    // ── 缺失覆盖：long double 精度降级路径 ────────────────────────────────────
+
+    #[test]
+    fn long_double_pointer_variants() {
+        // `long double *` → `*mut f64`（精度降级）
+        assert_eq!(cpp_to_rust("long double *"), "*mut f64");
+        // `long double &` → `&mut f64`
+        assert_eq!(cpp_to_rust("long double &"), "&mut f64");
+        // `const long double *` → `*const f64`
+        assert_eq!(cpp_to_rust("const long double *"), "*const f64");
+        // `long double const *`（East const）→ `*const f64`
+        assert_eq!(cpp_to_rust("long double const *"), "*const f64");
+    }
+
+    // ── 缺失覆盖：T[N] 数组退化为指针的更多变体 ────────────────────────────────
+
+    #[test]
+    fn array_degrades_to_pointer_more_variants() {
+        // `long[8]` → `*mut i64`（LP64）
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(cpp_to_rust("long[8]"), "*mut i64");
+        // `float[3]` → `*mut f32`
+        assert_eq!(cpp_to_rust("float[3]"), "*mut f32");
+        // `double[2]` → `*mut f64`
+        assert_eq!(cpp_to_rust("double[2]"), "*mut f64");
+        // `bool[10]` → `*mut bool`
+        assert_eq!(cpp_to_rust("bool[10]"), "*mut bool");
+        // `const double[4]` → `*const f64`
+        assert_eq!(cpp_to_rust("const double[4]"), "*const f64");
+    }
 }

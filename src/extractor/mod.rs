@@ -50,55 +50,9 @@ pub fn extract(
         .collect();
     let functions = dedup_functions(&eligible_functions);
 
-    // ── 计算函数签名中引用的类名集合 ─────────────
-    // 先检查 extern-C 函数，若无则检查所有符合条件的函数（有些 header 不用 extern "C" 包裹）
-    let used_classes: std::collections::HashSet<String> = {
-        let mut set = std::collections::HashSet::new();
-        let all_cn: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        let candidate_fns: Vec<&FunctionInfo> = {
-            let extern_c: Vec<&FunctionInfo> = eligible_functions
-                .iter()
-                .filter(|f| f.is_extern_c)
-                .collect();
-            if extern_c.is_empty() {
-                eligible_functions.iter().collect()
-            } else {
-                extern_c
-            }
-        };
-        for fi in &candidate_fns {
-            for cn in &all_cn {
-                if fi.return_type.contains(cn) || fi.params.iter().any(|p| p.type_name.contains(cn))
-                {
-                    set.insert(cn.to_string());
-                }
-            }
-        }
-        set
-    };
-
-    // ── 检测命名空间/opaque 类模式 ───────────────
-    // 当且仅当：有类存在 AND 无类名出现在函数签名 AND 至少一个 extern-C 函数的参数/返回类型
-    // 包含 `::` 或 `void*`（说明类通过命名空间限定类型或 opaque 指针暴露，hicc 无法处理）
-    // 这影响 cpp! 块内容与 import_class! 生成：
-    //   043: void* opaque 指针（命名空间类）→ cpp! 只 include 头文件，不生成 import_class!
-    //   044: example::OperationResult* 命名空间类型指针 → 同样只 include 头文件
-    //   028: int/double 原始类型（辅助类）→ cpp! 内联类定义，正常生成 import_class!
-    // 注意：import_lib! 的生成不受此模式影响，始终由 build_lib_spec 决定（内部有类型过滤）
-    let namespace_class_mode = has_any_classes && used_classes.is_empty() && {
-        eligible_functions.iter().any(|f| {
-            f.is_extern_c && {
-                let rt = &f.return_type;
-                rt.contains("::")
-                    || rt.contains("void *")
-                    || rt.contains("void*")
-                    || f.params.iter().any(|p| {
-                        let t = &p.type_name;
-                        t.contains("::") || t.contains("void *") || t.contains("void*")
-                    })
-            }
-        })
-    };
+    let used_classes = compute_used_classes(&ast.classes, &eligible_functions);
+    let namespace_class_mode =
+        detect_namespace_mode(has_any_classes, &used_classes, &eligible_functions);
 
     // ── hicc::cpp! 块内容 ──────────────────────
     let cpp_block_lines = if namespace_class_mode {
@@ -183,6 +137,67 @@ pub fn extract(
     }
 
     spec
+}
+
+/// 计算函数签名中引用的类名集合。
+///
+/// 先检查 extern-C 函数，若无则检查所有符合条件的函数（有些 header 不用 extern "C" 包裹）。
+fn compute_used_classes(
+    classes: &[crate::ast_parser::ClassInfo],
+    eligible_functions: &[FunctionInfo],
+) -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    let all_cn: Vec<&str> = classes.iter().map(|c| c.name.as_str()).collect();
+    let candidate_fns: Vec<&FunctionInfo> = {
+        let extern_c: Vec<&FunctionInfo> = eligible_functions
+            .iter()
+            .filter(|f| f.is_extern_c)
+            .collect();
+        if extern_c.is_empty() {
+            eligible_functions.iter().collect()
+        } else {
+            extern_c
+        }
+    };
+    for fi in &candidate_fns {
+        for cn in &all_cn {
+            if fi.return_type.contains(cn) || fi.params.iter().any(|p: &ParamInfo| p.type_name.contains(cn))
+            {
+                set.insert(cn.to_string());
+            }
+        }
+    }
+    set
+}
+
+/// 检测命名空间/opaque 类模式。
+///
+/// 当且仅当：有类存在 AND 无类名出现在函数签名 AND 至少一个 extern-C 函数的参数/返回类型
+/// 包含 `::` 或 `void*`（说明类通过命名空间限定类型或 opaque 指针暴露，hicc 无法处理）。
+/// 这影响 cpp! 块内容与 import_class! 生成：
+///   043: void* opaque 指针（命名空间类）→ cpp! 只 include 头文件，不生成 import_class!
+///   044: example::OperationResult* 命名空间类型指针 → 同样只 include 头文件
+///   028: int/double 原始类型（辅助类）→ cpp! 内联类定义，正常生成 import_class!
+/// 注意：import_lib! 的生成不受此模式影响，始终由 build_lib_spec 决定（内部有类型过滤）
+fn detect_namespace_mode(
+    has_any_classes: bool,
+    used_classes: &std::collections::HashSet<String>,
+    eligible_functions: &[FunctionInfo],
+) -> bool {
+    has_any_classes
+        && used_classes.is_empty()
+        && eligible_functions.iter().any(|f| {
+            f.is_extern_c && {
+                let rt = &f.return_type;
+                rt.contains("::")
+                    || rt.contains("void *")
+                    || rt.contains("void*")
+                    || f.params.iter().any(|p| {
+                        let t = &p.type_name;
+                        t.contains("::") || t.contains("void *") || t.contains("void*")
+                    })
+            }
+        })
 }
 
 /// 去重：对于同名函数优先保留 body_offset 且 is_extern_c=false 的版本

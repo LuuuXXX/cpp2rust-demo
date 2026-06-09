@@ -3,7 +3,7 @@
 //! 执行编译拦截、AST 解析、代码生成全流程，将 C++ 项目转换为 hicc FFI 脚手架。
 
 use anyhow::anyhow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -290,7 +290,7 @@ fn second_pass_generate(
     rust_dir: &std::path::Path,
 ) -> Result<(Vec<String>, Vec<(String, Vec<(String, usize)>)>)> {
     let mut unit_paths: Vec<String> = Vec::new();
-    let mut degraded_tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
+    let mut degraded_tags: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
 
     for ud in all_units {
         let preamble = build_cross_module_preamble(&ud.spec, &ud.unit_path, class_to_module);
@@ -302,7 +302,8 @@ fn second_pass_generate(
         unit_paths.push(ud.unit_path.clone());
     }
 
-    let mut sorted_tags: Vec<(String, Vec<(String, usize)>)> = degraded_tags
+    // BTreeMap 已保证 tag 字典序；内层 unit_path 同样需要排序
+    let sorted_tags: Vec<(String, Vec<(String, usize)>)> = degraded_tags
         .into_iter()
         .map(|(tag, unit_map)| {
             let mut units: Vec<(String, usize)> = unit_map.into_iter().collect();
@@ -310,7 +311,6 @@ fn second_pass_generate(
             (tag, units)
         })
         .collect();
-    sorted_tags.sort_by(|a, b| a.0.cmp(&b.0));
 
     Ok((unit_paths, sorted_tags))
 }
@@ -426,7 +426,7 @@ fn build_cross_module_preamble(
 fn count_degraded_tags(
     code: &str,
     unit_path: &str,
-    tags: &mut HashMap<String, HashMap<String, usize>>,
+    tags: &mut BTreeMap<String, BTreeMap<String, usize>>,
 ) {
     for line in code.lines() {
         if let Some(tag) = parse_todo_tag_from_line(line) {
@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn count_degraded_tags_basic() {
         let code = "// cpp2rust-todo[FP] some\n// cpp2rust-todo[OP] other\n// cpp2rust-todo[FP] again\n";
-        let mut tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        let mut tags: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
         count_degraded_tags(code, "unit/foo", &mut tags);
         assert_eq!(tags["FP"]["unit/foo"], 2);
         assert_eq!(tags["OP"]["unit/foo"], 1);
@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn count_degraded_tags_no_tags() {
         let code = "fn foo() {}\n// just a comment\n";
-        let mut tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        let mut tags: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
         count_degraded_tags(code, "unit/bar", &mut tags);
         assert!(tags.is_empty());
     }
@@ -532,7 +532,7 @@ mod tests {
     #[test]
     fn count_degraded_tags_accumulates_across_units() {
         let code = "// cpp2rust-todo[VA] here\n";
-        let mut tags: HashMap<String, HashMap<String, usize>> = HashMap::new();
+        let mut tags: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
         count_degraded_tags(code, "unit/a", &mut tags);
         count_degraded_tags(code, "unit/b", &mut tags);
         assert_eq!(tags["VA"].len(), 2);
@@ -564,5 +564,137 @@ mod tests {
             .collect();
         // 超过 15 个文件时应正常完成，且只显示前 15 条
         print_capture_stats(&paths);
+    }
+
+    // ── build_cross_module_preamble ─────────────
+
+    fn make_ffi_spec_with_fwd(fwd_decls: Vec<String>) -> FfiSpec {
+        use crate::ffi_model::LibSpec;
+        FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls,
+                fn_bindings: vec![],
+            },
+        }
+    }
+
+    /// 同模块类（class_specs 中已有该类，且 is_empty=false？不是，is_empty=true 时跳过）
+    /// 空 ClassSpec（无方法/关联函数/destroy_fn）→ is_empty=true → 不生成 use，但也不生成 opaque
+    #[test]
+    fn cross_module_preamble_local_class_no_output() {
+        // ClassSpec 有 methods 不为空，则不为空，local_class_names 含该类
+        use crate::ffi_model::{ClassSpec, LibSpec, MethodBinding, SelfKind};
+        let spec = FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![ClassSpec {
+                name: "Foo".to_string(),
+                methods: vec![MethodBinding {
+                    cpp_sig: "void get()".to_string(),
+                    rust_name: "get".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: None,
+                    has_fn_ptr_param: false,
+                }],
+                associated_fns: vec![],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec!["class Foo;".to_string()],
+                fn_bindings: vec![],
+            },
+        };
+        let mut class_to_module = HashMap::new();
+        class_to_module.insert("Foo".to_string(), "unit/foo".to_string());
+
+        // Foo 在本模块（class_specs 含 Foo 且非空），不生成任何 use/opaque
+        let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
+        assert!(result.is_empty(), "本模块已定义的类不应生成 use 或 opaque，got: {result:?}");
+    }
+
+    /// 他模块类（class_to_module 中有该类，且非本模块）→ 生成 `use crate::...::TypeName;`
+    #[test]
+    fn cross_module_preamble_other_module_generates_use() {
+        let spec = make_ffi_spec_with_fwd(vec!["class Bar;".to_string()]);
+        let mut class_to_module = HashMap::new();
+        class_to_module.insert("Bar".to_string(), "unit/bar".to_string());
+
+        let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
+        assert!(
+            result.contains("use crate::unit::bar::Bar;"),
+            "他模块类应生成 use 语句，got: {result:?}"
+        );
+        assert!(!result.contains("import_class"), "不应生成 opaque import_class! 块，got: {result:?}");
+    }
+
+    /// 同 unit_path 的类（def_module == current_unit_path）→ 不生成 use
+    #[test]
+    fn cross_module_preamble_same_unit_no_use() {
+        let spec = make_ffi_spec_with_fwd(vec!["class Baz;".to_string()]);
+        let mut class_to_module = HashMap::new();
+        // Baz 定义于同一模块
+        class_to_module.insert("Baz".to_string(), "unit/foo".to_string());
+
+        let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
+        assert!(result.is_empty(), "同 unit_path 的类不应生成 use，got: {result:?}");
+    }
+
+    /// 未定义类（class_to_module 中无该类）→ 生成 opaque import_class! 块
+    #[test]
+    fn cross_module_preamble_undefined_class_generates_opaque() {
+        let spec = make_ffi_spec_with_fwd(vec!["class Unknown;".to_string()]);
+        let class_to_module = HashMap::new();
+
+        let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
+        assert!(
+            result.contains("import_class!"),
+            "未定义类应生成 opaque import_class! 块，got: {result:?}"
+        );
+        assert!(
+            result.contains("Unknown"),
+            "opaque 块应含类名，got: {result:?}"
+        );
+        assert!(!result.contains("use crate"), "不应生成 use 语句，got: {result:?}");
+    }
+
+    /// 多斜杠路径：路径中的 `/` 应转换为 `::` 生成嵌套模块路径
+    #[test]
+    fn cross_module_preamble_nested_path() {
+        let spec = make_ffi_spec_with_fwd(vec!["class Nested;".to_string()]);
+        let mut class_to_module = HashMap::new();
+        class_to_module.insert("Nested".to_string(), "utils/helpers/nested".to_string());
+
+        let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
+        assert!(
+            result.contains("use crate::utils::helpers::nested::Nested;"),
+            "嵌套路径应正确转换为 Rust 模块路径，got: {result:?}"
+        );
+    }
+
+    /// 非法 fwd_decl 格式（不以 "class " 开头）→ 跳过，返回空
+    #[test]
+    fn cross_module_preamble_invalid_fwd_decl_skipped() {
+        let spec = make_ffi_spec_with_fwd(vec!["struct Foo;".to_string()]);
+        let class_to_module = HashMap::new();
+
+        let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
+        assert!(result.is_empty(), "非法 fwd_decl 应被跳过，got: {result:?}");
+    }
+
+    /// 空 fwd_decls → 返回空字符串
+    #[test]
+    fn cross_module_preamble_no_fwd_decls() {
+        let spec = make_ffi_spec_with_fwd(vec![]);
+        let class_to_module = HashMap::new();
+
+        let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
+        assert!(result.is_empty(), "无 fwd_decls 时应返回空，got: {result:?}");
     }
 }

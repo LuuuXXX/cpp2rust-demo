@@ -24,7 +24,7 @@ fn apply_class(spec: &mut FfiSpec, ast: &CppAst, ci: &ClassInfo, functions: &[&F
     let cn_lower = to_snake_case(&ci.name);
 
     // 收集所有菱形基类的 public 非 ctor/dtor 非 static 方法名
-    let mut diamond_method_names: Vec<String> = Vec::new();
+    let mut diamond_method_names: HashSet<String> = HashSet::new();
     for base_name in &diamond_bases {
         if let Some(base_ci) = ast.classes.iter().find(|c| c.name == *base_name) {
             for m in &base_ci.methods {
@@ -33,9 +33,8 @@ fn apply_class(spec: &mut FfiSpec, ast: &CppAst, ci: &ClassInfo, functions: &[&F
                     && m.accessibility == "public"
                     && !m.is_static
                     && !m.name.starts_with("operator")
-                    && !diamond_method_names.contains(&m.name)
                 {
-                    diamond_method_names.push(m.name.clone());
+                    diamond_method_names.insert(m.name.clone());
                 }
             }
         }
@@ -49,7 +48,9 @@ fn apply_class(spec: &mut FfiSpec, ast: &CppAst, ci: &ClassInfo, functions: &[&F
     let mut new_bindings: Vec<FnBinding> = Vec::new();
     let mut diamond_snake_names: HashSet<String> = HashSet::new();
 
-    for method_name in &diamond_method_names {
+    let mut sorted_method_names: Vec<&String> = diamond_method_names.iter().collect();
+    sorted_method_names.sort();
+    for method_name in sorted_method_names {
         // 对应的 MethodAccessor 名称（camelCase，如 d_getAValue）
         let accessor_name = format!("{}_{}", cn_lower, method_name);
 

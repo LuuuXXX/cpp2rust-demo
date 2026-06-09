@@ -3,7 +3,7 @@
 //! `FfiSpec` 描述从 C++ AST 提取后、待生成 hicc Rust 代码的完整 FFI 规格。
 
 /// 顶层 FFI 规格
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct FfiSpec {
     /// 编译单元名称（如 "class_basic"）
     pub unit_name: String,
@@ -16,7 +16,7 @@ pub struct FfiSpec {
 }
 
 /// 单个类的绑定规格
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ClassSpec {
     /// C++ 类名
     pub name: String,
@@ -39,7 +39,7 @@ impl ClassSpec {
 }
 
 /// 类方法绑定
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MethodBinding {
     /// C++ 方法签名（用于 #[cpp(method = "...")] 属性），例如 `int get() const`
     pub cpp_sig: String,
@@ -56,7 +56,7 @@ pub struct MethodBinding {
 }
 
 /// import_class! 方法的 self 参数类型
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum SelfKind {
     /// 常量方法（`&self`）
     Ref,
@@ -65,7 +65,7 @@ pub enum SelfKind {
 }
 
 /// import_lib! 块规格
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct LibSpec {
     /// 链接库名（如 "class_basic"）
     pub link_name: String,
@@ -76,7 +76,7 @@ pub struct LibSpec {
 }
 
 /// import_lib! 中单个函数绑定
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FnBinding {
     /// C++ 函数签名（用于 #[cpp(func = "...")] 属性），例如 `Counter* counter_new()`
     pub cpp_sig: String,
