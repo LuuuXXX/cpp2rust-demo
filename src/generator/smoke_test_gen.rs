@@ -404,19 +404,21 @@ fn mod_path_from_unit(unit_path: &str) -> String {
 }
 
 /// 将任意字符串转换为合法的 Rust 标识符片段（用于测试函数名）。
-/// 非字母数字字符替换为 `_`，去掉连续下划线，去掉首尾下划线。
+/// 非字母数字字符替换为 `_`，收缩连续下划线为单个，去掉首尾下划线。
 fn test_name_segment(s: &str) -> String {
+    // 单趟字符折叠：非字母数字字符替换为 `_`，连续 `_` 只保留一个
     let mut result = String::with_capacity(s.len());
     for c in s.chars() {
-        if c.is_ascii_alphanumeric() || c == '_' {
-            result.push(c);
+        let ch = if c.is_ascii_alphanumeric() || c == '_' {
+            c
         } else {
-            result.push('_');
+            '_'
+        };
+        // 跳过与前一字符重复的下划线
+        if ch == '_' && result.ends_with('_') {
+            continue;
         }
-    }
-    // 收缩连续 `__` 为单个 `_`
-    while result.contains("__") {
-        result = result.replace("__", "_");
+        result.push(ch);
     }
     result.trim_matches('_').to_string()
 }

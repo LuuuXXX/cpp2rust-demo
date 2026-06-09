@@ -855,8 +855,11 @@ fn run_init(args: InitArgs) -> Result<()> {
     println!("  .cpp2rust/{}/", feature);
     println!("    ├── c/          （捕获的 .cpp2rust 文件，目录结构与 C++ 项目一致）");
     println!("    ├── meta/       （build_cmd.txt、selected_files.json、init-report.md）");
-    println!("    └── rust/       （生成的 Rust 项目：Cargo.toml、src/lib.rs、src/**/*.rs）");
-    println!("        ├── tests/smoke_test.rs  （FFI 冒烟测试）");
+    println!("    └── rust/       （生成的 Rust 项目）");
+    println!("        ├── Cargo.toml");
+    println!("        ├── build.rs");
+    println!("        ├── src/        （lib.rs + 各编译单元 .rs 文件）");
+    println!("        └── tests/smoke_test.rs  （FFI 冒烟测试）");
     println!();
     println!(
         "已在 .cpp2rust/{}/rust/src/ 生成 {} 个单元文件",
