@@ -121,14 +121,24 @@ pub fn extract(
     let class_specs: Vec<ClassSpec> = if namespace_class_mode || used_classes.is_empty() {
         Vec::new()
     } else {
+        // 导出类名列表：只有在 used_classes 中的类才会真正生成 import_class! 块，
+        // 因此只有这些名称才能在方法绑定的类型映射中被视为合法的 FFI 类型。
+        let exported_class_names: Vec<&str> = ast
+            .classes
+            .iter()
+            .filter(|c| !c.name.is_empty() && used_classes.contains(&c.name))
+            .map(|c| c.name.as_str())
+            .collect();
         ast.classes
             .iter()
             .filter(|c| !c.name.is_empty())
             .filter(|c| used_classes.contains(&c.name))
             .map(|ci| {
-                build_class_spec(ci, &ast.classes).unwrap_or_else(|| ClassSpec {
-                    name: ci.name.clone(),
-                    ..Default::default()
+                build_class_spec(ci, &ast.classes, &exported_class_names).unwrap_or_else(|| {
+                    ClassSpec {
+                        name: ci.name.clone(),
+                        ..Default::default()
+                    }
                 })
             })
             .collect()
@@ -714,7 +724,14 @@ fn is_method_types_mappable(mb: &MethodBinding, class_names: &[&str]) -> bool {
             .unwrap_or(true) // None（void 返回值）始终合法
 }
 
-fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSpec> {
+/// `exported_class_names`：实际会生成 `import_class!` 块的类名列表（即 `used_classes`
+/// 中的成员）。类型映射合法性检查只认可这些名称，避免将内部实现类（如
+/// `xml_memory_page`、`xpath_context`）误判为合法 FFI 类型，从而生成引用未定义类型的代码。
+fn build_class_spec(
+    ci: &ClassInfo,
+    all_classes: &[ClassInfo],
+    exported_class_names: &[&str],
+) -> Option<ClassSpec> {
     // 收集本类的 public 非 ctor/dtor 方法（跳过 operator 重载和 Rust 关键字方法名）
     let own_methods: Vec<&MethodInfo> = ci
         .methods
@@ -733,8 +750,8 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
     let own_names: std::collections::HashSet<&str> =
         own_methods.iter().map(|m| m.name.as_str()).collect();
 
-    // 用于类型映射合法性检查：所有已知类名（含继承链上的类）
-    let class_names: Vec<&str> = all_classes.iter().map(|c| c.name.as_str()).collect();
+    // 用于类型映射合法性检查：只使用实际会导出的类名（外部传入）
+    let class_names = exported_class_names;
 
     let mut methods: Vec<MethodBinding> = Vec::new();
 
@@ -763,6 +780,15 @@ fn build_class_spec(ci: &ClassInfo, all_classes: &[ClassInfo]) -> Option<ClassSp
             }
         }
     }
+
+    // 去重：C++ 支持方法重载（同名不同参），但 hicc::import_class! 不支持同名方法。
+    // 对 rust_name 相同的方法只保留第一个（参数最少/最简单的重载），其余重载跳过，
+    // 避免生成 "field specified more than once" 编译错误。
+    let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let methods: Vec<MethodBinding> = methods
+        .into_iter()
+        .filter(|mb| seen_names.insert(mb.rust_name.clone()))
+        .collect();
 
     if methods.is_empty() {
         return None;
@@ -1977,7 +2003,8 @@ mod tests {
         let m_good = make_method("get_value", "int", &[]);
         let ci = make_class("MyWriter", vec![m_bad, m_good]);
         let all = vec![ci.clone()];
-        let spec = build_class_spec(&ci, &all).expect("类应有方法");
+        let exported = &["MyWriter"];
+        let spec = build_class_spec(&ci, &all, exported).expect("类应有方法");
         assert_eq!(spec.methods.len(), 1, "含 char_t 参数的方法应被过滤");
         assert_eq!(spec.methods[0].rust_name, "get_value");
     }
@@ -1989,7 +2016,8 @@ mod tests {
         let m_good = make_method("get_count", "int", &[]);
         let ci = make_class("XPathExpr", vec![m_bad, m_good]);
         let all = vec![ci.clone()];
-        let spec = build_class_spec(&ci, &all).expect("类应有方法");
+        let exported = &["XPathExpr"];
+        let spec = build_class_spec(&ci, &all, exported).expect("类应有方法");
         assert_eq!(spec.methods.len(), 1, "返回未知类型的方法应被过滤");
         assert_eq!(spec.methods[0].rust_name, "get_count");
     }
@@ -2000,7 +2028,8 @@ mod tests {
         let m = make_method("process", "int", &["int", "const char *"]);
         let ci = make_class("Processor", vec![m]);
         let all = vec![ci.clone()];
-        let spec = build_class_spec(&ci, &all).expect("类应有方法");
+        let exported = &["Processor"];
+        let spec = build_class_spec(&ci, &all, exported).expect("类应有方法");
         assert_eq!(spec.methods.len(), 1, "普通方法不应被过滤");
     }
 
@@ -2011,7 +2040,8 @@ mod tests {
         let node_class = make_class("Node", vec![]);
         let ci = make_class("Document", vec![m]);
         let all = vec![node_class, ci.clone()];
-        let spec = build_class_spec(&ci, &all).expect("类应有方法");
+        let exported = &["Node", "Document"];
+        let spec = build_class_spec(&ci, &all, exported).expect("类应有方法");
         assert_eq!(spec.methods.len(), 1, "参数为已知类指针的方法不应被过滤");
     }
 }
