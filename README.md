@@ -155,6 +155,34 @@ cargo build --features arm_embedded
 | `CPP2RUST_CXX` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++，支持带版本后缀如 g++-13） |
 | `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
 
+### 测试覆盖率（`cargo llvm-cov`）
+
+生成的 Rust 项目中的 `build.rs` 内置了 C++ shim 覆盖率插桩支持，可通过 [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) 一并收集 C 侧的覆盖率数据。
+
+**工作机制**（生成的 `build.rs` 在运行时自动执行）：
+
+1. **主动判断插桩支持**：检测 `CXX`/`CC` 环境变量判断编译器类型：
+   - 若为 clang / clang++（或 macOS 默认编译器），使用 LLVM 源码覆盖率插桩（`-fprofile-instr-generate -fcoverage-mapping`）；
+   - 否则回退到 GCC 兼容的 gcov 插桩（`--coverage`）。
+2. **主动搜索链接路径**：通过 `llvm-config --libdir` 探测 LLVM 运行时库目录，输出 `cargo:rustc-link-search=native=<path>`，确保链接器能找到 `libclang_rt.profile`。
+3. **获取 C 侧覆盖率**：插桩后，`cargo llvm-cov` 即可一并统计 C++ shim 代码的覆盖率。
+
+**使用方式**：
+
+```bash
+# 安装 cargo-llvm-cov（仅需一次）
+cargo install cargo-llvm-cov
+
+# 生成覆盖率报告（html / lcov / text 均可）
+cd .cpp2rust/<feature>/rust
+cargo llvm-cov --html
+
+# 或查看终端摘要
+cargo llvm-cov
+```
+
+> **注意**：C++ 覆盖率插桩要求编译器为 clang/clang++。若使用 GCC 构建的 C++ shim 代码，可通过 `CXX=clang++ cargo llvm-cov` 切换编译器。
+
 ---
 
 ## 快速开始
