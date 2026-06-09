@@ -976,10 +976,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1006,10 +1008,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1039,10 +1043,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1073,10 +1079,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1103,10 +1111,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1143,11 +1153,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM and cmake (for libclang + rapidjson build)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm cmake
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install cmake
+        run: brew install cmake
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1176,11 +1191,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM and cmake
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm cmake
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install cmake
+        run: brew install cmake
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1212,10 +1232,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1310,11 +1332,16 @@ jobs:
             references/nlohmann-json \
             references/fmtlib
 
-      - name: Install LLVM and sqlite3
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm sqlite3
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install sqlite3
+        run: brew install sqlite3
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1532,10 +1559,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -1689,10 +1718,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM (for libclang)
-        run: HOMEBREW_CURL_RETRIES=5 brew install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
 
       - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
