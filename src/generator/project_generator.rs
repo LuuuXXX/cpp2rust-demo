@@ -249,50 +249,13 @@ pub fn write_unit_rs(rust_dir: &Path, unit_path: &str, code: &str) -> Result<()>
 ///
 /// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，
 /// 必须有对应的 `build.rs` 才能触发构建脚本。
-///
-/// ## 覆盖率插桩支持（`cargo llvm-cov`）
-///
-/// 生成的 `build.rs` 会在运行时检测 `CARGO_LLVM_COV` 环境变量（由 `cargo-llvm-cov` 设置）：
-///
-/// 1. **主动判断插桩支持**：优先检查 `CXX`/`CC` 环境变量，若编译器为 clang/clang++，
-///    使用 `-fprofile-instr-generate -fcoverage-mapping` 进行 LLVM 源码覆盖率插桩；
-///    否则回退到 gcc 兼容的 `--coverage` 插桩。
-/// 2. **主动搜索链接路径**：若 clang 可用，通过 `llvm-config --libdir` 探测
-///    LLVM 运行时库所在目录，并输出 `cargo:rustc-link-search=native=<path>`，
-///    确保链接器能找到 `libclang_rt.profile`。
-/// 3. **获取 C 侧覆盖率**：插桩后，`cargo llvm-cov` 可一并收集 C++ shim 的覆盖率数据。
 pub fn write_build_rs(rust_dir: &Path, lib_name: &str) -> Result<()> {
     let content = format!(
-        r#"fn main() {{
-    let mut build = hicc_build::Build::new();
-    // 检测 cargo-llvm-cov 插桩环境（CARGO_LLVM_COV 由 cargo-llvm-cov 在运行时设置）
-    if std::env::var_os("CARGO_LLVM_COV").is_some() {{
-        // 主动判断 C++ 编译器是否支持 LLVM 源码覆盖率插桩
-        let cxx = std::env::var("CXX").unwrap_or_default();
-        let cc = std::env::var("CC").unwrap_or_default();
-        let compiler = if !cxx.is_empty() {{ cxx.as_str() }} else {{ cc.as_str() }};
-        // clang/clang++ 支持 LLVM 插桩；macOS 上默认编译器也是 clang
-        let is_clang = compiler.contains("clang")
-            || (compiler.is_empty() && cfg!(target_os = "macos"));
-        if is_clang {{
-            // LLVM 源码覆盖率：-fprofile-instr-generate + -fcoverage-mapping
-            build.flag("-fprofile-instr-generate").flag("-fcoverage-mapping");
-            // 主动搜索 LLVM 运行时库路径，确保链接器能找到 libclang_rt.profile
-            if let Ok(out) = std::process::Command::new("llvm-config").arg("--libdir").output() {{
-                let path = String::from_utf8_lossy(&out.stdout);
-                let path = path.trim();
-                if !path.is_empty() {{
-                    println!("cargo:rustc-link-search=native={{path}}");
-                }}
-            }}
-        }} else {{
-            // 回退到 GCC gcov 兼容插桩（--coverage = -fprofile-arcs -ftest-coverage）
-            build.flag("--coverage");
-        }}
-    }}
-    build.rust_file("src/lib.rs").compile("{lib_name}");
+        "\
+fn main() {{
+    hicc_build::Build::new().rust_file(\"src/lib.rs\").compile(\"{lib_name}\");
 }}
-"#
+"
     );
     let path = rust_dir.join("build.rs");
     std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
@@ -389,55 +352,17 @@ pub fn write_multi_feature_lib_rs(rust_dir: &Path, feature_names: &[&str]) -> Re
 ///     hicc_build::Build::new().rust_file("src/feat/mod.rs").compile("feat");
 /// }
 /// ```
-///
-/// ## 覆盖率插桩支持（`cargo llvm-cov`）
-///
-/// 同 [`write_build_rs`]，生成的 `build.rs` 检测 `CARGO_LLVM_COV`，
-/// 为每个 feature 的 C++ shim 添加 LLVM / gcov 覆盖率插桩标志，
-/// 并通过 `llvm-config --libdir` 搜索 LLVM 运行时库路径。
 pub fn write_multi_feature_build_rs(rust_dir: &Path, feature_names: &[&str]) -> Result<()> {
-    let mut feature_builds = String::new();
+    let mut body = String::new();
     for feature in feature_names {
         let lib_name = feature.replace('-', "_");
-        feature_builds.push_str(&format!(
+        body.push_str(&format!(
             "    if cfg!(feature = \"{feature}\") {{\n\
-             \x20       let mut build = hicc_build::Build::new();\n\
-             \x20       apply_coverage_flags(&mut build);\n\
-             \x20       build.rust_file(\"src/{feature}/mod.rs\").compile(\"{lib_name}\");\n\
+             \x20       hicc_build::Build::new().rust_file(\"src/{feature}/mod.rs\").compile(\"{lib_name}\");\n\
              \x20   }}\n"
         ));
     }
-    let content = format!(
-        r#"fn apply_coverage_flags(build: &mut hicc_build::Build) {{
-    // 检测 cargo-llvm-cov 插桩环境（CARGO_LLVM_COV 由 cargo-llvm-cov 在运行时设置）
-    if std::env::var_os("CARGO_LLVM_COV").is_none() {{
-        return;
-    }}
-    // 主动判断 C++ 编译器是否支持 LLVM 源码覆盖率插桩
-    let cxx = std::env::var("CXX").unwrap_or_default();
-    let cc = std::env::var("CC").unwrap_or_default();
-    let compiler = if !cxx.is_empty() {{ cxx.as_str() }} else {{ cc.as_str() }};
-    let is_clang = compiler.contains("clang")
-        || (compiler.is_empty() && cfg!(target_os = "macos"));
-    if is_clang {{
-        build.flag("-fprofile-instr-generate").flag("-fcoverage-mapping");
-        // 主动搜索 LLVM 运行时库路径，确保链接器能找到 libclang_rt.profile
-        if let Ok(out) = std::process::Command::new("llvm-config").arg("--libdir").output() {{
-            let path = String::from_utf8_lossy(&out.stdout);
-            let path = path.trim();
-            if !path.is_empty() {{
-                println!("cargo:rustc-link-search=native={{path}}");
-            }}
-        }}
-    }} else {{
-        // 回退到 GCC gcov 兼容插桩（--coverage = -fprofile-arcs -ftest-coverage）
-        build.flag("--coverage");
-    }}
-}}
-
-fn main() {{
-{feature_builds}}}\n"#
-    );
+    let content = format!("fn main() {{\n{body}}}\n", body = body);
     let path = rust_dir.join("build.rs");
     std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
 }
@@ -708,41 +633,6 @@ mod tests {
         assert!(content.contains("fn main()"));
     }
 
-    #[test]
-    fn write_build_rs_contains_coverage_detection() {
-        let tmp = TempDir::new().unwrap();
-        write_build_rs(tmp.path(), "my_lib").unwrap();
-        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
-        // 应包含 CARGO_LLVM_COV 检测
-        assert!(
-            content.contains("CARGO_LLVM_COV"),
-            "build.rs 应检测 CARGO_LLVM_COV 环境变量"
-        );
-        // 应包含 LLVM 插桩标志
-        assert!(
-            content.contains("-fprofile-instr-generate"),
-            "build.rs 应含 LLVM 插桩标志 -fprofile-instr-generate"
-        );
-        assert!(
-            content.contains("-fcoverage-mapping"),
-            "build.rs 应含 LLVM 插桩标志 -fcoverage-mapping"
-        );
-        // 应包含 gcov 回退
-        assert!(
-            content.contains("--coverage"),
-            "build.rs 应含 gcov 回退标志 --coverage"
-        );
-        // 应包含 llvm-config 运行时库路径搜索
-        assert!(
-            content.contains("llvm-config"),
-            "build.rs 应通过 llvm-config 搜索运行时库路径"
-        );
-        assert!(
-            content.contains("cargo:rustc-link-search=native="),
-            "build.rs 应输出 cargo:rustc-link-search=native= 指令"
-        );
-    }
-
     // ── write_cargo_toml ──────────────────────
 
     #[test]
@@ -830,36 +720,6 @@ mod tests {
         assert!(content.contains("cfg!(feature = \"feat2\")"));
         assert!(content.contains("src/feat2/mod.rs"));
         assert!(content.contains("fn main()"));
-    }
-
-    #[test]
-    fn write_multi_feature_build_rs_contains_coverage_detection() {
-        let tmp = TempDir::new().unwrap();
-        write_multi_feature_build_rs(tmp.path(), &["feat1", "feat2"]).unwrap();
-        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
-        // 应包含 CARGO_LLVM_COV 检测
-        assert!(
-            content.contains("CARGO_LLVM_COV"),
-            "多 feature build.rs 应检测 CARGO_LLVM_COV"
-        );
-        // 应包含 LLVM 插桩标志
-        assert!(
-            content.contains("-fprofile-instr-generate"),
-            "多 feature build.rs 应含 LLVM 插桩标志"
-        );
-        assert!(
-            content.contains("--coverage"),
-            "多 feature build.rs 应含 gcov 回退标志"
-        );
-        // 应包含 apply_coverage_flags 辅助函数
-        assert!(
-            content.contains("fn apply_coverage_flags"),
-            "多 feature build.rs 应定义 apply_coverage_flags 函数"
-        );
-        assert!(
-            content.contains("apply_coverage_flags(&mut build)"),
-            "每个 feature 构建块应调用 apply_coverage_flags"
-        );
     }
 
     #[test]
