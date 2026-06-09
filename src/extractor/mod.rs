@@ -272,18 +272,18 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         })
         .unwrap_or(false);
 
-    if ret_is_class_ptr && (name_lower.contains("_new") || name_lower.ends_with("new")) {
+    if ret_is_class_ptr && (name_lower.contains("_new") || name_lower == "new") {
         return ShimKind::Ctor;
     }
     if first_param_is_class_ptr
         && (name_lower.contains("_delete")
-            || name_lower.ends_with("delete")
+            || name_lower == "delete"
             || name_lower.contains("_free")
-            || name_lower.ends_with("free")
+            || name_lower == "free"
             || name_lower.contains("_destroy")
-            || name_lower.ends_with("destroy")
+            || name_lower == "destroy"
             || name_lower.contains("_release")
-            || name_lower.ends_with("release"))
+            || name_lower == "release")
     {
         return ShimKind::Dtor;
     }
@@ -1142,5 +1142,159 @@ mod tests {
         let exported = &["Node", "Document"];
         let spec = build_class_spec(&ci, &all, exported).expect("类应有方法");
         assert_eq!(spec.methods.len(), 1, "参数为已知类指针的方法不应被过滤");
+    }
+
+    // ── classify_fn 单元测试 ─────────────────────────────────────────
+
+    fn make_fn_with_params(
+        name: &str,
+        return_type: &str,
+        params: &[(&str, &str)],
+    ) -> FunctionInfo {
+        FunctionInfo {
+            name: name.to_string(),
+            return_type: return_type.to_string(),
+            params: params
+                .iter()
+                .map(|(pname, ptype)| ParamInfo {
+                    name: pname.to_string(),
+                    type_name: ptype.to_string(),
+                    has_default: false,
+                })
+                .collect(),
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+        }
+    }
+
+    #[test]
+    fn classify_fn_ctor_with_underscore_new() {
+        // foo_new 返回类指针 → Ctor
+        let fi = make_fn_with_params("foo_new", "Foo *", &[]);
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::Ctor);
+    }
+
+    #[test]
+    fn classify_fn_ctor_exact_new() {
+        // 裸 "new" 返回类指针 → Ctor
+        let fi = make_fn_with_params("new", "Foo *", &[]);
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::Ctor);
+    }
+
+    #[test]
+    fn classify_fn_no_false_ctor_renew() {
+        // renew 不含 "_new" 且 name != "new" → 不应被识别为 Ctor
+        let fi = make_fn_with_params("renew", "Foo *", &[]);
+        // 没有 self 参数，不是 MethodAccessor；类名前缀也不匹配 → Standalone
+        assert_ne!(classify_fn(&fi, &["Foo"]), ShimKind::Ctor);
+    }
+
+    #[test]
+    fn classify_fn_dtor_with_underscore_delete() {
+        let fi = make_fn_with_params("foo_delete", "void", &[("self", "Foo *")]);
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::Dtor);
+    }
+
+    #[test]
+    fn classify_fn_dtor_exact_free() {
+        let fi = make_fn_with_params("free", "void", &[("self", "Foo *")]);
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::Dtor);
+    }
+
+    #[test]
+    fn classify_fn_no_false_dtor_predelete() {
+        // predelete 不含 "_delete" 且 name != "delete" → 不应被识别为 Dtor
+        let fi = make_fn_with_params("predelete", "void", &[("self", "Foo *")]);
+        // 第一个参数名为 self，是 MethodAccessor
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::MethodAccessor);
+    }
+
+    #[test]
+    fn classify_fn_method_accessor_self_param() {
+        // 第一参数名为 self，类型为类指针 → MethodAccessor
+        let fi = make_fn_with_params("foo_get_value", "int", &[("self", "Foo *")]);
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::MethodAccessor);
+    }
+
+    #[test]
+    fn classify_fn_method_accessor_this_param() {
+        let fi = make_fn_with_params("foo_compute", "int", &[("this", "Foo *")]);
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::MethodAccessor);
+    }
+
+    #[test]
+    fn classify_fn_static_accessor() {
+        // 函数名以类名小写前缀开头，且无 self 类指针参数 → StaticAccessor
+        let fi = make_fn_with_params("foo_version", "int", &[]);
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::StaticAccessor);
+    }
+
+    #[test]
+    fn classify_fn_standalone() {
+        // 不符合任何特定模式 → Standalone
+        let fi = make_fn_with_params("utility_helper", "int", &[]);
+        assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::Standalone);
+    }
+
+    // ── dedup_functions 单元测试 ──────────────────────────────────────
+
+    fn make_fn_scored(
+        name: &str,
+        body_offset: Option<(u32, u32)>,
+        is_extern_c: bool,
+    ) -> FunctionInfo {
+        FunctionInfo {
+            name: name.to_string(),
+            return_type: "void".to_string(),
+            params: vec![],
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c,
+            friend_of: None,
+            body_offset,
+            is_from_current_file: true,
+        }
+    }
+
+    #[test]
+    fn dedup_functions_keeps_unique() {
+        let funcs = vec![
+            make_fn_scored("alpha", None, true),
+            make_fn_scored("beta", None, true),
+        ];
+        let result = dedup_functions(&funcs);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn dedup_functions_body_offset_wins() {
+        // score(body=Some, extern_c=false)=3 优于 score(body=None, extern_c=true)=0
+        let funcs = vec![
+            make_fn_scored("foo", None, true),              // score 0
+            make_fn_scored("foo", Some((10, 20)), false),   // score 3
+        ];
+        let result = dedup_functions(&funcs);
+        assert_eq!(result.len(), 1);
+        assert!(result[0].body_offset.is_some(), "有函数体的版本应胜出");
+        assert!(!result[0].is_extern_c, "非 extern_c 版本应胜出");
+    }
+
+    #[test]
+    fn dedup_functions_preserves_original_order() {
+        // 去重后按第一次出现顺序排列
+        let funcs = vec![
+            make_fn_scored("beta", None, true),
+            make_fn_scored("alpha", None, true),
+            make_fn_scored("beta", Some((5, 10)), false), // beta 的更好版本
+        ];
+        let result = dedup_functions(&funcs);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name, "beta");
+        assert_eq!(result[1].name, "alpha");
+        assert!(result[0].body_offset.is_some(), "beta 应选取 body_offset 版本");
     }
 }

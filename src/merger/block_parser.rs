@@ -657,4 +657,86 @@ hicc::import_lib! {
             Some("hello".to_string())
         );
     }
+
+    // ── count_brace_delta 边界测试 ────────────────────────────────────
+
+    #[test]
+    fn brace_delta_plain() {
+        assert_eq!(count_brace_delta("{"), 1);
+        assert_eq!(count_brace_delta("}"), -1);
+        assert_eq!(count_brace_delta("{}"), 0);
+        assert_eq!(count_brace_delta("{{}}"), 0);
+    }
+
+    #[test]
+    fn brace_delta_nested_braces() {
+        // 嵌套花括号正确累加
+        assert_eq!(count_brace_delta("{ { } }"), 0);
+        assert_eq!(count_brace_delta("{ {"), 2);
+        assert_eq!(count_brace_delta("} }"), -2);
+    }
+
+    #[test]
+    fn brace_delta_string_literal_ignored() {
+        // 字符串字面量内的 { 和 } 不应影响计数
+        assert_eq!(count_brace_delta(r#"let s = "{ not a brace }";"#), 0);
+        assert_eq!(count_brace_delta(r#"let s = "{{}}";"#), 0);
+    }
+
+    #[test]
+    fn brace_delta_escaped_quote_in_string() {
+        // 转义引号不影响字符串状态
+        assert_eq!(count_brace_delta(r#"let s = "\"{";"#), 0);
+    }
+
+    #[test]
+    fn brace_delta_macro_call_ignored() {
+        // `macro!{` 形式的 `{` 由外层计数，此处不计入
+        assert_eq!(count_brace_delta("hicc::import_class!{"), 0);
+        // 闭合的 `}` 仍然计入
+        assert_eq!(count_brace_delta("}"), -1);
+    }
+
+    // ── 多个连续宏块提取测试 ─────────────────────────────────────────
+
+    const MULTI_CLASS: &str = r#"hicc::import_class! {
+    #[cpp(class = "Alpha")]
+    class Alpha {
+        #[cpp(method = "int val() const")]
+        fn val(&self) -> i32;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Beta")]
+    class Beta {
+        #[cpp(method = "void run()")]
+        fn run(&mut self);
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "multi"]
+
+    class Alpha;
+    class Beta;
+}
+"#;
+
+    #[test]
+    fn parse_multiple_class_blocks() {
+        let unit = parse_unit_rs(MULTI_CLASS);
+        assert_eq!(unit.class_blocks.len(), 2, "应解析出 2 个 import_class! 块");
+        let names: Vec<&str> = unit.class_blocks.iter().map(|b| b.class_name.as_str()).collect();
+        assert!(names.contains(&"Alpha"), "应包含 Alpha 类");
+        assert!(names.contains(&"Beta"), "应包含 Beta 类");
+    }
+
+    #[test]
+    fn parse_lib_block_with_multiple_fwd_decls() {
+        let unit = parse_unit_rs(MULTI_CLASS);
+        let lb = unit.lib_block.as_ref().expect("应有 import_lib! 块");
+        assert_eq!(lb.link_name, "multi");
+        assert_eq!(lb.fwd_decls.len(), 2, "应有 Alpha 和 Beta 两个前向声明");
+    }
 }

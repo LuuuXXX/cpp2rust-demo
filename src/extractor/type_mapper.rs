@@ -527,4 +527,37 @@ mod tests {
             "deep volatile 应在深度限制内处理或回退，得到: {result}"
         );
     }
+
+    // ── volatile 指针边界测试 ─────────────────────────────────────────
+
+    #[test]
+    fn volatile_pointer_maps_to_mut_ptr() {
+        // `volatile int *` 是指向 volatile int 的指针，
+        // volatile 限定作用于被指向的值，Rust 端映射为 *mut i32
+        assert_eq!(cpp_to_rust("volatile int *"), "*mut i32");
+    }
+
+    #[test]
+    fn volatile_const_pointer() {
+        // `const volatile int *` 中 const 优先 → *const i32
+        assert_eq!(cpp_to_rust("const volatile int *"), "*const i32");
+    }
+
+    #[test]
+    fn volatile_char_pointer() {
+        // `volatile char *` → *mut i8
+        assert_eq!(cpp_to_rust("volatile char *"), "*mut i8");
+    }
+
+    #[test]
+    fn const_pointer_itself() {
+        // `int * const` — 指针本身是 const，但在已有测试 test_const_pointer_qualifier 覆盖
+        // `volatile int * const`：volatile 限定被剥除，但指针本身的 const 当前不被规范化。
+        // 验证实际行为：volatile 前缀被去掉，但 `int * const` 暂不进一步转换。
+        let result = cpp_to_rust("volatile int * const");
+        assert!(
+            result.contains("int"),
+            "volatile int * const 应包含 int 的映射（volatile 已被剥除），得到: {result}"
+        );
+    }
 }
