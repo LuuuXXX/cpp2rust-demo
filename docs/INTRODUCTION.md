@@ -197,7 +197,7 @@ cpp2rust-demo merge --feature <name>
 
 **降级特性**是指 C++ 中无法直接映射到 C ABI 的特性，工具会自动生成命名 shim 函数 + 内联 TODO 标记，让生成的代码仍能通过 `cargo check`，同时标注出需要手工完善的位置。
 
-共 4 类降级特性，分别对应 TAG `[OP]`、`[VA]`、`[LM]`。
+共 6 类降级特性，分别对应 TAG `[OP]`、`[VA]`、`[LM]`、`[CV]`、`[FP]`、`[VM]`。
 
 ---
 
@@ -862,7 +862,65 @@ hicc::import_lib! {
 
 ---
 
-### 4.5 降级特性对比总览
+### 4.5 `[CV]` — C 可变参数函数（005_variadic_functions）
+
+**根本原因**：Rust 的 FFI 接口要求每个参数都有精确的静态类型，而 C 的 `...` 只在运行时通过 `va_list` 访问参数，无法在编译期表达参数数量与类型。
+
+```c
+// 头文件中的 C 可变参数函数 —— 工具跳过此函数
+int sum(int count, ...);            // ← is_variadic=true，整体跳过
+
+// 手动提供的固定参数 wrapper —— 工具正常绑定
+int sum_3(int a, int b, int c);
+int sum_5(int a, int b, int c, int d, int e);
+```
+
+生成结果：`sum` 不出现；`sum_3` / `sum_5` 正常进入 `import_lib!`。
+
+**用户操作**：若现有 wrapper 数量不足（例如需要 `sum_4`），在头文件和实现文件中手动添加，重新运行 `cpp2rust-demo init`。
+
+---
+
+### 4.6 `[FP]` — 函数指针参数（039_lambda_basic / 040_std_function）
+
+**C 函数指针**（`int (*op)(int, int)` 形式）自动映射为 `unsafe extern "C" fn(i32, i32) -> i32`，函数标记 `is_unsafe = true`，并在 `#[cpp(func = "...")]` 前自动插入：
+
+```rust
+// cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
+#[cpp(func = "int apply_operation(int, int, int (*)(int, int))")]
+unsafe fn apply_operation(a: i32, b: i32, op: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
+```
+
+**C++ 成员函数指针**（`int (Cls::*)() const` 形式）仍无法映射为合法 Rust FFI 类型，含此类参数的函数整体跳过。
+
+生成结果：`apply_operation`、`lambda_wrapper_new` 等含 C 函数指针参数的函数现在出现在 `import_lib!` 中；`add_impl`、`make_add_lambda` 等普通函数不受影响。
+
+**用户操作**：确认传入的回调函数符合 `extern "C"` 调用约定（无 Rust 闭包捕获、无 panic）；若需 Rust 闭包 → C++ 回调，手动编写 trampoline。
+
+---
+
+### 4.7 `[VM]` — volatile 成员函数（012_class_volatile）
+
+**根本原因**：hicc 通过方法指针类型（`R (T::*)() volatile`）绑定成员方法，而 Rust 的 `fn` 签名中没有 `volatile this` 的概念，类型不匹配导致编译失败。工具因此将 volatile 方法从 `import_class!` 中整体移除。
+
+```cpp
+class HardwareDevice {
+public:
+    void init();                             // 普通方法 —— 进入 import_class!
+    uint32_t readStatus() volatile; // volatile 方法 —— 从 import_class! 移除 [VM]
+};
+
+// extern "C" shim（接收 volatile T* 作为第一参数）—— 仍进入 import_lib!
+uint32_t hardware_device_read_status(volatile HardwareDevice* self);
+```
+
+生成结果：`HardwareDevice` 的 `import_class!` 中只有 `init`；`readStatus` 被跳过；但 `hardware_device_read_status(volatile HardwareDevice*)` 作为自由函数进入 `import_lib!`（标注 `unsafe`）。
+
+**用户操作**：优先在 `extern "C"` 头文件中提供 `volatile T*` 参数的 C shim，工具即可自动生成 `import_lib!` 绑定。若头文件中无对应 shim，手动在 `hicc::cpp!` 中添加并声明到 `import_lib!`。
+
+---
+
+### 4.8 降级特性对比总览
 
 | TAG | 特性 | 示例 | 降级前（C++ 侧） | 降级后（FFI 侧） | Rust 侧剩余工作 |
 |-----|------|------|----------------|----------------|----------------|
@@ -870,6 +928,9 @@ hicc::import_lib! {
 | `[VA]` | 可变参数模板 | 028 | `sum<Args...>(args...)` | `sum_1`/`sum_2`/`sum_3`... 分版本 | 需新参数组合时手动添加版本 |
 | `[LM]` | 有状态 Lambda | 039 | `[&x](int a){ return a+x; }` | class wrapper + `invoke()` 方法 | 若需传 Rust 闭包，编写 trampoline |
 | `[LM]` | std::function | 040 | `std::function<int(int)>` | class wrapper + `invoke()` 方法 | 可选：实现 Rust 闭包 → C++ 适配层 |
+| `[CV]` | C 可变参数函数 | 005 | `int sum(int count, ...)` | 整体跳过；固定参数 wrapper 正常绑定 | 手动提供各参数组合的固定 wrapper |
+| `[FP]` | 函数指针参数 | 039, 040 | `int (*op)(int, int)` 参数 | 自动映射为 `unsafe extern "C" fn`，加 `[FP]` 注释 | 确认回调符合 `extern "C"` 调用约定 |
+| `[VM]` | volatile 成员函数 | 012 | `uint32_t readStatus() volatile` | 方法从 `import_class!` 整体移除 | 在头文件中提供 `volatile T*` C shim |
 
 所有降级处均标注 `// cpp2rust-todo[TAG]: ...` 注释，可通过 `grep -r "cpp2rust-todo"` 快速定位待手动完善的位置。
 

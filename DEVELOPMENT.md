@@ -4,25 +4,9 @@
 
 ---
 
-## 1. 项目目标
+## 1. 架构概览
 
-**cpp2rust-demo** 是一个 C++ → Rust Safe FFI 自动化脚手架生成工具（方案 v5）。
-
-**核心目标**：给定一个任意 C++ 项目，开发者只需执行 `cpp2rust-demo init -- <构建命令>` 一条命令，工具自动完成以下流程：
-
-1. 编译拦截（LD_PRELOAD hook）：捕获实际被编译的 C++ 文件及其预处理内容
-2. AST 解析：用 libclang 解析宏展开后的 C++ 代码，提取类/函数/枚举/模板实例化
-3. 代码生成：输出 `hicc` 宏格式的 Rust FFI 脚手架（`hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三段式）
-
-工具**不**负责：
-- 生成 `fn main()`（业务逻辑由开发者手写）
-- 实现完整的语义等价翻译（只生成 FFI 绑定层）
-
-**参考实现**：`references/c2rust-demo/`（同架构的 C 语言版本，LD_PRELOAD + clang + hicc）
-
----
-
-## 2. 架构概览
+> 工具介绍与功能特性见 [README.md](../README.md), 深度技术方案见 [docs/INTRODUCTION.md](../docs/INTRODUCTION.md)。
 
 ```
 cpp2rust-demo (bin)
@@ -90,33 +74,7 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 - 独立函数列表（C++ 签名、Rust 签名、状态）
 - 状态：✓ 表示绑定正常，⚠ 降级 表示含 `cpp2rust-todo` 注释，需人工完善
 
-### 2.3 生成代码格式（三段式）
-
-```rust
-// 段 1：C++ 实现内联（含必要 shim）
-hicc::cpp! {
-    #include "foo.h"
-    Foo* foo_new(int value) { return new Foo(value); }
-    void foo_delete(Foo* self) { delete self; }
-}
-
-// 段 2：类方法绑定（import_class!）
-hicc::import_class! {
-    #[cpp(class = "Foo")]
-    pub class Foo {
-        #[cpp(method = "int getValue() const")]
-        fn getValue(&self) -> i32;
-    }
-}
-
-// 段 3：全局函数绑定（import_lib!）
-hicc::import_lib! {
-    #![link_name = "foo"]
-    class Foo;
-    #[cpp(func = "Foo* foo_new(int value)")]
-    fn foo_new(value: i32) -> *mut Foo;
-}
-```
+> 三段式代码格式说明见 [README.md — 生成代码格式](../README.md#生成代码格式三段式)。
 
 ---
 
