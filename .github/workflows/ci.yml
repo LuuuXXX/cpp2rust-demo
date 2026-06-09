@@ -1136,7 +1136,8 @@ jobs:
           for dir in examples/*/cpp; do
             example=$(basename $(dirname "$dir"))
             echo "Building C++ dylib for $example..."
-            (cd "$dir" && clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") || echo "⚠ Failed to build C++ dylib for $example (skipping)"
+            # 使用系统 Apple Clang，避免 LLVM clang++ 使用其自带头文件与 macOS SDK 不兼容
+            (cd "$dir" && /usr/bin/clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") || echo "⚠ Failed to build C++ dylib for $example (skipping)"
           done
 
       - name: Run L3 run tests

@@ -523,7 +523,9 @@ pub fn ensure_cpp_lib(example: &str) {
     }
 
     let (compiler, shared_flag): (&str, &[&str]) = if cfg!(target_os = "macos") {
-        ("clang++", &["-dynamiclib"])
+        // 使用系统 Apple Clang，避免 KyleMayes/install-llvm-action 安装的 LLVM clang++
+        // 覆盖 PATH 后使用 LLVM 自带 libc++ 头文件导致与 macOS SDK 不兼容的问题
+        ("/usr/bin/clang++", &["-dynamiclib"])
     } else if cfg!(windows) {
         ("g++", &["-shared"])
     } else {
