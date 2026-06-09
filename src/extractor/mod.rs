@@ -272,11 +272,23 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         })
         .unwrap_or(false);
 
-    if ret_is_class_ptr && (name_lower.ends_with("_new") || name_lower == "new") {
+    // 识别构造函数命名模式（使用原始大小写以正确处理驼峰变体）：
+    //   foo_new          — ends_with("_new")
+    //   foo_new_variant  — contains("_new_")
+    //   foo_newCamelCase — _new 后紧跟大写字母（驼峰，如 foo_newWithSize）
+    let name_has_new = fi.name == "new"
+        || fi.name.ends_with("_new")
+        || fi.name.contains("_new_")
+        || fi.name.find("_new").map_or(false, |p| {
+            fi.name[p + 4..].starts_with(|c: char| c.is_uppercase())
+        });
+
+    if ret_is_class_ptr && name_has_new {
         return ShimKind::Ctor;
     }
     if first_param_is_class_ptr
         && (name_lower.ends_with("_delete")
+            || name_lower.ends_with("_deleter")
             || name_lower == "delete"
             || name_lower.ends_with("_free")
             || name_lower == "free"
@@ -1211,6 +1223,42 @@ mod tests {
         let fi = make_fn_with_params("predelete", "void", &[("self", "Foo *")]);
         // 第一个参数名为 self，是 MethodAccessor
         assert_eq!(classify_fn(&fi, &["Foo"]), ShimKind::MethodAccessor);
+    }
+
+    // ── 回归测试：Ctor/Dtor 变体命名（修复 ends_with 过窄匹配） ─────────
+
+    #[test]
+    fn classify_fn_ctor_snake_variant() {
+        // foo_new_from / foo_new_with_size 等 snake_case 变体 → Ctor
+        let fi = make_fn_with_params("int_array5_new_from", "IntArray5 *", &[]);
+        assert_eq!(classify_fn(&fi, &["IntArray5"]), ShimKind::Ctor);
+    }
+
+    #[test]
+    fn classify_fn_ctor_camel_variant() {
+        // foo_newCopy / foo_newWithSize 等驼峰变体（_new 后紧跟大写字母）→ Ctor
+        let fi = make_fn_with_params("buffer_newCopy", "Buffer *", &[]);
+        assert_eq!(classify_fn(&fi, &["Buffer"]), ShimKind::Ctor);
+    }
+
+    #[test]
+    fn classify_fn_ctor_camel_with_size() {
+        let fi = make_fn_with_params("buffer_newWithSize", "Buffer *", &[]);
+        assert_eq!(classify_fn(&fi, &["Buffer"]), ShimKind::Ctor);
+    }
+
+    #[test]
+    fn classify_fn_no_false_ctor_newest() {
+        // get_newest_item 的 _new 后跟小写字母（非 _ / 大写）→ 不是 Ctor
+        let fi = make_fn_with_params("get_newest_item", "Foo *", &[]);
+        assert_ne!(classify_fn(&fi, &["Foo"]), ShimKind::Ctor);
+    }
+
+    #[test]
+    fn classify_fn_dtor_deleter_suffix() {
+        // refcounted_file_deleter 等以 _deleter 结尾的函数 → Dtor
+        let fi = make_fn_with_params("refcounted_file_deleter", "void", &[("self", "FileHandle *")]);
+        assert_eq!(classify_fn(&fi, &["FileHandle"]), ShimKind::Dtor);
     }
 
     #[test]
