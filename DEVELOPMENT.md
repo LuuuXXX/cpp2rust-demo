@@ -6,7 +6,7 @@
 
 ## 1. 架构概览
 
-> 工具介绍与功能特性见 [README.md](../README.md)，深度技术方案见 [docs/INTRODUCTION.md](../docs/INTRODUCTION.md)。
+> 工具介绍与功能特性见 [README.md](../README.md), 深度技术方案见 [docs/INTRODUCTION.md](../docs/INTRODUCTION.md)。
 
 ```
 cpp2rust-demo (bin)
