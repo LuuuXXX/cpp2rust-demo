@@ -706,8 +706,8 @@ fn run_init(args: InitArgs) -> Result<()> {
             project_root.join(cpp_rel)
         };
 
-        // unit_path = C++ 编译单元对应的 Rust 模块路径（去掉首级目录，避免双重 src）
-        // 例：<c_dir>/src/utils/foo.cpp.cpp2rust → "utils/foo"
+        // unit_path = C++ 编译单元对应的 Rust 模块路径（完整保留所有路径层级）
+        // 例：<c_dir>/src/utils/foo.cpp.cpp2rust → "src/utils/foo"
         let unit_path = project_generator::derive_unit_path(&lo.c_dir, path);
 
         // 冲突检测：两个不同源文件映射到同一 unit_path，显示两个文件路径便于排查
