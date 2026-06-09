@@ -146,10 +146,10 @@ fn extract_raw_blocks(src: &str) -> Vec<RawBlock> {
                 if let Some(kind) = current_kind.take() {
                     blocks.push(RawBlock {
                         kind,
-                        inner_lines: inner_lines.clone(),
+                        // mem::take 将 inner_lines 的所有权移入 RawBlock，避免克隆后再清空
+                        inner_lines: std::mem::take(&mut inner_lines),
                     });
                 }
-                inner_lines.clear();
                 depth = 0;
             } else {
                 inner_lines.push(line.to_string());

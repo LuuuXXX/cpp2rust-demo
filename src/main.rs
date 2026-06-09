@@ -70,16 +70,18 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
         let Ok(content) = std::fs::read_to_string(path) else {
             continue;
         };
-        if content.contains(IMPORT_LIB_MARKER) {
-            import_lib_files += 1;
-        }
-        if content.contains(IMPORT_CLASS_MARKER) {
-            import_class_files += 1;
-        }
-        fn_binding_count += content.matches(FN_BINDING_MARKER).count();
-
+        // 对每个文件做单趟 line 循环，合并原来的 contains/matches 预扫描与 lines() 遍历
+        let mut found_import_lib = false;
+        let mut found_import_class = false;
         for line in content.lines() {
             let trimmed = line.trim();
+            if !found_import_lib && trimmed.contains(IMPORT_LIB_MARKER) {
+                found_import_lib = true;
+            }
+            if !found_import_class && trimmed.contains(IMPORT_CLASS_MARKER) {
+                found_import_class = true;
+            }
+            fn_binding_count += trimmed.matches(FN_BINDING_MARKER).count();
             // 仅统计行首 #include（trimmed 以 "#include" 开头即不是注释行）
             if trimmed.starts_with("#include") {
                 include_count += 1;
@@ -102,6 +104,12 @@ fn collect_rust_src_metrics(rust_src: &Path) -> RustSrcMetrics {
                     *todo_tags.entry(tag).or_insert(0) += 1;
                 }
             }
+        }
+        if found_import_lib {
+            import_lib_files += 1;
+        }
+        if found_import_class {
+            import_class_files += 1;
         }
     }
 
@@ -439,8 +447,7 @@ fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
 
     // 生成 meta/api-manifest.md（C++ → Rust API 对账清单）
     let merged_spec = merger::merge_units(&unit_files);
-    let degraded_sigs = merger::extract_degraded_sigs(&unit_files);
-    let manifest = build_api_manifest(feature, &merged_spec, &degraded_sigs);
+    let manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
     lo.save_api_manifest(&manifest)?;
 
     println!("\n✓ cpp2rust-demo merge 完成。");

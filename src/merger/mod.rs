@@ -45,6 +45,8 @@ pub struct MergedSpec {
     /// 模板特化分组：base template name → 特化类名列表
     /// 例如 `"Stack"` → `["Stack<int>", "Stack<double>"]`
     pub template_groups: HashMap<String, Vec<String>>,
+    /// 含 `cpp2rust-todo` 降级标记的 C++ 签名集合（在 merge_units 中顺带收集，无需二次读文件）
+    pub degraded_sigs: HashSet<String>,
 }
 
 /// 已合并的单个方法
@@ -61,6 +63,8 @@ pub struct ParsedMethod {
 // ─────────────────────────────────────────────
 
 /// 合并多个 unit `.rs` 文件到一个 `MergedSpec`。
+///
+/// 在读取每个文件时顺带收集降级签名（`degraded_sigs`），避免二次 I/O。
 pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
     let mut spec = MergedSpec::default();
     let mut cpp_line_seen: HashSet<String> = HashSet::new();
@@ -89,9 +93,33 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
         );
         merge_classes(&mut spec, &unit, &mut method_seen);
         merge_lib(&mut spec, &unit, &mut fn_attr_to_sig, &mut fwd_decl_seen);
+        // 顺带收集降级签名，与文件读取合并为一次 I/O
+        collect_degraded_sigs_from_str(&src, &mut spec.degraded_sigs);
     }
 
     spec
+}
+
+/// 从单个文件内容字符串中提取含 `cpp2rust-todo` 标记的 C++ 签名，追加到 `degraded`。
+fn collect_degraded_sigs_from_str(content: &str, degraded: &mut HashSet<String>) {
+    let lines: Vec<&str> = content.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        let maybe_sig = if trimmed.starts_with("#[cpp(func") {
+            extract_attr_quoted_value(trimmed, "func = ")
+        } else if trimmed.starts_with("#[cpp(method") {
+            extract_attr_quoted_value(trimmed, "method = ")
+        } else {
+            None
+        };
+        if let Some(sig) = maybe_sig {
+            // 向上最多扫描 2 行，看是否存在 cpp2rust-todo 注释
+            let start = i.saturating_sub(2);
+            if lines[start..i].iter().any(|l| l.contains("cpp2rust-todo")) {
+                degraded.insert(sig);
+            }
+        }
+    }
 }
 
 fn merge_cpp_lines(
@@ -103,10 +131,10 @@ fn merge_cpp_lines(
     // 先计算本 unit cpp_lines 中所有模板体的行范围
     let template_ranges = block_parser::detect_template_body_ranges(&unit.cpp_lines);
 
-    // 构建被模板体覆盖的行索引集合（用于跳过已由块级去重处理的行）
+    // template_line_idxs：所有模板体覆盖的行索引（含跳过的），用于区分"模板行"与"普通行"
+    // kept_line_idxs：仅属于保留模板体的行索引，O(1) 替代原来的 ranges_to_keep 线性扫描
     let mut template_line_idxs: HashSet<usize> = HashSet::new();
-    // 同时决定哪些模板体需要保留（未在 seen 中）
-    let mut ranges_to_keep: Vec<(usize, usize, String)> = Vec::new();
+    let mut kept_line_idxs: HashSet<usize> = HashSet::new();
     for (start, end, key) in template_ranges {
         for idx in start..=end {
             template_line_idxs.insert(idx);
@@ -116,18 +144,17 @@ fn merge_cpp_lines(
         } else {
             template_body_seen.insert(key.clone());
             spec.template_bodies.push(key.clone());
-            ranges_to_keep.push((start, end, key));
+            // 预先将此模板体的所有行索引加入 kept_line_idxs，查询时 O(1)
+            for idx in start..=end {
+                kept_line_idxs.insert(idx);
+            }
         }
     }
 
     // 逐行处理：模板体范围内的行按块整体决定，其他行逐行去重
     for (idx, line) in unit.cpp_lines.iter().enumerate() {
         if template_line_idxs.contains(&idx) {
-            // 检查此行所属的模板体是否在 ranges_to_keep 中
-            let in_kept = ranges_to_keep
-                .iter()
-                .any(|(s, e, _)| idx >= *s && idx <= *e);
-            if in_kept {
+            if kept_line_idxs.contains(&idx) {
                 // 模板体内的行直接追加（不做逐行 seen 检查，整体块已去重）
                 spec.cpp_lines.push(line.clone());
             }
@@ -314,35 +341,15 @@ pub fn collect_unit_rs_files(src_dir: &Path) -> Vec<std::path::PathBuf> {
 
 /// 扫描单元 `.rs` 文件，返回紧跟在 `cpp2rust-todo` 注释之后的 C++ 签名集合。
 ///
-/// 匹配模式：在 `#[cpp(func = "...")]` 或 `#[cpp(method = "...")]` 属性行的上方
-/// 5 行内存在 `cpp2rust-todo` 注释的，将对应的 C++ 签名加入返回集合。
+/// 注：调用 `merge_units` 时已在读文件过程中顺带收集（`MergedSpec::degraded_sigs`），
+/// 此函数供只有文件路径、无 `MergedSpec` 的独立场景使用。
 pub fn extract_degraded_sigs(unit_files: &[std::path::PathBuf]) -> HashSet<String> {
     let mut degraded: HashSet<String> = HashSet::new();
     for path in unit_files {
         let Ok(content) = std::fs::read_to_string(path) else {
             continue;
         };
-        let lines: Vec<&str> = content.lines().collect();
-        for (i, line) in lines.iter().enumerate() {
-            let trimmed = line.trim();
-            // 检测 func 或 method 属性行，提取 C++ 签名
-            let maybe_sig = if trimmed.starts_with("#[cpp(func") {
-                extract_attr_quoted_value(trimmed, "func = ")
-            } else if trimmed.starts_with("#[cpp(method") {
-                extract_attr_quoted_value(trimmed, "method = ")
-            } else {
-                None
-            };
-            if let Some(sig) = maybe_sig {
-                // 向上最多扫描 2 行，看是否存在 cpp2rust-todo 注释。
-                // 代码生成时 todo 注释总是紧邻属性行上方 1 行；
-                // 额外扫描 1 行是为了兼容手工编辑场景下可能存在的微小格式差异。
-                let start = i.saturating_sub(2);
-                if lines[start..i].iter().any(|l| l.contains("cpp2rust-todo")) {
-                    degraded.insert(sig);
-                }
-            }
-        }
+        collect_degraded_sigs_from_str(&content, &mut degraded);
     }
     degraded
 }
