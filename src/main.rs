@@ -270,6 +270,7 @@ fn build_api_manifest(
         classes,
         functions,
         template_groups,
+        smoke_tests: vec![],
     }
 }
 
@@ -404,7 +405,15 @@ fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
 
     // 生成 meta/api-manifest.md（C++ → Rust API 对账清单）
     let merged_spec = merger::merge_units(&unit_files);
-    let manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
+    let mut manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
+
+    // 读取已生成的 smoke_test.rs，解析冒烟测试清单并附加到 manifest
+    let smoke_test_rs = lo.rust_dir.join("tests").join("smoke_test.rs");
+    if smoke_test_rs.exists() {
+        let smoke_content = std::fs::read_to_string(&smoke_test_rs).unwrap_or_default();
+        manifest.smoke_tests = layout::parse_smoke_test_entries(&smoke_content);
+    }
+
     lo.save_api_manifest(&manifest)?;
 
     println!("\n✓ cpp2rust-demo merge 完成。");
