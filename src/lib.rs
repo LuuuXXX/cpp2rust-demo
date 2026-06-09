@@ -1,10 +1,12 @@
 pub mod ast_parser;
 pub mod capture;
+pub mod commands;
 pub mod error;
 pub mod extractor;
 pub mod ffi_model;
 pub mod generator;
 pub mod layout;
 pub mod merger;
+pub mod metrics;
 pub mod postprocessor;
 pub mod selector;
