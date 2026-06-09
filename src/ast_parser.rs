@@ -7,6 +7,8 @@ use anyhow::{anyhow, Result};
 use clang::{Clang, EntityKind, Index, Language};
 use std::path::{Path, PathBuf};
 
+use crate::error::Cpp2RustError;
+
 // ─────────────────────────────────────────────
 //  数据结构
 // ─────────────────────────────────────────────
@@ -139,14 +141,14 @@ pub struct CppAst {
 /// 输入文件由 `g++ -E -C` 生成，扩展名为非标准的 `.cpp2rust`，
 /// 因此必须通过 `-xc++` 告知 libclang 以 C++ 模式解析。
 pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
-    let clang = Clang::new().map_err(|e| anyhow!("failed to init libclang: {}", e))?;
+    let clang = Clang::new().map_err(|e| Cpp2RustError::LibclangInit(e.to_string()))?;
     let index = Index::new(&clang, false, false);
 
     let tu = index
         .parser(file)
         .arguments(&["-xc++", "-std=c++17"])
         .parse()
-        .map_err(|e| anyhow!("parse error in {}: {:?}", file.display(), e))?;
+        .map_err(|e| Cpp2RustError::ParseFailed(format!("{}: {:?}", file.display(), e)))?;
 
     // 扫描预处理文件中的行号标记，确定哪些字节范围属于 shim cpp 文件自身
     // （而非 include 进来的头文件）。libclang 对预处理文件始终返回物理文件路径，

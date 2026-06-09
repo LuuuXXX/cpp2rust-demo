@@ -1,4 +1,4 @@
-//! 运算符重载处理器（Phase 2）
+//! 运算符重载处理器（Phase 4）
 //!
 //! 将 C++ 运算符重载对应的 MethodAccessor 转换为 const-ptr shim 函数，
 //! 并将有类类型参数的方法从 `import_class!` 中移除。

@@ -135,43 +135,14 @@ fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
 
 /// Extract all hicc::cpp!, hicc::import_class!, hicc::import_lib! blocks from source.
 pub fn extract_hicc_blocks(src: &str) -> String {
+    let blocks = cpp2rust_demo::merger::block_parser::extract_block_texts(src);
     let mut result = String::new();
-    let mut depth: i32 = 0;
-    let mut in_block = false;
-    let mut block_buf = String::new();
-
-    for line in src.lines() {
-        let trimmed = line.trim();
-        if !in_block
-            && (trimmed.starts_with("hicc::cpp!")
-                || trimmed.starts_with("hicc::import_class!")
-                || trimmed.starts_with("hicc::import_lib!"))
-        {
-            in_block = true;
-            depth = 0;
-            block_buf.clear();
-        }
-        if in_block {
-            block_buf.push_str(line);
-            block_buf.push('\n');
-            for ch in line.chars() {
-                match ch {
-                    '{' => depth += 1,
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            result.push_str(&block_buf);
-                            result.push('\n');
-                            in_block = false;
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
+    for block in blocks {
+        result.push_str(&block);
+        result.push_str("\n\n");
     }
-    result
+    // 去掉末尾多余换行
+    result.trim_end().to_string() + "\n"
 }
 
 /// Normalize source for comparison: collapse whitespace, remove blank lines, strip // comments.

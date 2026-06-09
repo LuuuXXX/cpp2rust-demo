@@ -1,4 +1,4 @@
-//! FFI 中间表示（IR）— Phase 2
+//! FFI 中间表示（IR）— Phase 3～5
 //!
 //! `FfiSpec` 描述从 C++ AST 提取后、待生成 hicc Rust 代码的完整 FFI 规格。
 
