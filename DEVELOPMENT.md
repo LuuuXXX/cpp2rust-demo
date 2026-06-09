@@ -23,12 +23,18 @@ cpp2rust-demo (bin)
     │                            #     Linux: ~/.local/share/cpp2rust-demo/hook/
     │                            #     macOS: ~/Library/Application Support/cpp2rust-demo/hook/
     │                            #   - build_hook() mtime 快路径：.so 比 hook.cpp 新则跳过 make
-    ├── layout.rs                # 目录布局（.cpp2rust/<feature>/c|meta|rust）
+    ├── layout/                  # 目录布局（.cpp2rust/<feature>/c|meta|rust）
+    │   ├── mod.rs               # 公开接口及辅助工具函数
+    │   ├── types.rs             # 纯数据结构（ApiManifest、FeatureLayout 等）
+    │   └── io.rs                # FeatureLayout 的 I/O 方法与报告生成
     ├── selector.rs              # 交互式文件选择
     ├── ffi_model.rs             # FFI 中间表示（FfiSpec / ClassSpec / FnBinding 等）
     ├── error.rs                 # 统一错误类型
-    ├── ast_parser.rs            # C++ AST 解析（clang crate → CppAst）
-    ├── extractor/               # Phase 2：CppAst → FfiSpec IR 提取
+    ├── ast_parser/              # C++ AST 解析（clang crate → CppAst）
+    │   ├── mod.rs               # 公共入口 parse_preprocessed()
+    │   ├── collector.rs         # 类/函数/枚举收集逻辑
+    │   └── range_scanner.rs     # 文件字节范围扫描（区分用户代码 vs 头文件）
+    ├── extractor/               # Phase 3：CppAst → FfiSpec IR 提取
     │   ├── mod.rs               # 公共入口 extract()、命名空间模式检测、类/函数/枚举提取
     │   └── type_mapper.rs       # C++ 类型 → Rust 类型映射
     ├── postprocessor/           # Phase 4：特殊情况后处理
@@ -44,12 +50,14 @@ cpp2rust-demo (bin)
         └── project_generator.rs # Cargo.toml / lib.rs 生成
 ```
 
-### 2.1 三阶段处理流程
+### 2.1 六阶段处理流程
 
 ```
-编译拦截 (hook.cpp)                    AST 提取 (ast_parser + extractor)        代码生成 (generator)
-LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust              FfiSpec → hicc 三段式 Rust
-→ .cpp2rust 预处理文件         →      → CppAst（类/函数/枚举/模板）     →      → lib.rs + <unit>.rs
+Phase 1              Phase 2+3               Phase 4              Phase 5              Phase 6
+编译拦截 (hook.cpp)   AST 提取 + IR 提取       后处理              代码生成              合并整理
+LD_PRELOAD           clang crate 解析         postprocessor/      generator/           merger/
+→ g++ -E -C          .cpp2rust → CppAst      FfiSpec 特殊情况    FfiSpec → hicc       merge_in_place()
+→ .cpp2rust   →      extractor/ → FfiSpec  →  处理（菱形继承）→   三段式 Rust 代码  →  src/ 整理 + 报告
 ```
 
 ### 2.2 输出目录结构

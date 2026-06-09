@@ -26,6 +26,8 @@ cargo build
 | L1 黄金文件测试（需要 libclang） | `cargo test --test l1_golden_tests --features full-test -- --test-threads=1` |
 | L2 编译测试 | `cargo test --test l2_compile_tests` |
 | L3 运行测试（需要 libclang + g++） | `cargo test --test l3_run_tests --features full-test -- --test-threads=1` |
+| L4 E2E 测试（需要 libclang + g++） | `cargo test --test rapidjson_e2e_test -- --test-threads=1` |
+| L5 nm 符号验证测试（需要 nm） | `cargo test -- --ignored` |
 | 更新 L1 黄金文件 | `cargo test --test l1_golden_tests update_all_goldens --features full-test` |
 
 更多详情见 [DEVELOPMENT.md](DEVELOPMENT.md)。

@@ -13,7 +13,7 @@
   - Phase 4：后处理（`postprocessor/`，菱形继承 + 运算符重载处理）
   - Phase 5：代码生成（`generator/`，输出 `lib.rs` + 冒烟测试）
   - Phase 6：多 feature 合并（`merger/`，输出可独立编译的 Rust 项目）
-- **多 feature 合并支持**：`merge --features a,b,c` 将多个 `.cpp2rust` feature 合并为统一 crate。
+- **多 feature 合并支持**：`merge --feature a --feature b` 将多个 `.cpp2rust` feature 合并为统一 crate。
 - **类型映射**：支持 C++ 原始类型、指针、引用、C 函数指针 → Rust FFI 类型自动映射（遵循 LP64 约定）。
 - **关联函数归属**：ctor/dtor/factory 函数自动归属对应 `ClassSpec::associated_fns`。
 - **菱形继承处理**：自动去重菱形继承场景下的重复方法绑定。

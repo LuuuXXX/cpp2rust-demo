@@ -34,7 +34,7 @@ impl FileSelector for InteractiveSelector {
 
         let selections = MultiSelect::with_theme(&ColorfulTheme::default())
             .with_prompt(
-                "Select files to include in this feature (space to toggle, enter to confirm)",
+                "选择要包含在本 feature 中的文件（空格切换选中，回车确认）",
             )
             .items(&items)
             .defaults(&vec![true; items.len()])

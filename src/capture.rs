@@ -214,7 +214,7 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
 /// 若 `path` 不存在或内容与 `content` 不同，则写入文件。
 ///
 /// 避免不必要的写入，以免触发文件系统 mtime 变更（影响 `libhook.so` 的快速路径判断）。
-#[cfg(unix)]
+/// Unix 和 Windows 均可使用。
 fn write_if_changed(path: &Path, content: &str) -> Result<()> {
     let needs_write = match std::fs::read_to_string(path) {
         Ok(existing) => existing != content,
@@ -250,13 +250,12 @@ fn build_hook_windows() -> Result<PathBuf> {
     let shim_exe = hook_dir.join("hook_shim.exe");
 
     // 若源码有变化则写入（触发重新编译）
-    let needs_write = match std::fs::read_to_string(&shim_rs) {
-        Ok(existing) => existing != HOOK_SHIM_RS,
-        Err(_) => true,
-    };
+    let needs_write = !shim_rs.exists()
+        || std::fs::read_to_string(&shim_rs)
+            .map(|existing| existing != HOOK_SHIM_RS)
+            .unwrap_or(true);
     if needs_write {
-        std::fs::write(&shim_rs, HOOK_SHIM_RS)
-            .map_err(|e| Cpp2RustError::IoError(format!("write {}: {e}", shim_rs.display())))?;
+        write_if_changed(&shim_rs, HOOK_SHIM_RS)?;
     }
 
     // 快速路径：若 .exe 比 .rs 更新则跳过编译
