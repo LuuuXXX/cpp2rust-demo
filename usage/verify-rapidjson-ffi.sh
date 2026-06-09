@@ -8,7 +8,7 @@
 #   rapidjson 是纯 C++ 库（无 extern "C" 导出）。要用 cpp2rust-demo 为其生成
 #   Rust safe FFI，需要先编写一层 C++ extern-C 包装层（shim files）。
 #   本仓库已提供完整的 shim 参考实现（10 个子系统），本脚本以此为输入演示
-#   完整的工作流：shim 编写 → cpp2rust-demo init → merge → cargo check。
+#   完整的工作流：shim 编写 → cpp2rust-demo init → merge → cargo check → cargo test。
 #
 # 流程总览：
 #   § 0. 环境检查
@@ -285,6 +285,28 @@ else
 fi
 
 # =============================================================================
+# § 5c. cargo test — 验证冒烟测试真正生成并可通过
+# =============================================================================
+step "§ 5c. cargo test（验证冒烟测试编译并运行通过）"
+
+if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
+    SMOKE_TEST="${RUST_PROJECT}/tests/smoke_test.rs"
+    if [ -f "${SMOKE_TEST}" ]; then
+        info "检测到冒烟测试文件：${SMOKE_TEST}"
+        info "在 ${RUST_PROJECT} 中运行 cargo test ..."
+        if (cd "${RUST_PROJECT}" && cargo test 2>&1); then
+            ok "cargo test 通过 ✓ — 冒烟测试生成并运行成功"
+        else
+            warn "cargo test 失败 — 冒烟测试存在编译或运行错误，需要手动修复"
+        fi
+    else
+        warn "未找到冒烟测试文件 ${SMOKE_TEST}，跳过 cargo test"
+    fi
+else
+    warn "未找到 ${RUST_PROJECT}/Cargo.toml，跳过 cargo test"
+fi
+
+# =============================================================================
 # § 6. FFI 验证
 # =============================================================================
 step "§ 6. FFI 验证"
@@ -468,13 +490,22 @@ if [ -d "${RUST_SRC}" ]; then
     fi
 fi
 
-# cargo check 结果
+# cargo check / cargo test 结果
 echo ""
 if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
     if (cd "${RUST_PROJECT}" && cargo check 2>/dev/null); then
         echo -e "  ${GREEN}✓ cargo check 通过${NC}"
     else
         echo -e "  ${YELLOW}⚠ cargo check 失败（生成的 FFI 代码存在编译错误）${NC}"
+    fi
+    if [ -f "${RUST_PROJECT}/tests/smoke_test.rs" ]; then
+        if (cd "${RUST_PROJECT}" && cargo test 2>/dev/null); then
+            echo -e "  ${GREEN}✓ cargo test 通过（冒烟测试生成并运行成功）${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ cargo test 失败（冒烟测试存在编译或运行错误）${NC}"
+        fi
+    else
+        echo -e "  ${YELLOW}⚠ 未找到冒烟测试文件，跳过 cargo test${NC}"
     fi
 fi
 echo ""
