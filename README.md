@@ -723,7 +723,7 @@ cpp2rust-demo/
 ├── hook/              # LD_PRELOAD 拦截器（hook.cpp + Makefile）
 ├── src/               # 工具源码（Rust）
 ├── examples/          # 48 个示例，每个含 cpp/ 和 rust_hicc/ 子目录
-├── tests/             # 三层测试体系（L1/L2/L3）
+├── tests/             # 五层测试体系（L1–L5）
 ├── docs/
 │   ├── plans/v5/      # 完整方案文档（automated-cpp2rust-ffi-v5.md）
 │   └── references/    # hicc、c2rust-demo 等参考文档

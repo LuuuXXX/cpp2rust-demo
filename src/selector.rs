@@ -16,13 +16,13 @@ pub struct InteractiveSelector;
 impl FileSelector for InteractiveSelector {
     fn select(&self, candidates: &[PathBuf]) -> Result<Vec<PathBuf>> {
         if candidates.is_empty() {
-            println!("No .cpp2rust files found – nothing to select.");
+            println!("未找到 .cpp2rust 文件，没有可选内容。");
             return Ok(vec![]);
         }
 
         if is_non_interactive() {
             println!(
-                "Non-interactive terminal: selecting all {} file(s) automatically.",
+                "非交互式终端：自动选择全部 {} 个文件。",
                 candidates.len()
             );
             return Ok(candidates.to_vec());

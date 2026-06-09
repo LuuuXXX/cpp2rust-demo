@@ -272,46 +272,6 @@ fn build_api_manifest(
     }
 }
 
-/// WalkDir 内置循环检测：遇到循环符号链接时跳过，不会无限递归。
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst).map_err(|e| anyhow!("create dir {}: {}", dst.display(), e))?;
-    for entry in WalkDir::new(src).follow_links(true).into_iter() {
-        let entry = match entry {
-            Ok(e) => e,
-            // 循环符号链接等可恢复错误：跳过
-            Err(e) if e.loop_ancestor().is_some() => continue,
-            Err(e) => return Err(anyhow!("walk {}: {}", src.display(), e)),
-        };
-        // 跳过源目录本身
-        if entry.path() == src {
-            continue;
-        }
-        let rel = entry
-            .path()
-            .strip_prefix(src)
-            .map_err(|e| anyhow!("strip_prefix: {}", e))?;
-        let target = dst.join(rel);
-        if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&target)
-                .map_err(|e| anyhow!("create dir {}: {}", target.display(), e))?;
-        } else {
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| anyhow!("create dir {}: {}", parent.display(), e))?;
-            }
-            std::fs::copy(entry.path(), &target).map_err(|e| {
-                anyhow!(
-                    "copy {} → {}: {}",
-                    entry.path().display(),
-                    target.display(),
-                    e
-                )
-            })?;
-        }
-    }
-    Ok(())
-}
-
 /// 执行 `merge --output-dir` 后处理：将 merge 生成的 Cargo 项目结构导出到指定目录。
 ///
 /// 此函数始终在普通 merge 完成后调用，因此 `rust_dir/src` 保证是真实目录
@@ -340,12 +300,12 @@ fn run_merge_output(
     let cpp2rust_dir = project_root.join(".cpp2rust");
     let meta_dest = out_dir.join("meta");
     println!("复制 .cpp2rust/ → meta/ ...");
-    copy_dir_all(&cpp2rust_dir, &meta_dest)?;
+    merger::copy_dir_all(&cpp2rust_dir, &meta_dest)?;
 
     // 2. src/ ← 复制 rust/src 内容
     let src_dest = out_dir.join("src");
     println!("复制 src → src/ ...");
-    copy_dir_all(&src_path, &src_dest)?;
+    merger::copy_dir_all(&src_path, &src_dest)?;
 
     // 3. build.rs
     let build_rs = rust_dir.join("build.rs");
@@ -423,12 +383,8 @@ fn run_single_feature_merge(feature: &str) -> Result<PathBuf> {
     merger::merge_in_place(&lo.rust_dir)?;
 
     // ── post-merge FFI 统计 ────────────────────────────────────────────────
-    let final_src = lo.rust_dir.join("src.2");
-    let rust_src = if final_src.is_dir() {
-        final_src
-    } else {
-        lo.rust_dir.join("src")
-    };
+    // merge_in_place 完成后，src.2 已原子性 rename 为 src，此处直接使用 src。
+    let rust_src = lo.rust_dir.join("src");
     let m = collect_rust_src_metrics(&rust_src);
 
     // 生成 meta/merge-report.md
@@ -1015,8 +971,8 @@ fn count_degraded_tags(
     tags: &mut std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
 ) {
     for line in code.lines() {
-        if let Some(start) = line.find("cpp2rust-todo[") {
-            let rest = &line[start + "cpp2rust-todo[".len()..];
+        if let Some(start) = line.find(TODO_MARKER_PREFIX) {
+            let rest = &line[start + TODO_MARKER_PREFIX.len()..];
             if let Some(end) = rest.find(']') {
                 let tag = rest[..end].to_string();
                 *tags
@@ -1239,7 +1195,7 @@ mod tests {
         std::fs::write(src_tmp.path().join("a.txt"), "hello").unwrap();
         std::fs::write(src_tmp.path().join("sub/b.txt"), "world").unwrap();
 
-        copy_dir_all(src_tmp.path(), dst_tmp.path()).unwrap();
+        merger::copy_dir_all(src_tmp.path(), dst_tmp.path()).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(dst_tmp.path().join("a.txt")).unwrap(),

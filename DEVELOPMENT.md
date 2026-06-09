@@ -98,7 +98,7 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 | functional_bind / 异常 | 041–042 | ✅ |
 | 高级特性 | 043–048 | ✅ |
 
-### 3.1 降级特性说明（4 项）
+### 3.1 降级特性说明（6 项）
 
 | TAG | 编号 | C++ 特性 | 不能完全自动的原因 | 自动降级策略 |
 |-----|------|---------|-----------------|------------|
@@ -106,6 +106,9 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 | `[VA]` | 028 | 可变参数模板 | `...Args` 编译期展开，FFI 无法表达 | 生成 wrapper 类 + 按数量展开版本 |
 | `[LM]` | 039 | 有状态 Lambda | 匿名闭包类型，FFI 无法表达捕获列表 | 无状态→函数指针；有状态→class wrapper |
 | `[LM]` | 040 | std::function | 类型擦除容器，签名可推断但捕获不透明 | class wrapper + opaque pointer |
+| `[CV]` | 005 | C 可变参数函数 | `...` 参数在运行时通过 `va_list` 访问，FFI 要求静态类型列表 | 含 `...` 函数整体跳过；头文件中固定参数 wrapper 直接绑定 |
+| `[FP]` | 039, 040 | 函数指针参数 | C++ 成员函数指针无法映射为 Rust FFI 类型 | C 函数指针自动映射为 `unsafe extern "C" fn(...)`，加 `[FP]` 注释；C++ 成员函数指针整体跳过 |
+| `[VM]` | 012 | volatile 成员函数 | `volatile this` 方法指针在 Rust 无对应语义，导致 hicc 类型不匹配 | `is_volatile` 方法从 `import_class!` 移除；对应 `extern "C"` shim 仍进入 `import_lib!` |
 
 ---
 
@@ -133,7 +136,7 @@ LD_PRELOAD → g++ -E -C               clang crate 解析 .cpp2rust             
 
 | Phase | 内容 | 状态 |
 |-------|------|------|
-| **Phase T** | 测试基础设施（L1/L2/L3 框架） | ✅ 完成 |
+| **Phase T** | 测试基础设施（L1–L5 框架） | ✅ 完成 |
 | **Phase 0** | Hook 机制（`hook.cpp` + `capture.rs`） | ✅ 完成 |
 | **Phase 1** | AST 解析（`ast_parser.rs`，clang crate） | ✅ 完成 |
 | **Phase 2** | 基础提取器（class/function/enum extractor） | ✅ 完成 |
