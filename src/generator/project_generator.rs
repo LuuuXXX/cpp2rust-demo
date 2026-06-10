@@ -86,11 +86,15 @@ fn insert_path(tree: &mut BTreeMap<String, ModuleNode>, parts: &[&str]) {
     }
 }
 
-/// 生成 `pub mod xxx;\n` 声明列表。
+/// 生成 `pub mod xxx;\npub use self::xxx::*;\n` 声明列表。
+///
+/// 同时生成重新导出（`pub use self::xxx::*`），使各 unit 模块可通过
+/// `use crate::*;` 访问兄弟模块中定义的类型（如跨文件的 `hicc::import_class!` 类型引用）。
 fn generate_mod_declarations(tree: &BTreeMap<String, ModuleNode>) -> String {
     let mut content = String::new();
     for name in tree.keys() {
         content.push_str(&format!("pub mod {};\n", name));
+        content.push_str(&format!("pub use self::{}::*;\n", name));
     }
     if content.is_empty() {
         content.push_str("// 未选择任何单元。\n");
@@ -524,6 +528,24 @@ mod tests {
         assert!(!tmp.path().join("src/unit_a/mod.rs").exists());
     }
 
+    /// lib.rs 应同时生成 `pub use self::xxx::*;`，使跨模块类型可见
+    #[test]
+    fn write_lib_rs_flat_includes_pub_use_reexports() {
+        let tmp = TempDir::new().unwrap();
+        write_lib_rs(tmp.path(), &["unit_a".to_string(), "unit_b".to_string()]).unwrap();
+        let lib = std::fs::read_to_string(tmp.path().join("src/lib.rs")).unwrap();
+        assert!(
+            lib.contains("pub use self::unit_a::*;"),
+            "lib.rs 应包含 pub use self::unit_a::*;\n实际内容:\n{}",
+            lib
+        );
+        assert!(
+            lib.contains("pub use self::unit_b::*;"),
+            "lib.rs 应包含 pub use self::unit_b::*;\n实际内容:\n{}",
+            lib
+        );
+    }
+
     #[test]
     fn write_lib_rs_empty() {
         let tmp = TempDir::new().unwrap();
@@ -551,11 +573,16 @@ mod tests {
         assert!(lib.contains("pub mod utils;"));
         assert!(lib.contains("pub mod main;"));
         assert!(!lib.contains("pub mod src;"));
+        // lib.rs 同时应有重新导出
+        assert!(lib.contains("pub use self::utils::*;"));
+        assert!(lib.contains("pub use self::main::*;"));
 
-        // utils/mod.rs 声明 foo 和 bar
+        // utils/mod.rs 声明 foo 和 bar，并重新导出
         let utils_mod = std::fs::read_to_string(tmp.path().join("src/utils/mod.rs")).unwrap();
         assert!(utils_mod.contains("pub mod foo;"));
         assert!(utils_mod.contains("pub mod bar;"));
+        assert!(utils_mod.contains("pub use self::foo::*;"));
+        assert!(utils_mod.contains("pub use self::bar::*;"));
     }
 
     #[test]

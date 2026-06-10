@@ -423,7 +423,7 @@ jobs:
   l4-rapidjson-e2e:
     name: L4 rapidjson E2E
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, smoke-test-cargo-check]
     permissions:
       contents: read
     steps:
@@ -540,6 +540,19 @@ jobs:
         run: |
           export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
           SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
+
+      - name: Assert smoke_test.rs exists and has tests
+        run: |
+          SMOKE="${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust/tests/smoke_test.rs"
+          [ -f "${SMOKE}" ] || { echo "smoke_test.rs not generated at ${SMOKE}"; exit 1; }
+          COUNT=$(grep -c '#\[test\]' "${SMOKE}" || true)
+          [ "${COUNT}" -gt 0 ] || { echo "no #[test] found in smoke_test.rs"; exit 1; }
+          echo "smoke_test.rs generated with ${COUNT} #[test] functions ✓"
+
+      - name: Verify generated project passes cargo check
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
+          cargo check --quiet
 
   usage-verify-rapidjson-ffi-windows:
     name: Usage verify-rapidjson-ffi (Windows MinGW)
@@ -1834,3 +1847,41 @@ jobs:
             --test-threads=1
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── Smoke test cargo check（生成的冒烟测试可通过 cargo check）────────
+  smoke-test-cargo-check:
+    name: Smoke test cargo-check
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # 运行带 #[ignore] 标记的 smoke-cargo-check 测试
+      # 此测试生成完整 Rust 项目并执行 `cargo check --quiet`，
+      # 确认生成的冒烟测试代码在 hicc 依赖下可以编译通过。
+      - name: Run smoke-test cargo-check integration test
+        run: |
+          cargo test --test rapidjson_e2e_test \
+            rapidjson_shim_smoke_test_cargo_check -- \
+            --include-ignored --test-threads=1

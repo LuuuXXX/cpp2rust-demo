@@ -288,9 +288,9 @@ fn emit_interface_via_factory(unit_path: &str, spec: &FfiSpec, cs: &ClassSpec) -
                     out.push_str("    // 注：接口类通过原始指针调用方法需要 hicc AbiClass 支持\n");
                     out.push_str("    // 可在此补充方法调用验证\n");
                 }
-                out.push_str("    // 注：手动释放 ptr 由人工补充（接口类无自动 destroy）\n");
-                out.push_str("}\n\n");
-            }
+                out.push_str("    // Safety: ptr 需要手动释放，此测试不释放属预期（验证分配成功）\n");
+                out.push_str("    // 补充 destroy 调用示例：unsafe { <ClassName>_delete(ptr) };\n");
+                out.push_str("}\n\n");            }
         }
     }
 

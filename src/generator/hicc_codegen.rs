@@ -61,6 +61,11 @@ fn emit_fn_binding(out: &mut String, fb: &FnBinding, ret_override: Option<&str>)
 pub fn generate(spec: &FfiSpec) -> String {
     let mut out = String::new();
 
+    // 跨模块类型可见性：各 unit 文件通过 lib.rs 的 `pub use self::xxx::*` 重新导出，
+    // 再经此 glob import 访问兄弟模块中定义的 hicc 类型（如 RapidJsonDocumentHandle）。
+    out.push_str("#[allow(unused_imports)]\n");
+    out.push_str("use crate::*;\n\n");
+
     // ── hicc::cpp! ─────────────────────────────
     out.push_str(&emit_cpp_block(&spec.cpp_block_lines));
 
@@ -279,6 +284,24 @@ mod tests {
         assert!(
             code.contains("// cpp2rust-todo[FP]:"),
             "含函数指针参数的方法绑定应生成 cpp2rust-todo[FP] 注释，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// 生成的 unit 文件应以 `use crate::*;` 开头，使跨模块类型可见
+    #[test]
+    fn generate_includes_crate_glob_import() {
+        let fb = make_fn_binding("foo", false);
+        let spec = make_spec_with_fn(fb);
+        let code = generate(&spec);
+        assert!(
+            code.contains("use crate::*;"),
+            "生成代码应包含 `use crate::*;` 以允许跨模块类型引用，实际输出：\n{}",
+            code
+        );
+        assert!(
+            code.contains("#[allow(unused_imports)]"),
+            "生成代码应包含 `#[allow(unused_imports)]`，实际输出：\n{}",
             code
         );
     }
