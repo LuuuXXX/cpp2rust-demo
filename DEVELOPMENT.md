@@ -51,8 +51,7 @@ cpp2rust-demo (bin)
     └── generator/               # Phase 5：FfiSpec → Rust 代码
         ├── mod.rs
         ├── hicc_codegen.rs      # hicc 三段式代码生成
-        ├── project_generator.rs # Cargo.toml / lib.rs / build.rs 生成
-        └── smoke_test_gen.rs    # FFI 冒烟测试（tests/smoke_test.rs）生成
+        └── project_generator.rs # Cargo.toml / lib.rs / build.rs 生成
 ```
 
 ### 2.1 六阶段处理流程
@@ -131,8 +130,7 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 | 层 | 文件 | 验证内容 | 运行命令 |
 |----|------|---------|---------|
-| L1 | `l1_golden_tests.rs` | 工具生成的 FFI 脚手架与 `rust_hicc/src/main.rs` 中对应段落一致 | `cargo test --test l1_golden_tests --features full-test -- --test-threads=1` |
-| L1 | `l1_smoke_test_gen_tests.rs` | `smoke_test_gen::generate` + `write_smoke_test` 在真实 C++ 示例上的端到端集成 | `cargo test --test l1_smoke_test_gen_tests --features full-test -- --test-threads=1` |
+| L1 | `l1_golden_tests.rs` | 工具生成的 FFI 脚手架与 `rust_hicc/src/main.rs` 中对应段落一致；依赖 `full-test` feature flag，不指定时自动跳过（避免在无 libclang 的 CI 环境误触发） | `cargo test --test l1_golden_tests --features full-test -- --test-threads=1` |
 | L2 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | `cargo test --test l2_compile_tests` |
 | L3 | `l3_run_tests.rs` | `cargo run` 输出与 README 中"运行结果"一致 | `cargo test --test l3_run_tests --features full-test -- --test-threads=1` |
 | L4 | `rapidjson_e2e_test.rs` | 对 rapidjson 开源项目执行完整 init + merge 转换，验证 hicc 三段式格式；merge 阶段同时执行 `cargo check` | `cargo test --test rapidjson_e2e_test -- --test-threads=1` |
@@ -144,7 +142,7 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 | L4 | `multi_feature_e2e_test.rs` | 多 feature 合并 & output-dir 导出完整流程验证 | `cargo test --test multi_feature_e2e_test -- --test-threads=1` |
 | L5 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | `cargo test --test l5_nm_symbol_tests -- --ignored` |
 
-**L1/L3 测试控制**：L1 和 L3 测试通过 `full-test` feature flag 控制。不加 `--features full-test` 时，这两类测试会被自动跳过（ignored）；加上后则正常运行。这比 `--include-ignored` 语义更清晰，也不会误触其他被标记为 ignored 的测试。
+**L1/L3 测试控制**：L1 和 L3 测试通过 `full-test` feature flag 控制。不加 `--features full-test` 时，这两类测试会被自动跳过（ignored）；加上后则正常运行。这比 `--include-ignored` 语义更清晰，也不会误触其他被标记为 ignored 的测试。`full-test` 需要 libclang 和系统 g++/clang++ 可用，因此在无 libclang 的纯 Rust CI 环境中只运行 L2 即可。
 
 **L1 核心逻辑**：从 `rust_hicc/src/main.rs` 提取 `hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三种块作为黄金片段，与工具生成的 `lib.rs` 对应块比对，忽略 `fn main()` 和注释差异。
 
@@ -155,11 +153,14 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 ### 分层快速运行命令
 
 ```sh
-# L2 编译测试（无需 libclang，最快）
+# L2 编译测试（无需 libclang，最快；适用于纯 Rust CI 环境）
 cargo test
 
-# L1/L3 golden + 运行测试（需要 libclang 和系统 g++/clang++）
+# L1/L3 golden + 运行测试（需要 libclang 和系统 g++/clang++；须单线程）
 cargo test --features full-test -- --test-threads=1
+
+# 仅运行 L1 golden 测试
+cargo test --test l1_golden_tests --features full-test -- --test-threads=1
 
 # L5 nm 符号测试（需要 nm 工具）
 cargo test -- --ignored

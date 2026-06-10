@@ -62,38 +62,15 @@ fn run_merge_output(
         ));
     }
 
-    // 1. meta/ ← 复制整个 .cpp2rust/
     let cpp2rust_dir = project_root.join(".cpp2rust");
-    let meta_dest = out_dir.join("meta");
-    println!("复制 .cpp2rust/ → meta/ ...");
-    merger::copy_dir_all(&cpp2rust_dir, &meta_dest)?;
-
-    // 2. src/ ← 复制 rust/src 内容
-    let src_dest = out_dir.join("src");
-    println!("复制 src → src/ ...");
-    merger::copy_dir_all(&src_path, &src_dest)?;
-
-    // 3. build.rs
-    let build_rs = rust_dir.join("build.rs");
-    if build_rs.exists() {
-        let build_rs_dest = out_dir.join("build.rs");
-        std::fs::copy(&build_rs, &build_rs_dest).map_err(|e| anyhow!("copy build.rs: {}", e))?;
-    }
-
-    // 4. Cargo.toml
-    let cargo_toml = rust_dir.join("Cargo.toml");
-    if cargo_toml.exists() {
-        let cargo_toml_dest = out_dir.join("Cargo.toml");
-        std::fs::copy(&cargo_toml, &cargo_toml_dest)
-            .map_err(|e| anyhow!("copy Cargo.toml: {}", e))?;
-    }
-
-    // 5. tests/ ← 复制冒烟测试目录（若存在）
-    let tests_path = rust_dir.join("tests");
-    if tests_path.is_dir() {
-        let tests_dest = out_dir.join("tests");
-        println!("复制 tests → tests/ ...");
-        merger::copy_dir_all(&tests_path, &tests_dest)?;
+    for (src, dest) in collect_output_items(rust_dir, out_dir, &cpp2rust_dir) {
+        if src.is_dir() {
+            println!("复制 {} → {} ...", src.display(), dest.display());
+            merger::copy_dir_all(&src, &dest)?;
+        } else if src.exists() {
+            std::fs::copy(&src, &dest)
+                .map_err(|e| anyhow!("copy {}: {}", src.display(), e))?;
+        }
     }
 
     println!("\n✓ cpp2rust-demo merge --output-dir 完成。");
@@ -101,12 +78,28 @@ fn run_merge_output(
     println!("  {}/", out_dir.display());
     println!("    ├── meta/        （.cpp2rust/ 的副本）");
     println!("    ├── src/         （合并后的 Rust 源码）");
-    println!("    ├── tests/");
-    println!("    │   └── smoke_test.rs  （FFI 冒烟测试）");
     println!("    ├── build.rs");
     println!("    └── Cargo.toml");
 
     Ok(())
+}
+
+/// 构建 `--output-dir` 导出步骤中需要复制的 `(source, dest)` 列表。
+///
+/// 返回顺序：`meta/`（`.cpp2rust/` 整目录）、`src/`（rust_dir/src 整目录）、
+/// `build.rs`（若存在）、`Cargo.toml`（若存在）。
+/// 调用方据此判断 src 是目录（`copy_dir_all`）还是文件（`fs::copy`）后执行复制。
+pub fn collect_output_items(
+    rust_dir: &Path,
+    out_dir: &Path,
+    cpp2rust_dir: &Path,
+) -> Vec<(PathBuf, PathBuf)> {
+    vec![
+        (cpp2rust_dir.to_path_buf(), out_dir.join("meta")),
+        (rust_dir.join("src"), out_dir.join("src")),
+        (rust_dir.join("build.rs"), out_dir.join("build.rs")),
+        (rust_dir.join("Cargo.toml"), out_dir.join("Cargo.toml")),
+    ]
 }
 
 /// 执行单 feature merge。
@@ -179,15 +172,7 @@ pub fn run_single_feature_merge(feature: &str, project_root: &std::path::Path) -
     };
     lo.save_merge_report(&report_data)?;
 
-    let mut manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
-
-    // 读取已生成的 smoke_test.rs，解析冒烟测试清单并附加到 manifest
-    let smoke_test_rs = lo.rust_dir.join("tests").join("smoke_test.rs");
-    if smoke_test_rs.exists() {
-        let smoke_content = std::fs::read_to_string(&smoke_test_rs).unwrap_or_default();
-        manifest.smoke_tests = layout::parse_smoke_test_entries(&smoke_content);
-    }
-
+    let manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
     lo.save_api_manifest(&manifest)?;
 
     println!("\n✓ cpp2rust-demo merge 完成。");
@@ -364,7 +349,6 @@ fn build_api_manifest(
         classes,
         functions,
         template_groups,
-        smoke_tests: vec![],
     }
 }
 
@@ -487,4 +471,39 @@ fn print_merge_summary_table(
         "  API 清单         : .cpp2rust/{}/meta/api-manifest.md",
         feature
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// 验证 collect_output_items 返回的条目列表包含正确的四对 (source, dest)。
+    #[test]
+    fn collect_output_items_returns_correct_pairs() {
+        let tmp = TempDir::new().unwrap();
+        let rust_dir = tmp.path().join("rust");
+        let out_dir = tmp.path().join("out");
+        let cpp2rust_dir = tmp.path().join(".cpp2rust");
+
+        let items = collect_output_items(&rust_dir, &out_dir, &cpp2rust_dir);
+
+        assert_eq!(items.len(), 4, "应返回 4 个复制条目");
+
+        // meta: .cpp2rust/ → out/meta
+        assert_eq!(items[0].0, cpp2rust_dir, "meta 来源应为 .cpp2rust/");
+        assert_eq!(items[0].1, out_dir.join("meta"), "meta 目标应为 out/meta");
+
+        // src: rust/src → out/src
+        assert_eq!(items[1].0, rust_dir.join("src"), "src 来源应为 rust/src");
+        assert_eq!(items[1].1, out_dir.join("src"), "src 目标应为 out/src");
+
+        // build.rs
+        assert_eq!(items[2].0, rust_dir.join("build.rs"));
+        assert_eq!(items[2].1, out_dir.join("build.rs"));
+
+        // Cargo.toml
+        assert_eq!(items[3].0, rust_dir.join("Cargo.toml"));
+        assert_eq!(items[3].1, out_dir.join("Cargo.toml"));
+    }
 }

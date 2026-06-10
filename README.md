@@ -87,7 +87,6 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 3. 交互式选择参与转换的文件（非交互/CI 环境自动全选）
 4. libclang 解析 AST，提取类 / 函数 / 枚举 / 模板实例化
 5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
-6. 生成 `.cpp2rust/<feature>/rust/tests/smoke_test.rs` FFI 冒烟测试（按四类策略自动生成测试桩）
 
 **参数说明：**
 
@@ -136,8 +135,6 @@ cargo build --features arm_embedded
 /tmp/mylib-out/
     ├── meta/        （.cpp2rust/ 的完整副本，包含 api-manifest.md 等）
     ├── src/         （合并后的 Rust 源码）
-    ├── tests/
-    │   └── smoke_test.rs  （FFI 冒烟测试）
     ├── build.rs
     └── Cargo.toml
 ```
@@ -189,42 +186,6 @@ cpp2rust-demo merge --feature linux_x86 --feature arm_embedded --output-dir dist
 |------|------|
 | `CPP2RUST_CXX` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++，支持带版本后缀如 g++-13） |
 | `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
-
-### FFI 冒烟测试
-
-`init` 阶段自动在 `.cpp2rust/<feature>/rust/tests/smoke_test.rs` 生成 FFI 冒烟测试，验证 FFI 层基本可调用性：
-
-```
-.cpp2rust/<feature>/rust/
-    ├── Cargo.toml
-    ├── build.rs
-    ├── src/          （lib.rs + 各编译单元 .rs 文件）
-    └── tests/
-        └── smoke_test.rs   ← 自动生成的 FFI 冒烟测试
-```
-
-**四类测试策略：**
-
-| 类别 | 适用场景 | 生成内容 |
-|------|----------|----------|
-| A | 有构造/析构函数的类 | 构造 → 方法调用 → `drop` 完整生命周期测试 |
-| B | 全基本类型参数的自由函数 | 零值参数调用测试 |
-| C | 含指针/函数指针参数的函数 | 注释桩，提示人工补充（`cpp2rust-todo[SMOKE]`） |
-| D | 纯虚接口类（通过工厂函数实例化） | 工厂函数调用 + `is_null` 断言 |
-
-所有生成的测试均标注 `#[ignore = "Requires runtime environment"]`，默认跳过，需要已编译的 C++ 库才能运行。
-
-**运行冒烟测试：**
-
-```bash
-cd .cpp2rust/<feature>/rust
-
-# 先编译 C++ shim 库（纯 C++ 项目需要此步骤）
-# g++ -shared -fPIC shim/*.cpp -o libmyshim.so
-
-# 运行所有冒烟测试（含 #[ignore]）
-cargo test -- --ignored --nocapture
-```
 
 ---
 
@@ -393,7 +354,7 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 2. 通过 `LD_PRELOAD`（Linux）/ `DYLD_INSERT_LIBRARIES`（macOS）注入构建过程，捕获 `.cpp2rust` 预处理文件
 3. 交互式选择参与转换的文件（非交互环境自动全选）
 4. libclang 解析 AST，提取类/函数/枚举/模板实例化
-5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
+5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架。至此 FFI 绑定层已就绪，可直接进入 `merge` 整理步骤或手动查阅生成文件
 
 输出示例：
 ```

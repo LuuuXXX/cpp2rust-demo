@@ -288,42 +288,13 @@ else
 fi
 
 # =============================================================================
-# § 5c. 冒烟测试文件验证（存在性检查）
+# § 5c. 冒烟测试文件验证（已移除）
 # =============================================================================
-step "§ 5c. 冒烟测试文件验证（存在性检查）"
+step "§ 5c. 冒烟测试文件（已移除，跳过）"
 
-# 说明：shim 项目的冒烟测试中，extern "C" 符号需要链接已编译的 C++ 原生库。
-# 因此不在此执行 cargo test --no-run（链接阶段必然因缺少 .so 而失败，无法区分
-# 代码语法错误与缺少运行时库，产生误报）。
-#
-# 手动运行冒烟测试：
-#   1. 编译 shim 为共享库：g++ -shared -fPIC <shim/*.cpp> -o librapidjson_shim.so
-#   2. 在生成的 Rust 项目中运行（需设置 LD_LIBRARY_PATH）：
-#      cargo test -- --ignored --nocapture
-
-if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
-    SMOKE_TEST="${RUST_PROJECT}/tests/smoke_test.rs"
-
-    # ── 存在性断言 ──────────────────────────────────────────────────────────
-    echo "──── 冒烟测试文件存在性检查 ────"
-    if [ -f "${SMOKE_TEST}" ]; then
-        ok "冒烟测试文件已生成：${SMOKE_TEST}"
-        echo "── 文件前 15 行内容 ──"
-        head -15 "${SMOKE_TEST}" || true
-        echo ""
-
-        # 统计 #[test] 数量（含 #[ignore]）
-        TEST_COUNT=$(grep -c '#\[test\]' "${SMOKE_TEST}" 2>/dev/null || echo 0)
-        IGNORE_COUNT=$(grep -c '#\[ignore' "${SMOKE_TEST}" 2>/dev/null || echo 0)
-        info "#[test] 函数数量：${TEST_COUNT}（其中含 #[ignore]：${IGNORE_COUNT}）"
-        info "运行冒烟测试：先编译 shim .so，再执行 cargo test -- --ignored --nocapture"
-    else
-        fail "未找到冒烟测试文件 ${SMOKE_TEST}
-  init 阶段应已生成此文件，请确认 shim 文件被成功捕获并生成了 FFI 规格"
-    fi
-else
-    warn "未找到 ${RUST_PROJECT}/Cargo.toml，跳过冒烟测试检查"
-fi
+# 说明：cpp2rust-demo 不再在 init 阶段生成 tests/smoke_test.rs。
+# 冒烟测试的链接验证已通过 L5 nm 符号测试和 L4 E2E 端到端测试覆盖。
+info "冒烟测试生成已移除，§5c 跳过"
 
 # =============================================================================
 # § 6. FFI 验证
@@ -510,20 +481,8 @@ if [ -d "${RUST_SRC}" ]; then
     fi
 fi
 
-# 冒烟测试文件存在性（§5c 已做 fail 断言，此处仅用于汇报）
-echo ""
-if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
-    SMOKE_FILE="${RUST_PROJECT}/tests/smoke_test.rs"
-    if [ -f "${SMOKE_FILE}" ]; then
-        SMOKE_TEST_COUNT=$(grep -c '#\[test\]' "${SMOKE_FILE}" 2>/dev/null || echo 0)
-        echo -e "  ${GREEN}✓ 冒烟测试文件已生成${NC}  :  ${SMOKE_FILE}"
-        echo -e "    #[test] 数量  :  ${SMOKE_TEST_COUNT} 个（含 #[ignore]，运行需已编译 C++ shim 库）"
-        echo -e "    运行方式      :  cargo test -- --ignored --nocapture（在 ${RUST_PROJECT} 中）"
-    else
-        echo -e "  ${YELLOW}⚠ 冒烟测试文件未找到${NC}  :  ${SMOKE_FILE}"
-    fi
-fi
-echo ""
+# 冒烟测试文件（§5c 已移除，此处跳过）
+
 
 # 是否存在 todo 标记
 TODO_COUNT=$(grep -r "cpp2rust-todo" "${RUST_SRC}" 2>/dev/null | wc -l | tr -d '[:space:]') || TODO_COUNT=0
