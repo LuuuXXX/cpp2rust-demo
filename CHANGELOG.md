@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+### 移除
+
+- **FFI 冒烟测试生成功能**：移除 `src/generator/smoke_test_gen.rs` 模块及相关代码，包括：
+  - `init` 阶段不再生成 `tests/smoke_test.rs`
+  - `project_generator::write_smoke_test` 函数
+  - `merge` 阶段不再读取/解析冒烟测试清单
+  - `layout::SmokeTestEntry` 结构体及 `ApiManifest::smoke_tests` 字段
+  - `layout::parse_smoke_test_entries` 函数
+  - `api-manifest.md` 中的冒烟测试章节
+  - 测试文件 `tests/l1_smoke_test_gen_tests.rs`
+  - `tests/rapidjson_e2e_test.rs` 中两个冒烟测试相关函数
+  - CI 中 5 个冒烟测试专属 job（`l1-smoke-test-gen` 四平台 + `smoke-test-cargo-check`）
+
 ### 修复
 
 - **`block_parser.rs`**：`parse_class_content` 现在正确处理 `pub class Foo {` 形式（codegen 生成的标准格式），修复跳过所有方法绑定的 bug。
@@ -27,7 +40,7 @@
 ### 优化（错误路径测试）
 
 - **`src/error.rs`**：新增 5 个 `Cpp2RustError::Display` 格式测试，覆盖所有错误变体。
-- **`src/layout/io.rs`**：新增 7 个单元测试，覆盖 `save_init_report`、`save_merge_report`、`parse_smoke_test_entries` 的正常路径和边界情况。
+- **`src/layout/io.rs`**：新增 7 个单元测试，覆盖 `save_init_report`、`save_merge_report` 的正常路径和边界情况。
 
 ### 优化（文档）
 
@@ -48,13 +61,12 @@
   - Phase 2：AST 解析（`ast_parser.rs`，基于 libclang）
   - Phase 3：IR 提取（`extractor/`，输出 `FfiSpec`）
   - Phase 4：后处理（`postprocessor/`，菱形继承 + 运算符重载处理）
-  - Phase 5：代码生成（`generator/`，输出 `lib.rs` + 冒烟测试）
+  - Phase 5：代码生成（`generator/`，输出 `lib.rs`）
   - Phase 6：多 feature 合并（`merger/`，输出可独立编译的 Rust 项目）
 - **多 feature 合并支持**：`merge --feature a --feature b` 将多个 `.cpp2rust` feature 合并为统一 crate。
 - **类型映射**：支持 C++ 原始类型、指针、引用、C 函数指针 → Rust FFI 类型自动映射（遵循 LP64 约定）。
 - **关联函数归属**：ctor/dtor/factory 函数自动归属对应 `ClassSpec::associated_fns`。
 - **菱形继承处理**：自动去重菱形继承场景下的重复方法绑定。
 - **运算符重载处理**：自动识别并标注比较运算符、赋值运算符等绑定类别。
-- **冒烟测试生成**：`init` 阶段自动生成 `tests/smoke_test.rs`，验证 FFI 符号可链接。
 - **API manifest 输出**：`merge` 后生成 `meta/api-manifest.md`，汇总所有导出接口（Markdown 格式）。
 - **完整 README / INTRODUCTION 文档**：包含快速入门、类型映射规则、流水线架构说明和 10+ 个示例。

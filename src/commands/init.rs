@@ -19,7 +19,7 @@ struct UnitData {
     spec: FfiSpec,
 }
 
-use crate::generator::{hicc_codegen, project_generator, smoke_test_gen};
+use crate::generator::{hicc_codegen, project_generator};
 use crate::layout::{self, FeatureLayout, InitReportData, InitUnitStat};
 use crate::metrics::{count_file_lines, parse_todo_tag_from_line};
 use crate::selector::{FileSelector, InteractiveSelector};
@@ -78,14 +78,6 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
-    // 生成 tests/smoke_test.rs（冒烟测试）
-    let smoke_units: Vec<(&str, &FfiSpec)> = all_units
-        .iter()
-        .map(|ud| (ud.unit_path.as_str(), &ud.spec))
-        .collect();
-    let smoke_content = smoke_test_gen::generate(&smoke_units, &lib_name);
-    project_generator::write_smoke_test(&lo.rust_dir, &smoke_content)?;
-
     // 生成 meta/init-report.md
     let report_data = InitReportData {
         feature,
@@ -106,7 +98,7 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");
     println!("        ├── src/        （lib.rs + 各编译单元 .rs 文件）");
-    println!("        └── tests/smoke_test.rs  （FFI 冒烟测试）");
+    println!("        └── src/        （lib.rs + 各编译单元 .rs 文件）");
     println!();
     println!(
         "已在 .cpp2rust/{}/rust/src/ 生成 {} 个单元文件",
