@@ -802,6 +802,8 @@ fn value_ffi_no_abi_class_decl_for_handle() {
     );
 }
 
+/// 手动诊断工具：打印 value_ffi.cpp 的解析结果和最终生成代码，方便调试 AST 解析或代码生成问题。
+/// 运行方式：cargo test --test rapidjson_e2e_test print_value_ffi_generated_code -- --ignored
 #[test]
 #[ignore]
 fn print_value_ffi_generated_code() {
@@ -810,16 +812,17 @@ fn print_value_ffi_generated_code() {
     let preprocess_dir = std::env::temp_dir().join("cpp2rust_test_vffi");
     std::fs::create_dir_all(&preprocess_dir).unwrap();
     let includes: &[&str] = &[RAPIDJSON_INCLUDE, RAPIDJSON_SHIM_DIR];
-    
+
     let preprocessed = common::preprocess_cpp(&src_path, includes, &preprocess_dir, "value_ffi").unwrap();
     let ast = ast_parser::parse_preprocessed(&preprocessed).unwrap();
     let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
 
     let spec = extractor::extract(&ast, "value_ffi", &sys_includes, proj_header.as_deref(), &extra_local_includes);
-    
+
+    // 以下 println! 是本调试工具的核心输出，供手动运行时检查 AST 解析和代码生成结果
     println!("classes in ast: {:?}", ast.classes.iter().map(|c| (&c.name, c.is_from_current_file)).collect::<Vec<_>>());
     println!("class_specs: {:?}", spec.class_specs.iter().map(|cs| (&cs.name, cs.is_empty())).collect::<Vec<_>>());
-    
+
     let code = hicc_codegen::generate(&spec);
     println!("GENERATED:\n{}", &code[..code.len().min(3000)]);
 }
