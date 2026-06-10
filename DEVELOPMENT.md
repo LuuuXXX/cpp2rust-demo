@@ -133,6 +133,7 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 | L1 | `l1_golden_tests.rs` | 工具生成的 FFI 脚手架与 `rust_hicc/src/main.rs` 中对应段落一致 | `cargo test --test l1_golden_tests --features full-test -- --test-threads=1` |
 | L2 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | `cargo test --test l2_compile_tests` |
 | L3 | `l3_run_tests.rs` | `cargo run` 输出与 README 中"运行结果"一致 | `cargo test --test l3_run_tests --features full-test -- --test-threads=1` |
+| L4 | `l4_merge_integration_tests.rs` | merge 核心逻辑集成测试：`merge_in_place` 备份与原子 rename、`merge_units` 去重与类绑定提取、`collect_unit_rs_files` 目录扫描；不依赖 libclang 或 g++ | `cargo test --test l4_merge_integration_tests` |
 | L4 | `rapidjson_e2e_test.rs` | 对 rapidjson 开源项目执行完整 init + merge 转换，验证 hicc 三段式格式；merge 阶段同时执行 `cargo check` | `cargo test --test rapidjson_e2e_test -- --test-threads=1` |
 | L4 | `tinyxml2_e2e_test.rs` | tinyxml2 单文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test tinyxml2_e2e_test -- --test-threads=1` |
 | L4 | `pugixml_e2e_test.rs` | pugixml 单文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test pugixml_e2e_test -- --test-threads=1` |

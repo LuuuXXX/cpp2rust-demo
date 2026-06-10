@@ -323,7 +323,7 @@ fn print_degraded_summary(sorted_tags: &[(String, Vec<(String, usize)>)]) {
 }
 
 /// 使该类型自动实现 `AbiClass`，满足 `import_lib!` 中 `class TypeName;` 的 trait 约束。
-fn opaque_import_class_block(type_name: &str) -> String {
+pub fn opaque_import_class_block(type_name: &str) -> String {
     format!(
         "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n",
         n = type_name
@@ -370,7 +370,9 @@ fn parse_fwd_decl<'a>(fwd_decl: &'a str, unit_path: &str) -> Option<&'a str> {
 /// 当 `import_lib!` 块引用的类型在其他模块由 `import_class!` 定义时，
 /// 生成对应的 `use crate::...::TypeName;` 语句。
 /// 若类型未在任何模块定义（如 C typedef struct），则在本模块生成 opaque 类型声明。
-fn build_cross_module_preamble(
+///
+/// 此函数已公开，供集成测试和下游用例直接调用，无需在测试侧重新实现相同逻辑。
+pub fn build_cross_module_preamble(
     spec: &FfiSpec,
     current_unit_path: &str,
     class_to_module: &HashMap<String, String>,
