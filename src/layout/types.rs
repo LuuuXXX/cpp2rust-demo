@@ -23,20 +23,6 @@ pub struct ApiManifest {
     /// 例如 `("Stack", ["Stack<int>", "Stack<double>"])`。
     #[serde(default)]
     pub template_groups: Vec<(String, Vec<String>)>,
-    /// 冒烟测试清单（从 `tests/smoke_test.rs` 解析，供用户对比验证）
-    #[serde(default)]
-    pub smoke_tests: Vec<SmokeTestEntry>,
-}
-
-/// 单条冒烟测试记录（用于 `api-manifest.md` 的冒烟测试章节）
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SmokeTestEntry {
-    /// 测试函数名（如 `smoke_class_basic_foo_lifecycle`）
-    pub fn_name: String,
-    /// 测试说明（来自文档注释或桩注释）
-    pub description: String,
-    /// true 表示该测试为桩（含指针参数，需人工补充）
-    pub is_stub: bool,
 }
 
 /// 单个类的绑定信息

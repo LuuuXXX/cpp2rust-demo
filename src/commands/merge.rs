@@ -88,21 +88,11 @@ fn run_merge_output(
             .map_err(|e| anyhow!("copy Cargo.toml: {}", e))?;
     }
 
-    // 5. tests/ ← 复制冒烟测试目录（若存在）
-    let tests_path = rust_dir.join("tests");
-    if tests_path.is_dir() {
-        let tests_dest = out_dir.join("tests");
-        println!("复制 tests → tests/ ...");
-        merger::copy_dir_all(&tests_path, &tests_dest)?;
-    }
-
     println!("\n✓ cpp2rust-demo merge --output-dir 完成。");
     println!("\n输出目录结构：");
     println!("  {}/", out_dir.display());
     println!("    ├── meta/        （.cpp2rust/ 的副本）");
     println!("    ├── src/         （合并后的 Rust 源码）");
-    println!("    ├── tests/");
-    println!("    │   └── smoke_test.rs  （FFI 冒烟测试）");
     println!("    ├── build.rs");
     println!("    └── Cargo.toml");
 
@@ -179,15 +169,7 @@ pub fn run_single_feature_merge(feature: &str, project_root: &std::path::Path) -
     };
     lo.save_merge_report(&report_data)?;
 
-    let mut manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
-
-    // 读取已生成的 smoke_test.rs，解析冒烟测试清单并附加到 manifest
-    let smoke_test_rs = lo.rust_dir.join("tests").join("smoke_test.rs");
-    if smoke_test_rs.exists() {
-        let smoke_content = std::fs::read_to_string(&smoke_test_rs).unwrap_or_default();
-        manifest.smoke_tests = layout::parse_smoke_test_entries(&smoke_content);
-    }
-
+    let manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
     lo.save_api_manifest(&manifest)?;
 
     println!("\n✓ cpp2rust-demo merge 完成。");
@@ -364,7 +346,6 @@ fn build_api_manifest(
         classes,
         functions,
         template_groups,
-        smoke_tests: vec![],
     }
 }
 

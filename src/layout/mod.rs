@@ -2,15 +2,14 @@
 //!
 //! 子模块：
 //! - `types` — 纯数据结构（`ApiManifest`、`FeatureLayout`、各 Entry / ReportData）
-//! - `io` — 文件读写（`FeatureLayout` 的 IO 方法、`parse_smoke_test_entries`）
+//! - `io` — 文件读写（`FeatureLayout` 的 IO 方法）
 
 mod io;
 pub mod types;
 
-pub use io::parse_smoke_test_entries;
 pub use types::{
     ApiClassEntry, ApiFunctionEntry, ApiManifest, ApiMethodEntry, FeatureLayout, InitReportData,
-    InitUnitStat, MergeReportData, SmokeTestEntry,
+    InitUnitStat, MergeReportData,
 };
 
 use crate::error::Result;
@@ -236,7 +235,6 @@ mod tests {
                 is_degraded: false,
             }],
             template_groups: vec![],
-            smoke_tests: vec![],
         };
         layout.save_api_manifest(&manifest).unwrap();
 
@@ -265,110 +263,11 @@ mod tests {
                 is_degraded: true,
             }],
             template_groups: vec![],
-            smoke_tests: vec![],
         };
         layout.save_api_manifest(&manifest).unwrap();
 
         let content = std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
         assert!(content.contains("void (*cb)(int)"));
         assert!(content.contains("⚠ 降级"));
-    }
-
-    #[test]
-    fn save_api_manifest_renders_smoke_tests() {
-        let tmp = TempDir::new().unwrap();
-        let layout = FeatureLayout::new(tmp.path().to_path_buf(), "default");
-        layout.create_dirs().unwrap();
-
-        let manifest = ApiManifest {
-            feature: "default".into(),
-            classes: vec![],
-            functions: vec![],
-            template_groups: vec![],
-            smoke_tests: vec![
-                SmokeTestEntry {
-                    fn_name: "smoke_class_basic_foo_lifecycle".into(),
-                    description: "Foo 类完整生命周期".into(),
-                    is_stub: false,
-                },
-                SmokeTestEntry {
-                    fn_name: "smoke_class_basic_fn_foo_new".into(),
-                    description: "含指针参数，需人工补充测试".into(),
-                    is_stub: true,
-                },
-            ],
-        };
-        layout.save_api_manifest(&manifest).unwrap();
-
-        let content = std::fs::read_to_string(layout.meta_dir.join("api-manifest.md")).unwrap();
-        assert!(content.contains("## 冒烟测试"));
-        assert!(content.contains("smoke_class_basic_foo_lifecycle"));
-        assert!(content.contains("✓ 可运行"));
-        assert!(content.contains("smoke_class_basic_fn_foo_new"));
-        assert!(content.contains("⚠ 桩（需人工补充）"));
-    }
-
-    #[test]
-    fn parse_smoke_test_entries_active_and_stub() {
-        let content = r#"// 自动生成的 FFI 冒烟测试
-use mylib::class_basic::*;
-
-// ═══ 单元：class_basic ═══
-
-/// 冒烟测试 A：Foo 类完整生命周期（构造 → 方法调用 → 析构）
-#[test]
-#[ignore = "Requires runtime environment"]
-fn smoke_class_basic_foo_lifecycle() {
-    let mut obj = foo_new();
-    drop(obj);
-}
-
-/// 冒烟测试 B：自由函数 foo_new
-#[test]
-#[ignore = "Requires runtime environment"]
-fn smoke_class_basic_fn_foo_create() {
-    let _ = foo_create();
-}
-
-// smoke_class_basic_fn_bar_ptr: 含指针参数，需人工补充测试
-// 函数签名：void* bar_ptr(void*)
-// cpp2rust-todo[SMOKE]: 补充安全的入参后取消注释
-// #[test]
-// fn smoke_class_basic_fn_bar_ptr() { /* TODO */ }
-"#;
-
-        let entries = parse_smoke_test_entries(content);
-        assert_eq!(entries.len(), 3);
-
-        assert_eq!(entries[0].fn_name, "smoke_class_basic_foo_lifecycle");
-        assert!(!entries[0].is_stub);
-        assert!(entries[0].description.contains("Foo 类完整生命周期"));
-
-        assert_eq!(entries[1].fn_name, "smoke_class_basic_fn_foo_create");
-        assert!(!entries[1].is_stub);
-
-        assert_eq!(entries[2].fn_name, "smoke_class_basic_fn_bar_ptr");
-        assert!(entries[2].is_stub);
-        assert!(entries[2].description.contains("含指针参数"));
-    }
-
-    #[test]
-    fn parse_smoke_test_entries_deduplicates() {
-        let content = r#"/// 冒烟测试 A：Foo 类
-#[test]
-fn smoke_foo_lifecycle() {}
-
-/// 冒烟测试 A：Foo 类（重复）
-#[test]
-fn smoke_foo_lifecycle() {}
-"#;
-        let entries = parse_smoke_test_entries(content);
-        assert_eq!(entries.len(), 1, "重复的测试函数名应去重");
-    }
-
-    #[test]
-    fn parse_smoke_test_entries_empty() {
-        let entries = parse_smoke_test_entries("// 仅注释，无测试");
-        assert!(entries.is_empty());
     }
 }

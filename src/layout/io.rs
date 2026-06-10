@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use crate::error::Result;
 use super::types::{
-    ApiManifest, FeatureLayout, InitReportData, MergeReportData, SmokeTestEntry,
+    ApiManifest, FeatureLayout, InitReportData, MergeReportData,
 };
 
 impl FeatureLayout {
@@ -104,22 +104,6 @@ impl FeatureLayout {
             out.push_str("|---------|----------|\n");
             for (base, specs) in &manifest.template_groups {
                 out.push_str(&format!("| `{}` | {} |\n", base, specs.join(", ")));
-            }
-        }
-
-        // 冒烟测试清单（仅在有数据时生成）
-        if !manifest.smoke_tests.is_empty() {
-            out.push_str("\n\n---\n\n## 冒烟测试\n\n");
-            out.push_str("以下为 `tests/smoke_test.rs` 中对应的冒烟测试函数，可用于验证 FFI 绑定正常工作。\n");
-            out.push_str("运行：`cargo test -- --nocapture --include-ignored`\n\n");
-            out.push_str("| 测试函数 | 说明 | 状态 |\n");
-            out.push_str("|---------|------|------|\n");
-            for t in &manifest.smoke_tests {
-                let status = if t.is_stub { "⚠ 桩（需人工补充）" } else { "✓ 可运行" };
-                out.push_str(&format!(
-                    "| `{}` | {} | {} |\n",
-                    t.fn_name, t.description, status
-                ));
             }
         }
 
@@ -288,74 +272,6 @@ impl FeatureLayout {
     }
 }
 
-/// 从 `tests/smoke_test.rs` 文件内容中解析冒烟测试条目清单。
-///
-/// 支持两种形式：
-/// - 有效测试：紧跟在 `/// 冒烟测试` 文档注释之后的 `fn smoke_*()` 函数
-/// - 桩注释：`// smoke_*: <description>` 格式的注释行
-///
-/// 每个测试函数名仅输出一次（去重）。
-pub fn parse_smoke_test_entries(content: &str) -> Vec<SmokeTestEntry> {
-    let mut entries: Vec<SmokeTestEntry> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut pending_description: Option<String> = None;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        // 文档注释：`/// 冒烟测试 A：Foo 类完整生命周期`
-        if let Some(rest) = trimmed.strip_prefix("/// 冒烟测试") {
-            // 保留 " A：Foo 类完整生命周期" 形式的说明（含分类标记，便于阅读）
-            pending_description = Some(rest.trim().to_string());
-            continue;
-        }
-
-        // 有效测试函数行：`fn smoke_<name>() {`
-        if let Some(rest) = trimmed.strip_prefix("fn smoke_") {
-            let fn_name_part = rest.split('(').next().unwrap_or("").trim();
-            let fn_name = format!("smoke_{}", fn_name_part);
-            if !seen.contains(&fn_name) {
-                seen.insert(fn_name.clone());
-                entries.push(SmokeTestEntry {
-                    fn_name,
-                    description: pending_description.take().unwrap_or_default(),
-                    is_stub: false,
-                });
-            }
-            pending_description = None;
-            continue;
-        }
-
-        // 桩注释：`// smoke_<name>: <description>`
-        if let Some(rest) = trimmed.strip_prefix("// smoke_") {
-            if let Some((name_part, desc_part)) = rest.split_once(": ") {
-                let fn_name = format!("smoke_{}", name_part.trim());
-                if !seen.contains(&fn_name) {
-                    seen.insert(fn_name.clone());
-                    entries.push(SmokeTestEntry {
-                        fn_name,
-                        description: desc_part.trim().to_string(),
-                        is_stub: true,
-                    });
-                }
-            }
-            pending_description = None;
-            continue;
-        }
-
-        // 非文档注释行重置待处理说明，但属性行（#[…]）和空白行不重置，
-        // 因为 smoke_test.rs 中文档注释后紧跟 #[test] / #[ignore = "…"] 属性，再是 fn 行
-        if !trimmed.starts_with("///")
-            && !trimmed.starts_with("#[")
-            && !trimmed.is_empty()
-        {
-            pending_description = None;
-        }
-    }
-
-    entries
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,23 +387,5 @@ mod tests {
         assert!(content.contains("Foo::bar"));
         assert!(content.contains("⚠ 2 处"));
         assert!(content.contains("⚠ 1 处异常"));
-    }
-
-    // ── parse_smoke_test_entries ─────────────────────────────────────────────
-
-    #[test]
-    fn parse_smoke_empty_content() {
-        let entries = parse_smoke_test_entries("");
-        assert!(entries.is_empty());
-    }
-
-    #[test]
-    fn parse_smoke_stub_comments() {
-        let content = "// smoke_foo_basic: 基础测试\n// smoke_bar_lifecycle: 生命周期\n";
-        let entries = parse_smoke_test_entries(content);
-        assert_eq!(entries.len(), 2);
-        assert!(entries[0].is_stub);
-        assert_eq!(entries[0].fn_name, "smoke_foo_basic");
-        assert_eq!(entries[0].description, "基础测试");
     }
 }
