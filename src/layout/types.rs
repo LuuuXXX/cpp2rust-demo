@@ -2,7 +2,7 @@
 //!
 //! 所有结构体均不包含 I/O 操作，文件读写逻辑见 `io.rs`。
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::PathBuf;
 
 // ─────────────────────────────────────────────
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 /// merge 阶段生成的 API 接口清单（序列化为 `meta/api-manifest.md`）。
 /// 用于支持 C++ → Rust API 对账：逐条记录 C++ 签名与对应 Rust 绑定。
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ApiManifest {
     /// feature 名称
     pub feature: String,
@@ -26,7 +26,7 @@ pub struct ApiManifest {
 }
 
 /// 单个类的绑定信息
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ApiClassEntry {
     /// C++ 类名
     pub name: String,
@@ -37,7 +37,7 @@ pub struct ApiClassEntry {
 }
 
 /// 单个类方法的绑定信息
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ApiMethodEntry {
     /// C++ 方法签名（如 `int get() const`）
     pub cpp_sig: String,
@@ -48,7 +48,7 @@ pub struct ApiMethodEntry {
 }
 
 /// 独立函数绑定信息
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ApiFunctionEntry {
     /// C++ 函数签名（如 `Foo* foo_new(int v)`）
     pub cpp_sig: String,

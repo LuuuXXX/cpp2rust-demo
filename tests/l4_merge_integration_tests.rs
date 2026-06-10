@@ -244,3 +244,60 @@ fn collect_unit_rs_files_respects_subdirs() {
     assert!(names.contains(&"b.rs".to_string()), "应包含 sub/b.rs");
     assert!(!names.contains(&"lib.rs".to_string()), "不应包含 lib.rs");
 }
+
+// ─────────────────────────────────────────────────────────────
+//  output-dir 结构验证（无需 C++ 工具链）
+// ─────────────────────────────────────────────────────────────
+
+/// 验证 collect_output_items 列出的文件/目录在实际复制后能正确落到目标目录。
+///
+/// 通过手动构造 mock rust_dir + .cpp2rust/ 目录来模拟 merge 后的布局，
+/// 不依赖 libclang 或 g++。
+#[test]
+fn output_dir_structure_verified_via_collect_output_items() {
+    use cpp2rust_demo::commands::merge::collect_output_items;
+
+    let tmp = TempDir::new().unwrap();
+    let rust_dir = tmp.path().join("rust");
+    let out_dir = tmp.path().join("out");
+    let cpp2rust_dir = tmp.path().join(".cpp2rust");
+
+    // 构造 mock rust_dir/src（合并后的 Rust 源码）
+    let src_dir = rust_dir.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(src_dir.join("lib.rs"), "// lib").unwrap();
+
+    // 构造 mock .cpp2rust/（meta 数据）
+    std::fs::create_dir_all(&cpp2rust_dir).unwrap();
+    std::fs::write(cpp2rust_dir.join("readme.txt"), "meta").unwrap();
+
+    // 构造 mock build.rs 与 Cargo.toml
+    std::fs::write(rust_dir.join("build.rs"), "fn main() {}").unwrap();
+    std::fs::write(rust_dir.join("Cargo.toml"), "[package]").unwrap();
+
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    // 按 collect_output_items 结果执行复制
+    let items = collect_output_items(&rust_dir, &out_dir, &cpp2rust_dir);
+    for (src, dest) in &items {
+        if src.is_dir() {
+            cpp2rust_demo::merger::copy_dir_all(src, dest).expect("copy_dir_all 失败");
+        } else if src.exists() {
+            std::fs::copy(src, dest).expect("copy 失败");
+        }
+    }
+
+    // 验证四个产物均已落到目标目录
+    assert!(out_dir.join("meta").is_dir(), "meta/ 目录应存在");
+    assert!(
+        out_dir.join("meta").join("readme.txt").exists(),
+        "meta/ 下的文件应存在"
+    );
+    assert!(out_dir.join("src").is_dir(), "src/ 目录应存在");
+    assert!(
+        out_dir.join("src").join("lib.rs").exists(),
+        "src/lib.rs 应被复制"
+    );
+    assert!(out_dir.join("build.rs").exists(), "build.rs 应被复制");
+    assert!(out_dir.join("Cargo.toml").exists(), "Cargo.toml 应被复制");
+}

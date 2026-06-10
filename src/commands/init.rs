@@ -12,17 +12,16 @@ use crate::capture;
 use crate::error::Result;
 use crate::extractor;
 use crate::ffi_model::FfiSpec;
+use crate::generator::{hicc_codegen, project_generator};
+use crate::layout::{self, FeatureLayout, InitReportData, InitUnitStat};
+use crate::metrics::{count_file_lines, parse_todo_tag_from_line};
+use crate::selector::{FileSelector, InteractiveSelector};
 
 /// `run_init` 内部使用的每单元数据，将第一趟解析结果传递到第二趟代码生成。
 struct UnitData {
     unit_path: String,
     spec: FfiSpec,
 }
-
-use crate::generator::{hicc_codegen, project_generator};
-use crate::layout::{self, FeatureLayout, InitReportData, InitUnitStat};
-use crate::metrics::{count_file_lines, parse_todo_tag_from_line};
-use crate::selector::{FileSelector, InteractiveSelector};
 
 /// 执行 `init` 命令：编译拦截 → AST 解析 → 代码生成。
 pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {

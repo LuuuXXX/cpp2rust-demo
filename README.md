@@ -354,7 +354,7 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 2. 通过 `LD_PRELOAD`（Linux）/ `DYLD_INSERT_LIBRARIES`（macOS）注入构建过程，捕获 `.cpp2rust` 预处理文件
 3. 交互式选择参与转换的文件（非交互环境自动全选）
 4. libclang 解析 AST，提取类/函数/枚举/模板实例化
-5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
+5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架，至此 FFI 绑定层已就绪，可直接进入 `merge` 整理步骤或手动查阅生成文件
 
 输出示例：
 ```

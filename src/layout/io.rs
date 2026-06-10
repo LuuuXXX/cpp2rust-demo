@@ -59,53 +59,10 @@ impl FeatureLayout {
         out.push_str("本文档记录 C++ → Rust 的完整 API 绑定对账清单。✓ 表示绑定正常，⚠ 表示含降级标记（需人工处理）。\n\n");
         out.push_str("---\n\n");
 
-        // 类绑定
-        out.push_str("## 类绑定\n\n");
-        if manifest.classes.is_empty() {
-            out.push_str("*（无类绑定）*\n\n");
-        } else {
-            for class in &manifest.classes {
-                out.push_str(&format!("### `{}`\n\n", class.name));
-                out.push_str(&format!("**属性：** `{}`\n\n", class.class_attr));
-                out.push_str("| C++ 签名 | Rust 签名 | 状态 |\n");
-                out.push_str("|---------|-----------|------|\n");
-                for m in &class.methods {
-                    let status = if m.is_degraded { "⚠ 降级" } else { "✓" };
-                    out.push_str(&format!(
-                        "| `{}` | `{}` | {} |\n",
-                        m.cpp_sig, m.rust_sig, status
-                    ));
-                }
-                out.push('\n');
-            }
-        }
+        render_class_section(&mut out, &manifest.classes);
         out.push_str("---\n\n");
-
-        // 独立函数
-        out.push_str("## 独立函数\n\n");
-        if manifest.functions.is_empty() {
-            out.push_str("*（无独立函数绑定）*\n");
-        } else {
-            out.push_str("| C++ 签名 | Rust 签名 | 状态 |\n");
-            out.push_str("|---------|-----------|------|\n");
-            for f in &manifest.functions {
-                let status = if f.is_degraded { "⚠ 降级" } else { "✓" };
-                out.push_str(&format!(
-                    "| `{}` | `{}` | {} |\n",
-                    f.cpp_sig, f.rust_sig, status
-                ));
-            }
-        }
-
-        // 模板特化汇总（仅在有数据时生成）
-        if !manifest.template_groups.is_empty() {
-            out.push_str("\n\n---\n\n## 模板特化汇总\n\n");
-            out.push_str("| 基类模板 | 已捕获特化 |\n");
-            out.push_str("|---------|----------|\n");
-            for (base, specs) in &manifest.template_groups {
-                out.push_str(&format!("| `{}` | {} |\n", base, specs.join(", ")));
-            }
-        }
+        render_function_section(&mut out, &manifest.functions);
+        render_template_section(&mut out, &manifest.template_groups);
 
         let path = self.meta_dir.join("api-manifest.md");
         std::fs::write(&path, out).map_err(|e| anyhow!("write {}: {}", path.display(), e))
@@ -272,6 +229,61 @@ impl FeatureLayout {
     }
 }
 
+// ─── 私有辅助函数：API 清单各节渲染 ──────────────────────────────────────────
+
+/// 渲染"类绑定"章节并追加到 `out`。
+fn render_class_section(out: &mut String, classes: &[super::types::ApiClassEntry]) {
+    out.push_str("## 类绑定\n\n");
+    if classes.is_empty() {
+        out.push_str("*（无类绑定）*\n\n");
+    } else {
+        for class in classes {
+            out.push_str(&format!("### `{}`\n\n", class.name));
+            out.push_str(&format!("**属性：** `{}`\n\n", class.class_attr));
+            out.push_str("| C++ 签名 | Rust 签名 | 状态 |\n");
+            out.push_str("|---------|-----------|------|\n");
+            for m in &class.methods {
+                let status = if m.is_degraded { "⚠ 降级" } else { "✓" };
+                out.push_str(&format!(
+                    "| `{}` | `{}` | {} |\n",
+                    m.cpp_sig, m.rust_sig, status
+                ));
+            }
+            out.push('\n');
+        }
+    }
+}
+
+/// 渲染"独立函数"章节并追加到 `out`。
+fn render_function_section(out: &mut String, functions: &[super::types::ApiFunctionEntry]) {
+    out.push_str("## 独立函数\n\n");
+    if functions.is_empty() {
+        out.push_str("*（无独立函数绑定）*\n");
+    } else {
+        out.push_str("| C++ 签名 | Rust 签名 | 状态 |\n");
+        out.push_str("|---------|-----------|------|\n");
+        for f in functions {
+            let status = if f.is_degraded { "⚠ 降级" } else { "✓" };
+            out.push_str(&format!(
+                "| `{}` | `{}` | {} |\n",
+                f.cpp_sig, f.rust_sig, status
+            ));
+        }
+    }
+}
+
+/// 渲染"模板特化汇总"章节并追加到 `out`（仅在有数据时生成）。
+fn render_template_section(out: &mut String, template_groups: &[(String, Vec<String>)]) {
+    if !template_groups.is_empty() {
+        out.push_str("\n\n---\n\n## 模板特化汇总\n\n");
+        out.push_str("| 基类模板 | 已捕获特化 |\n");
+        out.push_str("|---------|----------|\n");
+        for (base, specs) in template_groups {
+            out.push_str(&format!("| `{}` | {} |\n", base, specs.join(", ")));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,5 +399,32 @@ mod tests {
         assert!(content.contains("Foo::bar"));
         assert!(content.contains("⚠ 2 处"));
         assert!(content.contains("⚠ 1 处异常"));
+    }
+
+    // ── save_api_manifest ────────────────────────────────────────────────────
+
+    #[test]
+    fn save_api_manifest_with_template_groups() {
+        let tmp = TempDir::new().unwrap();
+        let lo = make_layout(&tmp);
+        use crate::layout::types::{ApiFunctionEntry, ApiManifest};
+        let manifest = ApiManifest {
+            feature: "tmpl".into(),
+            classes: vec![],
+            functions: vec![ApiFunctionEntry {
+                cpp_sig: "Stack<int>* stack_int_new()".into(),
+                rust_sig: "fn stack_int_new() -> *mut StackInt;".into(),
+                is_degraded: false,
+            }],
+            template_groups: vec![
+                ("Stack".into(), vec!["Stack<int>".into(), "Stack<double>".into()]),
+            ],
+        };
+        lo.save_api_manifest(&manifest).unwrap();
+        let content = std::fs::read_to_string(lo.meta_dir.join("api-manifest.md")).unwrap();
+        assert!(content.contains("## 模板特化汇总"), "应生成模板特化汇总节");
+        assert!(content.contains("Stack"), "应包含 Stack 基类模板");
+        assert!(content.contains("Stack<int>"), "应包含 Stack<int> 特化");
+        assert!(content.contains("Stack<double>"), "应包含 Stack<double> 特化");
     }
 }
