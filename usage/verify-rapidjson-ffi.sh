@@ -297,7 +297,7 @@ step "§ 5c. 冒烟测试文件验证（存在性检查）"
 # 代码语法错误与缺少运行时库，产生误报）。
 #
 # 手动运行冒烟测试：
-#   1. 编译 shim 为共享库：g++ -shared -fPIC <shim/*.cpp> -o librapidson_shim.so
+#   1. 编译 shim 为共享库：g++ -shared -fPIC <shim/*.cpp> -o librapidjson_shim.so
 #   2. 在生成的 Rust 项目中运行（需设置 LD_LIBRARY_PATH）：
 #      cargo test -- --ignored --nocapture
 

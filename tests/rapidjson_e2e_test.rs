@@ -672,7 +672,7 @@ fn rapidjson_shim_smoke_test_cargo_check() {
     for (unit_name, spec) in &units {
         let code = hicc_codegen::generate(spec);
         project_generator::write_unit_rs(&rust_dir, unit_name, &code)
-            .expect(&format!("smoke-cargo-check: write_unit_rs 失败 ({})", unit_name));
+            .unwrap_or_else(|e| panic!("smoke-cargo-check: write_unit_rs 失败 ({}): {}", unit_name, e));
     }
 
     // 3. 写 lib.rs（re-export 所有 unit）
