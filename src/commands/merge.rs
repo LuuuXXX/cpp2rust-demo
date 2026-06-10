@@ -88,11 +88,21 @@ fn run_merge_output(
             .map_err(|e| anyhow!("copy Cargo.toml: {}", e))?;
     }
 
+    // 5. tests/ ← 复制冒烟测试目录（若存在）
+    let tests_path = rust_dir.join("tests");
+    if tests_path.is_dir() {
+        let tests_dest = out_dir.join("tests");
+        println!("复制 tests → tests/ ...");
+        merger::copy_dir_all(&tests_path, &tests_dest)?;
+    }
+
     println!("\n✓ cpp2rust-demo merge --output-dir 完成。");
     println!("\n输出目录结构：");
     println!("  {}/", out_dir.display());
     println!("    ├── meta/        （.cpp2rust/ 的副本）");
     println!("    ├── src/         （合并后的 Rust 源码）");
+    println!("    ├── tests/");
+    println!("    │   └── smoke_test.rs  （FFI 冒烟测试）");
     println!("    ├── build.rs");
     println!("    └── Cargo.toml");
 

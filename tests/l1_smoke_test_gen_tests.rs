@@ -7,6 +7,8 @@
 //! - 类别 B（自由函数）：001_hello_world（仅含 free functions）
 //! - 类别 A（类生命周期）：006_class_basic（含构造/析构的类）
 //! - 类别 D（接口类）：016_virtual_pure（纯虚接口类）
+//! - 类别 C（全指针参数）：构造全指针参数 FfiSpec 断言无 #[test] 生成
+//! - write_smoke_test 子目录创建行为（无 libclang 依赖）
 //!
 //! 运行方式：
 //!   cargo test --test l1_smoke_test_gen_tests -- --include-ignored --test-threads=1
@@ -15,7 +17,7 @@ mod common;
 
 use cpp2rust_demo::{
     ast_parser, extractor,
-    ffi_model::FfiSpec,
+    ffi_model::{FfiSpec, FnBinding, LibSpec},
     generator::{project_generator, smoke_test_gen},
 };
 use std::path::{Path, PathBuf};
@@ -265,4 +267,85 @@ fn smoke_gen_multi_unit() {
         output_tmp.path().join("tests").join("smoke_test.rs").exists(),
         "tests/smoke_test.rs 未生成"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  测试：全指针参数（类别 C）— 不依赖 libclang
+// ─────────────────────────────────────────────────────────────────
+
+/// 构造全指针参数的 FfiSpec，断言生成文件中 #[test] 出现次数为 0，
+/// 且 cpp2rust-todo[SMOKE] 至少出现一次（全部走注释桩路径）。
+#[test]
+fn smoke_gen_all_pointer_params_no_actual_tests() {
+    let fb = FnBinding {
+        cpp_sig: "void transform(void* src, void* dst, int* len)".to_string(),
+        rust_name: "transform".to_string(),
+        params: vec![
+            ("src".to_string(), "*mut u8".to_string()),
+            ("dst".to_string(), "*mut u8".to_string()),
+            ("len".to_string(), "*mut i32".to_string()),
+        ],
+        ret_type: None,
+        is_unsafe: true,
+        has_fn_ptr_param: false,
+    };
+    let spec = FfiSpec {
+        unit_name: "ptr_unit".to_string(),
+        cpp_block_lines: vec![],
+        class_specs: vec![],
+        lib_spec: LibSpec {
+            link_name: "ptr_unit".to_string(),
+            fwd_decls: vec![],
+            fn_bindings: vec![fb],
+        },
+    };
+
+    let content = smoke_test_gen::generate(&[("ptr_unit", &spec)], "mylib");
+
+    // 全指针参数：不应生成可运行 #[test] 函数（桩注释行 `// #[test]` 不算）
+    let test_count = content
+        .lines()
+        .filter(|line| line.trim() == "#[test]")
+        .count();
+    assert_eq!(
+        test_count,
+        0,
+        "全指针参数时实际 #[test] 出现次数应为 0，实际 {}，内容：\n{}",
+        test_count,
+        content
+    );
+
+    // 应生成至少一个注释桩
+    assert!(
+        content.contains("cpp2rust-todo[SMOKE]"),
+        "全指针参数时应生成注释桩（cpp2rust-todo[SMOKE]），实际：\n{}",
+        content
+    );
+}
+
+/// 独立验证 write_smoke_test 创建 tests/ 子目录的行为（不依赖 libclang）。
+#[test]
+fn smoke_gen_write_smoke_test_creates_tests_subdir() {
+    let tmp = TempDir::new().unwrap();
+    let content = "// 冒烟测试占位\n";
+
+    project_generator::write_smoke_test(tmp.path(), content)
+        .expect("write_smoke_test 应成功创建 tests/ 子目录和文件");
+
+    let tests_dir = tmp.path().join("tests");
+    let smoke_file = tests_dir.join("smoke_test.rs");
+
+    assert!(
+        tests_dir.is_dir(),
+        "write_smoke_test 应创建 tests/ 子目录，路径：{}",
+        tests_dir.display()
+    );
+    assert!(
+        smoke_file.exists(),
+        "write_smoke_test 应创建 tests/smoke_test.rs，路径：{}",
+        smoke_file.display()
+    );
+
+    let written = std::fs::read_to_string(&smoke_file).expect("读取 smoke_test.rs 失败");
+    assert_eq!(written, content, "写入内容应与传入内容一致");
 }
