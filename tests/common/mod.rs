@@ -65,8 +65,9 @@ pub fn run_tool_on(example_dir: &str) -> String {
         project_header.as_deref(),
     );
 
-    // 7. 生成 hicc 代码
-    hicc_codegen::generate(&spec)
+    // 7. 生成 hicc 代码，提取纯 hicc 块（去除文件级前缀如 use crate::*;）
+    let raw = hicc_codegen::generate(&spec);
+    extract_hicc_blocks(&raw)
 }
 
 fn find_cpp_file(dir: &str) -> Option<std::path::PathBuf> {
