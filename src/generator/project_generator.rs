@@ -93,6 +93,8 @@ fn insert_path(tree: &mut BTreeMap<String, ModuleNode>, parts: &[&str]) {
 /// 开头的 `#![allow(unused_imports)]` 抑制空模块（如无 extern-C 函数的 encoding 单元）的
 /// glob 重导出警告，这些警告纯属 lint 噪音，不影响功能。
 fn generate_mod_declarations(tree: &BTreeMap<String, ModuleNode>) -> String {
+    // 注意：content 始终以 allow 指令开头，因此不能用 `content.is_empty()` 来判断
+    // 树是否为空——这里改为直接检查 tree 本身。
     let mut content = String::from("#![allow(unused_imports)]\n");
     for name in tree.keys() {
         content.push_str(&format!("pub mod {};\n", name));

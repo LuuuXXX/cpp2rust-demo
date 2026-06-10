@@ -371,7 +371,8 @@ fn parse_fwd_decl<'a>(fwd_decl: &'a str, unit_path: &str) -> Option<&'a str> {
 /// 生成对应的 `use crate::...::TypeName;` 语句。
 /// 若类型未在任何模块定义（如 C typedef struct），则在本模块生成 opaque 类型声明。
 ///
-/// 此函数已公开，供集成测试和下游用例直接调用，无需在测试侧重新实现相同逻辑。
+/// 公开可见，允许集成测试与 `rapidjson_e2e_test` 等测试直接复用，
+/// 避免在测试侧重复实现相同的跨模块前缀生成逻辑。
 pub fn build_cross_module_preamble(
     spec: &FfiSpec,
     current_unit_path: &str,
