@@ -497,11 +497,9 @@ fn rapidjson_shim_smoke_test_generated() {
 
     for src_name in SHIM_SOURCES {
         let src_path = shim_dir.join(src_name);
-        let unit_name = src_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unit")
-            .to_string();
+        // 使用与实际 init 命令一致的 derive_unit_path API（而非 file_stem()），
+        // 确保测试验证的 use 路径格式与工具真实输出保持一致。
+        let unit_name = project_generator::derive_unit_path(&shim_dir, &src_path);
 
         let preprocessed =
             match common::preprocess_cpp(&src_path, includes, &preprocess_dir, &unit_name) {
@@ -598,5 +596,119 @@ fn rapidjson_shim_smoke_test_generated() {
         "shim-smoke: {} 个 shim unit 的冒烟测试已生成，#[test] 数量：{}",
         units.len(),
         content.matches("#[test]").count()
+    );
+}
+
+/// 验证生成的 rapidjson shim 冒烟测试能通过 `cargo check`。
+///
+/// 此测试生成完整的可编译 Rust 项目（Cargo.toml + lib.rs + unit .rs + smoke_test.rs），
+/// 然后运行 `cargo check --quiet` 确认语法无误。
+///
+/// **跳过原因**：需要网络（下载 hicc crate 0.2）和 libclang（预处理 C++ shim 文件）。
+/// CI 中由专属 job `smoke-test-cargo-check` 用 `--include-ignored` 运行。
+#[test]
+#[ignore = "requires libclang + network (hicc crate download)"]
+fn rapidjson_shim_smoke_test_cargo_check() {
+    let tmp = TempDir::new().unwrap();
+    let preprocess_dir = tmp.path().join("c");
+    let rust_dir = tmp.path().join("rust");
+    std::fs::create_dir_all(&preprocess_dir).unwrap();
+    std::fs::create_dir_all(&rust_dir).unwrap();
+
+    let shim_dir = PathBuf::from(RAPIDJSON_SHIM_DIR);
+    let includes: &[&str] = &[RAPIDJSON_INCLUDE, RAPIDJSON_SHIM_DIR];
+
+    assert!(
+        shim_dir.exists(),
+        "shim 目录不存在：{}\n  请确认 references/rapidjson-refactoring/ 子目录已就绪",
+        shim_dir.display()
+    );
+
+    // ── 处理所有 shim 文件 ──────────────────────────────────────────────
+    let mut units: Vec<(String, cpp2rust_demo::ffi_model::FfiSpec)> = Vec::new();
+    let mut skipped: Vec<&str> = Vec::new();
+
+    for src_name in SHIM_SOURCES {
+        let src_path = shim_dir.join(src_name);
+        let unit_name = project_generator::derive_unit_path(&shim_dir, &src_path);
+
+        let preprocessed =
+            match common::preprocess_cpp(&src_path, includes, &preprocess_dir, &unit_name) {
+                Some(p) => p,
+                None => {
+                    skipped.push(src_name);
+                    continue;
+                }
+            };
+
+        let ast = match ast_parser::parse_preprocessed(&preprocessed) {
+            Ok(a) => a,
+            Err(e) => {
+                panic!("smoke-cargo-check: {} AST 解析失败: {}", unit_name, e);
+            }
+        };
+
+        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
+        units.push((unit_name, spec));
+    }
+
+    assert!(
+        skipped.is_empty(),
+        "smoke-cargo-check: {} 个 shim 文件预处理失败（g++ 是否已安装？）:\n{}",
+        skipped.len(),
+        skipped.join("\n")
+    );
+
+    // ── 生成 Rust 项目文件 ─────────────────────────────────────────────
+    let unit_refs: Vec<(&str, &cpp2rust_demo::ffi_model::FfiSpec)> =
+        units.iter().map(|(n, s)| (n.as_str(), s)).collect();
+
+    // 1. 写 Cargo.toml
+    project_generator::write_cargo_toml(&rust_dir, "rapidjson_shim")
+        .expect("smoke-cargo-check: write_cargo_toml 失败");
+
+    // 2. 写各 unit 的 .rs 文件
+    for (unit_name, spec) in &units {
+        let code = hicc_codegen::generate(spec);
+        project_generator::write_unit_rs(&rust_dir, unit_name, &code)
+            .expect(&format!("smoke-cargo-check: write_unit_rs 失败 ({})", unit_name));
+    }
+
+    // 3. 写 lib.rs（re-export 所有 unit）
+    let unit_names_owned: Vec<String> = units.iter().map(|(n, _)| n.clone()).collect();
+    project_generator::write_lib_rs(&rust_dir, &unit_names_owned)
+        .expect("smoke-cargo-check: write_lib_rs 失败");
+
+    // 4. 写冒烟测试
+    let smoke_content = smoke_test_gen::generate(&unit_refs, "rapidjson_shim");
+    project_generator::write_smoke_test(&rust_dir, &smoke_content)
+        .expect("smoke-cargo-check: write_smoke_test 失败");
+
+    // ── 执行 cargo check ───────────────────────────────────────────────
+    let cargo_toml = rust_dir.join("Cargo.toml");
+    assert!(
+        cargo_toml.exists(),
+        "smoke-cargo-check: Cargo.toml 未生成：{}",
+        cargo_toml.display()
+    );
+
+    let output = std::process::Command::new("cargo")
+        .args(["check", "--quiet", "--manifest-path"])
+        .arg(&cargo_toml)
+        .output()
+        .expect("smoke-cargo-check: 无法启动 cargo check 进程");
+
+    assert!(
+        output.status.success(),
+        "smoke-cargo-check: cargo check 失败（生成的冒烟测试代码存在编译错误）\n\
+         stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    println!(
+        "smoke-cargo-check: {} 个 shim unit 的冒烟测试 cargo check 通过 ✓",
+        units.len()
     );
 }
