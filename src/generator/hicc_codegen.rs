@@ -141,8 +141,34 @@ pub fn generate(spec: &FfiSpec) -> String {
         .class_specs
         .iter()
         .any(|cs| !cs.associated_fns.is_empty());
+
+    // 只为有非空 ClassSpec（存在方法/ctor/dtor）的类型生成 `class TypeName;` 前向声明。
+    // 纯 C 不透明句柄（ClassSpec 为空）由调用方以 `#[repr(C)] pub struct` 声明，
+    // 不需要 hicc ABI 类机制；在 import_lib! 中出现 `class TypeName;`
+    // 会要求该类型实现 AbiClass trait，而 #[repr(C)] struct 并不实现，导致 E0277 编译错误。
+    let non_empty_spec_names: std::collections::HashSet<&str> = spec
+        .class_specs
+        .iter()
+        .filter(|cs| !cs.is_empty())
+        .map(|cs| cs.name.as_str())
+        .collect();
+    let abi_class_decls: Vec<&str> = spec
+        .lib_spec
+        .fwd_decls
+        .iter()
+        .filter(|decl| {
+            let name = decl
+                .strip_prefix("class ")
+                .and_then(|s| s.strip_suffix(';'))
+                .map(|s| s.trim())
+                .unwrap_or("");
+            non_empty_spec_names.contains(name)
+        })
+        .map(String::as_str)
+        .collect();
+
     if spec.lib_spec.fn_bindings.is_empty()
-        && spec.lib_spec.fwd_decls.is_empty()
+        && abi_class_decls.is_empty()
         && !has_associated_fns
     {
         return out;
@@ -154,9 +180,9 @@ pub fn generate(spec: &FfiSpec) -> String {
         spec.lib_spec.link_name
     ));
 
-    if !spec.lib_spec.fwd_decls.is_empty() {
+    if !abi_class_decls.is_empty() {
         out.push('\n');
-        for decl in &spec.lib_spec.fwd_decls {
+        for decl in abi_class_decls {
             out.push_str(&format!("    {}\n", decl));
         }
     }
