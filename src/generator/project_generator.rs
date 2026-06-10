@@ -265,110 +265,15 @@ pub fn write_smoke_test(rust_dir: &Path, content: &str) -> Result<()> {
     std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
 }
 
-/// 计算从 `base_dir`（绝对路径）到 `target`（绝对路径）的相对路径。
-///
-/// 如规范化失败，则原样返回 `target`（绝对路径）作为保底。
-fn relative_from(base_dir: &Path, target: &Path) -> PathBuf {
-    let base = base_dir
-        .canonicalize()
-        .unwrap_or_else(|_| base_dir.to_path_buf());
-    let tgt = target
-        .canonicalize()
-        .unwrap_or_else(|_| target.to_path_buf());
-
-    let base_comps: Vec<_> = base.components().collect();
-    let tgt_comps: Vec<_> = tgt.components().collect();
-
-    let common = base_comps
-        .iter()
-        .zip(tgt_comps.iter())
-        .take_while(|(a, b)| a == b)
-        .count();
-
-    let up_count = base_comps.len() - common;
-    let mut result = PathBuf::new();
-    for _ in 0..up_count {
-        result.push("..");
-    }
-    for c in tgt_comps[common..].iter() {
-        result.push(c);
-    }
-    if result.as_os_str().is_empty() {
-        result.push(".");
-    }
-    result
-}
-
-/// 将路径转换为正斜杠字符串，Windows 下避免反斜杠在字符串字面量中引起歧义。
-fn path_to_fwd_slash(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
-}
-
 /// 写出 `build.rs`，调用 `hicc_build::Build::new()` 完成 C++ shim 编译。
-///
-/// * `unit_rs_paths` — 各编译单元的 Rust 模块路径（如 `"allocator_ffi"`、`"shim/doc_ffi"`），
-///   对应的 `.rs` 文件为 `src/<unit_rs_path>.rs`。
-/// * `cpp_sources`   — 原始 C++ shim 源文件的绝对路径列表，会通过 `cc_build.file()` 编译进库。
-/// * `include_dirs`  — 编译 C++ shim 所需的头文件搜索路径（绝对路径），来自 `.opts` 文件。
-///
-/// 生成的 `build.rs` 遵循 `examples/` 中手写 `build.rs` 的相同模式：
-/// 1. 通过 `DerefMut` 取得内层 `cc::Build`，添加 include 目录和 C++ 源文件；
-/// 2. 对每个单元 `.rs` 文件调用 `build.rust_file()`，让 `hicc_build` 生成桥接代码；
-/// 3. 调用 `build.compile(lib_name)` 将全部代码编译进静态库。
 ///
 /// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，
 /// 必须有对应的 `build.rs` 才能触发构建脚本。
-pub fn write_build_rs(
-    rust_dir: &Path,
-    lib_name: &str,
-    unit_rs_paths: &[String],
-    cpp_sources: &[PathBuf],
-    include_dirs: &[PathBuf],
-) -> Result<()> {
-    // 将绝对路径转换为相对于 rust_dir 的相对路径，以保证生成项目在同一仓库内的可移植性
-    let rel_includes: Vec<String> = include_dirs
-        .iter()
-        .map(|d| path_to_fwd_slash(&relative_from(rust_dir, d)))
-        .collect();
-    let rel_sources: Vec<String> = cpp_sources
-        .iter()
-        .map(|s| path_to_fwd_slash(&relative_from(rust_dir, s)))
-        .collect();
-
-    // cc_build 块：仅当有 include 目录或 C++ 源文件时才生成
-    let cc_block = if rel_includes.is_empty() && rel_sources.is_empty() {
-        String::new()
-    } else {
-        let mut lines = String::new();
-        lines.push_str("    use std::ops::DerefMut;\n");
-        lines.push_str("    let cc_build: &mut cc::Build = build.deref_mut();\n");
-        for inc in &rel_includes {
-            lines.push_str(&format!("    cc_build.include(\"{inc}\");\n"));
-        }
-        lines.push_str("    cc_build.cpp(true);\n");
-        for src in &rel_sources {
-            lines.push_str(&format!("    cc_build.file(\"{src}\");\n"));
-        }
-        lines
-    };
-
-    // rust_file 行：每个编译单元一行
-    let rust_file_lines: String = unit_rs_paths
-        .iter()
-        .map(|u| format!("    build.rust_file(\"src/{u}.rs\");\n"))
-        .collect();
-
+pub fn write_build_rs(rust_dir: &Path, lib_name: &str) -> Result<()> {
     let content = format!(
         "\
 fn main() {{
-    let mut build = hicc_build::Build::new();
-{cc_block}{rust_file_lines}    build.compile(\"{lib_name}\");
-
-    println!(\"cargo::rustc-link-lib={lib_name}\");
-    #[cfg(target_os = \"macos\")]
-    println!(\"cargo::rustc-link-lib=c++\");
-    #[cfg(not(any(target_os = \"macos\", all(target_os = \"windows\", target_env = \"msvc\"))))]
-    println!(\"cargo::rustc-link-lib=stdc++\");
+    hicc_build::Build::new().rust_file(\"src/lib.rs\").compile(\"{lib_name}\");
 }}
 "
     );
@@ -799,42 +704,12 @@ mod tests {
     #[test]
     fn write_build_rs_creates_file() {
         let tmp = TempDir::new().unwrap();
-        write_build_rs(tmp.path(), "my_lib", &[], &[], &[]).unwrap();
+        write_build_rs(tmp.path(), "my_lib").unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
-        assert!(content.contains("hicc_build::Build::new()"), "应包含 hicc_build::Build::new()");
-        assert!(content.contains("build.compile(\"my_lib\")"), "应包含 build.compile(\"my_lib\")");
-        assert!(content.contains("fn main()"), "应包含 fn main()");
-        assert!(
-            content.contains("cargo::rustc-link-lib=my_lib"),
-            "应包含 cargo link 指令"
-        );
-        // 无编译单元时不应出现 rust_file 调用
-        assert!(!content.contains("rust_file"), "不应含 rust_file（无编译单元）");
-    }
-
-    #[test]
-    fn write_build_rs_with_units_and_cpp() {
-        let tmp = TempDir::new().unwrap();
-        // 用 tmp.path() 本身充当伪 C++ 源文件及 include 目录（不需要实际存在的内容）
-        let cpp_src = tmp.path().join("foo.cpp");
-        std::fs::write(&cpp_src, "").unwrap();
-        let inc_dir = tmp.path().to_path_buf();
-
-        write_build_rs(
-            tmp.path(),
-            "rj",
-            &["allocator_ffi".to_string(), "shim/doc_ffi".to_string()],
-            &[cpp_src],
-            &[inc_dir],
-        )
-        .unwrap();
-        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
-        assert!(content.contains("build.rust_file(\"src/allocator_ffi.rs\")"));
-        assert!(content.contains("build.rust_file(\"src/shim/doc_ffi.rs\")"));
-        assert!(content.contains("cc_build.file("));
-        assert!(content.contains("cc_build.include("));
-        assert!(content.contains("cc_build.cpp(true)"));
-        assert!(content.contains("cargo::rustc-link-lib=rj"));
+        assert!(content.contains("hicc_build::Build::new()"));
+        assert!(content.contains(".rust_file(\"src/lib.rs\")"));
+        assert!(content.contains(".compile(\"my_lib\")"));
+        assert!(content.contains("fn main()"));
     }
 
     // ── write_cargo_toml ──────────────────────

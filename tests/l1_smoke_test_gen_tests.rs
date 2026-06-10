@@ -58,8 +58,8 @@ fn extract_spec_from_example(
     let ast = ast_parser::parse_preprocessed(&preprocessed).ok()?;
 
     // 提取 FfiSpec
-    let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&cpp_file);
-    let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref(), &extra_local_includes);
+    let (sys_includes, proj_header) = extractor::read_source_includes(&cpp_file);
+    let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
 
     Some((unit_name, spec))
 }
