@@ -13,6 +13,7 @@ pub(super) fn build_cpp_block(
     system_includes: &[String],
     project_header: Option<&str>,
     has_classes: bool,
+    extra_local_includes: &[String],
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 
@@ -49,6 +50,18 @@ pub(super) fn build_cpp_block(
             lines.push(format!("#include \"{}\"", hdr));
         }
     } else {
+        // 当有 local_classes 需要内联时，注入额外的本地头文件（如 rapidjson/writer.h）。
+        // 这些头文件在原 .cpp 中出现在 project_header 之后，定义了内联类体所需的 C++ 类型
+        // （例如 Writer<StringBuffer>、PrettyWriter<StringBuffer>）。
+        // 不含 project_header 本身，因为其中的不透明 typedef 和 extern "C" 声明
+        // 与内联类体共存时不会产生歧义（C++ 允许 typedef struct X X 后再定义 struct X）。
+        for hdr in extra_local_includes {
+            lines.push(format!("#include \"{}\"", hdr));
+        }
+        if !extra_local_includes.is_empty() {
+            lines.push(String::new());
+        }
+
         // 枚举定义（在类定义之前；仅在不使用项目头文件时输出，避免重复定义）
         for en in &ast.enums {
             if en.name.is_empty() {

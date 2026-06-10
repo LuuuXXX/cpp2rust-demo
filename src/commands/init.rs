@@ -206,13 +206,14 @@ fn first_pass_parse(
 
         match ast_parser::parse_preprocessed(path) {
             Ok(ast) => {
-                let (system_includes, project_header) =
+                let (system_includes, project_header, extra_local_includes) =
                     extractor::read_source_includes(&original_cpp);
                 let spec = extractor::extract(
                     &ast,
                     &unit_path,
                     &system_includes,
                     project_header.as_deref(),
+                    &extra_local_includes,
                 );
 
                 let elapsed_ms = file_start.elapsed().as_millis();
@@ -347,10 +348,14 @@ fn print_degraded_summary(sorted_tags: &[(String, Vec<(String, usize)>)]) {
     println!("  → 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。");
 }
 
-/// 使该类型自动实现 `AbiClass`，满足 `import_lib!` 中 `class TypeName;` 的 trait 约束。
-fn opaque_import_class_block(type_name: &str) -> String {
+/// 为不透明的 C handle 类型生成普通 Rust repr(C) 结构体声明。
+///
+/// 这些类型（如 `RapidJsonValueHandle*`）在 C 侧仅作为不透明指针使用，
+/// 不需要 hicc ABI 类转换（变参数 ABI）。使用普通 `#[repr(C)]` 结构体声明
+/// 可以让 `import_lib!` 将 `*mut T` 参数当作普通 C 指针处理，而非 hicc ABI 类指针。
+fn opaque_repr_c_struct(type_name: &str) -> String {
     format!(
-        "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n",
+        "#[repr(C)]\npub struct {n} {{ _private: [u8; 0] }}\n\n",
         n = type_name
     )
 }
@@ -427,7 +432,7 @@ fn build_cross_module_preamble(
                 use_imports.push_str(&format!("use crate::{}::{};\n", module_path, type_name));
             }
         } else {
-            opaque_decls.push_str(&opaque_import_class_block(type_name));
+            opaque_decls.push_str(&opaque_repr_c_struct(type_name));
         }
     }
 
@@ -775,7 +780,7 @@ mod tests {
         assert!(result.is_empty(), "同 unit_path 的类不应生成 use，got: {result:?}");
     }
 
-    /// 未定义类（class_to_module 中无该类）→ 生成 opaque import_class! 块
+    /// 未定义类（class_to_module 中无该类）→ 生成 #[repr(C)] opaque struct 声明
     #[test]
     fn cross_module_preamble_undefined_class_generates_opaque() {
         let spec = make_ffi_spec_with_fwd(vec!["class Unknown;".to_string()]);
@@ -783,13 +788,14 @@ mod tests {
 
         let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
         assert!(
-            result.contains("import_class!"),
-            "未定义类应生成 opaque import_class! 块，got: {result:?}"
+            result.contains("#[repr(C)]"),
+            "未定义类应生成 #[repr(C)] opaque struct 声明，got: {result:?}"
         );
         assert!(
-            result.contains("Unknown"),
+            result.contains("pub struct Unknown"),
             "opaque 块应含类名，got: {result:?}"
         );
+        assert!(!result.contains("import_class"), "不应生成 import_class! 块，got: {result:?}");
         assert!(!result.contains("use crate"), "不应生成 use 语句，got: {result:?}");
     }
 

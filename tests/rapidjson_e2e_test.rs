@@ -380,8 +380,8 @@ fn rapidjson_shim_ffi_generates_importlib() {
             }
         };
 
-        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
-        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
+        let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref(), &extra_local_includes);
         let code = hicc_codegen::generate(&spec);
 
         // 验证 1：必须有 import_lib! 块
@@ -517,8 +517,8 @@ fn rapidjson_shim_smoke_test_generated() {
             }
         };
 
-        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
-        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
+        let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref(), &extra_local_includes);
         units.push((unit_name, spec));
     }
 
@@ -648,8 +648,8 @@ fn rapidjson_shim_smoke_test_cargo_check() {
             }
         };
 
-        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
-        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
+        let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref(), &extra_local_includes);
         units.push((unit_name, spec));
     }
 
@@ -689,7 +689,9 @@ fn rapidjson_shim_smoke_test_cargo_check() {
     // 2. 写各 unit 的 .rs 文件
     for (unit_name, spec) in &units {
         // 为本 unit fwd_decls 中既不被全局拥有、也尚未在其他 unit 生成过不透明块的类型
-        // 生成空的 import_class! 前缀，以定义不透明 Rust 类型（如 RapidJsonHandlerCallbacks）。
+        // 生成 repr(C) 普通结构体声明，定义不透明 Rust 类型（如 RapidJsonHandlerCallbacks）。
+        // 使用普通结构体而非 hicc::import_class!，以避免 hicc ABI 变参数转换对纯 C 指针类型
+        // 产生 "invalid conversion ... to void(*)(T*, ...)" 的编译错误。
         let opaque_preamble: String = spec
             .lib_spec
             .fwd_decls
@@ -708,7 +710,7 @@ fn rapidjson_shim_smoke_test_cargo_check() {
                 }
                 assigned_opaque.insert(type_name.to_string());
                 Some(format!(
-                    "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n\n",
+                    "#[repr(C)]\npub struct {n} {{ _private: [u8; 0] }}\n\n",
                     n = type_name
                 ))
             })
@@ -773,8 +775,8 @@ fn print_value_ffi_generated_code() {
     
     let preprocessed = common::preprocess_cpp(&src_path, includes, &preprocess_dir, "value_ffi").unwrap();
     let ast = ast_parser::parse_preprocessed(&preprocessed).unwrap();
-    let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
-    let spec = extractor::extract(&ast, "value_ffi", &sys_includes, proj_header.as_deref());
+    let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
+    let spec = extractor::extract(&ast, "value_ffi", &sys_includes, proj_header.as_deref(), &extra_local_includes);
     
     println!("classes in ast: {:?}", ast.classes.iter().map(|c| (&c.name, c.is_from_current_file)).collect::<Vec<_>>());
     println!("class_specs: {:?}", spec.class_specs.iter().map(|cs| (&cs.name, cs.is_empty())).collect::<Vec<_>>());

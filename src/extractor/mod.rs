@@ -23,6 +23,7 @@ pub fn extract(
     unit_name: &str,
     system_includes: &[String],
     project_header: Option<&str>,
+    extra_local_includes: &[String],
 ) -> FfiSpec {
     let source_bytes = fs::read(&ast.file).unwrap_or_default();
     // has_any_classes：是否存在任何类（含命名空间类），用于 namespace_class_mode 检测
@@ -70,6 +71,7 @@ pub fn extract(
             system_includes,
             project_header,
             has_classes,
+            extra_local_includes,
         )
     };
 
@@ -556,7 +558,7 @@ fn strip_volatile(ty: &str) -> &str {
 ///
 /// 头文件扩展名按 `.h` → `.hpp` → `.hxx` 顺序探测，取第一个存在的文件，
 /// 以便兼容同时使用 `.hpp`（如 rapidjson、Eigen）的项目。
-pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<String>) {
+pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<String>, Vec<String>) {
     let cpp_content = fs::read_to_string(cpp_path).unwrap_or_default();
 
     // 按优先级探测对应头文件（.h → .hpp → .hxx）
@@ -567,6 +569,7 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
         .unwrap_or_default();
 
     let mut project: Option<String> = None;
+    let mut extra_local: Vec<String> = Vec::new();
 
     // 收集头文件中的系统 include（保序）
     let h_includes: Vec<String> = h_content
@@ -598,6 +601,11 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
                 let hdr = rest.trim_matches('"');
                 if project.is_none() {
                     project = Some(hdr.to_string());
+                } else {
+                    // 额外本地头文件：project_header 之后出现的 "..." include，
+                    // 当 local_classes 非空时需要把它们注入 hicc::cpp! 块，
+                    // 以保证内联类体可以引用到这些头文件中定义的类型（如 Writer<StringBuffer>）。
+                    extra_local.push(hdr.to_string());
                 }
             }
         }
@@ -620,7 +628,7 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
         }
     }
 
-    (system, project)
+    (system, project, extra_local)
 }
 
 // ─────────────────────────────────────────────
