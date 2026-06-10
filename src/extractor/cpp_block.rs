@@ -217,6 +217,7 @@ pub(super) fn build_cpp_block(
     let mut shim_fns = classify_functions(functions, &class_names);
     // 按函数体在源文件中的字节偏移升序排序，确保静态辅助函数在调用它的外部函数之前输出，
     // 避免因 ast.functions 中 extern "C" 声明排在前面而造成前向引用编译错误。
+    // 无 body_offset 的条目（仅有声明，无函数体）不会被下方循环输出，排到末尾无影响。
     shim_fns.sort_by_key(|(fi, _)| fi.body_offset.map(|(s, _)| s).unwrap_or(u32::MAX));
     for (fn_info, shim_kind) in &shim_fns {
         if !matches!(shim_kind, ShimKind::MethodAccessor) {
