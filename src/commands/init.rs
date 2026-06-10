@@ -188,14 +188,14 @@ fn first_pass_parse(
 
         match ast_parser::parse_preprocessed(path) {
             Ok(ast) => {
-                let (system_includes, project_header) =
+                let (system_includes, project_headers) =
                     extractor::read_source_includes(&original_cpp);
                 let spec = extractor::extract(
                     &ast,
                     &unit_path,
                     &system_includes,
-                    project_header.as_deref(),
-                );
+                    &project_headers,
+                )?;
 
                 let elapsed_ms = file_start.elapsed().as_millis();
                 println!(

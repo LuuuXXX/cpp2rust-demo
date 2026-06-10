@@ -103,7 +103,51 @@ bar.cpp             │                  │                    │             
 
 **输出位置**：命名 shim 函数进 `cpp!` 块；对应绑定进 `import_lib!`；原 `import_class!` 中的 operator 方法移除。降级位置标记 `cpp2rust-todo[OP]`。
 
-### 最终产出：hicc 三段式
+### `detect_namespace_mode`：代码生成路径分叉
+
+`detect_namespace_mode()`（`src/extractor/mod.rs`）是 Phase 3 提取器的关键决策点，在调用具体生成逻辑之前判断应走哪条代码路径。
+
+#### 三条生成路径
+
+| 条件 | 代码路径 | 生成结果 |
+|------|---------|---------|
+| `ast.classes` 为空 | 纯函数模式 | 只生成 `import_lib!`，无 `import_class!` 和 `cpp!` 类体 |
+| `used_classes` 非空（函数签名直接引用了具体类） | 普通类模式 | 生成完整三段式（`cpp!` + `import_class!` + `import_lib!`） |
+| `used_classes` 为空但签名含命名空间类或 `void*` | **命名空间类模式** | `cpp!` 只含 `#include`，`import_class!` 置空，`import_lib!` 正常生成 |
+
+#### 命名空间类模式触发条件
+
+满足以下**全部**条件时进入命名空间类模式：
+1. `ast.classes` 不为空（存在任意类声明）
+2. `used_classes`（函数签名中以扁平名引用的类集合）为空
+3. 至少一个 `extern "C"` 函数的参数或返回类型中包含：
+   - 某个命名空间类的**完整限定名**（如 `example::OperationResult`），精确匹配
+   - 或 `void *` / `void*`（opaque 指针模式）
+
+#### 精确匹配的必要性
+
+早期实现使用通用的 `::` 子串检查。但 `std::string *`、`std::vector<>::iterator` 等 STL 类型同样含 `::`，会误触命名空间类模式，导致本应生成 `import_class!` 块的文件输出空块。
+
+现行实现通过 `ClassInfo::namespace_qualified_name` 字段（由 `ast_parser/collector.rs` 的 `collect_namespace` 在名称扁平化前保存为 `"ns::ClassName"` 形式）进行精确匹配，只有项目自身定义的命名空间类才会触发。
+
+#### 典型示例
+
+```
+示例 043 (opaque_void)：函数返回 void * → 触发（opaque 指针模式）
+    cpp!  { #include "opaque_void.h" }     ← 只有 include，无类体
+    import_lib!  { fn get_instance() -> *mut c_void; ... }
+
+示例 044 (namespace_class)：函数返回 example::OperationResult * → 触发（精确命名空间类匹配）
+    cpp!  { #include "namespace_class.h" }  ← 只有 include，无类体
+    import_lib!  { fn create_op() -> *mut OperationResult; ... }
+
+示例 006 (class_basic)：函数参数只用 Counter * → 不触发，走普通类模式
+    cpp!  { class Counter { ... }; Counter* counter_new() { ... } }
+    import_class! { pub class Counter { fn get(&self) -> i32; ... } }
+    import_lib!   { fn counter_new() -> *mut Counter; ... }
+```
+
+
 
 以 `Counter` 类为例：
 

@@ -144,6 +144,8 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 **L1/L3 测试控制**：L1 和 L3 测试通过 `full-test` feature flag 控制。不加 `--features full-test` 时，这两类测试会被自动跳过（ignored）；加上后则正常运行。这比 `--include-ignored` 语义更清晰，也不会误触其他被标记为 ignored 的测试。`full-test` 需要 libclang 和系统 g++/clang++ 可用，因此在无 libclang 的纯 Rust CI 环境中只运行 L2 即可。
 
+**L4/L5 本地运行**：L4 测试需要外部 C++ 子模块（rapidjson / tinyxml2 等）和系统 libclang。在未安装相关依赖的环境中，测试会自动跳过（graceful skip）。L5 nm 符号测试需要 `nm` 工具，须使用 `--ignored` 标志显式运行。
+
 **L1 核心逻辑**：从 `rust_hicc/src/main.rs` 提取 `hicc::cpp!` / `hicc::import_class!` / `hicc::import_lib!` 三种块作为黄金片段，与工具生成的 `lib.rs` 对应块比对，忽略 `fn main()` 和注释差异。
 
 **L4 merge 阶段**：各 E2E 测试均包含 `<lib>_merge_phase` 测试函数，执行 init → merge → `cargo check` 完整链路，确保生成的 Rust 项目在无 `build.rs` 情形下可通过类型检查。依赖外部子模块或系统头文件时自动跳过（graceful skip）。
@@ -165,6 +167,23 @@ cargo test --test l1_golden_tests --features full-test -- --test-threads=1
 # L5 nm 符号测试（需要 nm 工具）
 cargo test -- --ignored
 ```
+
+### CI 矩阵策略
+
+CI 工作流（`.github/workflows/ci.yml`）采用 **双速** 策略：
+
+| 矩阵项 | 运行时机 |
+|--------|---------|
+| Linux（ubuntu-latest） | **始终运行**（PR + push） |
+| Windows MinGW | 仅在 push、`workflow_dispatch`，或 PR 上有 **`ci:full`** 标签时运行 |
+| Windows MSVC | 同上 |
+| macOS | 同上 |
+
+这样 PR 快路径（Linux-only）保持响应迅速，完整多平台验证通过 `ci:full` 标签按需触发。
+
+**触发全平台 CI**：在 PR 上添加 `ci:full` 标签即可触发所有矩阵（Linux + Windows MinGW + Windows MSVC + macOS）。
+
+> 注意：GitHub Actions `actions/setup-node` 当前锁定在 node20（v4 系列），不可升级到 node24 —— 详见 ci.yml 注释中的说明。
 
 ---
 
@@ -340,3 +359,26 @@ bash scripts/build_cpp_libs.sh 001_hello_world 006_class_basic
 | 最小 shim 策略：方法用 `import_class!`，只为必要场景建 shim | 减少生成代码量；ctor/dtor/operator/static成员/placement new 才需要 shim |
 | 降级特性用内联 `cpp2rust-todo[TAG]` 注释 | 让开发者在工具生成的代码中直接看到待手动完善的位置 |
 | L1 测试须 `--test-threads=1` | clang crate 使用全局 libclang 状态，多线程并发解析会竞争 |
+
+### 7.1 `namespace_class_mode` 触发条件
+
+`detect_namespace_mode()`（`src/extractor/mod.rs`）是 Phase 3 提取器中的关键分岔点，决定 `hicc::cpp!` 块的内容生成策略：
+
+**触发条件**（三个条件同时满足）：
+1. `ast.classes` 不为空（存在任意类）
+2. `used_classes`（函数签名中以扁平名引用的类集合）为空
+3. 至少一个 `extern "C"` 函数的参数或返回类型包含：
+   - **命名空间限定的类名**（精确匹配，如 `example::OperationResult`，来自 `ClassInfo::namespace_qualified_name`）
+   - 或 `void *` / `void*`（opaque 指针模式）
+
+**触发后的行为**：
+- `hicc::cpp!` 块：只生成 `#include "project_header.h"`，不内联类体
+- `import_class!` 块：不生成（设为空列表）
+- `import_lib!` 块：正常生成（`build_lib_spec` 内部的类型过滤会排除不可映射类型）
+
+**精确匹配的重要性**：早期版本使用通用的 `::` 子串检查，会将 `std::string *`、`std::vector<>::iterator` 等 STL 类型误判为命名空间类。现在改为精确匹配 `ClassInfo::namespace_qualified_name`（由 `collect_namespace` 在收集类时存储），确保只有项目自身的命名空间类才触发此模式。
+
+**典型场景**：
+- 示例 043：函数返回 `void *` opaque 指针 → 触发（opaque 指针模式）
+- 示例 044：函数返回 `example::OperationResult *` → 触发（精确命名空间类匹配）
+- 示例 028：函数只使用原始类型 `int`/`double` → 不触发，正常生成 `import_class!`

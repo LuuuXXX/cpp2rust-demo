@@ -28,8 +28,9 @@ pub(super) fn collect_namespace(
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
-                    // 命名空间前缀扁平化到类名
+                    // 命名空间前缀扁平化到类名，并保存 :: 限定名供 detect_namespace_mode 使用
                     if !ns_name.is_empty() {
+                        ci.namespace_qualified_name = format!("{}::{}", ns_name, ci.name);
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
                     ci.is_in_namespace = true;
@@ -39,6 +40,7 @@ pub(super) fn collect_namespace(
             EntityKind::ClassTemplatePartialSpecialization => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
                     if !ns_name.is_empty() {
+                        ci.namespace_qualified_name = format!("{}::{}", ns_name, ci.name);
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
                     ci.is_in_namespace = true;
@@ -241,6 +243,7 @@ pub(super) fn extract_class(
         fields,
         is_in_namespace: false,
         is_from_current_file,
+        namespace_qualified_name: String::new(),
     })
 }
 

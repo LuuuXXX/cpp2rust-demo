@@ -745,6 +745,18 @@ cargo test 006_class_basic
 cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
 ```
 
+### CI 矩阵策略
+
+CI（`.github/workflows/ci.yml`）采用双速策略：
+
+| 矩阵项 | 触发时机 |
+|--------|---------|
+| Linux（ubuntu-latest） | 始终运行（PR + push） |
+| Windows MinGW / MSVC | 仅在 push 或 PR 上有 **`ci:full`** 标签时运行 |
+| macOS | 同上 |
+
+在 PR 上添加 **`ci:full`** 标签即可触发全平台（Linux + Windows + macOS）完整验证。
+
 ---
 
 ## 局限性

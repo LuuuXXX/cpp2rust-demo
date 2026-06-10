@@ -8,7 +8,7 @@ mod cpp_block;
 mod class_spec;
 mod lib_spec;
 
-use crate::ast_parser::{CppAst, FunctionInfo, ParamInfo};
+use crate::ast_parser::{ClassInfo, CppAst, FunctionInfo, ParamInfo};
 use crate::ffi_model::{ClassSpec, FfiSpec};
 use std::fs;
 use type_mapper::{clean_type, cpp_to_rust, to_snake_case};
@@ -22,9 +22,11 @@ pub fn extract(
     ast: &CppAst,
     unit_name: &str,
     system_includes: &[String],
-    project_header: Option<&str>,
-) -> FfiSpec {
-    let source_bytes = fs::read(&ast.file).unwrap_or_default();
+    project_headers: &[String],
+) -> crate::error::Result<FfiSpec> {
+    let source_bytes = fs::read(&ast.file).map_err(|e| {
+        anyhow::anyhow!("无法读取源文件 {}: {}", ast.file.display(), e)
+    })?;
     // has_any_classes：是否存在任何类（含命名空间类），用于 namespace_class_mode 检测
     let has_any_classes = !ast.classes.is_empty();
     // has_classes：是否存在非命名空间的物理类，用于决定 cpp! 块模式（project header vs inline class）
@@ -52,23 +54,22 @@ pub fn extract(
 
     let used_classes = compute_used_classes(&ast.classes, &eligible_functions);
     let namespace_class_mode =
-        detect_namespace_mode(has_any_classes, &used_classes, &eligible_functions);
+        detect_namespace_mode(has_any_classes, &used_classes, &eligible_functions, &ast.classes);
 
     // ── hicc::cpp! 块内容 ──────────────────────
     let cpp_block_lines = if namespace_class_mode {
         // 命名空间类模式：只生成项目头文件 include，不内联类体
-        if let Some(hdr) = project_header {
-            vec![format!("#include \"{}\"", hdr)]
-        } else {
-            Vec::new()
-        }
+        project_headers
+            .iter()
+            .map(|hdr| format!("#include \"{}\"", hdr))
+            .collect()
     } else {
         cpp_block::build_cpp_block(
             ast,
             &functions,
             &source_bytes,
             system_includes,
-            project_header,
+            project_headers,
             has_classes,
         )
     };
@@ -136,7 +137,7 @@ pub fn extract(
         );
     }
 
-    spec
+    Ok(spec)
 }
 
 /// 计算函数签名中引用的类名集合。
@@ -173,7 +174,11 @@ fn compute_used_classes(
 /// 检测命名空间/opaque 类模式。
 ///
 /// 当且仅当：有类存在 AND 无类名出现在函数签名 AND 至少一个 extern-C 函数的参数/返回类型
-/// 包含 `::` 或 `void*`（说明类通过命名空间限定类型或 opaque 指针暴露，hicc 无法处理）。
+/// 包含命名空间限定的类名（如 `example::OperationResult`）或 `void*`。
+///
+/// 改进：不再使用通用的 `::` 子串检查（会误匹配 `std::string`、`std::vector` 等 STL 类型）。
+/// 取而代之，收集 `classes` 中所有命名空间类的 `namespace_qualified_name` 并精确匹配。
+///
 /// 这影响 cpp! 块内容与 import_class! 生成：
 ///   043: void* opaque 指针（命名空间类）→ cpp! 只 include 头文件，不生成 import_class!
 ///   044: example::OperationResult* 命名空间类型指针 → 同样只 include 头文件
@@ -183,21 +188,34 @@ fn detect_namespace_mode(
     has_any_classes: bool,
     used_classes: &std::collections::HashSet<String>,
     eligible_functions: &[FunctionInfo],
+    classes: &[ClassInfo],
 ) -> bool {
-    has_any_classes
-        && used_classes.is_empty()
-        && eligible_functions.iter().any(|f| {
-            f.is_extern_c && {
-                let rt = &f.return_type;
-                rt.contains("::")
-                    || rt.contains("void *")
-                    || rt.contains("void*")
-                    || f.params.iter().any(|p| {
-                        let t = &p.type_name;
-                        t.contains("::") || t.contains("void *") || t.contains("void*")
-                    })
-            }
-        })
+    if !has_any_classes || !used_classes.is_empty() {
+        return false;
+    }
+
+    // 收集所有命名空间类的 :: 限定名（如 "example::OperationResult"）
+    let ns_qualified: Vec<&str> = classes
+        .iter()
+        .filter(|c| !c.namespace_qualified_name.is_empty())
+        .map(|c| c.namespace_qualified_name.as_str())
+        .collect();
+
+    // 判断类型字符串是否触发命名空间类模式：
+    // - void* / void * → opaque 指针模式
+    // - 包含任意命名空间限定类名（精确子串，而非通用 ::）
+    let type_triggers = |t: &str| -> bool {
+        if t.contains("void *") || t.contains("void*") {
+            return true;
+        }
+        ns_qualified.iter().any(|qn| t.contains(qn))
+    };
+
+    eligible_functions.iter().any(|f| {
+        f.is_extern_c
+            && (type_triggers(&f.return_type)
+                || f.params.iter().any(|p| type_triggers(&p.type_name)))
+    })
 }
 
 /// 去重：对于同名函数优先保留 body_offset 且 is_extern_c=false 的版本
@@ -291,12 +309,27 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
     //   foo_new          — ends_with("_new")
     //   foo_new_variant  — contains("_new_")
     //   foo_newCamelCase — _new 后紧跟大写字母（驼峰，如 foo_newWithSize）
-    let name_has_new = fi.name == "new"
-        || fi.name.ends_with("_new")
-        || fi.name.contains("_new_")
-        || fi.name.find("_new").map_or(false, |p| {
-            fi.name.get(p + 4..).map_or(false, |rest| rest.starts_with(|c: char| c.is_uppercase()))
-        });
+    //   foo_create / foo_create_variant / foo_createX
+    //   foo_make / foo_make_variant / foo_makeX
+    //   foo_alloc / foo_alloc_variant / foo_allocX
+    //   foo_build / foo_build_variant / foo_buildX
+    fn has_ctor_suffix(name: &str, suffix: &str) -> bool {
+        let suf = format!("_{}", suffix);
+        let suf_under = format!("_{}_", suffix);
+        name == suffix
+            || name.ends_with(&suf)
+            || name.contains(&suf_under)
+            || name.find(&suf).map_or(false, |p| {
+                name.get(p + suf.len()..)
+                    .map_or(false, |rest| rest.starts_with(|c: char| c.is_uppercase()))
+            })
+    }
+
+    let name_has_new = has_ctor_suffix(&fi.name, "new")
+        || has_ctor_suffix(&fi.name, "create")
+        || has_ctor_suffix(&fi.name, "make")
+        || has_ctor_suffix(&fi.name, "alloc")
+        || has_ctor_suffix(&fi.name, "build");
 
     if ret_is_class_ptr && name_has_new {
         return ShimKind::Ctor;
@@ -310,7 +343,13 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
             || name_lower.ends_with("_destroy")
             || name_lower == "destroy"
             || name_lower.ends_with("_release")
-            || name_lower == "release")
+            || name_lower == "release"
+            || name_lower.ends_with("_dealloc")
+            || name_lower == "dealloc"
+            || name_lower.ends_with("_dispose")
+            || name_lower == "dispose"
+            || name_lower.ends_with("_close")
+            || name_lower == "close")
     {
         return ShimKind::Dtor;
     }
@@ -549,14 +588,16 @@ fn strip_volatile(ty: &str) -> &str {
 
 /// 读取原始 .cpp 和 .h 文件的 include 行
 ///
-/// 返回 (system_includes, project_header)
+/// 返回 (system_includes, project_headers)
 /// 顺序规则：
 ///   1. header-only includes（只在头文件中出现、不在 .cpp 中出现）按头文件顺序排前
 ///   2. cpp includes（.cpp 中出现的系统 include）按 .cpp 文件中出现的顺序排后
 ///
 /// 头文件扩展名按 `.h` → `.hpp` → `.hxx` 顺序探测，取第一个存在的文件，
 /// 以便兼容同时使用 `.hpp`（如 rapidjson、Eigen）的项目。
-pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<String>) {
+///
+/// project_headers 收集 .cpp 中所有 `#include "..."` 用户头文件路径（保序去重）。
+pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Vec<String>) {
     let cpp_content = fs::read_to_string(cpp_path).unwrap_or_default();
 
     // 按优先级探测对应头文件（.h → .hpp → .hxx）
@@ -566,7 +607,8 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
         .find_map(|p| fs::read_to_string(&p).ok())
         .unwrap_or_default();
 
-    let mut project: Option<String> = None;
+    let mut project: Vec<String> = Vec::new();
+    let mut project_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // 收集头文件中的系统 include（保序）
     let h_includes: Vec<String> = h_content
@@ -596,8 +638,8 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
                 }
             } else if rest.starts_with('"') {
                 let hdr = rest.trim_matches('"');
-                if project.is_none() {
-                    project = Some(hdr.to_string());
+                if project_seen.insert(hdr.to_string()) {
+                    project.push(hdr.to_string());
                 }
             }
         }
@@ -1119,6 +1161,7 @@ mod tests {
             fields: vec![],
             is_in_namespace: false,
             is_from_current_file: true,
+            namespace_qualified_name: String::new(),
         }
     }
 
@@ -1359,5 +1402,118 @@ mod tests {
         assert_eq!(result[0].name, "beta");
         assert_eq!(result[1].name, "alpha");
         assert!(result[0].body_offset.is_some(), "beta 应选取 body_offset 版本");
+    }
+
+    // ── detect_namespace_mode 单元测试 ─────────────────────────────────
+
+    fn make_fn_extern_c(name: &str, return_type: &str, param_types: &[&str]) -> FunctionInfo {
+        FunctionInfo {
+            name: name.to_string(),
+            return_type: return_type.to_string(),
+            params: param_types
+                .iter()
+                .enumerate()
+                .map(|(i, ptype)| ParamInfo {
+                    name: format!("p{}", i),
+                    type_name: ptype.to_string(),
+                    has_default: false,
+                })
+                .collect(),
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_ns_class(name: &str, ns_qualified: &str) -> ClassInfo {
+        ClassInfo {
+            name: name.to_string(),
+            is_struct: false,
+            is_abstract: false,
+            template_args: vec![],
+            bases: vec![],
+            methods: vec![],
+            fields: vec![],
+            is_in_namespace: true,
+            is_from_current_file: true,
+            namespace_qualified_name: ns_qualified.to_string(),
+        }
+    }
+
+    /// std::string * 中的 "::" 不应触发 namespace_class_mode（std::string 不是我们的类）
+    #[test]
+    fn detect_namespace_mode_stl_type_does_not_trigger() {
+        let classes = vec![make_ns_class("example_Result", "example::Result")];
+        let used = std::collections::HashSet::new();
+        let fns = vec![make_fn_extern_c("process", "void", &["std::string *"])];
+        assert!(
+            !detect_namespace_mode(true, &used, &fns, &classes),
+            "std::string * 不应触发 namespace_class_mode"
+        );
+    }
+
+    /// example::OperationResult * 应触发 namespace_class_mode
+    #[test]
+    fn detect_namespace_mode_ns_class_type_triggers() {
+        let classes = vec![make_ns_class("example_OperationResult", "example::OperationResult")];
+        let used = std::collections::HashSet::new();
+        let fns = vec![make_fn_extern_c("do_op", "example::OperationResult *", &[])];
+        assert!(
+            detect_namespace_mode(true, &used, &fns, &classes),
+            "example::OperationResult * 应触发 namespace_class_mode"
+        );
+    }
+
+    /// void * 参数应触发 namespace_class_mode（opaque 指针模式）
+    #[test]
+    fn detect_namespace_mode_void_ptr_triggers() {
+        let classes = vec![make_ns_class("mylib_Handle", "mylib::Handle")];
+        let used = std::collections::HashSet::new();
+        let fns = vec![make_fn_extern_c("create_handle", "void *", &[])];
+        assert!(
+            detect_namespace_mode(true, &used, &fns, &classes),
+            "void * 返回类型应触发 namespace_class_mode"
+        );
+    }
+
+    /// used_classes 非空时不触发 namespace_class_mode（类已被正常识别）
+    #[test]
+    fn detect_namespace_mode_used_classes_nonempty_no_trigger() {
+        let classes = vec![make_class("Counter", vec![])];
+        let mut used = std::collections::HashSet::new();
+        used.insert("Counter".to_string());
+        let fns = vec![make_fn_extern_c("counter_new", "Counter *", &[])];
+        assert!(
+            !detect_namespace_mode(true, &used, &fns, &classes),
+            "used_classes 非空时不应触发 namespace_class_mode"
+        );
+    }
+
+    /// has_any_classes=false 时不触发 namespace_class_mode
+    #[test]
+    fn detect_namespace_mode_no_classes_no_trigger() {
+        let classes: Vec<ClassInfo> = vec![];
+        let used = std::collections::HashSet::new();
+        let fns = vec![make_fn_extern_c("foo", "example::Bar *", &[])];
+        assert!(
+            !detect_namespace_mode(false, &used, &fns, &classes),
+            "无类时不应触发 namespace_class_mode"
+        );
+    }
+
+    /// 非 extern_c 函数的 :: 类型不触发 namespace_class_mode
+    #[test]
+    fn detect_namespace_mode_non_extern_c_no_trigger() {
+        let classes = vec![make_ns_class("example_Result", "example::Result")];
+        let used = std::collections::HashSet::new();
+        let mut fi = make_fn_extern_c("foo", "example::Result *", &[]);
+        fi.is_extern_c = false;
+        assert!(
+            !detect_namespace_mode(true, &used, &[fi], &classes),
+            "非 extern_c 函数不应触发 namespace_class_mode"
+        );
     }
 }

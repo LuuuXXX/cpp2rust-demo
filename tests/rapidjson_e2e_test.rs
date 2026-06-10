@@ -380,8 +380,14 @@ fn rapidjson_shim_ffi_generates_importlib() {
             }
         };
 
-        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
-        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
+        let (sys_includes, proj_headers) = extractor::read_source_includes(&src_path);
+        let spec = match extractor::extract(&ast, &unit_name, &sys_includes, &proj_headers) {
+            Ok(s) => s,
+            Err(e) => {
+                failed_ffi.push(format!("{}: extract 失败: {}", unit_name, e));
+                continue;
+            }
+        };
         let code = hicc_codegen::generate(&spec);
 
         // 验证 1：必须有 import_lib! 块

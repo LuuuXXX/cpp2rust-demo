@@ -11,14 +11,14 @@ pub(super) fn build_cpp_block(
     functions: &[&FunctionInfo],
     source_bytes: &[u8],
     system_includes: &[String],
-    project_header: Option<&str>,
+    project_headers: &[String],
     has_classes: bool,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 
     if !has_classes {
         // 函数-only：仅放项目头文件 include
-        if let Some(hdr) = project_header {
+        for hdr in project_headers {
             lines.push(format!("#include \"{}\"", hdr));
         }
         return lines;
@@ -43,9 +43,9 @@ pub(super) fn build_cpp_block(
     // - include 项目头文件以引入类型定义和函数声明
     // - 不再重复 emit 枚举（它们已包含在头文件中，重复会导致重复定义错误）
     // - 不再重复 emit shim 函数体（项目 .cpp 中已有定义，重复会导致 duplicate symbol 链接错误）
-    let use_project_header = local_classes.is_empty() && project_header.is_some();
+    let use_project_header = local_classes.is_empty() && !project_headers.is_empty();
     if use_project_header {
-        if let Some(hdr) = project_header {
+        for hdr in project_headers {
             lines.push(format!("#include \"{}\"", hdr));
         }
     } else {

@@ -107,6 +107,9 @@ pub struct ClassInfo {
     pub is_in_namespace: bool,
     /// 是否定义在当前被解析的 `.cpp2rust` 文件中（false 表示来自被 include 的头文件）
     pub is_from_current_file: bool,
+    /// 命名空间限定的类名（仅 is_in_namespace=true 时有值，如 `example::OperationResult`）。
+    /// 空字符串表示非命名空间类。
+    pub namespace_qualified_name: String,
 }
 
 /// 全局函数

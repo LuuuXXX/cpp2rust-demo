@@ -359,6 +359,30 @@ mod tests {
         assert_eq!(to_snake_case("hello"), "hello");
     }
 
+    /// T1: 连续大写序列应整体视为一个词，而非逐字母拆开
+    #[test]
+    fn test_snake_case_consecutive_uppercase() {
+        // XMLParser → xml_parser（连续大写整体为一词）
+        assert_eq!(to_snake_case("XMLParser"), "xml_parser");
+        // HTTPSConnection → https_connection
+        assert_eq!(to_snake_case("HTTPSConnection"), "https_connection");
+        // STLVector → stl_vector
+        assert_eq!(to_snake_case("STLVector"), "stl_vector");
+        // parseXML → parse_xml（结尾全大写序列整体为一词）
+        assert_eq!(to_snake_case("parseXML"), "parse_xml");
+        // getHTTPSUrl → get_https_url
+        assert_eq!(to_snake_case("getHTTPSUrl"), "get_https_url");
+        // HTMLParser（全大写前缀 + 混合大小写后缀）
+        assert_eq!(to_snake_case("HTMLParser"), "html_parser");
+        // ID → id（纯大写单词）
+        assert_eq!(to_snake_case("ID"), "id");
+        // getID → get_id
+        assert_eq!(to_snake_case("getID"), "get_id");
+        // 普通驼峰不受影响
+        assert_eq!(to_snake_case("getValue"), "get_value");
+        assert_eq!(to_snake_case("hello"), "hello");
+    }
+
     #[test]
     fn test_restrict_qualifier_stripped() {
         // 后缀形式（有空格）：__restrict / __restrict__ 出现在指针末尾时应被去掉，生成合法 Rust 类型
