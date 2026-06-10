@@ -764,6 +764,44 @@ fn rapidjson_shim_smoke_test_cargo_check() {
     );
 }
 
+/// 回归测试：value_ffi.rs 生成代码不得包含 `class RapidJsonValueHandle;`。
+///
+/// 根因：`RapidJsonValueHandle` 只有工厂函数（associated_fns）和析构函数（destroy_fn），
+/// 没有实例方法（methods）。若在 `import_lib!` 中生成 `class RapidJsonValueHandle;`，
+/// hicc 会启用 ABI 类机制，尝试用 varargs 包装非变参函数指针，导致 C++ 编译错误。
+/// 修复：`hicc_codegen` 只为有 `methods` 的类生成 `class TypeName;`。
+#[test]
+fn value_ffi_no_abi_class_decl_for_handle() {
+    let shim_dir = PathBuf::from(RAPIDJSON_SHIM_DIR);
+    let src_path = shim_dir.join("value_ffi.cpp");
+    if !src_path.exists() {
+        eprintln!("跳过：value_ffi.cpp 不存在");
+        return;
+    }
+    let preprocess_dir = std::env::temp_dir().join("cpp2rust_test_vffi_regression");
+    std::fs::create_dir_all(&preprocess_dir).unwrap();
+    let includes: &[&str] = &[RAPIDJSON_INCLUDE, RAPIDJSON_SHIM_DIR];
+
+    let preprocessed = match common::preprocess_cpp(&src_path, includes, &preprocess_dir, "value_ffi") {
+        Some(p) => p,
+        None => {
+            eprintln!("跳过：value_ffi.cpp 预处理失败（g++ 是否已安装？）");
+            return;
+        }
+    };
+    let ast = ast_parser::parse_preprocessed(&preprocessed).unwrap();
+    let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
+    let spec = extractor::extract(&ast, "value_ffi", &sys_includes, proj_header.as_deref(), &extra_local_includes);
+    let code = hicc_codegen::generate(&spec);
+
+    assert!(
+        !code.contains("class RapidJsonValueHandle;"),
+        "value_ffi 生成代码不应包含 `class RapidJsonValueHandle;`（会触发错误的 hicc ABI 类机制）。\n\
+         实际生成代码片段：\n{}",
+        &code[..code.len().min(1000)]
+    );
+}
+
 #[test]
 #[ignore]
 fn print_value_ffi_generated_code() {
