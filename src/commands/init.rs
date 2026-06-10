@@ -97,7 +97,6 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     println!("    └── rust/       （生成的 Rust 项目）");
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");
-    println!("        ├── src/        （lib.rs + 各编译单元 .rs 文件）");
     println!("        └── src/        （lib.rs + 各编译单元 .rs 文件）");
     println!();
     println!(
