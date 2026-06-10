@@ -815,16 +815,6 @@ fn print_value_ffi_generated_code() {
     let ast = ast_parser::parse_preprocessed(&preprocessed).unwrap();
     let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
 
-    let interesting = ["clzll", "Pow10", "FastPath", "StrtodFast", "SkipWhitespace", "PutN"];
-    println!("=== functions matching internal names (in ast.functions) ===");
-    for f in &ast.functions {
-        if interesting.iter().any(|&n| f.name == n) {
-            println!("  name={} is_inline={} is_extern_c={} is_from_current_file={} body_offset={:?}",
-                f.name, f.is_inline, f.is_extern_c, f.is_from_current_file, f.body_offset);
-        }
-    }
-    println!("===");
-
     let spec = extractor::extract(&ast, "value_ffi", &sys_includes, proj_header.as_deref(), &extra_local_includes);
     
     println!("classes in ast: {:?}", ast.classes.iter().map(|c| (&c.name, c.is_from_current_file)).collect::<Vec<_>>());

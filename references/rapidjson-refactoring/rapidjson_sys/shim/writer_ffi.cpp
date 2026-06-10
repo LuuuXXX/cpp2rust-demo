@@ -39,11 +39,7 @@ void rapidjson_stringbuffer_shrink_to_fit(RapidJsonStringBufferHandle* h) {
 }
 
 // ── Writer ────────────────────────────────────────────────────────────────────
-
-struct RapidJsonWriterHandle {
-    Writer<StringBuffer> w;
-    RapidJsonWriterHandle(StringBuffer& sb) : w(sb) {}
-};
+// RapidJsonWriterHandle is defined in internal_handles.h.
 
 RapidJsonWriterHandle* rapidjson_writer_new(RapidJsonStringBufferHandle* sb) {
     return new (std::nothrow) RapidJsonWriterHandle(sb->sb);
@@ -81,11 +77,7 @@ int rapidjson_writer_key_cstr(RapidJsonWriterHandle* h, const char* k) {
 }
 
 // ── PrettyWriter ──────────────────────────────────────────────────────────────
-
-struct RapidJsonPrettyWriterHandle {
-    PrettyWriter<StringBuffer> w;
-    RapidJsonPrettyWriterHandle(StringBuffer& sb) : w(sb) {}
-};
+// RapidJsonPrettyWriterHandle is defined in internal_handles.h.
 
 RapidJsonPrettyWriterHandle* rapidjson_prettywriter_new(RapidJsonStringBufferHandle* sb) {
     return new (std::nothrow) RapidJsonPrettyWriterHandle(sb->sb);
