@@ -203,12 +203,29 @@ fn detect_namespace_mode(
 
     // 判断类型字符串是否触发命名空间类模式：
     // - void* / void * → opaque 指针模式
-    // - 包含任意命名空间限定类名（精确子串，而非通用 ::）
+    // - 包含任意命名空间限定类名（带单词边界检查，避免 "Result" 匹配 "ParseResult"）
     let type_triggers = |t: &str| -> bool {
         if t.contains("void *") || t.contains("void*") {
             return true;
         }
-        ns_qualified.iter().any(|qn| t.contains(qn))
+        ns_qualified.iter().any(|qn| {
+            // 在类型字符串中查找 qn，要求前后为非标识符字符（空白、*、&、,、<、>、(、)）
+            // 或字符串边界，防止 "Result" 误匹配 "ParseResult"。
+            let is_ident_char = |c: char| c.is_alphanumeric() || c == '_';
+            let mut start = 0;
+            while let Some(pos) = t[start..].find(qn as &str) {
+                let abs = start + pos;
+                let before_ok = abs == 0 || !is_ident_char(t[..abs].chars().next_back().unwrap());
+                let after_pos = abs + qn.len();
+                let after_ok = after_pos >= t.len()
+                    || !is_ident_char(t[after_pos..].chars().next().unwrap());
+                if before_ok && after_ok {
+                    return true;
+                }
+                start = abs + 1;
+            }
+            false
+        })
     };
 
     eligible_functions.iter().any(|f| {
@@ -314,14 +331,20 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
     //   foo_alloc / foo_alloc_variant / foo_allocX
     //   foo_build / foo_build_variant / foo_buildX
     fn has_ctor_suffix(name: &str, suffix: &str) -> bool {
-        let suf = format!("_{}", suffix);
-        let suf_under = format!("_{}_", suffix);
+        // 构造 "_suffix" 形式进行精确边界检查，避免 format! 动态分配
+        let mut suf_buf = [0u8; 32];
+        let suf_len = 1 + suffix.len();
+        suf_buf[0] = b'_';
+        suf_buf[1..suf_len].copy_from_slice(suffix.as_bytes());
+        let suf = std::str::from_utf8(&suf_buf[..suf_len]).unwrap_or_default();
         name == suffix
-            || name.ends_with(&suf)
-            || name.contains(&suf_under)
-            || name.find(&suf).map_or(false, |p| {
+            || name.ends_with(suf)
+            || name.find(suf).map_or(false, |p| {
+                // 检查 suffix 后是否为 '_'（中段）或大写字母（驼峰）
                 name.get(p + suf.len()..)
-                    .map_or(false, |rest| rest.starts_with(|c: char| c.is_uppercase()))
+                    .map_or(false, |rest| {
+                        rest.starts_with('_') || rest.starts_with(|c: char| c.is_uppercase())
+                    })
             })
     }
 

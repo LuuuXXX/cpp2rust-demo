@@ -147,8 +147,6 @@ bar.cpp             │                  │                    │             
     import_lib!   { fn counter_new() -> *mut Counter; ... }
 ```
 
-
-
 以 `Counter` 类为例：
 
 ```rust
