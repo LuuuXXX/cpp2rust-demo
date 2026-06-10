@@ -604,4 +604,150 @@ mod tests {
     fn zero_value_const_i8_ptr_needs_unsafe() {
         assert!(matches!(zero_value_for_type("*const i8"), ZeroValue::NeedsUnsafe(_)));
     }
+
+    // ── 新增：含 ctor/dtor 的类生命周期（有方法的完整路径）──────────────────────
+
+    /// 类别 A：含 ctor/dtor 且方法参数全为基本类型 → 生成完整生命周期测试（含方法调用）
+    #[test]
+    fn generate_class_with_method_call() {
+        let cs = make_class_spec("Widget", true, true);
+        let spec = make_spec("widget", cs, vec![]);
+        let out = generate(&[("widget", &spec)], "mylib");
+        // 应生成生命周期测试
+        assert!(out.contains("fn smoke_widget_widget_lifecycle()"), "缺少生命周期测试函数名");
+        // 应含方法调用
+        assert!(out.contains("obj.get()"), "应含方法调用 obj.get()");
+    }
+
+    /// 类别 A：无 destroy_fn 的类不生成生命周期测试
+    #[test]
+    fn generate_class_without_dtor_no_lifecycle() {
+        let cs = ClassSpec {
+            name: "NoDtor".to_string(),
+            methods: vec![],
+            associated_fns: vec![],
+            destroy_fn: None,
+            is_interface: false,
+        };
+        let spec = make_spec("nodtor", cs, vec![]);
+        let out = generate(&[("nodtor", &spec)], "mylib");
+        assert!(!out.contains("fn smoke_nodtor_nodtor_lifecycle()"), "无析构函数时不应生成生命周期测试");
+    }
+
+    /// 类别 A 注释桩：ctor 含指针参数 → 生成注释桩而非可运行测试
+    #[test]
+    fn generate_class_ctor_with_ptr_param_becomes_stub() {
+        let cs = ClassSpec {
+            name: "Complex".to_string(),
+            methods: vec![],
+            associated_fns: vec![FnBinding {
+                cpp_sig: "Complex* complex_new(int* data)".to_string(),
+                rust_name: "complex_new".to_string(),
+                params: vec![("data".to_string(), "*mut i32".to_string())],
+                ret_type: Some("Complex".to_string()),
+                is_unsafe: false,
+                has_fn_ptr_param: false,
+            }],
+            destroy_fn: Some("complex_delete".to_string()),
+            is_interface: false,
+        };
+        let spec = make_spec("complex", cs, vec![]);
+        let out = generate(&[("complex", &spec)], "mylib");
+        // ctor 有指针参数，应生成注释桩
+        assert!(out.contains("cpp2rust-todo[SMOKE]"), "ctor 有指针参数时应生成注释桩，实际：\n{}", out);
+        // stub 中 #[test] 与 fn 之间有 // 注释行隔开，故 "#[test]\nfn" 不会相邻出现
+        let normalized = out.replace("\r\n", "\n");
+        assert!(!normalized.contains("#[test]\nfn smoke_complex_complex_lifecycle"), "ctor 有指针参数时不应生成可运行测试");
+    }
+
+    // ── 新增：接口类（类别 D）工厂函数测试 ──────────────────────────────────────
+
+    /// 类别 D：接口类有工厂函数 → 生成工厂调用测试
+    #[test]
+    fn generate_interface_class_with_factory() {
+        let factory = FnBinding {
+            cpp_sig: "IShape* create_shape()".to_string(),
+            rust_name: "create_shape".to_string(),
+            params: vec![],
+            ret_type: Some("*mut IShape".to_string()),
+            is_unsafe: false,
+            has_fn_ptr_param: false,
+        };
+        let cs = ClassSpec {
+            name: "IShape".to_string(),
+            methods: vec![],
+            associated_fns: vec![],
+            destroy_fn: None,
+            is_interface: true,
+        };
+        let spec = FfiSpec {
+            unit_name: "shapes".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![cs],
+            lib_spec: LibSpec {
+                link_name: "shapes".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![factory],
+            },
+        };
+        let out = generate(&[("shapes", &spec)], "mylib");
+        // 接口类测试（类别 D）
+        assert!(out.contains("create_shape()"), "应含工厂函数调用，实际：\n{}", out);
+        assert!(out.contains("is_null"), "应含 is_null 断言，实际：\n{}", out);
+    }
+
+    /// 类别 D：接口类无工厂函数 → 生成注释提示
+    #[test]
+    fn generate_interface_class_without_factory_gives_comment() {
+        let cs = ClassSpec {
+            name: "IBase".to_string(),
+            methods: vec![],
+            associated_fns: vec![],
+            destroy_fn: None,
+            is_interface: true,
+        };
+        let spec = FfiSpec {
+            unit_name: "base".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![cs],
+            lib_spec: LibSpec {
+                link_name: "base".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![],
+            },
+        };
+        let out = generate(&[("base", &spec)], "mylib");
+        assert!(out.contains("无已知工厂函数"), "无工厂函数时应生成注释提示，实际：\n{}", out);
+    }
+
+    // ── 新增：含函数指针参数的函数（类别 C）─────────────────────────────────────
+
+    /// 类别 C：has_fn_ptr_param=true 的函数 → 生成注释桩（含函数指针参数提示）
+    #[test]
+    fn generate_fn_ptr_param_generates_stub() {
+        let fb = FnBinding {
+            cpp_sig: "void register_callback(void (*cb)(int))".to_string(),
+            rust_name: "register_callback".to_string(),
+            params: vec![("cb".to_string(), "unsafe extern \"C\" fn(i32)".to_string())],
+            ret_type: None,
+            is_unsafe: false,
+            has_fn_ptr_param: true,
+        };
+        let spec = FfiSpec {
+            unit_name: "callbacks".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![],
+            lib_spec: LibSpec {
+                link_name: "callbacks".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![fb],
+            },
+        };
+        let out = generate(&[("callbacks", &spec)], "mylib");
+        assert!(out.contains("含函数指针参数"), "has_fn_ptr_param=true 应生成函数指针注释桩，实际：\n{}", out);
+        assert!(out.contains("cpp2rust-todo[SMOKE]"), "应含 SMOKE 占位符，实际：\n{}", out);
+        // 不应生成可运行测试（stub 中 #[test] 与 fn 之间有注释行隔开）
+        let normalized = out.replace("\r\n", "\n");
+        assert!(!normalized.contains("#[test]\nfn smoke_callbacks_fn_register"), "不应生成可运行测试，实际：\n{}", out);
+    }
 }

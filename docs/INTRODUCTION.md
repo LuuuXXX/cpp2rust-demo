@@ -77,6 +77,32 @@ bar.cpp             │                  │                    │             
 
 降级处标记 `cpp2rust-todo[TAG]`，开发者可直接定位待手动完善的位置。
 
+##### `diamond_handler`：菱形虚继承处理
+
+**触发条件**：检测到某个类有 2 个及以上直接基类，且这些基类共享同一个祖先类（菱形结构）。
+
+**处理逻辑**：
+1. 从菱形共同基类中收集所有 `public` 非 ctor/dtor 非 static 的非运算符方法名
+2. 对每个方法生成 snake_case 命名的 C++ shim 函数（插入 `cpp!` 块），形式为 `{cn_lower}_{method_name}(ClassName* self)`
+3. 在 `import_lib!` 块中生成对应的 `FnBinding`（位于该类 ctor 绑定之前）
+4. 从该类的 `import_class!` 块中删除菱形基类方法（避免歧义调用）
+
+**输出位置**：shim 函数进 `cpp!` 块；对应绑定进 `import_lib!`；该类 `import_class!` 中移除冲突方法。
+
+**shim 命名规则**：`{class_snake_case}_{method_name}`，例如类 `Dog`、方法 `eat` → shim 名 `dog_eat`。菱形 shim 不标记 `unsafe`（遵循 golden 规则）。
+
+##### `operator_handler`：运算符重载处理
+
+**触发条件**：类的方法名以 `operator` 开头（包括二元、一元、比较等运算符）。
+
+**处理逻辑**：
+- **Getter/Accessor 系列**（`[]`、`()`、解引用 `*` 等）：生成命名 accessor shim
+- **BinaryOp 系列**（`+`、`-`、`*`、`/` 等）：生成命名二元函数 `{class}_add` / `{class}_sub` 等
+- **UnaryOp 系列**（前缀 `++`、`--`、一元 `-` 等）：生成命名一元函数
+- **Compare 系列**（`==`、`!=`、`<`、`>` 等）：生成命名比较函数 `{class}_eq` 等
+
+**输出位置**：命名 shim 函数进 `cpp!` 块；对应绑定进 `import_lib!`；原 `import_class!` 中的 operator 方法移除。降级位置标记 `cpp2rust-todo[OP]`。
+
 ### 最终产出：hicc 三段式
 
 以 `Counter` 类为例：

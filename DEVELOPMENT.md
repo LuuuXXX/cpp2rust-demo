@@ -47,6 +47,7 @@ cpp2rust-demo (bin)
     ├── merger/                  # Phase 6：merge 命令核心逻辑
     │   ├── mod.rs               # merge_units()：多 unit .rs 文件合并为 MergedSpec，去重 + 冲突检测
     │   └── block_parser.rs      # parse_unit_rs()：解析单个 .rs 文件中的 hicc 块
+    ├── metrics.rs               # merge 命令辅助模块：源码行数统计、cpp2rust-todo 标签解析（非独立 phase）
     └── generator/               # Phase 5：FfiSpec → Rust 代码
         ├── mod.rs
         ├── hicc_codegen.rs      # hicc 三段式代码生成

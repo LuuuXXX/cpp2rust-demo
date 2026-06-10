@@ -280,14 +280,12 @@ pub fn emit_merged_rs(spec: &MergedSpec, link_name: &str) -> String {
         out.push_str("hicc::import_class! {\n");
         out.push_str(&format!("    {}\n", attr_line));
         out.push_str(&format!("    class {} {{\n", class_name));
-        for m in methods {
+        for (i, m) in methods.iter().enumerate() {
             out.push_str(&format!("        {}\n", m.attr));
             out.push_str(&format!("        {}\n", m.fn_sig));
-            out.push('\n');
-        }
-        // 去掉最后一个方法后多余的空行
-        if out.ends_with("\n\n") {
-            out.pop();
+            if i + 1 < methods.len() {
+                out.push('\n');
+            }
         }
         out.push_str("    }\n");
         out.push_str("}\n");
@@ -951,5 +949,80 @@ hicc::import_lib! {
             .filter(|l| l.contains("common.h"))
             .count();
         assert_eq!(common_count, 1, "common.h 应只出现一次，实际 cpp_lines: {:?}", spec.cpp_lines);
+    }
+
+    // ── collect_degraded_sigs_from_str 边界测试 ──────────────────────────────
+
+    #[test]
+    fn collect_degraded_sigs_normal_case() {
+        // 签名前 2 行有 cpp2rust-todo 注释时应被收集
+        let content = "\
+// cpp2rust-todo[FP] 含函数指针\n\
+#[cpp(func = \"void foo()\")]\n\
+fn foo();\n";
+        let mut degraded = HashSet::new();
+        collect_degraded_sigs_from_str(content, &mut degraded);
+        assert!(degraded.contains("void foo()"), "应收集到降级签名，实际: {:?}", degraded);
+    }
+
+    #[test]
+    fn collect_degraded_sigs_no_todo_no_collect() {
+        // 没有 cpp2rust-todo 注释时不收集
+        let content = "\
+#[cpp(func = \"void bar()\")]\n\
+fn bar();\n";
+        let mut degraded = HashSet::new();
+        collect_degraded_sigs_from_str(content, &mut degraded);
+        assert!(degraded.is_empty(), "无降级注释时不应收集，实际: {:?}", degraded);
+    }
+
+    #[test]
+    fn collect_degraded_sigs_sig_at_line_0() {
+        // 签名恰好在文件第 0 行（最顶部），saturating_sub(2) = 0，向上扫描范围 [0..0] 为空
+        // 前面没有可扫描的行 → 不应收集（也不应 panic）
+        let content = "#[cpp(func = \"void first()\")]\nfn first();\n";
+        let mut degraded = HashSet::new();
+        collect_degraded_sigs_from_str(content, &mut degraded);
+        assert!(degraded.is_empty(), "第 0 行的签名前无 todo 注释，不应收集，实际: {:?}", degraded);
+    }
+
+    #[test]
+    fn collect_degraded_sigs_sig_at_line_1() {
+        // 签名在第 1 行（第二行），saturating_sub(2) = 0，向上扫描范围 [0..1] 只有一行
+        // 第 0 行有 todo 注释 → 应收集
+        let content = "// cpp2rust-todo[OP]\n#[cpp(func = \"int op()\")]\nfn op() -> i32;\n";
+        let mut degraded = HashSet::new();
+        collect_degraded_sigs_from_str(content, &mut degraded);
+        assert!(degraded.contains("int op()"), "第 1 行签名前有 todo 注释，应收集，实际: {:?}", degraded);
+    }
+
+    #[test]
+    fn collect_degraded_sigs_method_attr() {
+        // method 属性同样应被识别
+        let content = "\
+// cpp2rust-todo[VM]\n\
+#[cpp(method = \"void set(int) volatile\")]\n\
+fn set(&mut self, v: i32);\n";
+        let mut degraded = HashSet::new();
+        collect_degraded_sigs_from_str(content, &mut degraded);
+        assert!(
+            degraded.contains("void set(int) volatile"),
+            "method 属性应被收集，实际: {:?}",
+            degraded
+        );
+    }
+
+    #[test]
+    fn collect_degraded_sigs_todo_3_lines_above_not_collected() {
+        // todo 注释距签名超过 2 行，不应收集
+        let content = "\
+// cpp2rust-todo[FP]\n\
+// comment 1\n\
+// comment 2\n\
+#[cpp(func = \"void far()\")]\n\
+fn far();\n";
+        let mut degraded = HashSet::new();
+        collect_degraded_sigs_from_str(content, &mut degraded);
+        assert!(degraded.is_empty(), "距离超 2 行的 todo 不应触发收集，实际: {:?}", degraded);
     }
 }

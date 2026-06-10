@@ -254,6 +254,69 @@ cargo install --path .
 > 自动将 hook 源码解压到 `~/.local/share/cpp2rust-demo/hook/`（Linux）或
 > `~/Library/Application Support/cpp2rust-demo/hook/`（macOS）并编译；后续调用在 hook 库为最新版时自动跳过重编译。
 
+#### Windows
+
+Windows 平台通过将 `hook_shim.exe` 注入到 PATH 最前面来拦截 `g++`/`clang++`/`cl` 调用，支持 MinGW-w64 和 MSVC 两种工具链。
+
+##### 前提：Rust 工具链
+
+```powershell
+# 从 https://rustup.rs 下载安装 rustup
+# 安装时选择对应工具链目标：
+#   MinGW-w64 路径：stable-x86_64-pc-windows-gnu
+#   MSVC 路径：    stable-x86_64-pc-windows-msvc（推荐）
+rustup toolchain install stable-x86_64-pc-windows-msvc
+```
+
+##### 方式 A：MinGW-w64（`g++`）
+
+1. 安装 MSYS2（https://www.msys2.org）并打开 MSYS2 MinGW 64-bit 终端：
+   ```bash
+   pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-clang
+   ```
+2. 确认 `g++` 和 `clang` 在 PATH 中：
+   ```bash
+   g++ --version    # 期望输出 MinGW-w64 g++ ...
+   clang++ --version
+   ```
+3. 安装工具（在 MSYS2 MinGW 终端或 PowerShell 中）：
+   ```powershell
+   cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
+   ```
+4. 在目标 C++ 项目目录运行 `init`（PowerShell 或 MSYS2 终端）：
+   ```powershell
+   cpp2rust-demo init -- make -j4
+   # 或使用 CMake：
+   cpp2rust-demo init -- cmake --build build
+   ```
+
+##### 方式 B：MSVC（`cl.exe`）
+
+1. 安装 Visual Studio 2019/2022（包含 **"使用 C++ 的桌面开发"** 工作负载），或安装 "Build Tools for Visual Studio"
+2. 打开 **"x64 Native Tools Command Prompt for VS"**（确保 `cl.exe` 在 PATH 中）：
+   ```cmd
+   cl.exe /?    :: 期望输出 Microsoft (R) C/C++ 编译器版本 ...
+   ```
+3. 安装 LLVM for Windows（提供 `libclang.dll`，构建时必须）：
+   - 从 https://github.com/llvm/llvm-project/releases 下载 LLVM-x.y.z-win64.exe
+   - 安装后设置环境变量（在 x64 命令提示符中）：
+     ```cmd
+     set LIBCLANG_PATH=C:\Program Files\LLVM\bin
+     ```
+     建议将其写入系统环境变量以永久生效。
+4. 安装工具：
+   ```cmd
+   cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
+   ```
+5. 运行 `init`：
+   ```cmd
+   cpp2rust-demo init -- msbuild MyProject.sln /p:Configuration=Release
+   :: 或 CMake：
+   cpp2rust-demo init -- cmake --build build --config Release
+   ```
+
+> **Windows PATH 注入机制**：`hook_shim.exe` 会在运行时自动注入到 PATH 最前面，拦截编译器调用后记录预处理结果至 `.cpp2rust` 文件。首次执行 `init` 时工具将 `hook_shim.exe` 解压至 `%APPDATA%\cpp2rust-demo\hook\` 并通过 PATH 前置使其生效；后续调用若二进制未变则自动跳过重部署。
+
 ### Step 1 — `init`：捕获构建 + 生成 FFI 脚手架
 
 在目标 C++ 项目根目录执行：
@@ -622,6 +685,18 @@ hicc::import_lib! {
 | `[LONG_DOUBLE]` | — | `long double` 类型 | x86-64 Linux 的 `long double` 是 80 位扩展浮点，Rust 无原生对应类型 | 自动降级映射为 `f64`（64 位双精度），有精度损失，并在对应绑定处加 `// cpp2rust-todo[LONG_DOUBLE]` 注释 | 若需精确 80 位精度，考虑引入第三方 `f128`/`rug` crate，或改用 C 桥接函数转换为 `double` 后再绑定 |
 
 各降级特性的完整代码示例（C++ 源码 + 生成的 Rust FFI 代码）见 [docs/INTRODUCTION.md — 降级特性详解](docs/INTRODUCTION.md#part-3降级特性详解)。
+
+### 类型映射注意事项
+
+工具在将 C++ 类型映射为 Rust FFI 类型时，以下情况需要特别注意：
+
+| C++ 类型 | Rust 映射 | 注意事项 |
+|---------|----------|---------|
+| `long double` | `f64` | **精度损失**：x86-64 Linux 上 `long double` 为 80 位扩展浮点，映射为 64 位 `f64` 会丢失精度。自动标注 `cpp2rust-todo[LONG_DOUBLE]`。 |
+| `T&`（左值引用） | `&mut T` | **生命周期安全**：Rust 引用携带生命周期保证，而 FFI 中 C++ 引用的生命周期由调用方管理，Rust 编译器无法验证。使用时需确保被引用对象的生命周期长于 Rust 引用。 |
+| `const T&` | `&T` | 同上，const 引用映射为不可变引用，生命周期同样由调用方负责。 |
+| `void*` | `*mut u8` | opaque 指针，类型信息丢失，建议通过 hicc `import_class!` 的 opaque 类型封装。 |
+| `T[N]` | `*mut T` | C 数组参数退化为指针，元素数量信息丢失。 |
 
 ---
 
