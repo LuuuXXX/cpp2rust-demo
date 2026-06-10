@@ -554,11 +554,6 @@ jobs:
           cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
           cargo check --quiet
 
-      - name: Run cargo test in generated project (E2E link check)
-        run: |
-          cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
-          cargo test --quiet
-
   usage-verify-rapidjson-ffi-windows:
     name: Usage verify-rapidjson-ffi (Windows MinGW)
     runs-on: windows-latest

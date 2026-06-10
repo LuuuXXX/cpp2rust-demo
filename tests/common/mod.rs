@@ -55,7 +55,7 @@ pub fn run_tool_on(example_dir: &str) -> String {
     };
 
     // 5. 读取原始 .cpp 文件的 include 信息
-    let (system_includes, project_header, extra_local_includes) = extractor::read_source_includes(&cpp_file);
+    let (system_includes, project_header) = extractor::read_source_includes(&cpp_file);
 
     // 6. 提取 FfiSpec
     let spec = extractor::extract(
@@ -63,7 +63,6 @@ pub fn run_tool_on(example_dir: &str) -> String {
         &unit_name,
         &system_includes,
         project_header.as_deref(),
-        &extra_local_includes,
     );
 
     // 7. 生成 hicc 代码，提取纯 hicc 块（去除文件级前缀如 use crate::*;）
@@ -464,8 +463,8 @@ pub fn process_cpp_source(
 
     let preprocessed = preprocess_cpp(src, include_dirs, preprocess_dir, &unit_name)?;
     let ast = ast_parser::parse_preprocessed(&preprocessed).ok()?;
-    let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(src);
-    let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref(), &extra_local_includes);
+    let (sys_includes, proj_header) = extractor::read_source_includes(src);
+    let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
     let code = hicc_codegen::generate(&spec);
     Some((unit_name, code))
 }

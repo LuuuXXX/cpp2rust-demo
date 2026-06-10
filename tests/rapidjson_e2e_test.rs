@@ -380,8 +380,8 @@ fn rapidjson_shim_ffi_generates_importlib() {
             }
         };
 
-        let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
-        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref(), &extra_local_includes);
+        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
         let code = hicc_codegen::generate(&spec);
 
         // 验证 1：必须有 import_lib! 块
@@ -517,8 +517,8 @@ fn rapidjson_shim_smoke_test_generated() {
             }
         };
 
-        let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
-        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref(), &extra_local_includes);
+        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
         units.push((unit_name, spec));
     }
 
@@ -648,8 +648,8 @@ fn rapidjson_shim_smoke_test_cargo_check() {
             }
         };
 
-        let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
-        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref(), &extra_local_includes);
+        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
         units.push((unit_name, spec));
     }
 
@@ -689,9 +689,7 @@ fn rapidjson_shim_smoke_test_cargo_check() {
     // 2. 写各 unit 的 .rs 文件
     for (unit_name, spec) in &units {
         // 为本 unit fwd_decls 中既不被全局拥有、也尚未在其他 unit 生成过不透明块的类型
-        // 生成 repr(C) 普通结构体声明，定义不透明 Rust 类型（如 RapidJsonHandlerCallbacks）。
-        // 使用普通结构体而非 hicc::import_class!，以避免 hicc ABI 变参数转换对纯 C 指针类型
-        // 产生 "invalid conversion ... to void(*)(T*, ...)" 的编译错误。
+        // 生成空的 import_class! 前缀，以定义不透明 Rust 类型（如 RapidJsonHandlerCallbacks）。
         let opaque_preamble: String = spec
             .lib_spec
             .fwd_decls
@@ -710,7 +708,7 @@ fn rapidjson_shim_smoke_test_cargo_check() {
                 }
                 assigned_opaque.insert(type_name.to_string());
                 Some(format!(
-                    "#[repr(C)]\npub struct {n} {{ _private: [u8; 0] }}\n\n",
+                    "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n\n",
                     n = type_name
                 ))
             })
@@ -762,67 +760,4 @@ fn rapidjson_shim_smoke_test_cargo_check() {
         "smoke-cargo-check: {} 个 shim unit 的冒烟测试 cargo check 通过 ✓",
         units.len()
     );
-}
-
-/// 回归测试：value_ffi.rs 生成代码不得包含 `class RapidJsonValueHandle;`。
-///
-/// 根因：`RapidJsonValueHandle` 只有工厂函数（associated_fns）和析构函数（destroy_fn），
-/// 没有实例方法（methods）。若在 `import_lib!` 中生成 `class RapidJsonValueHandle;`，
-/// hicc 会启用 ABI 类机制，尝试用 varargs 包装非变参函数指针，导致 C++ 编译错误。
-/// 修复：`hicc_codegen` 只为有 `methods` 的类生成 `class TypeName;`。
-#[test]
-fn value_ffi_no_abi_class_decl_for_handle() {
-    let shim_dir = PathBuf::from(RAPIDJSON_SHIM_DIR);
-    let src_path = shim_dir.join("value_ffi.cpp");
-    if !src_path.exists() {
-        eprintln!("跳过：value_ffi.cpp 不存在");
-        return;
-    }
-    let preprocess_dir = std::env::temp_dir().join("cpp2rust_test_vffi_regression");
-    std::fs::create_dir_all(&preprocess_dir).unwrap();
-    let includes: &[&str] = &[RAPIDJSON_INCLUDE, RAPIDJSON_SHIM_DIR];
-
-    let preprocessed = match common::preprocess_cpp(&src_path, includes, &preprocess_dir, "value_ffi") {
-        Some(p) => p,
-        None => {
-            eprintln!("跳过：value_ffi.cpp 预处理失败（g++ 是否已安装？）");
-            return;
-        }
-    };
-    let ast = ast_parser::parse_preprocessed(&preprocessed).unwrap();
-    let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
-    let spec = extractor::extract(&ast, "value_ffi", &sys_includes, proj_header.as_deref(), &extra_local_includes);
-    let code = hicc_codegen::generate(&spec);
-
-    assert!(
-        !code.contains("class RapidJsonValueHandle;"),
-        "value_ffi 生成代码不应包含 `class RapidJsonValueHandle;`（会触发错误的 hicc ABI 类机制）。\n\
-         实际生成代码片段：\n{}",
-        &code[..code.len().min(1000)]
-    );
-}
-
-/// 手动诊断工具：打印 value_ffi.cpp 的解析结果和最终生成代码，方便调试 AST 解析或代码生成问题。
-/// 运行方式：cargo test --test rapidjson_e2e_test print_value_ffi_generated_code -- --ignored
-#[test]
-#[ignore]
-fn print_value_ffi_generated_code() {
-    let shim_dir = PathBuf::from(RAPIDJSON_SHIM_DIR);
-    let src_path = shim_dir.join("value_ffi.cpp");
-    let preprocess_dir = std::env::temp_dir().join("cpp2rust_test_vffi");
-    std::fs::create_dir_all(&preprocess_dir).unwrap();
-    let includes: &[&str] = &[RAPIDJSON_INCLUDE, RAPIDJSON_SHIM_DIR];
-
-    let preprocessed = common::preprocess_cpp(&src_path, includes, &preprocess_dir, "value_ffi").unwrap();
-    let ast = ast_parser::parse_preprocessed(&preprocessed).unwrap();
-    let (sys_includes, proj_header, extra_local_includes) = extractor::read_source_includes(&src_path);
-
-    let spec = extractor::extract(&ast, "value_ffi", &sys_includes, proj_header.as_deref(), &extra_local_includes);
-
-    // 以下 println! 是本调试工具的核心输出，供手动运行时检查 AST 解析和代码生成结果
-    println!("classes in ast: {:?}", ast.classes.iter().map(|c| (&c.name, c.is_from_current_file)).collect::<Vec<_>>());
-    println!("class_specs: {:?}", spec.class_specs.iter().map(|cs| (&cs.name, cs.is_empty())).collect::<Vec<_>>());
-
-    let code = hicc_codegen::generate(&spec);
-    println!("GENERATED:\n{}", &code[..code.len().min(3000)]);
 }

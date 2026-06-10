@@ -47,12 +47,7 @@ pub(super) fn collect_namespace(
             }
             EntityKind::FunctionDecl => {
                 if let Some(fi) = extract_function(&entity, None, cpp_ranges) {
-                    // 只收集来自当前 .cpp 文件的命名空间函数；
-                    // 第三方库头文件中的内部实现函数（如 rapidjson::internal::clzll）
-                    // 不应作为 FFI 导出，且其函数体引用了库内部类型，内联会导致编译失败。
-                    if fi.is_from_current_file {
-                        ast.functions.push(fi);
-                    }
+                    ast.functions.push(fi);
                 }
             }
             EntityKind::EnumDecl if entity_is_from_current_file(&entity, cpp_ranges) => {
