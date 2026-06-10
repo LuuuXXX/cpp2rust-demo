@@ -140,6 +140,8 @@ pub struct CppAst {
     pub typedefs: Vec<(String, u32, u32)>,
     /// 模板类源码范围列表：(名称, 起始偏移, 结束偏移)
     pub template_class_ranges: Vec<(String, u32, u32)>,
+    /// 来自当前 .cpp 文件的 `using namespace X;` 指令（保序、去重）
+    pub using_namespaces: Vec<String>,
 }
 
 // ─────────────────────────────────────────────
@@ -181,6 +183,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         enums: Vec::new(),
         typedefs: Vec::new(),
         template_class_ranges: Vec::new(),
+        using_namespaces: Vec::new(),
     };
 
     let root = tu.get_entity();
@@ -199,6 +202,42 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         // 内部的精细过滤由 collect_linkage_spec 自行处理（非内联定义不跳过）。
         if kind == EntityKind::LinkageSpec || kind == EntityKind::UnexposedDecl {
             collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges, &user_files);
+            continue;
+        }
+
+        // `using namespace X;` 指令通过 cpp_ranges 过滤后直接收集，
+        // 无需经过下方基于 is_in_system_header() 的过滤（该过滤会错误地丢弃它们）。
+        if kind == EntityKind::UsingDirective {
+            if let Some(range) = entity.get_range() {
+                let start = range.get_start().get_file_location().offset as usize;
+                if cpp_ranges.iter().any(|r| r.contains(&(start as u32))) {
+                    // libclang range end 可能不含分号；向前最多扫 256 字节找 `;`
+                    let bytes = file_content.as_bytes();
+                    if start < bytes.len() {
+                        let search_end = (start + 256).min(bytes.len());
+                        let semi_pos = bytes[start..search_end]
+                            .iter()
+                            .position(|&b| b == b';')
+                            .map(|p| start + p + 1)
+                            .unwrap_or_else(|| {
+                                range.get_end().get_file_location().offset as usize
+                            });
+                        if let Ok(text) = std::str::from_utf8(&bytes[start..semi_pos]) {
+                            let text = text.trim().to_string();
+                            if !text.is_empty() {
+                                let stmt = if text.ends_with(';') {
+                                    text
+                                } else {
+                                    format!("{};", text)
+                                };
+                                if !ast.using_namespaces.contains(&stmt) {
+                                    ast.using_namespaces.push(stmt);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             continue;
         }
 

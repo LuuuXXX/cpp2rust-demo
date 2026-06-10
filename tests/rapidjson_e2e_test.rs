@@ -423,6 +423,33 @@ fn rapidjson_shim_ffi_generates_importlib() {
             }
         }
 
+        // 验证 5：需要 using namespace 的 shim 文件，生成代码必须包含对应指令。
+        // document_ffi 的 .cpp 文件无直接 using namespace，但通过 extra_local_includes
+        // 引入 internal_handles.h（含 using namespace rapidjson;），检查该 include 的存在。
+        // 其余 9 个 shim 文件的 .cpp 均直接包含 using namespace 指令，检查其字面量。
+        let (ns_check_kind, ns_needle) = match unit_name.as_str() {
+            "bigintegertest_ffi" => ("literal", "using namespace rapidjson::internal;"),
+            "document_ffi" => ("include", "#include \"internal_handles.h\""),
+            "allocator_ffi"
+            | "encoding_ffi"
+            | "pointer_ffi"
+            | "reader_ffi"
+            | "schema_ffi"
+            | "stringbuffer_ffi"
+            | "value_ffi"
+            | "writer_ffi" => ("literal", "using namespace rapidjson;"),
+            _ => ("", ""),
+        };
+        if !ns_needle.is_empty() && !code.contains(ns_needle) {
+            let desc = if ns_check_kind == "include" {
+                format!("hicc::cpp! 块缺少 `{}`（用于引入 using namespace rapidjson;）", ns_needle)
+            } else {
+                format!("hicc::cpp! 块缺少 `{}` 指令", ns_needle)
+            };
+            failed_ffi.push(format!("{}: {}", unit_name, desc));
+            continue;
+        }
+
         println!(
             "  [OK] {}: {} fn_bindings, {} class_specs",
             unit_name,

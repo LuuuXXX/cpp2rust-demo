@@ -18,9 +18,18 @@ pub(super) fn build_cpp_block(
     let mut lines: Vec<String> = Vec::new();
 
     if !has_classes {
-        // 函数-only：仅放项目头文件 include
+        // 函数-only（或仅含模板类）：放项目头文件 include + 额外本地头文件 + using namespace 指令
         if let Some(hdr) = project_header {
             lines.push(format!("#include \"{}\"", hdr));
+        }
+        for hdr in extra_local_includes {
+            lines.push(format!("#include \"{}\"", hdr));
+        }
+        for ns in &ast.using_namespaces {
+            lines.push(ns.clone());
+        }
+        while lines.last().map(|l| l.is_empty()).unwrap_or(false) {
+            lines.pop();
         }
         return lines;
     }
@@ -50,6 +59,17 @@ pub(super) fn build_cpp_block(
         if let Some(hdr) = project_header {
             lines.push(format!("#include \"{}\"", hdr));
         }
+        // 包含额外本地头文件（如 internal_handles.h），为 import_class! 提供完整类型定义。
+        // 这些头文件自带 #pragma once 保护，与项目头文件的前向声明不会冲突。
+        for hdr in extra_local_includes {
+            lines.push(format!("#include \"{}\"", hdr));
+        }
+        // .cpp 文件中的 using namespace 指令（如 using namespace rapidjson;）。
+        // 对于将结构体定义在内部头文件（如 internal_handles.h）中的文件，
+        // 这些指令可能已由 extra_local_includes 间接引入，但显式输出无害（C++ 允许重复）。
+        for ns in &ast.using_namespaces {
+            lines.push(ns.clone());
+        }
         // 去掉末尾多余空行后直接返回：不输出 typedef/类定义/shim 函数
         while lines.last().map(|l| l.is_empty()).unwrap_or(false) {
             lines.pop();
@@ -67,6 +87,14 @@ pub(super) fn build_cpp_block(
         lines.push(format!("#include \"{}\"", hdr));
     }
     if !extra_local_includes.is_empty() {
+        lines.push(String::new());
+    }
+
+    // using namespace 指令（来自 .cpp 文件自身，在 #include 之后、类定义之前）
+    for ns in &ast.using_namespaces {
+        lines.push(ns.clone());
+    }
+    if !ast.using_namespaces.is_empty() {
         lines.push(String::new());
     }
 
