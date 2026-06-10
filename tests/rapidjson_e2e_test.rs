@@ -664,14 +664,63 @@ fn rapidjson_shim_smoke_test_cargo_check() {
     let unit_refs: Vec<(&str, &cpp2rust_demo::ffi_model::FfiSpec)> =
         units.iter().map(|(n, s)| (n.as_str(), s)).collect();
 
+    // 计算全局"已拥有"类型：在任意 unit 中含非空 ClassSpec（有方法/关联函数/析构函数）的类。
+    // 这类类型由其"归属" unit 的 import_class! 块定义，其他 unit 通过 `use crate::*;` 访问，
+    // 不需要重复定义。
+    let globally_owned_types: std::collections::HashSet<String> = units
+        .iter()
+        .flat_map(|(_, spec)| {
+            spec.class_specs
+                .iter()
+                .filter(|cs| !cs.is_empty())
+                .map(|cs| cs.name.clone())
+        })
+        .collect();
+
+    // 为每个没有任何 unit "拥有"（即无 ctor/dtor）但出现在函数签名中的类型，
+    // 在首个引用该类型的 unit 中生成不透明的 import_class! 块。
+    // 这与 init 命令中 build_cross_module_preamble 的 opaque 处理逻辑保持一致。
+    let mut assigned_opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     // 1. 写 Cargo.toml
     project_generator::write_cargo_toml(&rust_dir, "rapidjson_shim")
         .expect("smoke-cargo-check: write_cargo_toml 失败");
 
     // 2. 写各 unit 的 .rs 文件
     for (unit_name, spec) in &units {
+        // 为本 unit fwd_decls 中既不被全局拥有、也尚未在其他 unit 生成过不透明块的类型
+        // 生成空的 import_class! 前缀，以定义不透明 Rust 类型（如 RapidJsonHandlerCallbacks）。
+        let opaque_preamble: String = spec
+            .lib_spec
+            .fwd_decls
+            .iter()
+            .filter_map(|d| {
+                let type_name = d
+                    .strip_prefix("class ")
+                    .and_then(|s| s.strip_suffix(';'))
+                    .map(str::trim)
+                    .unwrap_or("");
+                if type_name.is_empty()
+                    || globally_owned_types.contains(type_name)
+                    || assigned_opaque.contains(type_name)
+                {
+                    return None;
+                }
+                assigned_opaque.insert(type_name.to_string());
+                Some(format!(
+                    "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n\n",
+                    n = type_name
+                ))
+            })
+            .collect();
+
         let code = hicc_codegen::generate(spec);
-        project_generator::write_unit_rs(&rust_dir, unit_name, &code)
+        let final_code = if opaque_preamble.is_empty() {
+            code
+        } else {
+            format!("{}{}", opaque_preamble, code)
+        };
+        project_generator::write_unit_rs(&rust_dir, unit_name, &final_code)
             .unwrap_or_else(|e| panic!("smoke-cargo-check: write_unit_rs 失败 ({}): {}", unit_name, e));
     }
 
