@@ -179,37 +179,20 @@ pub fn derive_unit_path(c_dir: &Path, cpp2rust_file: &Path) -> String {
 
 /// 在 `rust_dir` 下写出 Cargo.toml，`package.name = feature_name`。
 ///
-/// 注：使用 edition 2018 而非 2021，以避免 Rust 2021 对 `L'\0'`（C++ 宽字符字面量）
-/// 保留前缀的 lex 错误。在 hicc::cpp! 中 C++ 代码以 token stream 传入，Rust 2021
-/// 会在 proc macro 执行前就报 lex error；2018 则将其 tokenize 为标识符 `L` + 字符字面量。
-///
-/// **条件引入 `hicc-std` 依赖**：`hicc-std 0.2` 在 macOS Apple Clang 下存在编译问题——
-/// 其 `build.rs` 在非 MSVC 平台统一链接 `stdc++`，而 Apple Clang 使用 `libc++`（`-lc++`），
-/// 导致 `cargo check/build` 在 macOS 上失败。因此通过
-/// `[target.'cfg(not(target_os = "macos"))'.dependencies]` 仅在 Linux / Windows 上自动引入
-/// `hicc-std`，macOS 不引入。工具生成的 Rust FFI 代码本身不直接依赖 `hicc_std::` 类型，
-/// STL 容器均通过 C++ 侧自定义包装类暴露为普通 `extern "C"` 接口，所有平台均可编译；
-/// `hicc_std::` 类型别名（如 `hicc_std::string`、`hicc_std::vector` 等）在 Linux / Windows
-/// 上可直接使用，macOS 上需通过 wrapper 类方式替代。
+/// 使用 edition 2021，`cc` 作为唯一 build-dependency 直接编译 C++ shim 文件。
+/// hicc 依赖已移除，生成的 Rust FFI 代码使用标准 `extern "C"` 块，无跨平台兼容性问题。
 pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
     let content = format!(
         r#"[package]
 name = "{feature_name}"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "{lib_name}"
 path = "src/lib.rs"
 
-[dependencies]
-hicc = {{ version = "0.2" }}
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-hicc-std = {{ version = "0.2" }}
-
 [build-dependencies]
-hicc-build = {{ version = "0.2" }}
 cc = "1.0"
 "#,
         feature_name = feature_name,
@@ -304,20 +287,18 @@ fn path_to_fwd_slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }
 
-/// 写出 `build.rs`，调用 `hicc_build::Build::new()` 完成 C++ shim 编译。
+/// 写出 `build.rs`，调用 `cc::Build` 完成 C++ shim 编译。
 ///
-/// * `unit_rs_paths` — 各编译单元的 Rust 模块路径（如 `"allocator_ffi"`、`"shim/doc_ffi"`），
-///   对应的 `.rs` 文件为 `src/<unit_rs_path>.rs`。
-/// * `cpp_sources`   — 原始 C++ shim 源文件的绝对路径列表，会通过 `cc_build.file()` 编译进库。
+/// * `cpp_sources`   — 原始 C++ shim 源文件的绝对路径列表，会通过 `build.file()` 编译进库。
 /// * `include_dirs`  — 编译 C++ shim 所需的头文件搜索路径（绝对路径），来自 `.opts` 文件。
 ///
-/// 生成的 `build.rs` 遵循 `examples/` 中手写 `build.rs` 的相同模式：
-/// 1. 通过 `DerefMut` 取得内层 `cc::Build`，添加 include 目录和 C++ 源文件；
-/// 2. 对每个单元 `.rs` 文件调用 `build.rust_file()`，让 `hicc_build` 生成桥接代码；
-/// 3. 调用 `build.compile(lib_name)` 将全部代码编译进静态库。
+/// 生成的 `build.rs` 使用 `cc::Build` 直接编译 C++ 源文件，无需 hicc 桥接宏：
+/// 1. 创建 `cc::Build`，开启 C++ 模式，添加 include 目录和源文件；
+/// 2. 调用 `build.compile(lib_name)` 将全部代码编译进静态库（cc 自动 emit link 指令）；
+/// 3. 手动 emit C++ 标准库链接指令（macOS 链接 `c++`，Linux 等链接 `stdc++`，MSVC 自动处理）。
 ///
-/// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，
-/// 必须有对应的 `build.rs` 才能触发构建脚本。
+/// `unit_rs_paths` 参数保留以维持函数签名向后兼容，当前实现中不使用（extern "C" 绑定
+/// 不需要 hicc_build 扫描 .rs 文件生成 C++ 桥接代码）。
 pub fn write_build_rs(
     rust_dir: &Path,
     lib_name: &str,
@@ -325,6 +306,8 @@ pub fn write_build_rs(
     cpp_sources: &[PathBuf],
     include_dirs: &[PathBuf],
 ) -> Result<()> {
+    let _ = unit_rs_paths; // extern "C" 模式不需要 rust_file() 调用
+
     // 将绝对路径转换为相对于 rust_dir 的相对路径，以保证生成项目在同一仓库内的可移植性
     let rel_includes: Vec<String> = include_dirs
         .iter()
@@ -335,36 +318,22 @@ pub fn write_build_rs(
         .map(|s| path_to_fwd_slash(&relative_from(rust_dir, s)))
         .collect();
 
-    // cc_build 块：仅当有 include 目录或 C++ 源文件时才生成
-    let cc_block = if rel_includes.is_empty() && rel_sources.is_empty() {
-        String::new()
-    } else {
-        let mut lines = String::new();
-        lines.push_str("    use std::ops::DerefMut;\n");
-        lines.push_str("    let cc_build: &mut cc::Build = build.deref_mut();\n");
-        for inc in &rel_includes {
-            lines.push_str(&format!("    cc_build.include(\"{inc}\");\n"));
-        }
-        lines.push_str("    cc_build.cpp(true);\n");
-        for src in &rel_sources {
-            lines.push_str(&format!("    cc_build.file(\"{src}\");\n"));
-        }
-        lines
-    };
-
-    // rust_file 行：每个编译单元一行
-    let rust_file_lines: String = unit_rs_paths
-        .iter()
-        .map(|u| format!("    build.rust_file(\"src/{u}.rs\");\n"))
-        .collect();
+    // include 目录和 C++ 源文件配置行
+    let mut setup_lines = String::new();
+    for inc in &rel_includes {
+        setup_lines.push_str(&format!("    build.include(\"{inc}\");\n"));
+    }
+    for src in &rel_sources {
+        setup_lines.push_str(&format!("    build.file(\"{src}\");\n"));
+    }
 
     let content = format!(
         "\
 fn main() {{
-    let mut build = hicc_build::Build::new();
-{cc_block}{rust_file_lines}    build.compile(\"{lib_name}\");
+    let mut build = cc::Build::new();
+    build.cpp(true);
+{setup_lines}    build.compile(\"{lib_name}\");
 
-    println!(\"cargo::rustc-link-lib={lib_name}\");
     #[cfg(target_os = \"macos\")]
     println!(\"cargo::rustc-link-lib=c++\");
     #[cfg(not(any(target_os = \"macos\", all(target_os = \"windows\", target_env = \"msvc\"))))]
@@ -386,9 +355,6 @@ fn main() {{
 /// 用作 `package.name` 和 `[lib] name`。
 /// 生成的项目在 `[features]` 中列出每个 feature，
 /// 支持 `cargo build --features <feature>` 按需构建对应代码。
-///
-/// 同 [`write_cargo_toml`]，通过 `[target.'cfg(not(target_os = "macos"))'.dependencies]`
-/// 仅在 Linux / Windows 上自动引入 `hicc-std`（macOS Apple Clang 兼容性问题，见上方说明）。
 pub fn write_multi_feature_cargo_toml(
     rust_dir: &Path,
     combined_name: &str,
@@ -405,7 +371,7 @@ pub fn write_multi_feature_cargo_toml(
         r#"[package]
 name = "{combined_name}"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "{lib_name}"
@@ -414,14 +380,7 @@ path = "src/lib.rs"
 [features]
 {features_section}
 
-[dependencies]
-hicc = {{ version = "0.2" }}
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-hicc-std = {{ version = "0.2" }}
-
 [build-dependencies]
-hicc-build = {{ version = "0.2" }}
 cc = "1.0"
 "#,
         combined_name = combined_name,
@@ -461,19 +420,17 @@ pub fn write_multi_feature_lib_rs(rust_dir: &Path, feature_names: &[&str]) -> Re
 
 /// 为多 feature 合并项目写出 `build.rs`。
 ///
-/// 每个 feature 对应一个条件编译的 `hicc_build` 调用：
-/// ```rust
-/// if cfg!(feature = "feat") {
-///     hicc_build::Build::new().rust_file("src/feat/mod.rs").compile("feat");
-/// }
-/// ```
+/// 每个 feature 对应一个条件编译的 `cc::Build` 调用，负责编译该 feature 的 C++ 源文件。
+/// 注：C++ 源文件路径需在合并后手动填入（`cpp2rust-todo[BUILD]` 标记处）。
 pub fn write_multi_feature_build_rs(rust_dir: &Path, feature_names: &[&str]) -> Result<()> {
     let mut body = String::new();
     for feature in feature_names {
         let lib_name = feature.replace('-', "_");
         body.push_str(&format!(
             "    if cfg!(feature = \"{feature}\") {{\n\
-             \x20       hicc_build::Build::new().rust_file(\"src/{feature}/mod.rs\").compile(\"{lib_name}\");\n\
+             \x20       // cpp2rust-todo[BUILD]: 添加 C++ 源文件路径，例如：\n\
+             \x20       // cc::Build::new().cpp(true).file(\"path/to/src.cpp\").compile(\"{lib_name}\");\n\
+             \x20       let _ = \"{lib_name}\"; // 占位，替换为实际 cc::Build 调用\n\
              \x20   }}\n"
         ));
     }
@@ -801,14 +758,16 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         write_build_rs(tmp.path(), "my_lib", &[], &[], &[]).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
-        assert!(content.contains("hicc_build::Build::new()"), "应包含 hicc_build::Build::new()");
+        assert!(content.contains("cc::Build::new()"), "应包含 cc::Build::new()");
         assert!(content.contains("build.compile(\"my_lib\")"), "应包含 build.compile(\"my_lib\")");
         assert!(content.contains("fn main()"), "应包含 fn main()");
+        // 不再手动 emit link 指令（cc 自动 emit），但仍 emit C++ 标准库
         assert!(
-            content.contains("cargo::rustc-link-lib=my_lib"),
-            "应包含 cargo link 指令"
+            content.contains("cargo::rustc-link-lib=stdc++") || content.contains("cargo::rustc-link-lib=c++"),
+            "应包含 C++ 标准库链接指令"
         );
-        // 无编译单元时不应出现 rust_file 调用
+        // 不应包含 hicc_build 或 rust_file 调用
+        assert!(!content.contains("hicc_build"), "不应含 hicc_build");
         assert!(!content.contains("rust_file"), "不应含 rust_file（无编译单元）");
     }
 
@@ -829,18 +788,19 @@ mod tests {
         )
         .unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
-        assert!(content.contains("build.rust_file(\"src/allocator_ffi.rs\")"));
-        assert!(content.contains("build.rust_file(\"src/shim/doc_ffi.rs\")"));
-        assert!(content.contains("cc_build.file("));
-        assert!(content.contains("cc_build.include("));
-        assert!(content.contains("cc_build.cpp(true)"));
-        assert!(content.contains("cargo::rustc-link-lib=rj"));
+        // extern "C" 模式不需要 rust_file 调用
+        assert!(!content.contains("rust_file"), "extern \"C\" 模式不应含 rust_file");
+        assert!(content.contains("build.file("), "应含 build.file()");
+        assert!(content.contains("build.include("), "应含 build.include()");
+        assert!(content.contains("build.cpp(true)"), "应含 build.cpp(true)");
+        // cc::Build::compile 自动 emit 静态库 link 指令，不需要手动 println
+        assert!(!content.contains("cargo::rustc-link-lib=rj"), "cc::Build 自动处理库链接，不应手动 emit");
     }
 
     // ── write_cargo_toml ──────────────────────
 
     #[test]
-    fn write_cargo_toml_contains_hicc_and_conditional_hicc_std() {
+    fn write_cargo_toml_contains_cc_build_dep() {
         let tmp = TempDir::new().unwrap();
         write_cargo_toml(tmp.path(), "my_feature").unwrap();
         let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
@@ -849,21 +809,22 @@ mod tests {
             "package.name 应为 my_feature"
         );
         assert!(
-            content.contains("hicc = { version = \"0.2\" }"),
-            "应包含 hicc 依赖"
+            content.contains("cc = \"1.0\""),
+            "应包含 cc build-dependency"
         );
         assert!(
-            content.contains("[target.'cfg(not(target_os = \"macos\"))'.dependencies]"),
-            "应包含非 macOS 平台条件段"
+            content.contains("[build-dependencies]"),
+            "应包含 [build-dependencies] 段"
+        );
+        // 不应包含 hicc 依赖（已移除）
+        assert!(
+            !content.contains("hicc"),
+            "不应包含 hicc 依赖（已改为 extern \"C\" + cc）"
         );
         assert!(
-            content.contains("hicc-std = { version = \"0.2\" }"),
-            "应在非 macOS 条件段中引入 hicc-std"
+            content.contains("edition = \"2021\""),
+            "应使用 edition 2021"
         );
-        // macOS 条件段应在 hicc-std 之前出现
-        let pos_cfg = content.find("cfg(not(target_os = \"macos\"))").unwrap();
-        let pos_std = content.find("hicc-std").unwrap();
-        assert!(pos_cfg < pos_std, "cfg 段应在 hicc-std 条目之前");
     }
 
     // ── 多 feature 生成 ────────────────────────
@@ -878,12 +839,13 @@ mod tests {
         assert!(content.contains("feat2 = []"));
         assert!(content.contains("name = \"feat1_feat2\""));
         assert!(
-            content.contains("[target.'cfg(not(target_os = \"macos\"))'.dependencies]"),
-            "多 feature Cargo.toml 应包含非 macOS 平台条件段"
+            content.contains("cc = \"1.0\""),
+            "多 feature Cargo.toml 应包含 cc build-dependency"
         );
+        // 不应包含 hicc 依赖
         assert!(
-            content.contains("hicc-std = { version = \"0.2\" }"),
-            "多 feature Cargo.toml 应在非 macOS 条件段中引入 hicc-std"
+            !content.contains("hicc"),
+            "不应包含 hicc 依赖（已改为 extern \"C\" + cc）"
         );
     }
 
@@ -920,10 +882,12 @@ mod tests {
         write_multi_feature_build_rs(tmp.path(), &["feat1", "feat2"]).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
         assert!(content.contains("cfg!(feature = \"feat1\")"));
-        assert!(content.contains("src/feat1/mod.rs"));
+        assert!(content.contains("\"feat1\""));
         assert!(content.contains("cfg!(feature = \"feat2\")"));
-        assert!(content.contains("src/feat2/mod.rs"));
+        assert!(content.contains("\"feat2\""));
         assert!(content.contains("fn main()"));
+        // 不应包含 hicc_build（已移除）
+        assert!(!content.contains("hicc_build"), "不应含 hicc_build");
     }
 
     #[test]
@@ -931,7 +895,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         write_multi_feature_build_rs(tmp.path(), &["my-feat"]).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
-        assert!(content.contains(".compile(\"my_feat\")"));
+        // lib_name 含下划线（连字符已替换）
+        assert!(content.contains("my_feat"), "连字符应替换为下划线");
     }
 
     #[test]

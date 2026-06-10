@@ -214,6 +214,92 @@ pub fn generate(spec: &FfiSpec) -> String {
     out
 }
 
+/// 向 `extern "C"` 块写出单个函数绑定行（`pub fn` 签名）。
+fn emit_extern_c_fn_decl(out: &mut String, fb: &FnBinding) {
+    if fb.has_fn_ptr_param {
+        out.push_str(
+            "    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern \"C\" 调用约定\n",
+        );
+    }
+    let params_str = fb
+        .params
+        .iter()
+        .map(|(n, t)| format!("{}: {}", n, t))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ret_str = match &fb.ret_type {
+        Some(t) => format!(" -> {}", t),
+        None => String::new(),
+    };
+    out.push_str(&format!(
+        "    pub fn {}({}){};\n",
+        fb.rust_name, params_str, ret_str
+    ));
+}
+
+/// 从 FfiSpec 生成 `extern "C"` 格式的 Rust FFI 绑定代码字符串。
+///
+/// 与 [`generate`] 的 hicc 格式不同，此函数生成不依赖 hicc 宏的标准 `extern "C"` 块，
+/// 可直接配合 `cc::Build` 编译的 C++ 库使用，无平台兼容性问题。
+///
+/// 生成结构：
+/// ```rust,ignore
+/// #[allow(unused_imports)]
+/// use crate::*;
+///
+/// extern "C" {
+///     pub fn foo(a: i32) -> i32;
+///     pub fn bar(h: *mut Handle);
+/// }
+/// ```
+pub fn generate_extern_c(spec: &FfiSpec) -> String {
+    let mut out = String::new();
+
+    // 跨模块类型可见性：各 unit 文件通过 lib.rs 的 `pub use self::xxx::*` 重新导出，
+    // 再经此 glob import 访问兄弟模块中定义的不透明句柄类型。
+    out.push_str("#[allow(unused_imports)]\n");
+    out.push_str("use crate::*;\n\n");
+
+    // 为本模块的非空 ClassSpec 生成 opaque struct 声明（替代原 hicc import_class! 的类型定义作用）。
+    // 空 ClassSpec（无 ctor/dtor/method）的类型由 build_cross_module_preamble 在 fwd_decls 中处理。
+    for cs in &spec.class_specs {
+        if !cs.is_empty() {
+            out.push_str(&format!(
+                "#[repr(C)]\npub struct {} {{ _private: [u8; 0] }}\n\n",
+                cs.name
+            ));
+        }
+    }
+
+    // 检查是否有任何函数绑定
+    let has_fn = spec
+        .class_specs
+        .iter()
+        .any(|cs| !cs.associated_fns.is_empty())
+        || !spec.lib_spec.fn_bindings.is_empty();
+
+    if !has_fn {
+        return out;
+    }
+
+    out.push_str("extern \"C\" {\n");
+
+    // 关联函数（ctor/factory）作为顶层 extern "C" 声明输出
+    for cs in &spec.class_specs {
+        for fb in &cs.associated_fns {
+            emit_extern_c_fn_decl(&mut out, fb);
+        }
+    }
+
+    // 独立全局函数
+    for fb in &spec.lib_spec.fn_bindings {
+        emit_extern_c_fn_decl(&mut out, fb);
+    }
+
+    out.push_str("}\n");
+    out
+}
+
 /// P1-2 辅助：若返回类型是 `*mut ClassName`，去掉指针返回 `ClassName`（owned）
 fn strip_mut_ptr(ret_type: &str, class_name: &str) -> String {
     let expected = format!("*mut {}", class_name);
@@ -332,6 +418,117 @@ mod tests {
         assert!(
             code.contains("#[allow(unused_imports)]"),
             "生成代码应包含 `#[allow(unused_imports)]`，实际输出：\n{}",
+            code
+        );
+    }
+
+    // ── generate_extern_c ──────────────────────
+
+    /// generate_extern_c 应生成 extern "C" 块而非 hicc 宏
+    #[test]
+    fn generate_extern_c_basic_fn() {
+        let fb = make_fn_binding("add", false);
+        let spec = make_spec_with_fn(fb);
+        let code = generate_extern_c(&spec);
+        assert!(
+            code.contains("extern \"C\""),
+            "应包含 extern \"C\" 块，实际输出：\n{}",
+            code
+        );
+        assert!(
+            code.contains("pub fn add()"),
+            "应包含 pub fn 声明，实际输出：\n{}",
+            code
+        );
+        assert!(
+            !code.contains("hicc::"),
+            "不应包含 hicc 宏，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// generate_extern_c 应生成 use crate::* 开头
+    #[test]
+    fn generate_extern_c_includes_crate_glob_import() {
+        let fb = make_fn_binding("foo", false);
+        let spec = make_spec_with_fn(fb);
+        let code = generate_extern_c(&spec);
+        assert!(
+            code.contains("use crate::*;"),
+            "应包含 `use crate::*;`，实际输出：\n{}",
+            code
+        );
+        assert!(
+            code.contains("#[allow(unused_imports)]"),
+            "应包含 `#[allow(unused_imports)]`，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// 含函数指针参数的函数应生成 cpp2rust-todo[FP] 注释
+    #[test]
+    fn generate_extern_c_fp_param_emits_todo_comment() {
+        let fb = make_fn_binding("apply_op", true);
+        let spec = make_spec_with_fn(fb);
+        let code = generate_extern_c(&spec);
+        assert!(
+            code.contains("// cpp2rust-todo[FP]:"),
+            "含函数指针参数应生成 cpp2rust-todo[FP] 注释，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// 不含任何函数绑定时，generate_extern_c 应只返回 use crate::*，不生成 extern "C" 块
+    #[test]
+    fn generate_extern_c_empty_spec_no_extern_block() {
+        let spec = FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![],
+            },
+        };
+        let code = generate_extern_c(&spec);
+        assert!(
+            !code.contains("extern \"C\""),
+            "无函数绑定时不应生成 extern \"C\" 块，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// generate_extern_c 应为 associated_fns（ctor）生成声明
+    #[test]
+    fn generate_extern_c_ctor_in_associated_fns() {
+        let mut ctor = make_fn_binding("my_class_new", false);
+        ctor.ret_type = Some("*mut MyClass".to_string());
+        let spec = FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![ClassSpec {
+                name: "MyClass".to_string(),
+                methods: vec![],
+                associated_fns: vec![ctor],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![],
+            },
+        };
+        let code = generate_extern_c(&spec);
+        assert!(
+            code.contains("pub fn my_class_new()"),
+            "应包含 ctor 声明，实际输出：\n{}",
+            code
+        );
+        assert!(
+            code.contains("-> *mut MyClass"),
+            "应包含返回类型，实际输出：\n{}",
             code
         );
     }

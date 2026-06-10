@@ -96,7 +96,6 @@ fn emit_class_lifecycle(unit_path: &str, spec: &FfiSpec, cs: &ClassSpec) -> Stri
             return out;
         }
     };
-    let ctor_unsafe = needs_unsafe_args(&ctor.params) || ctor.is_unsafe;
 
     let class_lower = cs.name.to_lowercase();
     let fn_name = test_name(&format!("{}_{}_{}", unit_path, class_lower, "lifecycle"));
@@ -109,12 +108,8 @@ fn emit_class_lifecycle(unit_path: &str, spec: &FfiSpec, cs: &ClassSpec) -> Stri
     out.push_str("#[ignore = \"Requires runtime environment\"]\n");
     out.push_str(&format!("fn {}() {{\n", fn_name));
 
-    // 构造
-    let ctor_call = if ctor_unsafe {
-        format!("    let mut obj = unsafe {{ {}({}) }};\n", ctor.rust_name, ctor_args)
-    } else {
-        format!("    let mut obj = {}({});\n", ctor.rust_name, ctor_args)
-    };
+    // 构造：extern "C" 调用始终需要 unsafe
+    let ctor_call = format!("    let mut obj = unsafe {{ {}({}) }};\n", ctor.rust_name, ctor_args);
     out.push_str(&ctor_call);
 
     // 方法调用（只处理全基本类型参数的方法）
@@ -164,7 +159,6 @@ fn emit_free_fn(unit_path: &str, fb: &FnBinding) -> String {
             return emit_free_fn_stub(unit_path, fb, "含指针参数");
         }
         ArgsResult::Ok(args) | ArgsResult::NeedsUnsafe(args) => {
-            let use_unsafe = needs_unsafe_args(&fb.params) || fb.is_unsafe;
             let fn_name = test_name(&format!("{}_fn_{}", unit_path, fb.rust_name));
             let has_ret = fb.ret_type.is_some();
             let call = format!("{}({})", fb.rust_name, args);
@@ -177,16 +171,11 @@ fn emit_free_fn(unit_path: &str, fb: &FnBinding) -> String {
             out.push_str("#[ignore = \"Requires runtime environment\"]\n");
             out.push_str(&format!("fn {}() {{\n", fn_name));
 
-            if use_unsafe {
-                if has_ret {
-                    out.push_str(&format!("    let _ = unsafe {{ {} }};\n", call));
-                } else {
-                    out.push_str(&format!("    unsafe {{ {} }};\n", call));
-                }
-            } else if has_ret {
-                out.push_str(&format!("    let _ = {};\n", call));
+            // extern "C" 函数调用始终需要 unsafe
+            if has_ret {
+                out.push_str(&format!("    let _ = unsafe {{ {} }};\n", call));
             } else {
-                out.push_str(&format!("    {};\n", call));
+                out.push_str(&format!("    unsafe {{ {} }};\n", call));
             }
 
             out.push_str("}\n\n");
@@ -354,13 +343,6 @@ fn build_args(params: &[(String, String)]) -> ArgsResult {
     } else {
         ArgsResult::Ok(joined)
     }
-}
-
-/// 判断参数列表是否需要 unsafe（含 `*const i8` 类型参数）。
-fn needs_unsafe_args(params: &[(String, String)]) -> bool {
-    params.iter().any(|(_, ty)| {
-        matches!(zero_value_for_type(ty), ZeroValue::NeedsUnsafe(_))
-    })
 }
 
 // ─────────────────────────────────────────────

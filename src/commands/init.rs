@@ -311,7 +311,7 @@ fn second_pass_generate(
 
     for ud in all_units {
         let preamble = build_cross_module_preamble(&ud.spec, &ud.unit_path, class_to_module);
-        let code = format!("{}{}", preamble, hicc_codegen::generate(&ud.spec));
+        let code = format!("{}{}", preamble, hicc_codegen::generate_extern_c(&ud.spec));
 
         count_degraded_tags(&code, &ud.unit_path, &mut degraded_tags);
 
