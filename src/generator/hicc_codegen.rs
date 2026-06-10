@@ -142,18 +142,18 @@ pub fn generate(spec: &FfiSpec) -> String {
         .iter()
         .any(|cs| !cs.associated_fns.is_empty());
 
-    // 只为有实例方法（methods 非空）的类型生成 `class TypeName;` 前向声明。
-    // `class TypeName;` 在 import_lib! 中触发 hicc ABI 类机制，要求该类型实现 AbiClass
-    // trait。只有具备实例方法（self 参数）的类才需要此机制。
+    // 只为非空 ClassSpec（存在方法/ctor/dtor）的类型生成 `class TypeName;` 前向声明。
+    // `class TypeName;` 在 import_lib! 中触发 hicc ABI 类机制，要求该类型实现 AbiClass。
+    // 拥有 import_class! 块（由非空 ClassSpec 生成）的类型通过该宏自动实现 AbiClass，
+    // 因此可以安全地出现在 `class TypeName;` 声明中。
     //
-    // 若某类只有工厂函数（associated_fns）或析构函数（destroy_fn），但没有实例方法，
-    // 则不应在 import_lib! 中出现 `class TypeName;`——这类类型在 Rust 侧以
-    // `#[repr(C)] pub struct` 不透明句柄形式存在，不实现 AbiClass，若强行生成
-    // `class TypeName;` 会导致 hicc EXPORT_METHOD_IN 宏展开失败（varargs 类型不匹配）。
+    // 纯 C 不透明句柄（ClassSpec.is_empty() == true，无方法/ctor/dtor）不生成
+    // import_class! 块，也不实现 AbiClass；若对其生成 `class TypeName;` 则会导致
+    // 编译报 E0277（AbiClass not satisfied）。
     let non_empty_spec_names: std::collections::HashSet<&str> = spec
         .class_specs
         .iter()
-        .filter(|cs| !cs.methods.is_empty())
+        .filter(|cs| !cs.is_empty())
         .map(|cs| cs.name.as_str())
         .collect();
     let abi_class_decls: Vec<&str> = spec
