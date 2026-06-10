@@ -79,14 +79,19 @@ pub(super) fn build_cpp_block(
 
     // 以下仅在有 local_classes 需要内联时执行 ─────────────────────────────
 
+    // 包含项目头文件（如 reader_ffi.h），引入本地类所依赖的非 handle 类型定义
+    // （例如 RapidJsonHandlerCallbacks 回调结构体）。
+    // 项目头文件中的不透明 typedef（typedef struct X X）和 extern "C" 声明
+    // 与内联类定义共存无冲突（C++ 允许 typedef struct X X 后再 struct X { ... } 完整定义）。
+    if let Some(hdr) = project_header {
+        lines.push(format!("#include \"{}\"", hdr));
+    }
     // 注入额外的本地头文件（如 rapidjson/writer.h），定义内联类体所需的 C++ 类型
     // （例如 Writer<StringBuffer>、PrettyWriter<StringBuffer>）。
-    // 不含 project_header 本身，因为其中的不透明 typedef 和 extern "C" 声明
-    // 与内联类体共存时不会产生歧义（C++ 允许 typedef struct X X 后再定义 struct X）。
     for hdr in extra_local_includes {
         lines.push(format!("#include \"{}\"", hdr));
     }
-    if !extra_local_includes.is_empty() {
+    if project_header.is_some() || !extra_local_includes.is_empty() {
         lines.push(String::new());
     }
 
@@ -150,9 +155,8 @@ pub(super) fn build_cpp_block(
 
     let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
 
-    // 判断是否使用分离风格（含虚函数的类）
-    let use_separate_style = ast
-        .classes
+    // 判断是否使用分离风格（本文件定义的类中含虚函数）
+    let use_separate_style = local_classes
         .iter()
         .any(|c| c.methods.iter().any(|m| m.is_virtual));
 
