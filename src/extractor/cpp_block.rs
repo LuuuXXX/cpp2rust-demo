@@ -214,7 +214,10 @@ pub(super) fn build_cpp_block(
     // Ctor/dtor/standalone shim 函数（含静态访问器）内联到 cpp! 块中。
     // 此处只有 local_classes 非空时才会执行（use_project_header=true 时已提前返回），
     // 因此不存在与项目 .cpp 中已有实现重复定义的问题。
-    let shim_fns = classify_functions(functions, &class_names);
+    let mut shim_fns = classify_functions(functions, &class_names);
+    // 按函数体在源文件中的字节偏移升序排序，确保静态辅助函数在调用它的外部函数之前输出，
+    // 避免因 ast.functions 中 extern "C" 声明排在前面而造成前向引用编译错误。
+    shim_fns.sort_by_key(|(fi, _)| fi.body_offset.map(|(s, _)| s).unwrap_or(u32::MAX));
     for (fn_info, shim_kind) in &shim_fns {
         if !matches!(shim_kind, ShimKind::MethodAccessor) {
             if let Some((start, end)) = fn_info.body_offset {

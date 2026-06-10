@@ -61,7 +61,7 @@ pub(super) fn collect_namespace(
                 }
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, ast, user_ranges);
+                collect_typedef(&entity, ast, cpp_ranges);
             }
             EntityKind::Namespace => {
                 collect_namespace(&entity, ast, cpp_ranges, user_ranges);
@@ -126,7 +126,7 @@ pub(super) fn collect_linkage_spec(
                 }
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, ast, user_ranges);
+                collect_typedef(&entity, ast, cpp_ranges);
             }
             // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
             EntityKind::StructDecl if entity.is_definition() => {
@@ -143,11 +143,13 @@ pub(super) fn collect_linkage_spec(
 pub(super) fn collect_typedef(
     entity: &clang::Entity<'_>,
     ast: &mut CppAst,
-    user_ranges: &[std::ops::Range<u32>],
+    cpp_ranges: &[std::ops::Range<u32>],
 ) {
-    // 收集来自用户代码区间（.cpp 文件本身及用户头文件）的 typedef，
-    // 排除通过 #include 引入的系统/第三方头文件中的 typedef（避免系统类型污染）。
-    if !entity_is_from_current_file(entity, user_ranges) {
+    // 只收集来自当前 .cpp 文件（cpp_ranges）的 typedef，
+    // 排除通过 #include 引入的系统/第三方头文件中的 typedef（避免类型污染）。
+    // 例如 rapidjson::internal::BoolType 等内部 typedef 落在第三方头文件范围内，
+    // 若被收集并输出到 cpp! 块全局作用域，会因命名空间不在作用域内而报编译错误。
+    if !entity_is_from_current_file(entity, cpp_ranges) {
         return;
     }
     let Some(name) = entity.get_name() else {
