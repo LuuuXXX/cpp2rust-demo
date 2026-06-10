@@ -238,7 +238,10 @@ fn first_pass_parse(
                     unit_path,
                     spec,
                     original_cpp,
-                    opts_path: PathBuf::from(format!("{}.opts", path.display())),
+                    // hook 将 .opts 文件紧贴在 .cpp2rust 文件旁（追加 .opts 后缀）
+                    // with_extension("cpp2rust.opts") 将末尾的 "cpp2rust" 扩展名替换为 "cpp2rust.opts"，
+                    // 对 "foo.cpp.cpp2rust" → "foo.cpp.cpp2rust.opts" ✓
+                    opts_path: path.with_extension("cpp2rust.opts"),
                 });
             }
             Err(err) => {
