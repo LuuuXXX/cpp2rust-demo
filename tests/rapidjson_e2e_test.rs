@@ -761,3 +761,24 @@ fn rapidjson_shim_smoke_test_cargo_check() {
         units.len()
     );
 }
+
+#[test]
+#[ignore]
+fn print_value_ffi_generated_code() {
+    let shim_dir = PathBuf::from(RAPIDJSON_SHIM_DIR);
+    let src_path = shim_dir.join("value_ffi.cpp");
+    let preprocess_dir = std::env::temp_dir().join("cpp2rust_test_vffi");
+    std::fs::create_dir_all(&preprocess_dir).unwrap();
+    let includes: &[&str] = &[RAPIDJSON_INCLUDE, RAPIDJSON_SHIM_DIR];
+    
+    let preprocessed = common::preprocess_cpp(&src_path, includes, &preprocess_dir, "value_ffi").unwrap();
+    let ast = ast_parser::parse_preprocessed(&preprocessed).unwrap();
+    let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
+    let spec = extractor::extract(&ast, "value_ffi", &sys_includes, proj_header.as_deref());
+    
+    println!("classes in ast: {:?}", ast.classes.iter().map(|c| (&c.name, c.is_from_current_file)).collect::<Vec<_>>());
+    println!("class_specs: {:?}", spec.class_specs.iter().map(|cs| (&cs.name, cs.is_empty())).collect::<Vec<_>>());
+    
+    let code = hicc_codegen::generate(&spec);
+    println!("GENERATED:\n{}", &code[..code.len().min(3000)]);
+}
