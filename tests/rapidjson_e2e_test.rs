@@ -14,7 +14,8 @@
 mod common;
 
 use cpp2rust_demo::{
-    ast_parser, extractor, generator::hicc_codegen, generator::project_generator, merger,
+    ast_parser, extractor, generator::hicc_codegen, generator::project_generator,
+    generator::smoke_test_gen, merger,
 };
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -456,5 +457,146 @@ fn rapidjson_shim_ffi_generates_importlib() {
     println!(
         "\nshim-ffi: {} 个 shim 文件全部生成 import_lib! FFI 绑定 ✓",
         processed
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  L4-Shim Smoke Test 生成验证
+// ─────────────────────────────────────────────────────────────────
+
+/// L4-Shim-SmokeTest：对全部 10 个 rapidjson shim 文件执行 init 流程，
+/// 验证 smoke_test_gen 正确生成冒烟测试内容并写入磁盘。
+///
+/// 验证要点：
+/// 1. 每个 shim unit 都能生成 FfiSpec（预处理 → AST → 提取）
+/// 2. smoke_test_gen::generate 生成的内容含文件头注释
+/// 3. 每个 shim unit 都有对应的 use ... 声明
+/// 4. 每个 shim unit 都有对应的分段注释
+/// 5. write_smoke_test 写入磁盘后 tests/smoke_test.rs 确实存在
+/// 6. 读回文件内容与生成内容一致
+/// 7. 大括号平衡检查（粗粒度语法健全性验证）
+#[test]
+fn rapidjson_shim_smoke_test_generated() {
+    let tmp = TempDir::new().unwrap();
+    let preprocess_dir = tmp.path().join("c");
+    let rust_dir = tmp.path().join("rust");
+    std::fs::create_dir_all(&preprocess_dir).unwrap();
+    std::fs::create_dir_all(&rust_dir).unwrap();
+
+    let shim_dir = PathBuf::from(RAPIDJSON_SHIM_DIR);
+    let includes: &[&str] = &[RAPIDJSON_INCLUDE, RAPIDJSON_SHIM_DIR];
+
+    assert!(
+        shim_dir.exists(),
+        "shim 目录不存在：{}\n  请确认 references/rapidjson-refactoring/ 子目录已就绪",
+        shim_dir.display()
+    );
+
+    let mut units: Vec<(String, cpp2rust_demo::ffi_model::FfiSpec)> = Vec::new();
+    let mut skipped: Vec<&str> = Vec::new();
+
+    for src_name in SHIM_SOURCES {
+        let src_path = shim_dir.join(src_name);
+        let unit_name = src_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unit")
+            .to_string();
+
+        let preprocessed =
+            match common::preprocess_cpp(&src_path, includes, &preprocess_dir, &unit_name) {
+                Some(p) => p,
+                None => {
+                    skipped.push(src_name);
+                    continue;
+                }
+            };
+
+        let ast = match ast_parser::parse_preprocessed(&preprocessed) {
+            Ok(a) => a,
+            Err(e) => {
+                panic!("shim-smoke: {} AST 解析失败: {}", unit_name, e);
+            }
+        };
+
+        let (sys_includes, proj_header) = extractor::read_source_includes(&src_path);
+        let spec = extractor::extract(&ast, &unit_name, &sys_includes, proj_header.as_deref());
+        units.push((unit_name, spec));
+    }
+
+    assert!(
+        skipped.is_empty(),
+        "shim-smoke: {} 个 shim 文件预处理失败（g++ 是否已安装？）:\n{}",
+        skipped.len(),
+        skipped.join("\n")
+    );
+
+    assert_eq!(
+        units.len(),
+        SHIM_SOURCES.len(),
+        "shim-smoke: 期望处理 {} 个 shim 文件，实际 {}",
+        SHIM_SOURCES.len(),
+        units.len()
+    );
+
+    // ── 生成冒烟测试内容 ───────────────────────────────────────────
+    let unit_refs: Vec<(&str, &cpp2rust_demo::ffi_model::FfiSpec)> =
+        units.iter().map(|(n, s)| (n.as_str(), s)).collect();
+    let content = smoke_test_gen::generate(&unit_refs, "rapidjson_shim");
+
+    // 验证 1：文件头注释
+    assert!(
+        content.contains("自动生成的 FFI 冒烟测试"),
+        "shim-smoke: 生成内容缺少文件头注释，前 200 字符：\n{}",
+        &content[..content.len().min(200)]
+    );
+
+    // 验证 2/3：每个 shim unit 都有对应的 use 声明和分段注释
+    for (unit_name, _) in &units {
+        assert!(
+            content.contains(&format!("use rapidjson_shim::{}::*;", unit_name)),
+            "shim-smoke: 缺少 unit '{}' 的 use 声明",
+            unit_name
+        );
+        assert!(
+            content.contains(&format!("// ═══ 单元：{}", unit_name)),
+            "shim-smoke: 缺少 unit '{}' 的分段注释",
+            unit_name
+        );
+    }
+
+    // ── 写入磁盘 ───────────────────────────────────────────────────
+    project_generator::write_smoke_test(&rust_dir, &content)
+        .expect("shim-smoke: write_smoke_test 失败");
+
+    // 验证 4：tests/smoke_test.rs 确实存在
+    let smoke_path = rust_dir.join("tests").join("smoke_test.rs");
+    assert!(
+        smoke_path.exists(),
+        "shim-smoke: tests/smoke_test.rs 未写入磁盘，路径：{}",
+        smoke_path.display()
+    );
+
+    // 验证 5：读回内容与生成内容一致
+    let written =
+        std::fs::read_to_string(&smoke_path).expect("shim-smoke: 读取 smoke_test.rs 失败");
+    assert_eq!(
+        written, content,
+        "shim-smoke: 写入磁盘的内容与生成内容不一致"
+    );
+
+    // 验证 6：大括号平衡（粗粒度语法健全性）
+    let open_count = written.chars().filter(|&c| c == '{').count();
+    let close_count = written.chars().filter(|&c| c == '}').count();
+    assert_eq!(
+        open_count, close_count,
+        "shim-smoke: 生成的 smoke_test.rs 大括号不平衡（{{ {} vs }} {}），可能含语法错误",
+        open_count, close_count
+    );
+
+    println!(
+        "shim-smoke: {} 个 shim unit 的冒烟测试已生成，#[test] 数量：{}",
+        units.len(),
+        content.matches("#[test]").count()
     );
 }

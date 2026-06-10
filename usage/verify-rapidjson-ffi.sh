@@ -285,25 +285,45 @@ else
 fi
 
 # =============================================================================
-# § 5c. cargo test — 验证冒烟测试真正生成并可通过
+# § 5c. 冒烟测试文件验证（仅编译检查，不执行）
 # =============================================================================
-step "§ 5c. cargo test（验证冒烟测试编译并运行通过）"
+step "§ 5c. 冒烟测试文件验证（cargo test --no-run）"
+
+# 说明：shim 项目的冒烟测试中，extern "C" 符号需要链接已编译的 C++ 原生库。
+# 在纯验证场景下我们只检查编译是否通过，不实际运行（避免链接错误误判）。
+# 实际运行方式：先编译 shim .so，再执行 cargo test -- --ignored --nocapture
 
 if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
     SMOKE_TEST="${RUST_PROJECT}/tests/smoke_test.rs"
+
+    # ── 存在性断言 ──────────────────────────────────────────────────────────
+    echo "──── 冒烟测试文件存在性检查 ────"
     if [ -f "${SMOKE_TEST}" ]; then
-        info "检测到冒烟测试文件：${SMOKE_TEST}"
-        info "在 ${RUST_PROJECT} 中运行 cargo test ..."
-        if (cd "${RUST_PROJECT}" && cargo test 2>&1); then
-            ok "cargo test 通过 ✓ — 冒烟测试生成并运行成功"
-        else
-            warn "cargo test 失败 — 冒烟测试存在编译或运行错误，需要手动修复"
-        fi
+        ok "冒烟测试文件已生成：${SMOKE_TEST}"
+        echo "── 文件前 15 行内容 ──"
+        head -15 "${SMOKE_TEST}" || true
+        echo ""
+
+        # 统计 #[test] 数量（含 #[ignore]）
+        TEST_COUNT=$(grep -c '#\[test\]' "${SMOKE_TEST}" 2>/dev/null || echo 0)
+        IGNORE_COUNT=$(grep -c '#\[ignore' "${SMOKE_TEST}" 2>/dev/null || echo 0)
+        info "#[test] 函数数量：${TEST_COUNT}（其中含 #[ignore]：${IGNORE_COUNT}）"
+        info "运行冒烟测试需要已编译的 C++ shim 库：cargo test -- --ignored --nocapture"
     else
-        warn "未找到冒烟测试文件 ${SMOKE_TEST}，跳过 cargo test"
+        warn "未找到冒烟测试文件 ${SMOKE_TEST}"
+        warn "  请检查：init 阶段是否成功捕获 shim 文件并生成 FFI 规格？"
+    fi
+
+    # ── 仅编译，不运行（--no-run 避免链接失败误判）──────────────────────────
+    echo ""
+    info "在 ${RUST_PROJECT} 中运行 cargo test --no-run（仅验证编译）..."
+    if (cd "${RUST_PROJECT}" && cargo test --no-run 2>&1); then
+        ok "cargo test --no-run 通过 ✓ — 冒烟测试编译成功（运行需 C++ 库）"
+    else
+        warn "cargo test --no-run 失败 — 冒烟测试存在编译错误，需要手动修复"
     fi
 else
-    warn "未找到 ${RUST_PROJECT}/Cargo.toml，跳过 cargo test"
+    warn "未找到 ${RUST_PROJECT}/Cargo.toml，跳过冒烟测试验证"
 fi
 
 # =============================================================================
@@ -490,7 +510,7 @@ if [ -d "${RUST_SRC}" ]; then
     fi
 fi
 
-# cargo check / cargo test 结果
+# cargo check / cargo test --no-run 结果
 echo ""
 if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
     if (cd "${RUST_PROJECT}" && cargo check 2>/dev/null); then
@@ -498,14 +518,21 @@ if [ -f "${RUST_PROJECT}/Cargo.toml" ]; then
     else
         echo -e "  ${YELLOW}⚠ cargo check 失败（生成的 FFI 代码存在编译错误）${NC}"
     fi
-    if [ -f "${RUST_PROJECT}/tests/smoke_test.rs" ]; then
-        if (cd "${RUST_PROJECT}" && cargo test 2>/dev/null); then
-            echo -e "  ${GREEN}✓ cargo test 通过（冒烟测试生成并运行成功）${NC}"
+
+    # 冒烟测试文件存在性 + 编译检查
+    SMOKE_FILE="${RUST_PROJECT}/tests/smoke_test.rs"
+    if [ -f "${SMOKE_FILE}" ]; then
+        SMOKE_TEST_COUNT=$(grep -c '#\[test\]' "${SMOKE_FILE}" 2>/dev/null || echo 0)
+        echo -e "  ${GREEN}✓ 冒烟测试文件已生成${NC}  :  ${SMOKE_FILE}"
+        echo -e "    #[test] 数量  :  ${SMOKE_TEST_COUNT} 个（含 #[ignore]，运行需已编译 C++ 库）"
+        echo -e "    运行方式      :  cargo test -- --ignored --nocapture（在 ${RUST_PROJECT} 中）"
+        if (cd "${RUST_PROJECT}" && cargo test --no-run 2>/dev/null); then
+            echo -e "  ${GREEN}✓ cargo test --no-run 通过（冒烟测试编译成功）${NC}"
         else
-            echo -e "  ${YELLOW}⚠ cargo test 失败（冒烟测试存在编译或运行错误）${NC}"
+            echo -e "  ${YELLOW}⚠ cargo test --no-run 失败（冒烟测试存在编译错误）${NC}"
         fi
     else
-        echo -e "  ${YELLOW}⚠ 未找到冒烟测试文件，跳过 cargo test${NC}"
+        echo -e "  ${YELLOW}⚠ 冒烟测试文件未找到${NC}  :  ${SMOKE_FILE}（未生成）"
     fi
 fi
 echo ""
