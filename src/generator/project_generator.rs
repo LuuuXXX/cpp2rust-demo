@@ -254,6 +254,17 @@ pub fn write_unit_rs(rust_dir: &Path, unit_path: &str, code: &str) -> Result<()>
     std::fs::write(&file_path, code).map_err(|e| anyhow!("write {}: {}", file_path.display(), e))
 }
 
+/// 写出 `tests/smoke_test.rs`，内容为冒烟测试代码。
+///
+/// Cargo 自动识别 `tests/*.rs` 为集成测试，无需在 `Cargo.toml` 中显式声明。
+pub fn write_smoke_test(rust_dir: &Path, content: &str) -> Result<()> {
+    let tests_dir = rust_dir.join("tests");
+    std::fs::create_dir_all(&tests_dir)
+        .map_err(|e| anyhow!("create tests dir {}: {}", tests_dir.display(), e))?;
+    let path = tests_dir.join("smoke_test.rs");
+    std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+}
+
 /// 写出 `build.rs`，调用 `hicc_build::Build::new()` 完成 C++ shim 编译。
 ///
 /// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，

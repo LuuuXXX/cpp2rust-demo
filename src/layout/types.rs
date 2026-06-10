@@ -2,7 +2,7 @@
 //!
 //! 所有结构体均不包含 I/O 操作，文件读写逻辑见 `io.rs`。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 // ─────────────────────────────────────────────
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 /// merge 阶段生成的 API 接口清单（序列化为 `meta/api-manifest.md`）。
 /// 用于支持 C++ → Rust API 对账：逐条记录 C++ 签名与对应 Rust 绑定。
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiManifest {
     /// feature 名称
     pub feature: String,
@@ -23,10 +23,24 @@ pub struct ApiManifest {
     /// 例如 `("Stack", ["Stack<int>", "Stack<double>"])`。
     #[serde(default)]
     pub template_groups: Vec<(String, Vec<String>)>,
+    /// 冒烟测试清单（从 `tests/smoke_test.rs` 解析，供用户对比验证）
+    #[serde(default)]
+    pub smoke_tests: Vec<SmokeTestEntry>,
+}
+
+/// 单条冒烟测试记录（用于 `api-manifest.md` 的冒烟测试章节）
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SmokeTestEntry {
+    /// 测试函数名（如 `smoke_class_basic_foo_lifecycle`）
+    pub fn_name: String,
+    /// 测试说明（来自文档注释或桩注释）
+    pub description: String,
+    /// true 表示该测试为桩（含指针参数，需人工补充）
+    pub is_stub: bool,
 }
 
 /// 单个类的绑定信息
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiClassEntry {
     /// C++ 类名
     pub name: String,
@@ -37,7 +51,7 @@ pub struct ApiClassEntry {
 }
 
 /// 单个类方法的绑定信息
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiMethodEntry {
     /// C++ 方法签名（如 `int get() const`）
     pub cpp_sig: String,
@@ -48,7 +62,7 @@ pub struct ApiMethodEntry {
 }
 
 /// 独立函数绑定信息
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiFunctionEntry {
     /// C++ 函数签名（如 `Foo* foo_new(int v)`）
     pub cpp_sig: String,
