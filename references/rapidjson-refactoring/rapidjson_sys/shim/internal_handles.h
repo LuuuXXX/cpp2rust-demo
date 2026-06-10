@@ -12,6 +12,8 @@
 
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/prettywriter.h"
 
 using namespace rapidjson;
 
@@ -34,4 +36,15 @@ struct RapidJsonValueHandle {
     CrtValue val;
     CrtAllocator alloc;
     RapidJsonValueHandle() : val(), alloc() {}
+};
+
+// Writer handles (used by writer_ffi).
+struct RapidJsonWriterHandle {
+    Writer<StringBuffer> w;
+    RapidJsonWriterHandle(StringBuffer& sb) : w(sb) {}
+};
+
+struct RapidJsonPrettyWriterHandle {
+    PrettyWriter<StringBuffer> w;
+    RapidJsonPrettyWriterHandle(StringBuffer& sb) : w(sb) {}
 };

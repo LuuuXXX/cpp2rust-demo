@@ -81,7 +81,7 @@ fn setup_feature(
         .unwrap_or_else(|e| panic!("write_cargo_toml: {}", e));
     project_generator::write_lib_rs(&rust_dir, &unit_names)
         .unwrap_or_else(|e| panic!("write_lib_rs: {}", e));
-    project_generator::write_build_rs(&rust_dir, feature)
+    project_generator::write_build_rs(&rust_dir, feature, &unit_names, &[], &[])
         .unwrap_or_else(|e| panic!("write_build_rs: {}", e));
 
     // meta/build_cmd.txt：merge 阶段 FeatureLayout::save_merge_report 写入此目录

@@ -13,6 +13,7 @@ pub(super) fn build_cpp_block(
     system_includes: &[String],
     project_header: Option<&str>,
     has_classes: bool,
+    extra_local_includes: &[String],
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 
@@ -41,29 +42,48 @@ pub(super) fn build_cpp_block(
 
     // 当所有类均来自头文件（local_classes 为空）时：
     // - include 项目头文件以引入类型定义和函数声明
-    // - 不再重复 emit 枚举（它们已包含在头文件中，重复会导致重复定义错误）
-    // - 不再重复 emit shim 函数体（项目 .cpp 中已有定义，重复会导致 duplicate symbol 链接错误）
+    // - 项目头文件已提供完整类型定义，不重复输出 typedef/枚举/类体/shim 函数。
+    //   若继续输出 typedef，可能引入仅在原 .cpp 额外 include（如 internal_handles.h）
+    //   中才可用的 C++ 模板类型，导致 hicc::cpp! 块缺少对应头文件而报编译错误。
     let use_project_header = local_classes.is_empty() && project_header.is_some();
     if use_project_header {
         if let Some(hdr) = project_header {
             lines.push(format!("#include \"{}\"", hdr));
         }
-    } else {
-        // 枚举定义（在类定义之前；仅在不使用项目头文件时输出，避免重复定义）
-        for en in &ast.enums {
-            if en.name.is_empty() {
-                continue;
-            }
-            lines.push(format!("enum {} {{", en.name));
-            for v in &en.variants {
-                lines.push(format!("    {} = {},", v.name, v.value));
-            }
-            lines.push("};".to_string());
-            lines.push(String::new());
+        // 去掉末尾多余空行后直接返回：不输出 typedef/类定义/shim 函数
+        while lines.last().map(|l| l.is_empty()).unwrap_or(false) {
+            lines.pop();
         }
+        return lines;
     }
 
-    // typedef 定义（在类定义之前；typedef 重复声明在 C++11 中合法，始终输出）
+    // 以下仅在有 local_classes 需要内联时执行 ─────────────────────────────
+
+    // 注入额外的本地头文件（如 rapidjson/writer.h），定义内联类体所需的 C++ 类型
+    // （例如 Writer<StringBuffer>、PrettyWriter<StringBuffer>）。
+    // 不含 project_header 本身，因为其中的不透明 typedef 和 extern "C" 声明
+    // 与内联类体共存时不会产生歧义（C++ 允许 typedef struct X X 后再定义 struct X）。
+    for hdr in extra_local_includes {
+        lines.push(format!("#include \"{}\"", hdr));
+    }
+    if !extra_local_includes.is_empty() {
+        lines.push(String::new());
+    }
+
+    // 枚举定义（在类定义之前；仅在内联模式下输出，避免与项目头文件重复定义）
+    for en in &ast.enums {
+        if en.name.is_empty() {
+            continue;
+        }
+        lines.push(format!("enum {} {{", en.name));
+        for v in &en.variants {
+            lines.push(format!("    {} = {},", v.name, v.value));
+        }
+        lines.push("};".to_string());
+        lines.push(String::new());
+    }
+
+    // typedef 定义（在类定义之前；仅在内联模式下输出）
     for (_, start, end) in &ast.typedefs {
         let text = extract_range_text(source_bytes, *start, *end)
             .trim()
@@ -163,24 +183,22 @@ pub(super) fn build_cpp_block(
         }
     }
 
-    // Ctor/dtor/standalone shim 函数（含静态访问器）
-    // 当使用 project_header 模式时，函数已通过头文件中的 extern "C" 声明引入，
-    // 实现体在项目 .cpp 文件中，不需要（也不应）在 cpp! 块中重复定义。
-    if !use_project_header {
-        let shim_fns = classify_functions(functions, &class_names);
-        for (fn_info, shim_kind) in &shim_fns {
-            if !matches!(shim_kind, ShimKind::MethodAccessor) {
-                if let Some((start, end)) = fn_info.body_offset {
-                    let raw = extract_range_text(source_bytes, start, end);
-                    let cleaned = clean_shim_text(&raw);
-                    let cleaned = strip_preprocessor_markers(&cleaned);
-                    let trimmed = cleaned.trim();
-                    if !trimmed.is_empty() {
-                        for line in trimmed.lines() {
-                            lines.push(line.to_string());
-                        }
-                        lines.push(String::new());
+    // Ctor/dtor/standalone shim 函数（含静态访问器）内联到 cpp! 块中。
+    // 此处只有 local_classes 非空时才会执行（use_project_header=true 时已提前返回），
+    // 因此不存在与项目 .cpp 中已有实现重复定义的问题。
+    let shim_fns = classify_functions(functions, &class_names);
+    for (fn_info, shim_kind) in &shim_fns {
+        if !matches!(shim_kind, ShimKind::MethodAccessor) {
+            if let Some((start, end)) = fn_info.body_offset {
+                let raw = extract_range_text(source_bytes, start, end);
+                let cleaned = clean_shim_text(&raw);
+                let cleaned = strip_preprocessor_markers(&cleaned);
+                let trimmed = cleaned.trim();
+                if !trimmed.is_empty() {
+                    for line in trimmed.lines() {
+                        lines.push(line.to_string());
                     }
+                    lines.push(String::new());
                 }
             }
         }

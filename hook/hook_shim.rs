@@ -247,6 +247,10 @@ fn preprocess_file_gnu(
         None => return,
     };
 
+    // 写入 .opts 文件（与 Linux LD_PRELOAD hook 的 save_options 行为一致）：
+    // init.rs 的 collect_include_dirs 依赖此文件提取 -I 路径，写入 build.rs。
+    save_options(&out_path.with_extension("cpp2rust.opts"), all_args);
+
     // 从原始参数中收集 -I / -D / -std / -isystem 传递给预处理器
     let mut cmd = Command::new(cc);
     cmd.arg("-E").arg("-C");
@@ -298,6 +302,10 @@ fn preprocess_file_msvc(
         Some(v) => v,
         None => return,
     };
+
+    // 写入 .opts 文件（与 Linux LD_PRELOAD hook 的 save_options 行为一致）：
+    // init.rs 的 collect_include_dirs 依赖此文件提取 -I 路径，写入 build.rs。
+    save_options(&out_path.with_extension("cpp2rust.opts"), all_args);
 
     let mut cmd = Command::new(cc);
     // /P: 预处理到文件；/C: 保留注释；/Fi"<path>": 输出路径（带引号防路径含空格）
@@ -353,6 +361,15 @@ fn preprocess_file_msvc(
 // ─────────────────────────────────────────────────────────────────
 //  共用：路径解析
 // ─────────────────────────────────────────────────────────────────
+
+/// 将编译参数列表以 `"arg1" "arg2" ...` 格式写入 opts 文件。
+///
+/// 格式与 Linux `hook.cpp` 的 `save_options` 完全一致，供
+/// `init.rs::extract_include_dirs_from_opts` 解析 `-I` 头文件搜索路径。
+fn save_options(opts_path: &Path, args: &[String]) {
+    let content: String = args.iter().map(|a| format!("\"{}\" ", a)).collect();
+    let _ = std::fs::write(opts_path, content);
+}
 
 /// 将源文件路径规范化，计算相对路径，并确定输出路径。
 /// 返回 `(abs_src, out_path)`，若不在 project_root 下则返回 None。
@@ -679,5 +696,30 @@ mod tests {
         let p = PathBuf::from(r"D:\a\project");
         let result = strip_verbatim(&p);
         assert_eq!(result, PathBuf::from(r"D:\a\project"));
+    }
+
+    // ── save_options ─────────────────────────────────────────────────
+
+    #[test]
+    fn save_options_writes_quoted_args() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts_path = tmp.path().join("test.cpp2rust.opts");
+        let args = vec![
+            "-c".to_string(),
+            "-std=c++14".to_string(),
+            "-I/usr/include".to_string(),
+        ];
+        save_options(&opts_path, &args);
+        let content = std::fs::read_to_string(&opts_path).unwrap();
+        assert_eq!(content, r#""-c" "-std=c++14" "-I/usr/include" "#);
+    }
+
+    #[test]
+    fn save_options_empty_args_writes_empty_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts_path = tmp.path().join("empty.opts");
+        save_options(&opts_path, &[]);
+        let content = std::fs::read_to_string(&opts_path).unwrap();
+        assert!(content.is_empty());
     }
 }

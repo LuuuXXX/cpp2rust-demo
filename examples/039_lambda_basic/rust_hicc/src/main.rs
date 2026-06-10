@@ -5,8 +5,6 @@ hicc::cpp! {
     #include <algorithm>
 
     #include "lambda_basic.h"
-
-    typedef int (*IntBinaryOp)(int, int);
 }
 
 hicc::import_class! {
