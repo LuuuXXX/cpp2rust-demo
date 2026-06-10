@@ -17,6 +17,10 @@ use crate::ffi_model::FfiSpec;
 struct UnitData {
     unit_path: String,
     spec: FfiSpec,
+    /// 对应的原始 C++ 源文件绝对路径（用于生成 build.rs 中的 `cc_build.file()` 调用）
+    original_cpp: PathBuf,
+    /// 对应的 `.opts` 文件路径（保存了编译该 C++ 文件时的 `-I` 等参数）
+    opts_path: PathBuf,
 }
 
 use crate::generator::{hicc_codegen, project_generator, smoke_test_gen};
@@ -72,10 +76,14 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
 
     print_degraded_summary(&sorted_tags);
 
+    // 从第一趟解析结果中收集 C++ 源文件路径与 include 目录
+    let cpp_sources: Vec<PathBuf> = all_units.iter().map(|ud| ud.original_cpp.clone()).collect();
+    let include_dirs = collect_include_dirs(&all_units);
+
     // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
     project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
     let lib_name = feature.replace('-', "_");
-    project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
+    project_generator::write_build_rs(&lo.rust_dir, &lib_name, &unit_paths, &cpp_sources, &include_dirs)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
     // 生成 tests/smoke_test.rs（冒烟测试）
@@ -226,7 +234,12 @@ fn first_pass_parse(
                     elapsed_ms,
                 });
 
-                all_units.push(UnitData { unit_path, spec });
+                all_units.push(UnitData {
+                    unit_path,
+                    spec,
+                    original_cpp,
+                    opts_path: PathBuf::from(format!("{}.opts", path.display())),
+                });
             }
             Err(err) => {
                 let elapsed_ms = file_start.elapsed().as_millis();
@@ -439,9 +452,122 @@ fn count_degraded_tags(
     }
 }
 
+/// 从所有编译单元的 `.opts` 文件中收集 `-I` 头文件搜索路径，去重后返回。
+///
+/// hook 生成 `.cpp2rust.opts` 时将编译标志以 `"arg1" "arg2" ...` 格式写入文件；
+/// 本函数解析该格式，提取所有 `-I<dir>` 或 `-I <dir>` 形式的 include 目录。
+fn collect_include_dirs(all_units: &[UnitData]) -> Vec<PathBuf> {
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for ud in all_units {
+        for dir in extract_include_dirs_from_opts(&ud.opts_path) {
+            if seen.insert(dir.clone()) {
+                dirs.push(dir);
+            }
+        }
+    }
+    dirs
+}
+
+/// 从 `.opts` 文件（`hook/hook.cpp` 生成的 `"arg1" "arg2" ...` 格式）中提取 `-I` 路径。
+fn extract_include_dirs_from_opts(opts_path: &std::path::Path) -> Vec<PathBuf> {
+    let content = match std::fs::read_to_string(opts_path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let args = parse_opts_quoted_args(&content);
+    let mut dirs = Vec::new();
+    let mut iter = args.iter().peekable();
+    while let Some(arg) = iter.next() {
+        if arg == "-I" {
+            // `-I <path>`（空格分隔形式）
+            if let Some(next) = iter.next() {
+                if !next.is_empty() {
+                    dirs.push(PathBuf::from(next));
+                }
+            }
+        } else if let Some(path) = arg.strip_prefix("-I") {
+            // `-I<path>`（合并形式）
+            if !path.is_empty() {
+                dirs.push(PathBuf::from(path));
+            }
+        }
+    }
+    dirs
+}
+
+/// 将 hook 生成的 `.opts` 文件内容（`"arg1" "arg2" ...`）解析为参数列表。
+fn parse_opts_quoted_args(content: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut s = content;
+    loop {
+        s = s.trim_start();
+        if s.is_empty() {
+            break;
+        }
+        if let Some(rest) = s.strip_prefix('"') {
+            if let Some(end) = rest.find('"') {
+                args.push(rest[..end].to_string());
+                s = &rest[end + 1..];
+            } else {
+                break; // 格式异常，直接退出
+            }
+        } else {
+            break; // 遇到非引号字符，格式异常
+        }
+    }
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── parse_opts_quoted_args ────────────────
+
+    #[test]
+    fn parse_opts_empty() {
+        assert!(parse_opts_quoted_args("").is_empty());
+    }
+
+    #[test]
+    fn parse_opts_single_arg() {
+        assert_eq!(parse_opts_quoted_args(r#""-I/foo" "#), vec!["-I/foo"]);
+    }
+
+    #[test]
+    fn parse_opts_multiple_args() {
+        let result = parse_opts_quoted_args(r#""-I/foo" "-I/bar" "-std=c++14" "#);
+        assert_eq!(result, vec!["-I/foo", "-I/bar", "-std=c++14"]);
+    }
+
+    // ── extract_include_dirs_from_opts ────────
+
+    #[test]
+    fn extract_include_dirs_combined_form() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let opts = tmp.path().join("test.opts");
+        std::fs::write(&opts, r#""-I/usr/include" "-I/opt/include" "-std=c++14" "#).unwrap();
+        let dirs = extract_include_dirs_from_opts(&opts);
+        assert_eq!(dirs, vec![PathBuf::from("/usr/include"), PathBuf::from("/opt/include")]);
+    }
+
+    #[test]
+    fn extract_include_dirs_separate_form() {
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let opts = tmp.path().join("test.opts");
+        std::fs::write(&opts, r#""-I" "/usr/include" "#).unwrap();
+        let dirs = extract_include_dirs_from_opts(&opts);
+        assert_eq!(dirs, vec![PathBuf::from("/usr/include")]);
+    }
+
+    #[test]
+    fn extract_include_dirs_missing_file() {
+        let dirs = extract_include_dirs_from_opts(std::path::Path::new("/nonexistent/path.opts"));
+        assert!(dirs.is_empty());
+    }
 
     // ── is_valid_identifier ───────────────────
 
