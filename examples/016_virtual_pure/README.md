@@ -186,6 +186,34 @@ Deleting Rectangle
 Rust FFI: Pure virtual functions work through hicc!
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_circle_area` | `abstract_shape_create_circle(5.0)` 后 `area()` ≈ π×25 |
+| `smoke_rectangle_area` | `abstract_shape_create_rectangle(4.0, 6.0)` 后 `area()` = 24.0 |
+| `smoke_circle_get_name` | `get_name()` 返回非空 C 字符串 |
+
+### 运行方式
+
+```bash
+cd examples/016_virtual_pure/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 1. **纯虚函数**：`= 0` 语法，不能有实现

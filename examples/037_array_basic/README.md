@@ -199,6 +199,25 @@ Rust FFI: std::array 映射
 4. 与 Rust 的 [T; N] 数组语义相似
 ```
 
+## 冒烟测试
+
+本示例在 `.cpp2rust/array_basic/rust/tests/smoke.rs` 中包含以下冒烟测试，CI 通过 `l-smoke` job 自动运行：
+
+| 测试函数 | 验证内容 |
+|----------|----------|
+| `smoke_int_array5_new` | `int_array5_new()` 分配成功，返回非空指针 |
+| `smoke_int_array5_set_get` | `int_array5_set` / `int_array5_get` 写入读取值正确 |
+| `smoke_int_array5_at` | `int_array5_at` 越界返回 `-1`（哨兵值） |
+| `smoke_int_array5_new_from` | `int_array5_new_from` 从整型数组初始化，索引读取正确 |
+| `smoke_double_array3_type_available` | `DoubleArray3` 类型可用（编译期可见性验证） |
+
+运行单个冒烟测试：
+
+```bash
+cd examples/037_array_basic/.cpp2rust/array_basic/rust
+cargo test smoke_int_array5_set_get -- --nocapture
+```
+
 ## 总结
 
 - std::array 是固定大小的数组容器

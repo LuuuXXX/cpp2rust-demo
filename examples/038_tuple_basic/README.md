@@ -206,6 +206,23 @@ Rust FFI: std::tuple 映射
 4. 字符串等复杂类型需要额外的内存管理
 ```
 
+## 冒烟测试
+
+本示例在 `.cpp2rust/tuple_basic/rust/tests/smoke.rs` 中包含以下冒烟测试，CI 通过 `l-smoke` job 自动运行：
+
+| 测试函数 | 验证内容 |
+|----------|----------|
+| `smoke_tuple2_new` | `tuple2_new()` 分配成功；`get_first` / `get_second` 返回正确值 |
+| `smoke_tuple3_new` | `tuple3_new()` 分配成功；三个元素访问函数均返回正确值 |
+| `smoke_tuple4_new` | `tuple4_new()` 分配成功；四个元素访问函数均返回正确值 |
+
+运行单个冒烟测试：
+
+```bash
+cd examples/038_tuple_basic/.cpp2rust/tuple_basic/rust
+cargo test smoke_tuple3_new -- --nocapture
+```
+
 ## 总结
 
 - std::tuple 是固定大小的异构容器

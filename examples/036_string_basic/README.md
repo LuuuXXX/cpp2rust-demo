@@ -187,6 +187,36 @@ Rust FFI: std::string 映射
 4. CString 用于 Rust 到 C 的转换
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_string_new_empty` | `string_new_empty()` 后 `length()` = 0 |
+| `smoke_string_new_from` | `string_new_from(b"hello")` 后 `c_str()` 内容为 `"hello"` |
+| `smoke_string_equals_compare` | 相同内容的两个字符串 `equals()` 返回 true |
+| `smoke_string_append` | `append("world")` 后 `length()` 增加 |
+| `smoke_string_new_from_len` | `string_new_from_len(ptr, 5)` 创建长度为 5 的字符串 |
+
+### 运行方式
+
+```bash
+cd examples/036_string_basic/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 - std::string 是 C++ 标准字符串类型

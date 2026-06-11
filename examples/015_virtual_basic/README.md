@@ -182,6 +182,35 @@ Circle area: 78.5398
 Rust FFI: Virtual functions work through hicc import_class!
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_circle_radius` | `circle_new(5.0)` 后 `get_radius()` 返回 5.0 |
+| `smoke_circle_area` | `circle_new(5.0)` 后 `area()` ≈ π×25 |
+| `smoke_circle_get_name` | `get_name()` 返回非空 C 字符串 |
+| `smoke_shape_new` | `shape_new()` 可正常调用 `area()` 与 `get_name()` 虚函数 |
+
+### 运行方式
+
+```bash
+cd examples/015_virtual_basic/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 1. **虚函数**：通过 vtable 实现运行时多态

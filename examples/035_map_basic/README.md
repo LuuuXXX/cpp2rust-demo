@@ -188,6 +188,36 @@ Rust FFI: std::map 映射
 5. 字符串键需要 CString 转换
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_string_int_map_new` | `string_int_map_new()` 后 `size()` = 0 |
+| `smoke_string_int_map_insert_get` | `insert("key", 42)` 后 `get("key")` = 42 |
+| `smoke_string_int_map_set_overwrite` | `set("key", 99)` 后 `get("key")` = 99 |
+| `smoke_string_int_map_erase` | `erase("key")` 后 `contains("key")` = false |
+| `smoke_string_int_map_clear` | `clear()` 后 `size()` = 0 |
+
+### 运行方式
+
+```bash
+cd examples/035_map_basic/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 - std::map 是有序关联容器

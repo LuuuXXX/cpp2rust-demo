@@ -188,6 +188,36 @@ Sum: 10
 Rust FFI: Diamond inheritance works correctly with hicc!
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_d_values` | `d_new(1,2,3,4)` 后各 `getXValue()` 分别返回对应值（菱形继承访问路径正确） |
+| `smoke_d_compute` | `d_new(...)` 后 `compute()` 调用不崩溃（验证虚继承 this 调整量正确） |
+
+### 运行方式
+
+```bash
+cd examples/018_virtual_diamond/rust_hicc
+cargo test --test smoke
+```
+
+> **注意**：菱形虚继承（`virtual public A`）中 `getAValue()` 通过 diamond shim 函数（`d_get_a_value`）
+> 访问共享 A 子对象，而非直接的 `import_class!` 方法绑定。
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 1. **菱形继承**：D 继承 B 和 C，B 和 C 都继承 A

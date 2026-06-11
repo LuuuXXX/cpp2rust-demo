@@ -190,6 +190,34 @@ This is polymorphism: same interface, different implementations
 Rust FFI: override keyword works correctly through hicc!
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_derived_get_value` | `derived_new(3.14)` 后 `get_value()` 返回 3.14 |
+| `smoke_derived_area` | `derived_new(2.0)` 后 `area()` 可正常调用（override 路径） |
+| `smoke_base_create` | `base_create(0)` 返回 Base 实例，`area()` 与 `get_name()` 均可调用 |
+
+### 运行方式
+
+```bash
+cd examples/017_virtual_override/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 1. **override**：确保派生类方法覆盖基类虚函数
