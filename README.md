@@ -87,6 +87,9 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 3. 交互式选择参与转换的文件（非交互/CI 环境自动全选）
 4. libclang 解析 AST，提取类 / 函数 / 枚举 / 模板实例化
 5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
+6. 生成冒烟测试 `.cpp2rust/<feature>/rust/tests/smoke.rs`（验证生成的 FFI 类型可被编译链接；可用 `CPP2RUST_GEN_SMOKE=0` 关闭）
+
+> **验证闭环**：进入 `.cpp2rust/<feature>/rust/` 执行 `cargo test`，即可对生成的 Rust FFI 做"编译 + 冒烟"验证。`smoke.rs` 已存在时不会被覆盖，可在其上补充"构造→调用→断言"逻辑。
 
 **参数说明：**
 
@@ -186,6 +189,7 @@ cpp2rust-demo merge --feature linux_x86 --feature arm_embedded --output-dir dist
 |------|------|
 | `CPP2RUST_CXX` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++，支持带版本后缀如 g++-13） |
 | `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
+| `CPP2RUST_GEN_SMOKE` | 控制是否生成冒烟测试 `tests/smoke.rs`（默认开启；设为 `0`/`false`/`no`/`off` 关闭） |
 
 ---
 
