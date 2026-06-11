@@ -12,7 +12,7 @@ fn main() {
     println!();
     println!("Virtual inheritance ensures only ONE A subobject in D\n");
 
-    let mut d = unsafe { d_new(1, 2, 3, 4) };
+    let mut d = d_new(1, 2, 3, 4);
 
     println!("Values:");
     println!("  A value (via B): {}", d_get_a_value(&d.as_mut_ptr()));

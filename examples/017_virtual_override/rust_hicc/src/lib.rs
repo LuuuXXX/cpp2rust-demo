@@ -38,7 +38,7 @@ hicc::import_lib! {
     class Derived;
 
     #[cpp(func = "Base* base_create(int)")]
-    pub unsafe fn base_create(type_: i32) -> Base;
+    pub fn base_create(type_: i32) -> Base;
 
     #[cpp(func = "Derived* derived_new(double)")]
     pub fn derived_new(value: f64) -> Derived;

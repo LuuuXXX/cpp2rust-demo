@@ -9,10 +9,10 @@ fn main() {
     println!("The 'override' keyword explicitly marks method overriding in C++\n");
 
     // Create Base
-    let base = unsafe { base_create(0) };
+    let base = base_create(0);
 
     // Create Derived (through base_create returning Base*)
-    let derived = unsafe { base_create(1) };
+    let derived = base_create(1);
 
     println!("--- Calling through Base pointer ---");
     println!("Name: {}", decode_cstr(base.get_name()));

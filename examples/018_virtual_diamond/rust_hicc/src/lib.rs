@@ -31,7 +31,7 @@ hicc::import_lib! {
     class D;
 
     #[cpp(func = "D* d_new(int, int, int, int)")]
-    pub unsafe fn d_new(a: i32, b: i32, c: i32, d: i32) -> D;
+    pub fn d_new(a: i32, b: i32, c: i32, d: i32) -> D;
 
     #[cpp(func = "int d_get_a_value(D*)")]
     pub fn d_get_a_value(self_: *mut D) -> i32;

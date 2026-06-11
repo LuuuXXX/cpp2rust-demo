@@ -20,7 +20,7 @@ fn smoke_derived_area() {
 #[test]
 fn smoke_base_create() {
     // base_create(0) 创建 Base 实例
-    let base = unsafe { base_create(0) };
+    let base = base_create(0);
     let _ = base.area();
     let name = unsafe { std::ffi::CStr::from_ptr(base.get_name()) };
     assert!(!name.to_bytes().is_empty(), "Base::getName() 不应返回空字符串");

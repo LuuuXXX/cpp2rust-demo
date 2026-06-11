@@ -29,11 +29,11 @@ hicc::import_lib! {
     class Shape;
 
     #[cpp(func = "Shape* shape_new_circle(double)")]
-    pub unsafe fn shape_new_circle(radius: f64) -> Shape;
+    pub fn shape_new_circle(radius: f64) -> Shape;
 
     #[cpp(func = "Shape* shape_new_rectangle(double, double)")]
-    pub unsafe fn shape_new_rectangle(width: f64, height: f64) -> Shape;
+    pub fn shape_new_rectangle(width: f64, height: f64) -> Shape;
 
     #[cpp(func = "Shape* shape_new_triangle(double, double)")]
-    pub unsafe fn shape_new_triangle(base: f64, height: f64) -> Shape;
+    pub fn shape_new_triangle(base: f64, height: f64) -> Shape;
 }

@@ -7,7 +7,7 @@ use virtual_diamond::*;
 
 #[test]
 fn smoke_d_values() {
-    let mut d = unsafe { d_new(1, 2, 3, 4) };
+    let mut d = d_new(1, 2, 3, 4);
     assert_eq!(d_get_a_value(&d.as_mut_ptr()), 1, "getAValue() 应返回 a=1");
     assert_eq!(d.get_b_value(), 2, "getBValue() 应返回 b=2");
     assert_eq!(d.get_c_value(), 3, "getCValue() 应返回 c=3");
@@ -16,7 +16,7 @@ fn smoke_d_values() {
 
 #[test]
 fn smoke_d_compute() {
-    let d = unsafe { d_new(1, 2, 3, 4) };
+    let d = d_new(1, 2, 3, 4);
     // compute() 只输出信息，不做断言，仅验证调用不崩溃
     d.compute();
 }
