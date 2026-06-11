@@ -20,6 +20,12 @@ struct Bar : public Foo {
     virtual void foo() const override {}
 };
 
+// 三层继承：Baz 间接继承多态基类 Foo（经 Bar）。
+// v6 Phase C（收尾）：应额外派生跨层下行转换 Foo -> Baz（以及 Bar -> Baz）。
+struct Baz : public Bar {
+    void extra() const {}
+};
+
 // 无虚函数的非多态类，其派生类不应派生下行转换。
 struct Plain {
     void run() {}
@@ -83,6 +89,23 @@ fn dynamic_cast_skeleton_gated_by_env() {
     assert!(
         on.contains("cpp2rust-todo[DCAST]"),
         "下行转换骨架应附带 DCAST 占位注释，实际输出：\n{}",
+        on
+    );
+    // 跨层（间接）下行转换：Foo 是 Baz 的间接多态祖先，应派生 Foo -> Baz
+    assert!(
+        on.contains("#[cpp(func = \"const Baz* @dynamic_cast<const Baz*>(const Foo*)\")]"),
+        "应生成跨层下行转换 Foo -> Baz 的 @dynamic_cast 声明，实际输出：\n{}",
+        on
+    );
+    assert!(
+        on.contains("pub unsafe fn dynamic_cast_foo_to_baz(src: *const Foo) -> *const Baz;"),
+        "应生成跨层下行转换函数 Foo -> Baz，实际输出：\n{}",
+        on
+    );
+    // 直接基类下行转换 Bar -> Baz 也应存在
+    assert!(
+        on.contains("pub unsafe fn dynamic_cast_bar_to_baz(src: *const Bar) -> *const Baz;"),
+        "应生成 Bar -> Baz 的下行转换函数，实际输出：\n{}",
         on
     );
     // 非多态基类 Plain 的派生类不应派生下行转换
