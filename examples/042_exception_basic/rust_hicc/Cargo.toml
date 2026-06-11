@@ -3,6 +3,14 @@ name = "exception_basic"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "exception_basic"
+path = "src/lib.rs"
+
+[[bin]]
+name = "exception_basic"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

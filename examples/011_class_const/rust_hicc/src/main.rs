@@ -1,38 +1,4 @@
-hicc::cpp! {
-    #include <iostream>
-    #include <vector>
-
-    #include "class_const.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Calculator", destroy = "calculator_delete")]
-    pub class Calculator {
-        #[cpp(method = "int getValue() const")]
-        fn get_value(&self) -> i32;
-
-        #[cpp(method = "int getHistoryCount() const")]
-        fn get_history_count(&self) -> i32;
-
-        #[cpp(method = "void add(int v)")]
-        fn add(&mut self, v: i32);
-
-        #[cpp(method = "void subtract(int v)")]
-        fn subtract(&mut self, v: i32);
-
-        #[cpp(method = "void clear()")]
-        fn clear(&mut self);
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "class_const"]
-
-    class Calculator;
-
-    #[cpp(func = "Calculator* calculator_new()")]
-    fn calculator_new() -> Calculator;
-}
+use class_const::*;
 
 fn main() {
     let mut calc = calculator_new();
@@ -57,4 +23,3 @@ fn main() {
 
     println!("\nRust FFI: const member functions work!");
 }
-

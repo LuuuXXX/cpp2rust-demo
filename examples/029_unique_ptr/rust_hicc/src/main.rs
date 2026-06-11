@@ -1,46 +1,4 @@
-hicc::cpp! {
-    #include <string>
-    #include <iostream>
-    #include <memory>
-    #include <cstring>
-
-    #include "unique_ptr.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "UniqueBuffer", destroy = "uniquebuffer_delete")]
-    pub class UniqueBuffer {
-        #[cpp(method = "int getSize() const")]
-        fn get_size(&self) -> i32;
-
-        #[cpp(method = "char* getData()")]
-        fn get_data(&mut self) -> *mut i8;
-
-        #[cpp(method = "int useCount() const")]
-        fn use_count(&self) -> i32;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "Processor", destroy = "processor_delete")]
-    pub class Processor {
-        #[cpp(method = "char* process(const char* input)")]
-        fn process(&mut self, input: *const i8) -> *mut i8;
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "unique_ptr"]
-
-    class UniqueBuffer;
-    class Processor;
-
-    #[cpp(func = "UniqueBuffer* uniquebuffer_new(int)")]
-    fn uniquebuffer_new(size: i32) -> UniqueBuffer;
-
-    #[cpp(func = "Processor* processor_new()")]
-    fn processor_new() -> Processor;
-}
+use unique_ptr::*;
 
 fn main() {
     println!("=== 029_unique_ptr - std::unique_ptr ===\n");
@@ -74,4 +32,3 @@ fn main() {
 
     println!("\nhicc-std 提供了 std::unique_ptr 的安全 Rust 包装");
 }
-

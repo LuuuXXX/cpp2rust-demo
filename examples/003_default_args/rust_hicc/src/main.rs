@@ -1,13 +1,4 @@
-hicc::cpp! {
-    #include "default_args.h"
-}
-
-hicc::import_lib! {
-    #![link_name = "default_args"]
-
-    #[cpp(func = "int greet(const char*, int)")]
-    unsafe fn greet(name: *const i8, times: i32) -> i32;
-}
+use default_args::*;
 
 fn main() {
     let name = b"World\0".as_ptr() as *const i8;
@@ -28,6 +19,3 @@ fn main() {
 
     println!("\nRust FFI: Default args simulated in Rust!");
 }
-
-
-

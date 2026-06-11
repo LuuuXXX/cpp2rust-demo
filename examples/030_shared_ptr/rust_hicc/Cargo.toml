@@ -3,6 +3,14 @@ name = "shared_ptr"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "shared_ptr"
+path = "src/lib.rs"
+
+[[bin]]
+name = "shared_ptr"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

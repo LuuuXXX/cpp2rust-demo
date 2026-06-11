@@ -3,6 +3,14 @@ name = "summary"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "summary"
+path = "src/lib.rs"
+
+[[bin]]
+name = "summary"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

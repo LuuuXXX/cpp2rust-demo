@@ -3,6 +3,14 @@ name = "functional_bind"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "functional_bind"
+path = "src/lib.rs"
+
+[[bin]]
+name = "functional_bind"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

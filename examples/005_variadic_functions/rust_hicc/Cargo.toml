@@ -3,6 +3,14 @@ name = "variadic_functions"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "variadic_functions"
+path = "src/lib.rs"
+
+[[bin]]
+name = "variadic_functions"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

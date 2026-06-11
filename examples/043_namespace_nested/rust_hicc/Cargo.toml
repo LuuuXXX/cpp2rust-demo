@@ -3,6 +3,14 @@ name = "namespace_nested"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "namespace_nested"
+path = "src/lib.rs"
+
+[[bin]]
+name = "namespace_nested"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

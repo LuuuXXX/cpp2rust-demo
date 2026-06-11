@@ -3,6 +3,14 @@ name = "operator_overload"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "operator_overload"
+path = "src/lib.rs"
+
+[[bin]]
+name = "operator_overload"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

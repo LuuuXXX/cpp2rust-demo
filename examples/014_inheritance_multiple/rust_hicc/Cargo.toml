@@ -3,6 +3,14 @@ name = "inheritance_multiple"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "inheritance_multiple"
+path = "src/lib.rs"
+
+[[bin]]
+name = "inheritance_multiple"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

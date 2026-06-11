@@ -1,57 +1,6 @@
-hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <cstring>
-    #include <new>
-
-    #include "placement_new.h"
-}
+use placement_new::*;
 
 use hicc::AbiClass;
-
-hicc::import_class! {
-    #[cpp(class = "Buffer", destroy = "buffer_delete")]
-    pub class Buffer {
-        #[cpp(method = "void* data()")]
-        fn data(&mut self) -> *mut u8;
-
-        #[cpp(method = "size_t capacity() const")]
-        fn capacity(&self) -> usize;
-
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-
-        #[cpp(method = "void* construct(size_t offset)")]
-        fn construct(&mut self, offset: usize) -> *mut u8;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "VectorBuffer", destroy = "vector_buffer_delete")]
-    pub class VectorBuffer {
-        #[cpp(method = "void* data()")]
-        fn data(&mut self) -> *mut u8;
-
-        #[cpp(method = "size_t element_size() const")]
-        fn element_size(&self) -> usize;
-
-        #[cpp(method = "void destroy_all()")]
-        fn destroy_all(&mut self);
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "placement_new"]
-
-    class Buffer;
-    class VectorBuffer;
-
-    #[cpp(func = "Buffer* buffer_new(size_t)")]
-    fn buffer_new(capacity: usize) -> Buffer;
-
-    #[cpp(func = "VectorBuffer* vector_buffer_new(size_t)")]
-    fn vector_buffer_new(capacity: usize) -> VectorBuffer;
-}
 
 fn main() {
     println!("=== 032_placement_new - Placement New ===\n");
@@ -85,4 +34,3 @@ fn main() {
     println!("3. 适用于内存池、STL 容器实现");
     println!("4. Rust 需要手动管理内存布局");
 }
-

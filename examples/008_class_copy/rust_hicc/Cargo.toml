@@ -3,6 +3,14 @@ name = "class_copy"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "class_copy"
+path = "src/lib.rs"
+
+[[bin]]
+name = "class_copy"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 
