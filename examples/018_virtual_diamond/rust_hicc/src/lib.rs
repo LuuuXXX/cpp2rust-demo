@@ -6,6 +6,12 @@ hicc::cpp! {
         return self->getAValue();
     }
 
+    // getCValue() 通过虚继承从 C 类获得，其 this 调整量在 hicc 的 member_addr 中被截断。
+    // 使用 const D* 包装函数避免成员函数指针丢失 this 偏移量的问题。
+    int d_get_c_value_w(const D* self) {
+        return self->getCValue();
+    }
+
 }
 
 hicc::import_class! {
@@ -14,7 +20,7 @@ hicc::import_class! {
         #[cpp(method = "int getBValue() const")]
         pub fn get_b_value(&self) -> i32;
 
-        #[cpp(method = "int getCValue() const")]
+        #[cpp(func = "int d_get_c_value_w(const D*)")]
         pub fn get_c_value(&self) -> i32;
 
         #[cpp(method = "int getDValue() const")]
