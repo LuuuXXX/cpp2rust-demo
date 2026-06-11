@@ -38,6 +38,14 @@ public:
 // 显式实例化（v6 Phase B 增强（再续）：追踪 `template class Foo<T>;`）
 template class Stack<long>;
 
+// 局部变量声明中的实例化使用点（v6 Phase B 收尾：追踪函数 / 方法体内
+// `Stack<int> s;`、`Stack<int>* p = new Stack<int>();` 等表达式级使用点）
+void make_stacks() {
+    Stack<unsigned int> local(0u);
+    Stack<unsigned int>* heap = new Stack<unsigned int>(1u);
+    (void)heap;
+}
+
 template<typename T>
 void do_swap(T* a, T* b) {
     T tmp = *a;
@@ -89,6 +97,11 @@ fn template_skeleton_gated_by_env() {
     assert!(
         !off.contains("pub type StackI64"),
         "默认关闭时不应生成显式实例化别名，实际输出：\n{}",
+        off
+    );
+    assert!(
+        !off.contains("pub type StackU32"),
+        "默认关闭时不应生成局部变量声明追踪的实例化别名，实际输出：\n{}",
         off
     );
 
@@ -190,6 +203,14 @@ fn template_skeleton_gated_by_env() {
     assert!(
         on.contains(expected_factory),
         "应为显式实例化派生构造工厂骨架，实际输出：\n{}",
+        on
+    );
+
+    // v6 Phase B 收尾：局部变量声明追踪 —— make_stacks() 中
+    // `Stack<unsigned int> local;` 与 `new Stack<unsigned int>()` 应收集到 StackU32 别名
+    assert!(
+        on.contains("pub type StackU32 = Stack<hicc::Pod<u32>>;"),
+        "应从局部变量声明 Stack<unsigned int> 收集到实例化别名，实际输出：\n{}",
         on
     );
 }

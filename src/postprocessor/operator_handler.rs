@@ -409,6 +409,7 @@ mod tests {
             template_class_ranges: vec![],
             template_classes: vec![],
             template_functions: vec![],
+            local_var_types: vec![],
         }
     }
 
