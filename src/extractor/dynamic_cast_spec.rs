@@ -104,6 +104,7 @@ fn build_one(base: &str, derived: &str) -> DynamicCastSpec {
         to_snake_case(base),
         to_snake_case(derived)
     );
+    let ref_rust_name = format!("{}_ref", rust_name);
     let cpp_sig = format!(
         "const {derived}* @dynamic_cast<const {derived}*>(const {base}*)",
         derived = derived,
@@ -111,6 +112,7 @@ fn build_one(base: &str, derived: &str) -> DynamicCastSpec {
     );
     DynamicCastSpec {
         rust_name,
+        ref_rust_name,
         src_class: base.to_string(),
         dst_class: derived.to_string(),
         cpp_sig,
@@ -187,6 +189,7 @@ mod tests {
         assert_eq!(casts.len(), 1, "应派生 1 个下行转换，实际：{:?}", casts);
         let dc = &casts[0];
         assert_eq!(dc.rust_name, "dynamic_cast_foo_to_bar");
+        assert_eq!(dc.ref_rust_name, "dynamic_cast_foo_to_bar_ref");
         assert_eq!(dc.src_class, "Foo");
         assert_eq!(dc.dst_class, "Bar");
         assert_eq!(

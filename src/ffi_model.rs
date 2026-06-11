@@ -48,10 +48,18 @@ pub struct FfiSpec {
 /// 转换失败时 `@dynamic_cast` 返回空指针，因此 Rust 侧返回裸指针 `*const Derived`，
 /// 调用方需自行判空。由于该绑定为骨架，生成时附带 `cpp2rust-todo[DCAST]` 提示，
 /// 需用户结合实际类型确认（符合 v6 方案 §8 的降级策略）。
+///
+/// v6 Phase C（收尾）另派生**引用形式**（`&Src -> &Dst`，函数名以 `_ref` 结尾）：
+/// hicc 允许同一个指针型 C++ 签名的 Rust 侧返回 `&Derived`（见
+/// `references/hicc/examples/dynamic_cast` 的 `as_foo(&self) -> &Foo`）。引用形式更符合
+/// Rust 习惯，但**要求转换必定成功**——若转换失败（基类指针实际并非该派生类），将由空指针
+/// 构造引用而导致未定义行为，因此仅在调用方能确保类型成立时使用，否则应改用裸指针形式判空。
 #[derive(Debug, Default, Clone)]
 pub struct DynamicCastSpec {
-    /// Rust 函数名（如 `dynamic_cast_foo_to_bar`）
+    /// Rust 函数名（裸指针形式，如 `dynamic_cast_foo_to_bar`）
     pub rust_name: String,
+    /// Rust 函数名（引用形式，如 `dynamic_cast_foo_to_bar_ref`）
+    pub ref_rust_name: String,
     /// 源类型名（多态基类，如 `Foo`）
     pub src_class: String,
     /// 目标类型名（派生类，如 `Bar`）

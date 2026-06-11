@@ -108,6 +108,17 @@ fn dynamic_cast_skeleton_gated_by_env() {
         "应生成 Bar -> Baz 的下行转换函数，实际输出：\n{}",
         on
     );
+    // 引用形式（&Src -> &Dst）：同一指针型 C++ 签名，Rust 侧返回 &Dst
+    assert!(
+        on.contains("pub unsafe fn dynamic_cast_foo_to_bar_ref(src: &Foo) -> &Bar;"),
+        "应生成 Foo -> Bar 的引用形式下行转换函数，实际输出：\n{}",
+        on
+    );
+    assert!(
+        on.contains("pub unsafe fn dynamic_cast_foo_to_baz_ref(src: &Foo) -> &Baz;"),
+        "应生成跨层引用形式下行转换函数 Foo -> Baz，实际输出：\n{}",
+        on
+    );
     // 非多态基类 Plain 的派生类不应派生下行转换
     assert!(
         !on.contains("dynamic_cast_plain_to_plain_child"),
