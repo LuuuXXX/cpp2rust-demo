@@ -7,7 +7,7 @@ use clang::{EntityKind, Language};
 use super::range_scanner::{entity_is_from_current_file, entity_presumed_from_user_file};
 use super::{
     BaseInfo, ClassInfo, CppAst, EnumInfo, EnumVariantInfo, FieldInfo, FunctionInfo, MethodInfo,
-    ParamInfo,
+    ParamInfo, TemplateClassInfo, TemplateFunctionInfo,
 };
 
 pub(super) fn collect_namespace(
@@ -242,6 +242,145 @@ pub(super) fn extract_class(
         methods,
         fields,
         is_in_namespace: false,
+        is_from_current_file,
+    })
+}
+
+/// 收集模板实体（`ClassTemplate` / `FunctionTemplate`）的类型参数名。
+///
+/// 遍历直接子节点，提取 `TemplateTypeParameter` / `NonTypeTemplateParameter` /
+/// `TemplateTemplateParameter` 的名称（如 `T`、`Allocator`、`N`）。
+fn collect_template_params(entity: &clang::Entity<'_>) -> Vec<String> {
+    entity
+        .get_children()
+        .iter()
+        .filter(|c| {
+            matches!(
+                c.get_kind(),
+                EntityKind::TemplateTypeParameter
+                    | EntityKind::NonTypeTemplateParameter
+                    | EntityKind::TemplateTemplateParameter
+            )
+        })
+        .filter_map(|c| c.get_name())
+        .filter(|n| !n.is_empty())
+        .collect()
+}
+
+/// 提取模板类（`ClassTemplate`）的结构化信息 — v6 Phase A。
+///
+/// 复用 `extract_method` 收集成员方法，并通过 [`collect_template_params`] 获取
+/// 泛型参数名。仅用于生成器侧的泛型骨架输出（受 `CPP2RUST_GEN_TEMPLATES` 开关控制），
+/// 不影响默认产物。
+pub(super) fn extract_template_class(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> Option<TemplateClassInfo> {
+    let name = entity.get_name()?;
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
+    let type_params = collect_template_params(entity);
+
+    let mut bases = Vec::new();
+    let mut methods = Vec::new();
+    let mut fields = Vec::new();
+
+    for child in entity.get_children() {
+        match child.get_kind() {
+            EntityKind::BaseSpecifier => {
+                let base_name = child
+                    .get_type()
+                    .map(|t| t.get_display_name())
+                    .unwrap_or_default();
+                bases.push(BaseInfo {
+                    name: base_name,
+                    is_virtual: child.is_virtual_base(),
+                });
+            }
+            EntityKind::Method | EntityKind::Constructor | EntityKind::Destructor => {
+                if let Some(mi) = extract_method(&child) {
+                    methods.push(mi);
+                }
+            }
+            EntityKind::FieldDecl | EntityKind::VarDecl => {
+                let is_static = child.get_kind() == EntityKind::VarDecl;
+                let field_name = child.get_name().unwrap_or_default();
+                let type_name = child
+                    .get_type()
+                    .map(|t| t.get_display_name())
+                    .unwrap_or_default();
+                let accessibility = access_str(child.get_accessibility());
+                let field_offset = child.get_range().map(|r| {
+                    let start = r.get_start().get_file_location().offset;
+                    let end = r.get_end().get_file_location().offset;
+                    (start, end)
+                });
+                fields.push(FieldInfo {
+                    name: field_name,
+                    type_name,
+                    is_mutable: !is_static && child.is_mutable(),
+                    is_static,
+                    accessibility,
+                    field_offset,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    Some(TemplateClassInfo {
+        name,
+        type_params,
+        bases,
+        methods,
+        fields,
+        is_from_current_file,
+    })
+}
+
+/// 提取模板函数（`FunctionTemplate`）的结构化信息 — v6 Phase A。
+pub(super) fn extract_template_function(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> Option<TemplateFunctionInfo> {
+    let name = entity.get_name()?;
+    // 与全局函数一致：跳过操作符模板（无法表示为合法 Rust 名称）
+    if name.starts_with("operator") {
+        return None;
+    }
+    let return_type = entity
+        .get_result_type()
+        .map(|t| t.get_display_name())
+        .unwrap_or_default();
+    // FunctionTemplate 不通过 get_arguments() 暴露参数，需遍历 ParmDecl 子节点。
+    let params: Vec<ParamInfo> = entity
+        .get_children()
+        .iter()
+        .filter(|c| c.get_kind() == EntityKind::ParmDecl)
+        .map(|arg| {
+            let name = arg.get_name().unwrap_or_else(|| "_".to_string());
+            let type_name = arg
+                .get_type()
+                .map(|t| t.get_display_name())
+                .unwrap_or_default();
+            let has_default = arg
+                .get_children()
+                .iter()
+                .any(|c| is_expression_kind(c.get_kind()));
+            ParamInfo {
+                name,
+                type_name,
+                has_default,
+            }
+        })
+        .collect();
+    let type_params = collect_template_params(entity);
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
+
+    Some(TemplateFunctionInfo {
+        name,
+        type_params,
+        return_type,
+        params,
         is_from_current_file,
     })
 }

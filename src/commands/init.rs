@@ -590,6 +590,7 @@ mod tests {
                 fwd_decls,
                 fn_bindings: vec![],
             },
+            ..Default::default()
         }
     }
 
@@ -621,6 +622,7 @@ mod tests {
                 fwd_decls: vec!["class Foo;".to_string()],
                 fn_bindings: vec![],
             },
+            ..Default::default()
         };
         let mut class_to_module = HashMap::new();
         class_to_module.insert("Foo".to_string(), "unit/foo".to_string());

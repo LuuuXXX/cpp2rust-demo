@@ -7,6 +7,7 @@ pub mod type_mapper;
 mod class_spec;
 mod cpp_block;
 mod lib_spec;
+mod template_spec;
 
 use crate::ast_parser::{CppAst, FunctionInfo, ParamInfo};
 use crate::ffi_model::{ClassSpec, FfiSpec};
@@ -130,7 +131,15 @@ pub fn extract(
         cpp_block_lines,
         class_specs,
         lib_spec,
+        ..Default::default()
     };
+
+    // ── 模板类 / 模板函数规格（v6 Phase B）─────────
+    // 始终构建（开销极小），但仅在生成器侧 CPP2RUST_GEN_TEMPLATES 开启时输出，
+    // 因此默认产物逐字节不变。
+    let (template_classes, template_functions) = template_spec::build_template_specs(ast);
+    spec.template_classes = template_classes;
+    spec.template_functions = template_functions;
 
     // ── 后处理器 ──────────────────────────────
     crate::postprocessor::diamond_handler::apply(&mut spec, ast, &functions);

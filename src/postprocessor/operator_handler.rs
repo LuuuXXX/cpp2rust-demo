@@ -395,6 +395,7 @@ mod tests {
                 is_interface: false,
             }],
             lib_spec: LibSpec::default(),
+            ..Default::default()
         }
     }
 
@@ -406,6 +407,8 @@ mod tests {
             enums: vec![],
             typedefs: vec![],
             template_class_ranges: vec![],
+            template_classes: vec![],
+            template_functions: vec![],
         }
     }
 

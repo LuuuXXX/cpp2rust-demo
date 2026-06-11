@@ -7,7 +7,24 @@
 //! 关联函数（ctor/factory）在 `import_lib!` 中作为顶层自由函数输出，
 //! 使用完整的 Rust 函数名（如 `counter_new`），以匹配 `main()` 中的调用方式。
 
-use crate::ffi_model::{FfiSpec, FnBinding, SelfKind};
+use crate::ffi_model::{FfiSpec, FnBinding, SelfKind, TemplateClassSpec, TemplateFnSpec};
+
+/// `CPP2RUST_GEN_TEMPLATES` 环境变量名 — v6 Phase B 模板骨架生成开关。
+pub const GEN_TEMPLATES_ENV: &str = "CPP2RUST_GEN_TEMPLATES";
+
+/// 是否启用模板类 / 模板函数泛型骨架生成。
+///
+/// **默认关闭**：仅当 `CPP2RUST_GEN_TEMPLATES` 取值为 `1` / `true` / `yes` / `on`
+/// （忽略大小写）时启用。关闭时生成器不输出任何模板相关内容，默认产物逐字节不变，
+/// 符合 v6 方案「不改变现有使用方法」的硬约束。
+pub fn templates_enabled() -> bool {
+    std::env::var(GEN_TEMPLATES_ENV)
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            matches!(v.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
 
 /// 将 cpp! 内容行写入 `hicc::cpp! { ... }` 块字符串（供 generator 和 merger 共用）。
 pub fn emit_cpp_block(lines: &[String]) -> String {
@@ -135,15 +152,25 @@ pub fn generate(spec: &FfiSpec) -> String {
         out.push_str("}\n");
     }
 
+    // ── 模板类 import_class!（v6 Phase B，受开关控制）──
+    let gen_templates = templates_enabled();
+    if gen_templates {
+        for tcs in &spec.template_classes {
+            emit_template_class(&mut out, tcs);
+        }
+    }
+
     // ── hicc::import_lib! ─────────────────────
     // 当没有任何绑定内容时（无可映射函数），跳过整个块
     let has_associated_fns = spec
         .class_specs
         .iter()
         .any(|cs| !cs.associated_fns.is_empty());
+    let has_template_fns = gen_templates && !spec.template_functions.is_empty();
     if spec.lib_spec.fn_bindings.is_empty()
         && spec.lib_spec.fwd_decls.is_empty()
         && !has_associated_fns
+        && !has_template_fns
     {
         return out;
     }
@@ -179,9 +206,109 @@ pub fn generate(spec: &FfiSpec) -> String {
         emit_fn_binding(&mut out, fb, None);
     }
 
+    // 模板函数骨架（v6 Phase B，受开关控制）
+    if has_template_fns {
+        for tfs in &spec.template_functions {
+            emit_template_fn(&mut out, tfs);
+        }
+    }
+
     out.push_str("}\n");
 
     out
+}
+
+/// 输出单个模板类的泛型 `import_class!` 块（v6 Phase B 骨架）。
+///
+/// 形如：
+/// ```text
+/// hicc::import_class! {
+///     // cpp2rust-todo[TMPL]: ...
+///     #[cpp(class = "template<class T> Stack<T>")]
+///     pub class Stack<T> {
+///         #[cpp(method = "void push(T)")]
+///         pub fn push(&mut self, value: T);
+///     }
+/// }
+/// ```
+fn emit_template_class(out: &mut String, tcs: &TemplateClassSpec) {
+    if tcs.methods.is_empty() {
+        return;
+    }
+    let params = tcs.type_params.join(", ");
+    // C++ 模板类声明形式：template<class T, ...> Name<T, ...>
+    let cpp_params = tcs
+        .type_params
+        .iter()
+        .map(|p| format!("class {}", p))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let cpp_class = format!("template<{}> {}<{}>", cpp_params, tcs.name, params);
+
+    out.push('\n');
+    out.push_str("hicc::import_class! {\n");
+    out.push_str(
+        "    // cpp2rust-todo[TMPL]: 模板类泛型骨架，请按实际实例化类型校验签名与 AbiType 约束；\n",
+    );
+    out.push_str(
+        "    // 构造函数/静态方法需在 import_lib! 中声明，复杂依赖类型（如 T::OutputRef）请手动补全。\n",
+    );
+    out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cpp_class));
+    out.push_str(&format!("    pub class {}<{}> {{\n", tcs.name, params));
+    for (i, mb) in tcs.methods.iter().enumerate() {
+        out.push_str(&format!("        #[cpp(method = \"{}\")]\n", mb.cpp_sig));
+        let self_ref = match mb.self_kind {
+            SelfKind::Ref => "&self",
+            SelfKind::RefMut => "&mut self",
+        };
+        let params_str = if mb.params.is_empty() {
+            String::new()
+        } else {
+            let ps: Vec<String> = mb
+                .params
+                .iter()
+                .map(|(n, t)| format!("{}: {}", n, t))
+                .collect();
+            format!(", {}", ps.join(", "))
+        };
+        let ret_str = match &mb.ret_type {
+            Some(t) => format!(" -> {}", t),
+            None => String::new(),
+        };
+        out.push_str(&format!(
+            "        pub fn {}({}{}){};\n",
+            mb.rust_name, self_ref, params_str, ret_str
+        ));
+        if i + 1 < tcs.methods.len() {
+            out.push('\n');
+        }
+    }
+    out.push_str("    }\n");
+    out.push_str("}\n");
+}
+
+/// 在 `import_lib!` 块内输出单个模板函数骨架（v6 Phase B）。
+fn emit_template_fn(out: &mut String, tfs: &TemplateFnSpec) {
+    out.push('\n');
+    out.push_str(
+        "    // cpp2rust-todo[TMPL]: 模板函数需按实例化类型声明（如 do_swap<int>(int*, int*)）；\n",
+    );
+    out.push_str("    // 下方 <T> 为泛型占位，请替换为实际实例化类型并确认安全性。\n");
+    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", tfs.cpp_sig));
+    let params_str = tfs
+        .params
+        .iter()
+        .map(|(n, t)| format!("{}: {}", n, t))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ret_str = match &tfs.ret_type {
+        Some(t) => format!(" -> {}", t),
+        None => String::new(),
+    };
+    out.push_str(&format!(
+        "    pub unsafe fn {}({}){};\n",
+        tfs.rust_name, params_str, ret_str
+    ));
 }
 
 /// P1-2 辅助：若返回类型是 `*mut ClassName`，去掉指针返回 `ClassName`（owned）
@@ -231,6 +358,7 @@ mod tests {
                 fwd_decls: vec![],
                 fn_bindings: vec![fb],
             },
+            ..Default::default()
         }
     }
 
@@ -279,6 +407,7 @@ mod tests {
                 fwd_decls: vec![],
                 fn_bindings: vec![],
             },
+            ..Default::default()
         };
         let code = generate(&spec);
         assert!(

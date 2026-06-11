@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::error::Cpp2RustError;
 use collector::{
     collect_linkage_spec, collect_namespace, collect_typedef, extract_class, extract_function,
-    is_noninline_fn_def,
+    extract_template_class, extract_template_function, is_noninline_fn_def,
 };
 use range_scanner::entity_is_from_current_file;
 
@@ -128,6 +128,35 @@ pub struct FunctionInfo {
     pub is_from_current_file: bool,
 }
 
+/// 模板类声明（`ClassTemplate`）— v6 Phase A
+///
+/// 仅收集来自当前编译单元的模板类，用于在生成器侧（受 `CPP2RUST_GEN_TEMPLATES`
+/// 开关控制）输出泛型 `import_class!` 骨架。与 `template_class_ranges` 互补：
+/// 后者保存源码文本（供内联到 `hicc::cpp!`），本结构保存结构化签名信息。
+#[derive(Debug, Clone)]
+pub struct TemplateClassInfo {
+    pub name: String,
+    /// 类型参数名（如 `["T", "Allocator"]`）
+    pub type_params: Vec<String>,
+    pub bases: Vec<BaseInfo>,
+    pub methods: Vec<MethodInfo>,
+    pub fields: Vec<FieldInfo>,
+    /// 是否定义在当前被解析的 `.cpp2rust` 文件中
+    pub is_from_current_file: bool,
+}
+
+/// 模板函数声明（`FunctionTemplate`）— v6 Phase A
+#[derive(Debug, Clone)]
+pub struct TemplateFunctionInfo {
+    pub name: String,
+    /// 类型参数名（如 `["T"]`）
+    pub type_params: Vec<String>,
+    pub return_type: String,
+    pub params: Vec<ParamInfo>,
+    /// 是否定义在当前被解析的 `.cpp2rust` 文件中
+    pub is_from_current_file: bool,
+}
+
 /// 顶层 AST 结果
 #[derive(Debug)]
 pub struct CppAst {
@@ -140,6 +169,10 @@ pub struct CppAst {
     pub typedefs: Vec<(String, u32, u32)>,
     /// 模板类源码范围列表：(名称, 起始偏移, 结束偏移)
     pub template_class_ranges: Vec<(String, u32, u32)>,
+    /// 模板类结构化信息（v6 Phase A）
+    pub template_classes: Vec<TemplateClassInfo>,
+    /// 模板函数结构化信息（v6 Phase A）
+    pub template_functions: Vec<TemplateFunctionInfo>,
 }
 
 // ─────────────────────────────────────────────
@@ -203,6 +236,8 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         enums: Vec::new(),
         typedefs: Vec::new(),
         template_class_ranges: Vec::new(),
+        template_classes: Vec::new(),
+        template_functions: Vec::new(),
     };
 
     let root = tu.get_entity();
@@ -249,6 +284,10 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                         let name = entity.get_name().unwrap_or_default();
                         ast.template_class_ranges.push((name, start, end));
                     }
+                    // v6 Phase A：额外提取模板类的结构化签名信息（供生成器开关使用）
+                    if let Some(tc) = extract_template_class(&entity, &cpp_ranges) {
+                        ast.template_classes.push(tc);
+                    }
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
@@ -261,7 +300,12 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                     ast.functions.push(fi);
                 }
             }
-            EntityKind::FunctionTemplate => {}
+            EntityKind::FunctionTemplate => {
+                // v6 Phase A：提取模板函数签名（仅当前编译单元）
+                if let Some(tf) = extract_template_function(&entity, &cpp_ranges) {
+                    ast.template_functions.push(tf);
+                }
+            }
             EntityKind::EnumDecl if entity_is_from_current_file(&entity, &cpp_ranges) => {
                 if let Some(ei) = collector::extract_enum(&entity) {
                     ast.enums.push(ei);
