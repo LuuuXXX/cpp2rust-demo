@@ -21,6 +21,31 @@ pub struct FfiSpec {
     /// 模板实例化别名规格（v6 Phase B 增强）。仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器
     /// 输出类型别名骨架（如 `pub type StackI32 = Stack<hicc::Pod<i32>>;`），默认关闭时不影响产物。
     pub template_instances: Vec<TemplateInstanceSpec>,
+    /// 模板实例化构造工厂骨架（v6 Phase B 增强（续））。由模板类构造函数派生，`T` 替换为
+    /// 具体实例化类型。仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器在 `import_lib!` 中输出
+    /// 工厂骨架，默认关闭时不影响产物。
+    pub template_factories: Vec<TemplateFactorySpec>,
+}
+
+/// 模板实例化构造工厂骨架规格 — v6 Phase B 增强（续）
+///
+/// 由提取器从模板类的公有构造函数派生，并将类型参数 `T` 替换为某个实例化的具体类型，
+/// 生成 hicc `import_lib!` 中的工厂函数骨架，使实例化别名（[`TemplateInstanceSpec`]）
+/// 可向真实构造调用靠拢。
+///
+/// 由于模板类构造函数对应的 C++ 符号通常需用户在 C++ 侧显式实例化 / 包装后才存在，
+/// 本规格生成的是**带 `cpp2rust-todo[TMPL]` 提示的骨架**（与 Phase B 其余模板能力一致），
+/// 需用户结合实际符号与 hicc 约定补全（符合 v6 方案 §8 的降级策略）。
+#[derive(Debug, Default, Clone)]
+pub struct TemplateFactorySpec {
+    /// Rust 工厂函数名（如 `stack_i32_new`）
+    pub rust_name: String,
+    /// 实例化别名（作为 Rust 返回类型，如 `StackI32`）
+    pub alias_name: String,
+    /// C++ 工厂签名（用于 `#[cpp(func = "...")]`，如 `Stack<int>* stack_i32_new(int value)`）
+    pub cpp_sig: String,
+    /// 参数列表 (rust_name, rust_type)
+    pub params: Vec<(String, String)>,
 }
 
 /// 模板实例化别名规格（生成具体实例化类型别名）— v6 Phase B 增强
@@ -36,6 +61,8 @@ pub struct TemplateInstanceSpec {
     pub template_name: String,
     /// hicc 形式的实例化类型实参（POD 标量为 `hicc::Pod<i32>`；类类型保留原 C++ 名并附 TODO）
     pub hicc_args: Vec<String>,
+    /// 原始的具体 C++ 类型实参（如 `["int"]`），用于派生构造工厂的 C++ 签名（如 `Stack<int>`）。
+    pub cpp_args: Vec<String>,
     /// 是否含无法判定为 POD 的类类型实参（true 时生成 cpp2rust-todo[TMPL] 提示用户确认 hicc 类型）
     pub needs_class_type: bool,
 }

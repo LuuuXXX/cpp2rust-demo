@@ -485,6 +485,64 @@ fn main() {
 }
 ```
 
+## cpp2rust-demo 的模板映射（v6）
+
+> 本节说明 cpp2rust-demo 工具如何把 C++ 模板声明映射为 hicc 骨架，对应 hicc 的模板类 / 模板函数 / 实例化能力。该能力由环境变量 `CPP2RUST_GEN_TEMPLATES` 控制，**默认关闭**（设为 `1`/`true`/`yes`/`on` 开启），关闭时默认产物逐字节不变。所有骨架均带 `cpp2rust-todo[TMPL]` 占位注释，提示用户按实际实例化类型校验签名与 `AbiType` 约束后补全。
+
+### 1. 模板类 → 泛型 `import_class!` 骨架
+
+C++ 模板类（`template<typename T> class Stack { ... }`）映射为泛型 `pub class Stack<T>`，成员方法签名中保留泛型 `T`：
+
+```rust
+hicc::import_class! {
+    // cpp2rust-todo[TMPL]: 模板类泛型骨架，请按实际实例化类型校验签名与 AbiType 约束；
+    #[cpp(class = "template<class T> Stack<T>")]
+    pub class Stack<T> {
+        #[cpp(method = "void push(T value)")]
+        pub fn push(&mut self, value: T);
+        #[cpp(method = "T top() const")]
+        pub fn top(&self) -> T;
+    }
+}
+```
+
+### 2. 模板实例化别名
+
+工具扫描当前编译单元中「以具体类型实例化本文件模板类」的使用点（字段类型、方法参数 / 返回类型、全局函数参数 / 返回类型），生成 hicc 形式的类型别名。POD 标量用 `hicc::Pod<...>` 包装，命名风格与 hicc `reference.md` 一致：
+
+```rust
+pub type StackI32 = Stack<hicc::Pod<i32>>;
+pub type StackF64 = Stack<hicc::Pod<f64>>;
+```
+
+类类型实参保留原 C++ 名并附 TODO，提示用户替换为对应的 hicc 类（如 `hicc_std::string`）。
+
+### 3. 构造工厂骨架
+
+由模板类公有构造函数派生工厂函数，将类型参数 `T` 替换为实例化的具体类型，在 `import_lib!` 中输出：
+
+```rust
+hicc::import_lib! {
+    // cpp2rust-todo[TMPL]: StackI32 构造工厂骨架 —— 需在 C++ 侧提供对应符号并校验签名
+    #[cpp(func = "Stack<int>* stack_i32_new(int initial)")]
+    pub unsafe fn stack_i32_new(initial: i32) -> StackI32;
+}
+```
+
+工厂对应的 C++ 符号通常需用户在 C++ 侧显式实例化 / 包装后才存在，故标记为 TODO。
+
+### 4. 模板函数 → 泛型 `import_lib!` 骨架
+
+C++ 模板函数（`template<typename T> void do_swap(T*, T*)`）映射为泛型 `import_lib!` 绑定，`<T>` 为占位，需替换为实际实例化类型：
+
+```rust
+hicc::import_lib! {
+    // cpp2rust-todo[TMPL]: 模板函数需按实例化类型声明（如 do_swap<int>(int*, int*)）；
+    #[cpp(func = "void do_swap<T>(T*, T*)")]
+    pub unsafe fn do_swap(a: *mut T, b: *mut T);
+}
+```
+
 ## hicc 与其他工具的对比
 
 ### hicc vs c2rust-demo

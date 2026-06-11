@@ -16,10 +16,12 @@
 //! 复杂场景（`T::OutputRef` 等）由用户基于骨架补全，符合 v6 方案 §8 的降级策略。
 
 use crate::ast_parser::{CppAst, TemplateClassInfo, TemplateFunctionInfo};
-use crate::ffi_model::{TemplateClassSpec, TemplateFnSpec, TemplateInstanceSpec};
+use crate::ffi_model::{
+    TemplateClassSpec, TemplateFactorySpec, TemplateFnSpec, TemplateInstanceSpec,
+};
 
 use super::class_spec::build_method_binding;
-use super::type_mapper::{clean_type, cpp_to_rust};
+use super::type_mapper::{clean_type, cpp_to_rust, to_snake_case};
 use super::{normalize_ptr_spacing, sanitize_fn_name, sanitize_param_name};
 
 /// 由 `CppAst` 构建模板类 / 模板函数绑定规格。
@@ -153,27 +155,191 @@ pub(super) fn build_template_instances(ast: &CppAst) -> Vec<TemplateInstanceSpec
     let mut seen: BTreeSet<(String, Vec<String>)> = BTreeSet::new();
     let mut out: Vec<TemplateInstanceSpec> = Vec::new();
 
+    // 来源 1：当前编译单元中类的字段类型（如 `Stack<int> impl;`）
+    // 来源 2（v6 Phase B 增强（续））：方法的参数类型与返回类型（如 `void use(Stack<int>& s)`）
     for class in ast.classes.iter().filter(|c| c.is_from_current_file) {
         for field in &class.fields {
-            let core = strip_type_decorations(&field.type_name);
-            let Some((name, args)) = split_template_use(core) else {
-                continue;
-            };
-            if !template_names.contains(name.as_str()) {
-                continue;
-            }
-            // 去重：相同（模板名, 实参列表）只生成一个别名
-            let key = (name.clone(), args.clone());
-            if !seen.insert(key) {
-                continue;
-            }
-            if let Some(spec) = build_instance_spec(&name, &args) {
-                out.push(spec);
+            collect_instance_from_type(&field.type_name, &template_names, &mut seen, &mut out);
+        }
+        for method in &class.methods {
+            collect_instance_from_type(&method.return_type, &template_names, &mut seen, &mut out);
+            for p in &method.params {
+                collect_instance_from_type(&p.type_name, &template_names, &mut seen, &mut out);
             }
         }
     }
 
+    // 来源 3（v6 Phase B 增强（续））：当前编译单元中全局函数的参数 / 返回类型
+    for func in ast.functions.iter().filter(|f| f.is_from_current_file) {
+        collect_instance_from_type(&func.return_type, &template_names, &mut seen, &mut out);
+        for p in &func.params {
+            collect_instance_from_type(&p.type_name, &template_names, &mut seen, &mut out);
+        }
+    }
+
     out
+}
+
+/// 从一个类型字符串中识别「本文件模板类的实例化使用点」，去重后追加到 `out`。
+///
+/// 剥离指针 / 引用 / cv 限定后匹配 `Name<args>` 形式，且 `Name` 须属于
+/// `template_names`（本文件声明的模板类）。相同 `(模板名, 实参列表)` 只记录一次。
+fn collect_instance_from_type(
+    type_name: &str,
+    template_names: &std::collections::BTreeSet<&str>,
+    seen: &mut std::collections::BTreeSet<(String, Vec<String>)>,
+    out: &mut Vec<TemplateInstanceSpec>,
+) {
+    let core = strip_type_decorations(type_name);
+    let Some((name, args)) = split_template_use(core) else {
+        return;
+    };
+    if !template_names.contains(name.as_str()) {
+        return;
+    }
+    let key = (name.clone(), args.clone());
+    if !seen.insert(key) {
+        return;
+    }
+    if let Some(spec) = build_instance_spec(&name, &args) {
+        out.push(spec);
+    }
+}
+
+/// 由模板类构造函数与实例化别名派生构造工厂骨架（v6 Phase B 增强（续））。
+///
+/// 对每个 [`TemplateInstanceSpec`]，在其对应的本文件模板类中查找公有构造函数，
+/// 将类型参数 `T` 替换为该实例化的具体 C++ 类型，生成 `import_lib!` 工厂骨架：
+///
+/// ```text
+/// #[cpp(func = "Stack<int>* stack_i32_new(T value)")]
+/// pub unsafe fn stack_i32_new(value: i32) -> StackI32;
+/// ```
+///
+/// 工厂对应的 C++ 符号通常需用户在 C++ 侧显式实例化 / 包装后才存在，因此生成器会附
+/// `cpp2rust-todo[TMPL]` 提示，需用户结合实际符号补全（符合 v6 方案 §8 降级策略）。
+/// 实参个数与模板类型参数个数不一致的实例化会被跳过。
+pub(super) fn build_template_factories(
+    ast: &CppAst,
+    instances: &[TemplateInstanceSpec],
+) -> Vec<TemplateFactorySpec> {
+    let mut out = Vec::new();
+
+    for inst in instances {
+        let Some(tc) = ast
+            .template_classes
+            .iter()
+            .find(|tc| tc.is_from_current_file && tc.name == inst.template_name)
+        else {
+            continue;
+        };
+        // 实参与类型参数须一一对应，否则无法可靠替换
+        if tc.type_params.len() != inst.cpp_args.len() {
+            continue;
+        }
+
+        // 仅纳入公有构造函数（跳过析构 / 静态 / 拷贝赋值等）
+        let ctors: Vec<&_> = tc
+            .methods
+            .iter()
+            .filter(|m| m.is_constructor && m.accessibility == "public")
+            .collect();
+        let multi = ctors.len() > 1;
+
+        for (idx, ctor) in ctors.into_iter().enumerate() {
+            let base = format!("{}_new", to_snake_case(&inst.alias_name));
+            let rust_name = if multi {
+                format!("{}_{}", base, idx)
+            } else {
+                base
+            };
+
+            // C++ 工厂签名参数：将类型参数替换为具体实参后的类型（保留参数名）
+            let cpp_param_types: Vec<String> = ctor
+                .params
+                .iter()
+                .map(|p| {
+                    let ty = substitute_type_params(
+                        &normalize_ptr_spacing(clean_type(&p.type_name)),
+                        &tc.type_params,
+                        &inst.cpp_args,
+                    );
+                    if !p.name.is_empty() && p.name != "_" {
+                        format!("{} {}", ty, p.name)
+                    } else {
+                        ty
+                    }
+                })
+                .collect();
+
+            // Rust 侧参数：替换类型参数后映射为 Rust 类型
+            let params: Vec<(String, String)> = ctor
+                .params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let sub = substitute_type_params(&p.type_name, &tc.type_params, &inst.cpp_args);
+                    (sanitize_param_name(&p.name, i), cpp_to_rust(&sub))
+                })
+                .collect();
+
+            // 返回类型为实例化类型指针：如 `Stack<int>*`
+            let cpp_ret = format!("{}<{}>*", inst.template_name, inst.cpp_args.join(", "));
+            let cpp_sig = format!("{} {}({})", cpp_ret, rust_name, cpp_param_types.join(", "));
+
+            out.push(TemplateFactorySpec {
+                rust_name,
+                alias_name: inst.alias_name.clone(),
+                cpp_sig,
+                params,
+            });
+        }
+    }
+
+    out
+}
+
+/// 将类型字符串中作为独立标识符出现的类型参数（如 `T`）替换为具体实参。
+///
+/// 例如 `const T&` + (`["T"]`, `["int"]`) → `const int&`；
+/// 仅替换完整标识符，不会误伤 `Time`、`vector<T>` 中的子串（`Time` 不等于 `T`）。
+fn substitute_type_params(ty: &str, type_params: &[String], cpp_args: &[String]) -> String {
+    let mut result = ty.to_string();
+    for (param, arg) in type_params.iter().zip(cpp_args.iter()) {
+        result = replace_ident(&result, param, arg);
+    }
+    result
+}
+
+/// 以「完整标识符」为单位，将 `from` 替换为 `to`（标识符前后不能是字母/数字/下划线）。
+fn replace_ident(haystack: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return haystack.to_string();
+    }
+    let bytes = haystack.as_bytes();
+    let mut out = String::with_capacity(haystack.len());
+    let mut i = 0usize;
+    while i < haystack.len() {
+        if haystack[i..].starts_with(from) {
+            let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+            let after_idx = i + from.len();
+            let after_ok = after_idx >= bytes.len() || !is_ident_byte(bytes[after_idx]);
+            if before_ok && after_ok {
+                out.push_str(to);
+                i = after_idx;
+                continue;
+            }
+        }
+        // 推进一个 UTF-8 字符
+        let ch = haystack[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// 去除类型字符串的指针/引用/cv 限定与首尾空白，返回核心类型名。
@@ -243,12 +409,15 @@ fn split_template_use(core: &str) -> Option<(String, Vec<String>)> {
 /// 由模板名与具体类型实参列表构建一个实例化别名规格。
 fn build_instance_spec(template_name: &str, args: &[String]) -> Option<TemplateInstanceSpec> {
     let mut hicc_args = Vec::with_capacity(args.len());
+    let mut cpp_args = Vec::with_capacity(args.len());
     let mut suffix = String::new();
     let mut needs_class_type = false;
 
     for arg in args {
         let (hicc, suf, is_class) = map_instance_arg(arg);
         hicc_args.push(hicc);
+        // 原始 C++ 实参（剥离修饰），用于派生构造工厂的 C++ 签名（如 `Stack<int>`）
+        cpp_args.push(strip_type_decorations(arg).to_string());
         suffix.push_str(&suf);
         needs_class_type |= is_class;
     }
@@ -261,6 +430,7 @@ fn build_instance_spec(template_name: &str, args: &[String]) -> Option<TemplateI
         alias_name: format!("{}{}", template_name, suffix),
         template_name: template_name.to_string(),
         hicc_args,
+        cpp_args,
         needs_class_type,
     })
 }
@@ -395,6 +565,7 @@ mod tests {
         assert_eq!(spec.alias_name, "StackI32");
         assert_eq!(spec.template_name, "Stack");
         assert_eq!(spec.hicc_args, vec!["hicc::Pod<i32>".to_string()]);
+        assert_eq!(spec.cpp_args, vec!["int".to_string()]);
         assert!(!spec.needs_class_type);
     }
 
@@ -403,5 +574,30 @@ mod tests {
         assert_eq!(pascal_case_ident("i32"), "I32");
         assert_eq!(pascal_case_ident("std::string"), "StdString");
         assert_eq!(pascal_case_ident("unsigned int"), "UnsignedInt");
+    }
+
+    #[test]
+    fn replace_ident_only_matches_whole_identifiers() {
+        // 完整标识符被替换
+        assert_eq!(replace_ident("T", "T", "int"), "int");
+        assert_eq!(replace_ident("const T&", "T", "int"), "const int&");
+        assert_eq!(replace_ident("T*", "T", "double"), "double*");
+        // 子串不被误替换（Time / TT 不是 T）
+        assert_eq!(replace_ident("Time", "T", "int"), "Time");
+        assert_eq!(replace_ident("TT", "T", "int"), "TT");
+        assert_eq!(replace_ident("vector_T", "T", "int"), "vector_T");
+    }
+
+    #[test]
+    fn substitute_type_params_replaces_each_param() {
+        let params = vec!["T".to_string(), "U".to_string()];
+        let args = vec!["int".to_string(), "double".to_string()];
+        assert_eq!(
+            substitute_type_params("const T&", &params, &args),
+            "const int&"
+        );
+        assert_eq!(substitute_type_params("U*", &params, &args), "double*");
+        // 未出现的标识符保持不变
+        assert_eq!(substitute_type_params("char", &params, &args), "char");
     }
 }

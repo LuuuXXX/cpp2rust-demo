@@ -8,7 +8,8 @@
 //! 使用完整的 Rust 函数名（如 `counter_new`），以匹配 `main()` 中的调用方式。
 
 use crate::ffi_model::{
-    FfiSpec, FnBinding, SelfKind, TemplateClassSpec, TemplateFnSpec, TemplateInstanceSpec,
+    FfiSpec, FnBinding, SelfKind, TemplateClassSpec, TemplateFactorySpec, TemplateFnSpec,
+    TemplateInstanceSpec,
 };
 
 /// `CPP2RUST_GEN_TEMPLATES` 环境变量名 — v6 Phase B 模板骨架生成开关。
@@ -171,10 +172,12 @@ pub fn generate(spec: &FfiSpec) -> String {
         .iter()
         .any(|cs| !cs.associated_fns.is_empty());
     let has_template_fns = gen_templates && !spec.template_functions.is_empty();
+    let has_template_factories = gen_templates && !spec.template_factories.is_empty();
     if spec.lib_spec.fn_bindings.is_empty()
         && spec.lib_spec.fwd_decls.is_empty()
         && !has_associated_fns
         && !has_template_fns
+        && !has_template_factories
     {
         return out;
     }
@@ -214,6 +217,13 @@ pub fn generate(spec: &FfiSpec) -> String {
     if has_template_fns {
         for tfs in &spec.template_functions {
             emit_template_fn(&mut out, tfs);
+        }
+    }
+
+    // 模板实例化构造工厂骨架（v6 Phase B 增强（续），受开关控制）
+    if has_template_factories {
+        for tf in &spec.template_factories {
+            emit_template_factory(&mut out, tf);
         }
     }
 
@@ -313,6 +323,33 @@ fn emit_template_fn(out: &mut String, tfs: &TemplateFnSpec) {
     out.push_str(&format!(
         "    pub unsafe fn {}({}){};\n",
         tfs.rust_name, params_str, ret_str
+    ));
+}
+
+/// 在 `import_lib!` 块内输出单个模板实例化构造工厂骨架（v6 Phase B 增强（续））。
+///
+/// 形如：
+/// ```text
+/// // cpp2rust-todo[TMPL]: StackI32 构造工厂骨架 —— 需在 C++ 侧提供对应符号并校验签名
+/// #[cpp(func = "Stack<int>* stack_i32_new(T value)")]
+/// pub unsafe fn stack_i32_new(value: i32) -> StackI32;
+/// ```
+fn emit_template_factory(out: &mut String, tf: &TemplateFactorySpec) {
+    out.push('\n');
+    out.push_str(&format!(
+        "    // cpp2rust-todo[TMPL]: {} 构造工厂骨架 —— 需在 C++ 侧提供对应符号（如显式实例化/包装）并校验签名\n",
+        tf.alias_name
+    ));
+    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", tf.cpp_sig));
+    let params_str = tf
+        .params
+        .iter()
+        .map(|(n, t)| format!("{}: {}", n, t))
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push_str(&format!(
+        "    pub unsafe fn {}({}) -> {};\n",
+        tf.rust_name, params_str, tf.alias_name
     ));
 }
 
