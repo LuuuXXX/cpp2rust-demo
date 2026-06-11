@@ -232,6 +232,7 @@ pub fn generate(spec: &FfiSpec) -> String {
 /// }
 /// ```
 fn emit_template_class(out: &mut String, tcs: &TemplateClassSpec) {
+    // 无可映射的公有成员方法时不输出空骨架（与 import_class! 跳过空块的策略一致）
     if tcs.methods.is_empty() {
         return;
     }

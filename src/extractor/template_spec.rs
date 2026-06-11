@@ -46,6 +46,7 @@ pub(super) fn build_template_specs(ast: &CppAst) -> (Vec<TemplateClassSpec>, Vec
 
 /// 构建单个模板类规格。无可映射的公有成员方法时返回 `None`（避免空骨架）。
 fn build_template_class_spec(tc: &TemplateClassInfo) -> Option<TemplateClassSpec> {
+    // 跳过畸形模板：模板类必须同时具备名称与至少一个类型参数才能生成泛型骨架
     if tc.name.is_empty() || tc.type_params.is_empty() {
         return None;
     }
