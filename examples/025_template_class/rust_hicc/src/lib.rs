@@ -12,19 +12,19 @@ hicc::import_class! {
     #[cpp(class = "IntStack", destroy = "intstack_delete")]
     pub class IntStack {
         #[cpp(method = "int size() const")]
-        fn size(&self) -> i32;
+        pub fn size(&self) -> i32;
 
         #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
+        pub fn empty(&self) -> bool;
 
         #[cpp(method = "void push(int value)")]
-        fn push(&mut self, value: i32);
+        pub fn push(&mut self, value: i32);
 
         #[cpp(method = "int top() const")]
-        fn top(&self) -> i32;
+        pub fn top(&self) -> i32;
 
         #[cpp(method = "void pop()")]
-        fn pop(&mut self);
+        pub fn pop(&mut self);
     }
 }
 
@@ -32,19 +32,19 @@ hicc::import_class! {
     #[cpp(class = "DoubleStack", destroy = "doublestack_delete")]
     pub class DoubleStack {
         #[cpp(method = "int size() const")]
-        fn size(&self) -> i32;
+        pub fn size(&self) -> i32;
 
         #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
+        pub fn empty(&self) -> bool;
 
         #[cpp(method = "void push(double value)")]
-        fn push(&mut self, value: f64);
+        pub fn push(&mut self, value: f64);
 
         #[cpp(method = "double top() const")]
-        fn top(&self) -> f64;
+        pub fn top(&self) -> f64;
 
         #[cpp(method = "void pop()")]
-        fn pop(&mut self);
+        pub fn pop(&mut self);
     }
 }
 
