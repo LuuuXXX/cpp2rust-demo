@@ -29,6 +29,36 @@ pub struct FfiSpec {
     /// 构造函数派生，使 Rust 侧可实现 C++ 接口。仅在 `CPP2RUST_GEN_PROXY` 开启时由生成器
     /// 在 `import_lib!` 中输出，默认关闭时不影响产物。
     pub proxy_factories: Vec<ProxyFactorySpec>,
+    /// `@dynamic_cast` 下行转换绑定骨架（v6 Phase C（续））。由「继承多态基类的派生类」派生，
+    /// 用于在 RTTI 场景把多态基类指针向下转换为派生类指针，替代 v5 的整数枚举绕过方案。
+    /// 仅在 `CPP2RUST_GEN_DYNAMIC_CAST` 开启时由生成器在 `import_lib!` 中输出，
+    /// 默认关闭时不影响产物。
+    pub dynamic_casts: Vec<DynamicCastSpec>,
+}
+
+/// `@dynamic_cast` 下行转换绑定骨架规格 — v6 Phase C（续，高级映射）
+///
+/// 由提取器从「继承多态基类（含虚函数）的派生类」派生：对每个 `(多态基类, 派生类)` 关系
+/// 生成 hicc `import_lib!` 中的下行转换骨架
+/// `#[cpp(func = "const Derived* @dynamic_cast<const Derived*>(const Base*)")]`，
+/// 用于 RTTI 场景安全地把多态基类指针向下转换为派生类指针（见
+/// `references/hicc/examples/dynamic_cast`），替代 v5 的整数枚举绕过方案
+/// （对应 v6 方案 §3.2 示例 023 typeid_rtti）。
+///
+/// 转换失败时 `@dynamic_cast` 返回空指针，因此 Rust 侧返回裸指针 `*const Derived`，
+/// 调用方需自行判空。由于该绑定为骨架，生成时附带 `cpp2rust-todo[DCAST]` 提示，
+/// 需用户结合实际类型确认（符合 v6 方案 §8 的降级策略）。
+#[derive(Debug, Default, Clone)]
+pub struct DynamicCastSpec {
+    /// Rust 函数名（如 `dynamic_cast_foo_to_bar`）
+    pub rust_name: String,
+    /// 源类型名（多态基类，如 `Foo`）
+    pub src_class: String,
+    /// 目标类型名（派生类，如 `Bar`）
+    pub dst_class: String,
+    /// C++ 转换签名（用于 `#[cpp(func = "...")]`，如
+    /// `const Bar* @dynamic_cast<const Bar*>(const Foo*)`）
+    pub cpp_sig: String,
 }
 
 /// `@make_proxy` 代理工厂骨架规格 — v6 Phase C（高级映射）
