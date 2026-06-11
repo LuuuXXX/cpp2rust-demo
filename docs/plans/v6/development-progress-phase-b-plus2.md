@@ -138,6 +138,9 @@
 以下为 v6 方案中尚未落地的阶段，建议作为后续独立 PR 推进（与既有节奏一致：先做风险最低、
 可独立验证的垂直切片）：
 
+> **进展更新**：下列「Phase B 增强（再续）」中的「显式实例化 `template class Foo<int>;`
+> 追踪」已在后续 PR 落地，详见 `development-progress-phase-b-plus3.md`。
+
 - **Phase B 增强（再续）**：把实例化追踪来源进一步扩展到显式实例化
   `template class Foo<int>;`（AST 中以 `ClassTemplateSpecialization` 形式出现），并支持
   非默认 / 多参数构造函数的更精细签名映射。

@@ -2,7 +2,7 @@
 //!
 //! 供 `mod.rs` 中的 `parse_preprocessed` 调用。
 
-use clang::{EntityKind, Language};
+use clang::{EntityKind, Language, TemplateArgument};
 
 use super::range_scanner::{entity_is_from_current_file, entity_presumed_from_user_file};
 use super::{
@@ -158,6 +158,19 @@ pub(super) fn collect_typedef(
     ast.typedefs.push((name, start, end));
 }
 
+/// 将 libclang 的模板实参（[`TemplateArgument`]）转为干净的类型显示名。
+///
+/// 主要用于显式实例化（如 `template class Matrix<int>;`，在 AST 中表现为带模板实参的
+/// `ClassDecl`）的实参提取。`TemplateArgument::Type(t)` 取 `t.get_display_name()`
+/// 得到 `int` / `double` 等可直接复用的类型名；非类型实参（整型常量等）回退到
+/// libclang 的调试表示，供后续按需处理。
+fn template_arg_display(arg: &TemplateArgument<'_>) -> String {
+    match arg {
+        TemplateArgument::Type(t) => t.get_display_name(),
+        other => format!("{:?}", other),
+    }
+}
+
 pub(super) fn extract_class(
     entity: &clang::Entity<'_>,
     cpp_ranges: &[std::ops::Range<u32>],
@@ -178,7 +191,7 @@ pub(super) fn extract_class(
     let mut template_args = Vec::new();
     if let Some(args) = entity.get_template_arguments() {
         for arg in &args {
-            template_args.push(format!("{:?}", arg));
+            template_args.push(template_arg_display(arg));
         }
     }
 

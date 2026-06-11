@@ -35,6 +35,9 @@ public:
     void use_short(Stack<short>& s);
 };
 
+// 显式实例化（v6 Phase B 增强（再续）：追踪 `template class Foo<T>;`）
+template class Stack<long>;
+
 template<typename T>
 void do_swap(T* a, T* b) {
     T tmp = *a;
@@ -81,6 +84,11 @@ fn template_skeleton_gated_by_env() {
     assert!(
         !off.contains("stack_i32_new"),
         "默认关闭时不应生成模板构造工厂骨架，实际输出：\n{}",
+        off
+    );
+    assert!(
+        !off.contains("pub type StackI64"),
+        "默认关闭时不应生成显式实例化别名，实际输出：\n{}",
         off
     );
 
@@ -157,6 +165,19 @@ fn template_skeleton_gated_by_env() {
     assert!(
         on.contains("pub unsafe fn stack_f64_new(initial: f64) -> StackF64;"),
         "应生成 StackF64 构造工厂骨架，实际输出：\n{}",
+        on
+    );
+
+    // v6 Phase B 增强（再续）：显式实例化 `template class Stack<long>;`
+    // 应生成 Stack<long> 的实例化别名与构造工厂骨架
+    assert!(
+        on.contains("pub type StackI64 = Stack<hicc::Pod<i64>>;"),
+        "应从显式实例化 template class Stack<long>; 收集到别名，实际输出：\n{}",
+        on
+    );
+    assert!(
+        on.contains("pub unsafe fn stack_i64_new(initial: i64) -> StackI64;"),
+        "应为显式实例化派生 StackI64 构造工厂骨架，实际输出：\n{}",
         on
     );
 }
