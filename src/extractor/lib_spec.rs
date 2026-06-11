@@ -38,6 +38,15 @@ pub(super) fn build_lib_spec(
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
 
+    // 先按 cpp_sig 去重：同一 C++ 签名可能因 "struct T*" 与 "T*" 的差异
+    // 经 build_fn_binding 规范化后生成相同的 cpp_sig（如 friend 声明与 extern-C 声明）。
+    // 保留首次出现的版本，避免后续误将其视为重载而追加数字后缀。
+    {
+        let mut seen_sigs: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        fn_bindings.retain(|fb| seen_sigs.insert(fb.cpp_sig.clone()));
+    }
+
     // 对生成结果中 rust_name 相同的函数（C++ 重载）添加数字后缀（_1, _2, ...）
     // 以确保生成的 Rust 绑定名称不重复
     {
