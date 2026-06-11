@@ -212,7 +212,7 @@ pub fn strip_pub_visibility(src: &str) -> String {
     src.lines()
         .map(|line| {
             let trimmed = line.trim_start();
-            // 仅处理缩进行中的 pub unsafe fn / pub fn / pub class 声明
+            // 仅处理缩进行中的 `pub unsafe fn` / `pub fn` 声明
             if trimmed.starts_with("pub unsafe fn ") {
                 line.replacen("pub unsafe fn ", "unsafe fn ", 1)
             } else if trimmed.starts_with("pub fn ") {

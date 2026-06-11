@@ -1,3 +1,4 @@
+// AbiClass is required by the `class!` macro expansion below.
 use hicc::AbiClass;
 
 hicc::cpp! {
