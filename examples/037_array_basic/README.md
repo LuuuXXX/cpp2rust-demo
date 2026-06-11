@@ -201,36 +201,6 @@ Rust FFI: std::array 映射
 
 ## 冒烟测试
 
-本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
-可链接 C++ 实现，且基本行为正确。
-
-### 测试用例
-
-| 测试函数 | 验证内容 |
-|---------|---------|
-| `smoke_int_array5_new` | `int_array5_new()` 后 `size()` = 5 |
-| `smoke_int_array5_set_get` | `set(2, 42)` 后 `get(2)` = 42 |
-| `smoke_int_array5_at` | `at(0)` 返回数组首元素 |
-| `smoke_int_array5_new_from` | `int_array5_new_from(vals, 5)` 创建预填充数组 |
-| `smoke_double_array3_type_available` | `DoubleArray3` 类型可用性断言 |
-
-### 运行方式
-
-```bash
-cd examples/037_array_basic/rust_hicc
-cargo test --test smoke
-```
-
-### 各平台支持
-
-| 平台 | 状态 | 备注 |
-|------|------|------|
-| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
-| macOS | ✅ | 支持 |
-| Windows MinGW | ✅ | 支持 |
-
-## 冒烟测试
-
 本示例在 `.cpp2rust/array_basic/rust/tests/smoke.rs` 中包含以下冒烟测试，CI 通过 `l-smoke` job 自动运行：
 
 | 测试函数 | 验证内容 |
