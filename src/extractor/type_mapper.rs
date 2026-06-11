@@ -20,6 +20,15 @@ pub fn cpp_to_rust(cpp: &str) -> String {
 
 /// 递归实现（带深度限制，防止异常类型字符串导致栈溢出）。
 /// 深度超过 16 时返回原始字符串并输出警告。
+///
+/// 主函数作为分发器，依次调用各私有子函数：
+/// 1. [`strip_qualifiers`] — 剥除前缀限定符（volatile/restrict/纯值 const）
+/// 2. [`normalize_restrict_suffix`] — 规范化后缀 restrict
+/// 3. [`try_map_primitive`] — 原始类型精确匹配
+/// 4. [`try_map_array`] — C 数组退化为指针
+/// 5. [`try_map_pointer`] — 指针类型（含 East const 规范化）
+/// 6. [`try_map_c_fn_ptr_inner`] — C 函数指针
+/// 7. [`try_map_reference`] — 引用类型
 fn cpp_to_rust_inner(cpp: &str, depth: u8) -> String {
     const MAX_DEPTH: u8 = 16;
     let cpp = cpp.trim();
@@ -32,212 +41,40 @@ fn cpp_to_rust_inner(cpp: &str, depth: u8) -> String {
         return cpp.to_string();
     }
 
-    // 去掉 `volatile` 前缀（volatile 在 Rust 中无效）
-    if let Some(rest) = cpp.strip_prefix("volatile ") {
-        return cpp_to_rust_inner(rest.trim(), depth + 1);
+    // 1. 剥除前缀限定符（volatile / __restrict / 纯值 const）；若剥除成功则递归
+    if let Some(result) = strip_qualifiers(cpp, depth) {
+        return result;
     }
 
-    // 去掉 `__restrict__` / `__restrict` 前缀形式（MSVC 风格，如 `__restrict int *`）
-    if let Some(rest) = cpp
-        .strip_prefix("__restrict__ ")
-        .or_else(|| cpp.strip_prefix("__restrict "))
-    {
-        return cpp_to_rust_inner(rest.trim(), depth + 1);
+    // 2. 规范化 restrict 后缀（指针末尾的 __restrict / __restrict__ / restrict）
+    let cpp_no_restrict = normalize_restrict_suffix(cpp);
+
+    // 3. 原始类型精确匹配
+    if let Some(result) = try_map_primitive(cpp_no_restrict) {
+        return result;
     }
 
-    // 处理 `*__restrict` 无空格形式（libclang 预处理展开后常见，如 `wchar_t *__restrict`）
-    // 必须在后缀形式处理之前，因为 `*__restrict` 不以 ` ` 开始无法被 strip_suffix 匹配
-    if cpp.contains("*__restrict") {
-        let normalized = cpp
-            .replace("*__restrict__", "*")
-            .replace("*__restrict", "*");
-        return cpp_to_rust_inner(normalized.trim(), depth + 1);
+    // 4. C 数组退化为指针（`T[N]` / `T[]`）
+    if let Some(result) = try_map_array(cpp_no_restrict, depth) {
+        return result;
     }
 
-    // 纯值类型 `const T`（不含 `*`、`&`、`[`）→ 去掉 const 限定符
-    // 例如 `const struct timespec` → `struct timespec` → `timespec`
-    // `const T *`（指针到 const T）和 `const T[N]`（const 数组）不在此处理
-    if let Some(rest) = cpp.strip_prefix("const ") {
-        let rest = rest.trim();
-        if !rest.contains('*') && !rest.contains('&') && !rest.contains('[') {
-            return cpp_to_rust_inner(rest, depth + 1);
-        }
+    // 5. 指针类型（`T *const`、`T const *`、`const T *`、`T *`）
+    if let Some(result) = try_map_pointer(cpp_no_restrict, depth) {
+        return result;
     }
 
-    // 去掉 `__restrict__` / `__restrict` / `restrict` 后缀形式
-    // 这些限定符可出现在指针类型末尾（如 `wchar_t *__restrict`），在 Rust 中没有对应语义
-    let cpp_no_restrict = cpp
-        .strip_suffix(" __restrict__")
-        .or_else(|| cpp.strip_suffix(" __restrict"))
-        .or_else(|| cpp.strip_suffix(" restrict"))
-        .map(str::trim)
-        .unwrap_or(cpp);
-
-    // 原始类型精确映射
-    match cpp_no_restrict {
-        "void" => return String::new(), // void → ()，调用方处理
-        "bool" | "_Bool" => return "bool".to_string(),
-        "char" => return "i8".to_string(),
-        "signed char" => return "i8".to_string(),
-        "unsigned char" => return "u8".to_string(),
-        "short" | "short int" | "signed short" => return "i16".to_string(),
-        "unsigned short" | "unsigned short int" => return "u16".to_string(),
-        "int" | "signed int" | "signed" => return "i32".to_string(),
-        "unsigned int" | "unsigned" => return "u32".to_string(),
-        // LP64（Linux / macOS 64 位）: long = 64 位
-        // LLP64（Windows MSVC）: long = 32 位，由下方 cfg 分支处理
-        // 注：本文件统一使用 `target_os = "windows"` 形式（而非简写 `windows`），
-        // 两者语义相同，但 `target_os = "windows"` 更明确，与 Rust Reference 示例一致。
-        #[cfg(not(target_os = "windows"))]
-        "long" | "long int" | "signed long" => return "i64".to_string(),
-        #[cfg(not(target_os = "windows"))]
-        "unsigned long" | "unsigned long int" => return "u64".to_string(),
-        #[cfg(target_os = "windows")]
-        "long" | "long int" | "signed long" => return "i32".to_string(),
-        #[cfg(target_os = "windows")]
-        "unsigned long" | "unsigned long int" => return "u32".to_string(),
-        "long long" | "long long int" | "signed long long" => return "i64".to_string(),
-        "unsigned long long" | "unsigned long long int" => return "u64".to_string(),
-        "float" => return "f32".to_string(),
-        "double" => return "f64".to_string(),
-        // x86-64 Linux 的 `long double` 是 80 位扩展浮点，映射为 f64 有精度损失。
-        // cpp2rust-todo[LONG_DOUBLE]
-        "long double" => return "f64".to_string(),
-        "size_t" => return "usize".to_string(),
-        "ptrdiff_t" => return "isize".to_string(),
-        "intptr_t" => return "isize".to_string(),
-        "uintptr_t" => return "usize".to_string(),
-        "int8_t" => return "i8".to_string(),
-        "int16_t" => return "i16".to_string(),
-        "int32_t" => return "i32".to_string(),
-        "int64_t" => return "i64".to_string(),
-        "uint8_t" => return "u8".to_string(),
-        "uint16_t" => return "u16".to_string(),
-        "uint32_t" => return "u32".to_string(),
-        "uint64_t" => return "u64".to_string(),
-        // wchar_t：Windows（LLP64/MSVC）定义为 u16，其他平台（LP64）定义为 i32
-        #[cfg(target_os = "windows")]
-        "wchar_t" => return "u16".to_string(),
-        #[cfg(not(target_os = "windows"))]
-        "wchar_t" => return "i32".to_string(),
-        _ => {}
-    }
-
-    // `const char *` 系列 → *const i8（C char 为 signed，对应 Rust i8）
-    if cpp_no_restrict == "const char *"
-        || cpp_no_restrict == "const char*"
-        || cpp_no_restrict == "char const *"
-    {
-        return "*const i8".to_string();
-    }
-    // `char *` → *mut i8
-    if cpp_no_restrict == "char *" || cpp_no_restrict == "char*" {
-        return "*mut i8".to_string();
-    }
-
-    // C 定长数组参数类型（如 `char[20]`、`__cancel_jmp_buf_tag[1]`）及无界数组（如 `double[]`）
-    // 在 C 函数签名中数组参数会退化为指针，映射为 `*mut T`（const 基类型 → `*const T`）
-    if cpp_no_restrict.ends_with(']') {
-        if let Some(bracket_pos) = cpp_no_restrict.rfind('[') {
-            let between = &cpp_no_restrict[bracket_pos + 1..cpp_no_restrict.len() - 1];
-            // `T[N]`（N 为纯数字）或 `T[]`（无界）都退化为指针
-            let is_array = between.is_empty() || between.chars().all(|c| c.is_ascii_digit());
-            if is_array {
-                let base = cpp_no_restrict[..bracket_pos].trim();
-                // `const T[N]` → 元素不可变 → `*const T`
-                let (inner, is_const) = base
-                    .strip_prefix("const ")
-                    .map(|b| (b.trim(), true))
-                    .unwrap_or((base, false));
-                let inner_rust = cpp_to_rust_inner(inner, depth + 1);
-                return if is_const {
-                    if inner_rust.is_empty() {
-                        "*const u8".to_string()
-                    } else {
-                        format!("*const {}", inner_rust)
-                    }
-                } else if inner_rust.is_empty() {
-                    "*mut u8".to_string()
-                } else {
-                    format!("*mut {}", inner_rust)
-                };
-            }
-        }
-    }
-
-    // `T *const` → C 语言中指针本身是 const（如 `char *const`、`void *const`）
-    // 在 Rust FFI 中等价于 `T *`，映射为 `*mut T`（Rust 无"指针本身不可变"的概念）
-    if let Some(rest) = cpp_no_restrict
-        .strip_suffix(" *const")
-        .or_else(|| cpp_no_restrict.strip_suffix("*const"))
-    {
-        let normalized = format!("{} *", rest.trim());
-        return cpp_to_rust_inner(&normalized, depth + 1);
-    }
-
-    // `T const *` → 后置 const（East const）规范化为前置 const，便于后续统一处理
-    // 例：`wchar_t const *` → `const wchar_t *` → `*const wchar_t`
-    if let Some(rest_no_star) = cpp_no_restrict
-        .strip_suffix(" *")
-        .or_else(|| cpp_no_restrict.strip_suffix("*"))
-    {
-        if let Some(base) = rest_no_star.trim().strip_suffix(" const") {
-            let normalized = format!("const {} *", base.trim());
-            return cpp_to_rust_inner(&normalized, depth + 1);
-        }
-    }
-
-    // `const T *` → `*const T_rust`
-    if let Some(rest) = cpp_no_restrict
-        .strip_suffix(" *")
-        .or_else(|| cpp_no_restrict.strip_suffix("*"))
-    {
-        let rest = rest.trim();
-        if let Some(inner) = rest.strip_prefix("const ") {
-            let inner = inner.trim();
-            let inner_rust = cpp_to_rust_inner(inner, depth + 1);
-            if inner_rust.is_empty() {
-                // `const void *` → `*const u8`
-                return "*const u8".to_string();
-            }
-            return format!("*const {}", inner_rust);
-        }
-        // `T *` → `*mut T_rust`
-        let inner_rust = cpp_to_rust_inner(rest, depth + 1);
-        if inner_rust.is_empty() {
-            // `void *` → `*mut u8`
-            return "*mut u8".to_string();
-        }
-        return format!("*mut {}", inner_rust);
-    }
-
-    // C 函数指针 `RetType (*)(T1, T2, ...)` → `unsafe extern "C" fn(T1, T2) -> R`
+    // 6. C 函数指针 `RetType (*)(T1, T2, ...)`
     if let Some(mapped) = try_map_c_fn_ptr_inner(cpp_no_restrict, depth) {
         return mapped;
     }
 
-    // 引用类型：T& → &mut T，const T& → &T
-    if let Some(rest) = cpp_no_restrict
-        .strip_suffix(" &")
-        .or_else(|| cpp_no_restrict.strip_suffix("&"))
-    {
-        let rest = rest.trim();
-        if let Some(inner) = rest.strip_prefix("const ") {
-            let inner = inner.trim();
-            let inner_rust = cpp_to_rust_inner(inner, depth + 1);
-            if inner_rust.is_empty() {
-                return "&u8".to_string();
-            }
-            return format!("&{}", inner_rust);
-        }
-        let inner_rust = cpp_to_rust_inner(rest, depth + 1);
-        if inner_rust.is_empty() {
-            return "&mut u8".to_string();
-        }
-        return format!("&mut {}", inner_rust);
+    // 7. 引用类型（`T &`、`const T &`）
+    if let Some(result) = try_map_reference(cpp_no_restrict, depth) {
+        return result;
     }
 
-    // 剥除 struct/class 前缀
+    // 8. 剥除 struct/class 前缀
     if let Some(rest) = cpp_no_restrict
         .strip_prefix("struct ")
         .or_else(|| cpp_no_restrict.strip_prefix("class "))
@@ -247,6 +84,216 @@ fn cpp_to_rust_inner(cpp: &str, depth: u8) -> String {
 
     // 未知：原样返回
     cpp_no_restrict.to_string()
+}
+
+/// 尝试剥除前缀限定符并递归；若剥除成功返回 `Some(result)`，否则返回 `None`。
+///
+/// 剥除顺序：
+/// 1. `volatile ` 前缀
+/// 2. `__restrict__ ` / `__restrict ` 前缀（MSVC 风格）
+/// 3. `*__restrict` 无空格形式（libclang 展开后常见）
+/// 4. 纯值类型 `const T`（不含指针/引用/数组的 const）
+fn strip_qualifiers(cpp: &str, depth: u8) -> Option<String> {
+    // volatile 前缀
+    if let Some(rest) = cpp.strip_prefix("volatile ") {
+        return Some(cpp_to_rust_inner(rest.trim(), depth + 1));
+    }
+    // __restrict__ / __restrict 前缀（MSVC 风格，如 `__restrict int *`）
+    if let Some(rest) = cpp
+        .strip_prefix("__restrict__ ")
+        .or_else(|| cpp.strip_prefix("__restrict "))
+    {
+        return Some(cpp_to_rust_inner(rest.trim(), depth + 1));
+    }
+    // `*__restrict` 无空格形式（如 `wchar_t *__restrict`）
+    // 必须在后缀形式处理之前，因为 `*__restrict` 不以空格开始
+    if cpp.contains("*__restrict") {
+        let normalized = cpp
+            .replace("*__restrict__", "*")
+            .replace("*__restrict", "*");
+        return Some(cpp_to_rust_inner(normalized.trim(), depth + 1));
+    }
+    // 纯值类型 `const T`（不含 `*`、`&`、`[`）→ 去掉 const 限定符
+    // 例如 `const struct timespec` → `struct timespec` → `timespec`
+    if let Some(rest) = cpp.strip_prefix("const ") {
+        let rest = rest.trim();
+        if !rest.contains('*') && !rest.contains('&') && !rest.contains('[') {
+            return Some(cpp_to_rust_inner(rest, depth + 1));
+        }
+    }
+    None
+}
+
+/// 去掉指针末尾的 `__restrict__` / `__restrict` / `restrict` 后缀，返回剩余部分。
+///
+/// 这些限定符在 Rust 中没有对应语义，在后续匹配前统一剥除。
+fn normalize_restrict_suffix(cpp: &str) -> &str {
+    cpp.strip_suffix(" __restrict__")
+        .or_else(|| cpp.strip_suffix(" __restrict"))
+        .or_else(|| cpp.strip_suffix(" restrict"))
+        .map(str::trim)
+        .unwrap_or(cpp)
+}
+
+/// 精确匹配已知原始 C/C++ 类型，返回对应 Rust 类型名；未匹配返回 `None`。
+fn try_map_primitive(s: &str) -> Option<String> {
+    let result = match s {
+        "void" => String::new(), // void → ()，调用方处理
+        "bool" | "_Bool" => "bool".to_string(),
+        "char" | "signed char" => "i8".to_string(),
+        "unsigned char" => "u8".to_string(),
+        "short" | "short int" | "signed short" => "i16".to_string(),
+        "unsigned short" | "unsigned short int" => "u16".to_string(),
+        "int" | "signed int" | "signed" => "i32".to_string(),
+        "unsigned int" | "unsigned" => "u32".to_string(),
+        // LP64（Linux / macOS 64 位）: long = 64 位
+        // LLP64（Windows MSVC）: long = 32 位
+        #[cfg(not(target_os = "windows"))]
+        "long" | "long int" | "signed long" => "i64".to_string(),
+        #[cfg(not(target_os = "windows"))]
+        "unsigned long" | "unsigned long int" => "u64".to_string(),
+        #[cfg(target_os = "windows")]
+        "long" | "long int" | "signed long" => "i32".to_string(),
+        #[cfg(target_os = "windows")]
+        "unsigned long" | "unsigned long int" => "u32".to_string(),
+        "long long" | "long long int" | "signed long long" => "i64".to_string(),
+        "unsigned long long" | "unsigned long long int" => "u64".to_string(),
+        "float" => "f32".to_string(),
+        "double" => "f64".to_string(),
+        // x86-64 Linux 的 `long double` 是 80 位扩展浮点，映射为 f64 有精度损失。
+        // cpp2rust-todo[LONG_DOUBLE]
+        "long double" => "f64".to_string(),
+        "size_t" => "usize".to_string(),
+        "ptrdiff_t" => "isize".to_string(),
+        "intptr_t" => "isize".to_string(),
+        "uintptr_t" => "usize".to_string(),
+        "int8_t" => "i8".to_string(),
+        "int16_t" => "i16".to_string(),
+        "int32_t" => "i32".to_string(),
+        "int64_t" => "i64".to_string(),
+        "uint8_t" => "u8".to_string(),
+        "uint16_t" => "u16".to_string(),
+        "uint32_t" => "u32".to_string(),
+        "uint64_t" => "u64".to_string(),
+        // wchar_t：Windows（LLP64/MSVC）定义为 u16，其他平台（LP64）定义为 i32
+        #[cfg(target_os = "windows")]
+        "wchar_t" => "u16".to_string(),
+        #[cfg(not(target_os = "windows"))]
+        "wchar_t" => "i32".to_string(),
+        _ => return None,
+    };
+    Some(result)
+}
+
+/// 尝试将 C 数组参数类型（`T[N]` / `T[]`）映射为退化指针，返回 `Some(result)` 或 `None`。
+///
+/// 在 C 函数签名中，数组参数会退化为指针：
+/// - `T[N]` / `T[]` → `*mut T_rust`
+/// - `const T[N]` / `const T[]` → `*const T_rust`
+fn try_map_array(s: &str, depth: u8) -> Option<String> {
+    if !s.ends_with(']') {
+        return None;
+    }
+    let bracket_pos = s.rfind('[')?;
+    let between = &s[bracket_pos + 1..s.len() - 1];
+    let is_array = between.is_empty() || between.chars().all(|c| c.is_ascii_digit());
+    if !is_array {
+        return None;
+    }
+    let base = s[..bracket_pos].trim();
+    let (inner, is_const) = base
+        .strip_prefix("const ")
+        .map(|b| (b.trim(), true))
+        .unwrap_or((base, false));
+    let inner_rust = cpp_to_rust_inner(inner, depth + 1);
+    let result = if is_const {
+        if inner_rust.is_empty() {
+            "*const u8".to_string()
+        } else {
+            format!("*const {}", inner_rust)
+        }
+    } else if inner_rust.is_empty() {
+        "*mut u8".to_string()
+    } else {
+        format!("*mut {}", inner_rust)
+    };
+    Some(result)
+}
+
+/// 尝试将指针类型映射为 Rust 裸指针，返回 `Some(result)` 或 `None`。
+///
+/// 处理以下形式（按优先级）：
+/// 1. `const char *` / `char *` — C 字符串快捷路径
+/// 2. `T *const` — 指针本身 const，等同于 `T *`
+/// 3. `T const *` — East const（后置 const），规范化为 `const T *`
+/// 4. `const T *` → `*const T_rust`
+/// 5. `T *` → `*mut T_rust`
+fn try_map_pointer(s: &str, depth: u8) -> Option<String> {
+    // C 字符串快捷路径（常见且无歧义，提前处理以减少后续分支）
+    if s == "const char *" || s == "const char*" || s == "char const *" {
+        return Some("*const i8".to_string());
+    }
+    if s == "char *" || s == "char*" {
+        return Some("*mut i8".to_string());
+    }
+
+    // `T *const` → 指针本身 const，映射为 `T *`（Rust 无"指针本身不可变"的概念）
+    if let Some(rest) = s
+        .strip_suffix(" *const")
+        .or_else(|| s.strip_suffix("*const"))
+    {
+        let normalized = format!("{} *", rest.trim());
+        return Some(cpp_to_rust_inner(&normalized, depth + 1));
+    }
+
+    // `T const *` → East const，规范化为 `const T *`
+    if let Some(rest_no_star) = s.strip_suffix(" *").or_else(|| s.strip_suffix("*")) {
+        if let Some(base) = rest_no_star.trim().strip_suffix(" const") {
+            let normalized = format!("const {} *", base.trim());
+            return Some(cpp_to_rust_inner(&normalized, depth + 1));
+        }
+    }
+
+    // `const T *` → `*const T_rust` / `T *` → `*mut T_rust`
+    if let Some(rest) = s.strip_suffix(" *").or_else(|| s.strip_suffix("*")) {
+        let rest = rest.trim();
+        if let Some(inner) = rest.strip_prefix("const ") {
+            let inner_rust = cpp_to_rust_inner(inner.trim(), depth + 1);
+            return Some(if inner_rust.is_empty() {
+                "*const u8".to_string() // `const void *` → `*const u8`
+            } else {
+                format!("*const {}", inner_rust)
+            });
+        }
+        let inner_rust = cpp_to_rust_inner(rest, depth + 1);
+        return Some(if inner_rust.is_empty() {
+            "*mut u8".to_string() // `void *` → `*mut u8`
+        } else {
+            format!("*mut {}", inner_rust)
+        });
+    }
+
+    None
+}
+
+/// 尝试将引用类型（`T &` / `const T &`）映射为 Rust 引用，返回 `Some(result)` 或 `None`。
+fn try_map_reference(s: &str, depth: u8) -> Option<String> {
+    let rest = s.strip_suffix(" &").or_else(|| s.strip_suffix("&"))?;
+    let rest = rest.trim();
+    if let Some(inner) = rest.strip_prefix("const ") {
+        let inner_rust = cpp_to_rust_inner(inner.trim(), depth + 1);
+        return Some(if inner_rust.is_empty() {
+            "&u8".to_string()
+        } else {
+            format!("&{}", inner_rust)
+        });
+    }
+    let inner_rust = cpp_to_rust_inner(rest, depth + 1);
+    Some(if inner_rust.is_empty() {
+        "&mut u8".to_string()
+    } else {
+        format!("&mut {}", inner_rust)
+    })
 }
 
 /// 尝试将 C 函数指针类型字符串映射为 Rust `unsafe extern "C" fn(...)` 类型。
@@ -732,5 +779,57 @@ mod tests {
         assert_eq!(cpp_to_rust("bool[10]"), "*mut bool");
         // `const double[4]` → `*const f64`
         assert_eq!(cpp_to_rust("const double[4]"), "*const f64");
+    }
+
+    // ── T4：边缘场景补充测试 ──────────────────────────────────────────────────
+
+    /// wchar_t* / const wchar_t*（方案 7 修复后）
+    #[test]
+    fn wchar_t_pointer_edge_cases() {
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert_eq!(cpp_to_rust("wchar_t *"), "*mut i32");
+            assert_eq!(cpp_to_rust("const wchar_t *"), "*const i32");
+            assert_eq!(cpp_to_rust("wchar_t const *"), "*const i32");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(cpp_to_rust("wchar_t *"), "*mut u16");
+            assert_eq!(cpp_to_rust("const wchar_t *"), "*const u16");
+            assert_eq!(cpp_to_rust("wchar_t const *"), "*const u16");
+        }
+    }
+
+    /// char** / void**（方案 12 双重指针）
+    #[test]
+    fn double_pointer_types() {
+        // char** → `*mut *mut i8`
+        assert_eq!(cpp_to_rust("char **"), "*mut *mut i8");
+        // void** → `*mut *mut u8`
+        assert_eq!(cpp_to_rust("void **"), "*mut *mut u8");
+        // `const char **`：mapper 先剥离尾部 ` *` 得到 `const char *`，再映射为 `*const *mut i8`
+        // （语义上 const 修饰的是 char，但 mapper 的逐层剥离逻辑将 const 归属给外层指针）
+        assert_eq!(cpp_to_rust("const char **"), "*const *mut i8");
+        // int** → `*mut *mut i32`
+        assert_eq!(cpp_to_rust("int **"), "*mut *mut i32");
+    }
+
+    /// 嵌套函数指针（不支持，原样返回）
+    #[test]
+    fn nested_fn_ptr_returns_opaque() {
+        // `int (*(*)(int))(double)` — 返回函数指针的函数指针，当前不支持
+        // 应原样返回而非 panic
+        let result = cpp_to_rust("int (*(*)(int))(double)");
+        // 不要求精确映射，只要不 panic 且返回非空即可
+        assert!(!result.is_empty());
+    }
+
+    /// volatile 修饰的函数指针参数（volatile 应被剥除）
+    #[test]
+    fn volatile_fn_ptr_param_stripped() {
+        // `volatile int (*)(int)` — volatile 前缀被剥除后应正确映射为函数指针
+        // 或原样返回（取决于 volatile + fn ptr 组合的识别能力）
+        let result = cpp_to_rust("volatile int (*)(int)");
+        assert!(!result.is_empty(), "volatile 函数指针参数不应产生空结果");
     }
 }

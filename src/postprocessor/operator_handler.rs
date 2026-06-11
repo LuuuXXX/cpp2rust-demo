@@ -322,3 +322,162 @@ fn accessor_category(fi: &FunctionInfo, prefix: &str, class_name: &str) -> u8 {
         AccessorKind::Other => 4,
     }
 }
+
+// ─────────────────────────────────────────────
+//  T3: operator_handler 核心逻辑单元测试
+// ─────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast_parser::{ClassInfo, CppAst, FunctionInfo, ParamInfo};
+    use crate::ffi_model::{FfiSpec, LibSpec, MethodBinding, SelfKind};
+
+    fn make_class(name: &str) -> ClassInfo {
+        ClassInfo {
+            name: name.to_string(),
+            is_struct: false,
+            is_abstract: false,
+            template_args: vec![],
+            bases: vec![],
+            methods: vec![],
+            fields: vec![],
+            is_in_namespace: false,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_fi(name: &str, return_type: &str, params: &[(&str, &str)]) -> FunctionInfo {
+        FunctionInfo {
+            name: name.to_string(),
+            return_type: return_type.to_string(),
+            params: params
+                .iter()
+                .map(|(n, t)| ParamInfo {
+                    name: n.to_string(),
+                    type_name: t.to_string(),
+                    has_default: false,
+                })
+                .collect(),
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_spec_with_class(class_name: &str) -> FfiSpec {
+        FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![crate::ffi_model::ClassSpec {
+                name: class_name.to_string(),
+                methods: vec![MethodBinding {
+                    cpp_sig: format!("int {}_value(const {}* self) const", class_name.to_lowercase(), class_name),
+                    rust_name: "value".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: Some("i32".to_string()),
+                    has_fn_ptr_param: false,
+                }],
+                associated_fns: vec![],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            lib_spec: LibSpec::default(),
+        }
+    }
+
+    fn make_ast_with_class(class_name: &str) -> CppAst {
+        CppAst {
+            file: std::path::PathBuf::from("test.cpp"),
+            classes: vec![make_class(class_name)],
+            functions: vec![],
+            enums: vec![],
+            typedefs: vec![],
+            template_class_ranges: vec![],
+        }
+    }
+
+    /// (a) operator_handler 为 binary add 生成正确的命名 shim
+    #[test]
+    fn apply_generates_binary_add_shim() {
+        let cn = "Vec2";
+        let prefix = "vec2_";
+        // 函数：vec2_add(self: Vec2*, other: Vec2*) -> Vec2*
+        let fi = make_fi(
+            &format!("{}add", prefix),
+            &format!("{} *", cn),
+            &[
+                ("self", &format!("{} *", cn)),
+                ("other", &format!("{} *", cn)),
+            ],
+        );
+        let mut spec = make_spec_with_class(cn);
+        let ast = make_ast_with_class(cn);
+        let fns = vec![&fi];
+        apply(&mut spec, &ast, &fns);
+
+        // 应在 fn_bindings 中找到 add shim
+        let found = spec.lib_spec.fn_bindings.iter().any(|fb| fb.rust_name.contains("add"));
+        assert!(found, "apply 应生成 vec2_add shim，但 fn_bindings 中没有");
+
+        // 应在 cpp_block_lines 中找到 add 的 C++ shim 代码
+        let cpp_has_add = spec
+            .cpp_block_lines
+            .iter()
+            .any(|l| l.contains("vec2_add") || l.contains("vec2_add"));
+        assert!(cpp_has_add, "apply 应在 cpp_block_lines 中生成 C++ shim");
+    }
+
+    /// (b) operator_handler 为比较运算符 eq 生成 bool shim
+    #[test]
+    fn apply_generates_compare_eq_shim() {
+        let cn = "Num";
+        let prefix = "num_";
+        // 函数：num_eq(self: Num*, other: Num*) -> bool
+        let fi = make_fi(
+            &format!("{}eq", prefix),
+            "bool",
+            &[("self", &format!("{} *", cn)), ("other", &format!("{} *", cn))],
+        );
+        let mut spec = make_spec_with_class(cn);
+        let ast = make_ast_with_class(cn);
+        let fns = vec![&fi];
+        apply(&mut spec, &ast, &fns);
+
+        let eq_binding = spec.lib_spec.fn_bindings.iter().find(|fb| fb.rust_name.contains("eq"));
+        assert!(eq_binding.is_some(), "apply 应生成 num_eq shim");
+        // eq shim 的返回类型应为 bool
+        let ret = eq_binding.unwrap().ret_type.as_deref().unwrap_or("");
+        assert_eq!(ret, "bool", "eq shim 的返回类型应为 bool");
+    }
+
+    /// (c) operator_handler 为新增一元运算符 not 生成正确 shim
+    #[test]
+    fn apply_generates_unary_not_shim() {
+        let cn = "Flag";
+        let prefix = "flag_";
+        // 函数：flag_not(self: Flag*) -> Flag*
+        let fi = make_fi(
+            &format!("{}not", prefix),
+            &format!("{} *", cn),
+            &[("self", &format!("{} *", cn))],
+        );
+        let mut spec = make_spec_with_class(cn);
+        let ast = make_ast_with_class(cn);
+        let fns = vec![&fi];
+        apply(&mut spec, &ast, &fns);
+
+        let not_binding = spec
+            .lib_spec
+            .fn_bindings
+            .iter()
+            .find(|fb| fb.rust_name.contains("not"));
+        assert!(not_binding.is_some(), "apply 应生成 flag_not shim");
+        // 一元 shim 的参数应只有 self（1 个参数）
+        assert_eq!(not_binding.unwrap().params.len(), 1, "一元 shim 应只有 1 个参数");
+    }
+}

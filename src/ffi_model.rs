@@ -56,11 +56,19 @@ pub struct MethodBinding {
 }
 
 /// import_class! 方法的 self 参数类型
+///
+/// 由 `extractor/class_spec.rs` 的 `build_method_binding` 根据 `MethodInfo::is_const` 字段决定：
+/// - `is_const == true`（C++ `const` 成员函数）→ [`SelfKind::Ref`]
+/// - `is_const == false`（非 const 成员函数）→ [`SelfKind::RefMut`]
+///
+/// **关于 `volatile` 方法**：C++ `volatile` 限定的成员函数不映射为任何 SelfKind 变体；
+/// 它们在 `class_spec.rs` 的过滤阶段通过 `MethodInfo::is_volatile` 检查被提前排除，
+/// 因为 Rust 没有对应的 `volatile self` 语义，无法安全地生成 hicc 绑定。
 #[derive(Debug, PartialEq, Clone)]
 pub enum SelfKind {
-    /// 常量方法（`&self`）
+    /// 常量方法对应 `&self`（C++ `const` 成员函数，`is_const == true`）
     Ref,
-    /// 可变方法（`&mut self`）
+    /// 可变方法对应 `&mut self`（非 const 成员函数，`is_const == false`）
     RefMut,
 }
 
