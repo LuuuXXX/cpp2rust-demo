@@ -155,6 +155,8 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 **模板泛型骨架生成（v6 Phase A/B）**：`ast_parser` 现已提取模板类（`ClassTemplate`）与模板函数（`FunctionTemplate`）的结构化信息（`CppAst.template_classes` / `template_functions`，见 `src/ast_parser/collector.rs` 的 `extract_template_class` / `extract_template_function`）。`extractor::template_spec` 据此构建 `TemplateClassSpec` / `TemplateFnSpec`，生成器 `hicc_codegen` 输出泛型 `import_class!`（`#[cpp(class = "template<class T> Name<T>")] pub class Name<T> { ... }`）与 `import_lib!`（`#[cpp(func = "ret name<T>(...)")]`）骨架。该能力由环境变量 `CPP2RUST_GEN_TEMPLATES` 控制，**默认关闭**（仅取值 `1`/`true`/`yes`/`on` 时启用），关闭时默认产物逐字节不变（见 `hicc_codegen::templates_enabled`）。骨架带 `cpp2rust-todo[TMPL]` 占位注释，提示用户按实际实例化类型补全签名与 `AbiType` 约束。生成行为测试见 `tests/template_gen_tests.rs`。
 
+**模板实例化别名（v6 Phase B 增强）**：在上述泛型骨架基础上，`extractor::template_spec::build_template_instances` 从当前编译单元中「以具体类型实例化本文件模板类」的使用点（目前为包装类的字段类型，如 `Stack<int> impl;`）收集 `(模板名, 实参)`，生成器 `emit_template_instances` 输出类型别名骨架（POD 标量用 `hicc::Pod<...>` 包装，如 `pub type StackI32 = Stack<hicc::Pod<i32>>;`；类类型实参保留原名并附 `cpp2rust-todo[TMPL]` 提示替换为对应 hicc 类型）。别名输出复用同一个 `CPP2RUST_GEN_TEMPLATES` 开关，默认关闭时产物逐字节不变。详见 `docs/plans/v6/development-progress-phase-b-plus.md`。
+
 ### 分层快速运行命令
 
 ```sh

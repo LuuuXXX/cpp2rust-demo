@@ -16,7 +16,7 @@
 //! 复杂场景（`T::OutputRef` 等）由用户基于骨架补全，符合 v6 方案 §8 的降级策略。
 
 use crate::ast_parser::{CppAst, TemplateClassInfo, TemplateFunctionInfo};
-use crate::ffi_model::{TemplateClassSpec, TemplateFnSpec};
+use crate::ffi_model::{TemplateClassSpec, TemplateFnSpec, TemplateInstanceSpec};
 
 use super::class_spec::build_method_binding;
 use super::type_mapper::{clean_type, cpp_to_rust};
@@ -123,4 +123,285 @@ fn build_template_fn_spec(tf: &TemplateFunctionInfo) -> Option<TemplateFnSpec> {
         params,
         ret_type,
     })
+}
+
+/// 由 `CppAst` 构建模板实例化别名规格（v6 Phase B 增强）。
+///
+/// 实例化追踪策略：仅依据当前编译单元中「以具体类型实例化某个本文件声明的模板类」的
+/// 使用点收集。当前实现扫描所有来自当前文件的类（含包装类）的**字段类型**，
+/// 例如 `Stack<int> impl;`，并以 `(模板名, 具体类型实参)` 记录实例化。这覆盖了
+/// v6 §3.2 中 025（`Stack<int>`/`Stack<double>`）与 027（`Matrix<int>`/`Matrix<double>`）
+/// 等以包装类持有模板成员的典型写法。
+///
+/// 只为「本文件声明的模板类」生成别名，避免把三方库模板（如 `std::vector`）误纳入。
+/// 复杂或非 POD 的类类型实参会被标记 `needs_class_type`，由生成器附 TODO 提示用户确认
+/// 对应的 hicc 类型（符合 v6 §8 的降级策略）。
+pub(super) fn build_template_instances(ast: &CppAst) -> Vec<TemplateInstanceSpec> {
+    use std::collections::BTreeSet;
+
+    // 本文件声明的模板类名集合（仅这些模板才生成实例化别名）
+    let template_names: BTreeSet<&str> = ast
+        .template_classes
+        .iter()
+        .filter(|tc| tc.is_from_current_file && !tc.name.is_empty())
+        .map(|tc| tc.name.as_str())
+        .collect();
+    if template_names.is_empty() {
+        return Vec::new();
+    }
+
+    let mut seen: BTreeSet<(String, Vec<String>)> = BTreeSet::new();
+    let mut out: Vec<TemplateInstanceSpec> = Vec::new();
+
+    for class in ast.classes.iter().filter(|c| c.is_from_current_file) {
+        for field in &class.fields {
+            let core = strip_type_decorations(&field.type_name);
+            let Some((name, args)) = split_template_use(core) else {
+                continue;
+            };
+            if !template_names.contains(name.as_str()) {
+                continue;
+            }
+            // 去重：相同（模板名, 实参列表）只生成一个别名
+            let key = (name.clone(), args.clone());
+            if !seen.insert(key) {
+                continue;
+            }
+            if let Some(spec) = build_instance_spec(&name, &args) {
+                out.push(spec);
+            }
+        }
+    }
+
+    out
+}
+
+/// 去除类型字符串的指针/引用/cv 限定与首尾空白，返回核心类型名。
+///
+/// 例如 `Matrix<int> *` → `Matrix<int>`、`const Stack<double> &` → `Stack<double>`。
+fn strip_type_decorations(ty: &str) -> &str {
+    let mut s = clean_type(ty).trim();
+    // 反复剥离首部的 cv 限定（const/volatile）与尾部的 `*` / `&` 及空白
+    loop {
+        let before = s.len();
+        s = s.trim();
+        if let Some(rest) = s.strip_prefix("const ") {
+            s = rest.trim_start();
+        }
+        if let Some(rest) = s.strip_prefix("volatile ") {
+            s = rest.trim_start();
+        }
+        s = s.trim_end_matches(['*', '&', ' ', '\t']);
+        if s.len() == before {
+            break;
+        }
+    }
+    s.trim()
+}
+
+/// 将 `Name<arg1, arg2>` 拆分为 `(Name, [arg1, arg2])`；不含顶层尖括号时返回 `None`。
+///
+/// 正确处理嵌套尖括号（如 `Map<int, vector<int>>` → `("Map", ["int", "vector<int>"])`）。
+fn split_template_use(core: &str) -> Option<(String, Vec<String>)> {
+    let lt = core.find('<')?;
+    if !core.ends_with('>') {
+        return None;
+    }
+    let name = core[..lt].trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let inner = &core[lt + 1..core.len() - 1];
+    let mut args = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0usize;
+    for (i, ch) in inner.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            ',' if depth == 0 => {
+                let arg = inner[start..i].trim();
+                if !arg.is_empty() {
+                    args.push(arg.to_string());
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let last = inner[start..].trim();
+    if !last.is_empty() {
+        args.push(last.to_string());
+    }
+    if args.is_empty() {
+        None
+    } else {
+        Some((name, args))
+    }
+}
+
+/// 由模板名与具体类型实参列表构建一个实例化别名规格。
+fn build_instance_spec(template_name: &str, args: &[String]) -> Option<TemplateInstanceSpec> {
+    let mut hicc_args = Vec::with_capacity(args.len());
+    let mut suffix = String::new();
+    let mut needs_class_type = false;
+
+    for arg in args {
+        let (hicc, suf, is_class) = map_instance_arg(arg);
+        hicc_args.push(hicc);
+        suffix.push_str(&suf);
+        needs_class_type |= is_class;
+    }
+
+    if hicc_args.is_empty() {
+        return None;
+    }
+
+    Some(TemplateInstanceSpec {
+        alias_name: format!("{}{}", template_name, suffix),
+        template_name: template_name.to_string(),
+        hicc_args,
+        needs_class_type,
+    })
+}
+
+/// 将单个具体类型实参映射为 `(hicc 实参, 别名后缀, 是否为类类型)`。
+///
+/// - POD 标量（`int`/`double`/`bool`...）→ `hicc::Pod<i32>`，后缀为 Rust 类型的 PascalCase（如 `I32`）；
+/// - 其他（类类型）→ 保留清理后的 C++ 类型名，后缀为其标识符片段，并标记需要用户确认 hicc 类型。
+fn map_instance_arg(arg: &str) -> (String, String, bool) {
+    let core = strip_type_decorations(arg);
+    let rust = cpp_to_rust(core);
+    if is_pod_scalar(&rust) {
+        (
+            format!("hicc::Pod<{}>", rust),
+            pascal_case_ident(&rust),
+            false,
+        )
+    } else {
+        // 非 POD：保留 C++ 类型名，提示用户在 hicc 侧确认对应类型
+        (core.to_string(), pascal_case_ident(core), true)
+    }
+}
+
+/// 判断 Rust 类型是否为可直接用 `hicc::Pod<...>` 包装的基础标量类型。
+fn is_pod_scalar(rust: &str) -> bool {
+    matches!(
+        rust,
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "char"
+    )
+}
+
+/// 将标识符片段转为 PascalCase 别名后缀（仅保留字母数字，首字母大写）。
+///
+/// 例如 `i32` → `I32`、`f64` → `F64`、`std::string` → `StdString`。
+fn pascal_case_ident(s: &str) -> String {
+    let mut out = String::new();
+    let mut upper_next = true;
+    for ch in s.chars() {
+        if ch.is_alphanumeric() {
+            if upper_next {
+                out.extend(ch.to_uppercase());
+                upper_next = false;
+            } else {
+                out.push(ch);
+            }
+        } else {
+            // 分隔符（`:`、空格、`_` 等）触发下一个字母大写
+            upper_next = true;
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_type_decorations_removes_ptr_ref_cv() {
+        assert_eq!(strip_type_decorations("Matrix<int> *"), "Matrix<int>");
+        assert_eq!(
+            strip_type_decorations("const Stack<double> &"),
+            "Stack<double>"
+        );
+        assert_eq!(strip_type_decorations("Stack<int>"), "Stack<int>");
+    }
+
+    #[test]
+    fn split_template_use_parses_name_and_args() {
+        assert_eq!(
+            split_template_use("Stack<int>"),
+            Some(("Stack".to_string(), vec!["int".to_string()]))
+        );
+        assert_eq!(
+            split_template_use("Matrix<double>"),
+            Some(("Matrix".to_string(), vec!["double".to_string()]))
+        );
+        // 非模板使用返回 None
+        assert_eq!(split_template_use("int"), None);
+        assert_eq!(split_template_use("Foo"), None);
+    }
+
+    #[test]
+    fn split_template_use_handles_nested_angles() {
+        assert_eq!(
+            split_template_use("Map<int, vector<int>>"),
+            Some((
+                "Map".to_string(),
+                vec!["int".to_string(), "vector<int>".to_string()]
+            ))
+        );
+    }
+
+    #[test]
+    fn map_instance_arg_pod_scalar_uses_pod_wrapper() {
+        let (hicc, suffix, is_class) = map_instance_arg("int");
+        assert_eq!(hicc, "hicc::Pod<i32>");
+        assert_eq!(suffix, "I32");
+        assert!(!is_class);
+
+        let (hicc, suffix, is_class) = map_instance_arg("double");
+        assert_eq!(hicc, "hicc::Pod<f64>");
+        assert_eq!(suffix, "F64");
+        assert!(!is_class);
+    }
+
+    #[test]
+    fn map_instance_arg_class_type_kept_and_flagged() {
+        let (hicc, suffix, is_class) = map_instance_arg("std::string");
+        assert_eq!(hicc, "std::string");
+        assert_eq!(suffix, "StdString");
+        assert!(is_class);
+    }
+
+    #[test]
+    fn build_instance_spec_produces_alias() {
+        let spec = build_instance_spec("Stack", &["int".to_string()]).unwrap();
+        assert_eq!(spec.alias_name, "StackI32");
+        assert_eq!(spec.template_name, "Stack");
+        assert_eq!(spec.hicc_args, vec!["hicc::Pod<i32>".to_string()]);
+        assert!(!spec.needs_class_type);
+    }
+
+    #[test]
+    fn pascal_case_ident_capitalizes_segments() {
+        assert_eq!(pascal_case_ident("i32"), "I32");
+        assert_eq!(pascal_case_ident("std::string"), "StdString");
+        assert_eq!(pascal_case_ident("unsigned int"), "UnsignedInt");
+    }
 }
