@@ -19,7 +19,7 @@ struct UnitData {
     spec: FfiSpec,
 }
 
-use crate::generator::{hicc_codegen, project_generator};
+use crate::generator::{hicc_codegen, project_generator, smoke_test_gen};
 use crate::layout::{self, FeatureLayout, InitReportData, InitUnitStat};
 use crate::metrics::{count_file_lines, parse_todo_tag_from_line};
 use crate::selector::{FileSelector, InteractiveSelector};
@@ -78,6 +78,18 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     let lib_name = feature.replace('-', "_");
     project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
+
+    // 生成冒烟测试 tests/smoke.rs（"生成即验证"）；可由 CPP2RUST_GEN_SMOKE=0 关闭，
+    // 已存在则保留用户修改（幂等）。
+    if smoke_test_gen::smoke_enabled() {
+        let specs: Vec<&FfiSpec> = all_units.iter().map(|ud| &ud.spec).collect();
+        let smoke_content = smoke_test_gen::generate_smoke_test(&lib_name, &specs);
+        match project_generator::write_smoke_test(&lo.rust_dir, &smoke_content) {
+            Ok(true) => println!("已生成冒烟测试 tests/smoke.rs（运行 `cargo test` 验证）"),
+            Ok(false) => println!("冒烟测试 tests/smoke.rs 已存在，保留现有内容"),
+            Err(e) => eprintln!("警告：生成冒烟测试失败：{}", e),
+        }
+    }
 
     // 生成 meta/init-report.md
     let report_data = InitReportData {

@@ -258,6 +258,22 @@ pub fn write_unit_rs(rust_dir: &Path, unit_path: &str, code: &str) -> Result<()>
     std::fs::write(&file_path, code).map_err(|e| anyhow!("write {}: {}", file_path.display(), e))
 }
 
+/// 写出 `tests/smoke.rs` 冒烟测试（幂等：文件已存在则不覆盖用户修改）。
+///
+/// `content` 由 [`crate::generator::smoke_test_gen::generate_smoke_test`] 生成。
+/// 返回 `Ok(true)` 表示已写出新文件，`Ok(false)` 表示文件已存在故跳过。
+pub fn write_smoke_test(rust_dir: &Path, content: &str) -> Result<bool> {
+    let tests_dir = rust_dir.join("tests");
+    let path = tests_dir.join("smoke.rs");
+    if path.exists() {
+        return Ok(false);
+    }
+    std::fs::create_dir_all(&tests_dir)
+        .map_err(|e| anyhow!("create tests dir {}: {}", tests_dir.display(), e))?;
+    std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))?;
+    Ok(true)
+}
+
 /// 写出 `build.rs`，调用 `hicc_build::Build::new()` 完成 C++ shim 编译。
 ///
 /// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，
