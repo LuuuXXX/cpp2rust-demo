@@ -88,10 +88,10 @@ golden_test!(test_011_class_const, "011_class_const");
 golden_test!(test_012_class_volatile, "012_class_volatile");
 golden_test!(test_013_inheritance_single, "013_inheritance_single");
 golden_test!(test_014_inheritance_multiple, "014_inheritance_multiple");
-golden_test!(test_015_virtual_basic, "015_virtual_basic");
-golden_test!(test_016_virtual_pure, "016_virtual_pure");
-golden_test!(test_017_virtual_override, "017_virtual_override");
-golden_test!(test_018_virtual_diamond, "018_virtual_diamond");
+golden_test_lib!(test_015_virtual_basic, "015_virtual_basic");
+golden_test_lib!(test_016_virtual_pure, "016_virtual_pure");
+golden_test_lib!(test_017_virtual_override, "017_virtual_override");
+golden_test_lib!(test_018_virtual_diamond, "018_virtual_diamond");
 golden_test!(test_019_operator_overload, "019_operator_overload");
 golden_test!(test_020_friend_function, "020_friend_function");
 golden_test!(test_021_explicit_ctor, "021_explicit_ctor");
@@ -99,14 +99,8 @@ golden_test!(test_022_mutable_member, "022_mutable_member");
 golden_test!(test_023_typeid_rtti, "023_typeid_rtti");
 golden_test_lib!(test_024_template_function, "024_template_function");
 golden_test_lib!(test_025_template_class, "025_template_class");
-golden_test!(
-    test_026_template_specialization,
-    "026_template_specialization"
-);
-golden_test!(
-    test_027_template_instantiation,
-    "027_template_instantiation"
-);
+golden_test_lib!(test_026_template_specialization, "026_template_specialization");
+golden_test_lib!(test_027_template_instantiation, "027_template_instantiation");
 golden_test!(test_028_variadic_template, "028_variadic_template");
 golden_test!(test_029_unique_ptr, "029_unique_ptr");
 golden_test!(test_030_shared_ptr, "030_shared_ptr");

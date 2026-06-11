@@ -3,6 +3,14 @@ name = "virtual_pure"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "virtual_pure"
+path = "src/lib.rs"
+
+[[bin]]
+name = "virtual_pure"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

@@ -1,48 +1,4 @@
-hicc::cpp! {
-    #include <iostream>
-    #include <cstring>
-    #include <string>
-
-    #include "virtual_override.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Base", destroy = "base_delete")]
-    pub class Base {
-        #[cpp(method = "double area() const")]
-        fn area(&self) -> f64;
-
-        #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const i8;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "Derived", destroy = "derived_delete")]
-    pub class Derived {
-        #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const i8;
-
-        #[cpp(method = "double area() const")]
-        fn area(&self) -> f64;
-
-        #[cpp(method = "double getValue() const")]
-        fn get_value(&self) -> f64;
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "virtual_override"]
-
-    class Base;
-    class Derived;
-
-    #[cpp(func = "Base* base_create(int)")]
-    fn base_create(type_: i32) -> Base;
-
-    #[cpp(func = "Derived* derived_new(double)")]
-    fn derived_new(value: f64) -> Derived;
-}
+use virtual_override::*;
 
 fn decode_cstr(ptr: *const i8) -> String {
     unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
