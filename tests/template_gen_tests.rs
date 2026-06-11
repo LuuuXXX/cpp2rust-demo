@@ -13,6 +13,7 @@ const TEMPLATE_CLASS_SRC: &str = r#"
 template<typename T>
 class Stack {
 public:
+    Stack(T initial);
     void push(T value);
     T top() const;
     bool empty() const;
@@ -26,6 +27,12 @@ public:
 class DoubleStack {
 public:
     Stack<double> impl;
+};
+
+// 方法参数中的实例化使用点（v6 Phase B 增强（续）：追踪来源扩展到方法参数 / 返回类型）
+class StackUser {
+public:
+    void use_short(Stack<short>& s);
 };
 
 template<typename T>
@@ -69,6 +76,11 @@ fn template_skeleton_gated_by_env() {
     assert!(
         !off.contains("pub type StackI32"),
         "默认关闭时不应生成模板实例化别名，实际输出：\n{}",
+        off
+    );
+    assert!(
+        !off.contains("stack_i32_new"),
+        "默认关闭时不应生成模板构造工厂骨架，实际输出：\n{}",
         off
     );
 
@@ -119,6 +131,32 @@ fn template_skeleton_gated_by_env() {
     assert!(
         on.contains("pub type StackF64 = Stack<hicc::Pod<f64>>;"),
         "应生成 Stack<double> 的实例化别名，实际输出：\n{}",
+        on
+    );
+
+    // v6 Phase B 增强（续）：追踪来源扩展到方法参数 —— StackUser::use_short(Stack<short>&)
+    // 应生成 Stack<short> 的实例化别名
+    assert!(
+        on.contains("pub type StackI16 = Stack<hicc::Pod<i16>>;"),
+        "应从方法参数 Stack<short>& 收集到实例化别名，实际输出：\n{}",
+        on
+    );
+
+    // v6 Phase B 增强（续）：构造工厂骨架 —— Stack(T initial) 派生
+    // StackI32 / StackF64 / StackI64 的工厂函数
+    assert!(
+        on.contains("pub unsafe fn stack_i32_new(initial: i32) -> StackI32;"),
+        "应生成 StackI32 构造工厂骨架，实际输出：\n{}",
+        on
+    );
+    assert!(
+        on.contains("#[cpp(func = \"Stack<int>* stack_i32_new(int initial)\")]"),
+        "应生成正确的工厂 #[cpp(func = ...)] 声明，实际输出：\n{}",
+        on
+    );
+    assert!(
+        on.contains("pub unsafe fn stack_f64_new(initial: f64) -> StackF64;"),
+        "应生成 StackF64 构造工厂骨架，实际输出：\n{}",
         on
     );
 }

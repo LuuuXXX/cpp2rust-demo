@@ -228,6 +228,8 @@ cpp2rust-demo merge --feature <name>
 
 **模板实例化**：`swap<int>` → `swap_int()`，`swap<double>` → `swap_double()`（模板声明本身不导出）
 
+> **v6 模板泛型骨架（默认关闭）**：自 v6 起，工具可选地把模板**声明**也映射为 hicc 骨架——模板类 → 泛型 `import_class!`（`pub class Stack<T>`）、模板函数 → 泛型 `import_lib!`、被具体类型实例化的模板 → 类型别名（`pub type StackI32 = Stack<hicc::Pod<i32>>;`）及构造工厂骨架（`stack_i32_new`）。该能力由环境变量 `CPP2RUST_GEN_TEMPLATES` 控制，**默认关闭**，关闭时默认产物逐字节不变；骨架带 `cpp2rust-todo[TMPL]` 占位提示，需用户按实际实例化类型补全。详见 [docs/references/hicc.md](references/hicc.md) 的「cpp2rust-demo 的模板映射」一节与 `docs/plans/v6/`。
+
 **运算符重载**：`operator+` → `number_add()`（C ABI 没有运算符符号，降级为命名函数）
 
 **Lambda**：无状态 → 函数指针直接导出；有状态 → 包装成 class 再导出

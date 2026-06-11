@@ -157,6 +157,8 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 **模板实例化别名（v6 Phase B 增强）**：在上述泛型骨架基础上，`extractor::template_spec::build_template_instances` 从当前编译单元中「以具体类型实例化本文件模板类」的使用点（目前为包装类的字段类型，如 `Stack<int> impl;`）收集 `(模板名, 实参)`，生成器 `emit_template_instances` 输出类型别名骨架（POD 标量用 `hicc::Pod<...>` 包装，如 `pub type StackI32 = Stack<hicc::Pod<i32>>;`；类类型实参保留原名并附 `cpp2rust-todo[TMPL]` 提示替换为对应 hicc 类型）。别名输出复用同一个 `CPP2RUST_GEN_TEMPLATES` 开关，默认关闭时产物逐字节不变。详见 `docs/plans/v6/development-progress-phase-b-plus.md`。
 
+**模板实例化追踪扩展 + 构造工厂骨架（v6 Phase B 增强（续））**：`build_template_instances` 的实例化追踪来源从「字段类型」扩展到**方法参数 / 返回类型**与**全局函数参数 / 返回类型**（如 `void use(Stack<short>& s)` 也能收集到 `Stack<short>` 别名）。在此基础上，`extractor::template_spec::build_template_factories` 由模板类的公有构造函数派生**构造工厂骨架**：将类型参数 `T` 按实例化的具体类型替换（`substitute_type_params`，以完整标识符为单位替换，避免误伤 `Time` 等子串），生成器 `emit_template_factory` 在 `import_lib!` 中输出工厂函数（如 `#[cpp(func = "Stack<int>* stack_i32_new(int initial)")] pub unsafe fn stack_i32_new(initial: i32) -> StackI32;`）。工厂对应的 C++ 符号通常需用户显式实例化 / 包装后才存在，故附 `cpp2rust-todo[TMPL]` 提示。该能力同样受 `CPP2RUST_GEN_TEMPLATES` 控制，默认关闭时产物逐字节不变。详见 `docs/plans/v6/development-progress-phase-b-plus2.md`。
+
 ### 分层快速运行命令
 
 ```sh
