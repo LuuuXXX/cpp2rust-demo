@@ -1,15 +1,16 @@
+// 此文件为 cpp2rust-demo 工具对 018_virtual_diamond 自动生成的支架黄金文件，
+// 仅供 L1 golden 测试（test_018_virtual_diamond）进行生成准确性验证。
+//
+// 由于 hicc 的 member_addr 用 union 将 16 字节成员函数指针截断为 8 字节 void*，
+// 通过虚继承调用 C::getCValue() 时会丢失 this 调整量，导致运行时返回错误值。
+// 实际使用的 lib.rs 已在 cpp! 块中添加 d_get_c_value_w 包装函数并相应更新
+// import_class! 绑定，以修复该问题。本文件保留工具原始生成结果用于对比验证。
 hicc::cpp! {
     #include <iostream>
 
     #include "virtual_diamond.h"
     int d_get_a_value(D* self) {
         return self->getAValue();
-    }
-
-    // getCValue() 通过虚继承从 C 类获得，其 this 调整量在 hicc 的 member_addr 中被截断。
-    // 使用 const D* 包装函数避免成员函数指针丢失 this 偏移量的问题。
-    int d_get_c_value_w(const D* self) {
-        return self->getCValue();
     }
 
 }
@@ -20,7 +21,7 @@ hicc::import_class! {
         #[cpp(method = "int getBValue() const")]
         pub fn get_b_value(&self) -> i32;
 
-        #[cpp(func = "int d_get_c_value_w(const D*)")]
+        #[cpp(method = "int getCValue() const")]
         pub fn get_c_value(&self) -> i32;
 
         #[cpp(method = "int getDValue() const")]

@@ -469,6 +469,74 @@ jobs:
           CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
+  # ── L_smoke: 冒烟测试（migrated examples 的 cargo test smoke.rs）──
+  l-smoke:
+    name: L_smoke Smoke tests
+    runs-on: ubuntu-latest
+    needs: [l2-compile]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            examples-target
+          key: ${{ runner.os }}-cargo-smoke-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-smoke-
+            ${{ runner.os }}-cargo-
+
+      # 对包含 tests/smoke.rs 的示例运行 cargo test（编译 C++ 在 build.rs 中处理）
+      - name: Run smoke tests for migrated examples
+        run: |
+          SMOKE_EXAMPLES=(
+            015_virtual_basic
+            016_virtual_pure
+            017_virtual_override
+            018_virtual_diamond
+            023_typeid_rtti
+            024_template_function
+            025_template_class
+            026_template_specialization
+            027_template_instantiation
+            034_vector_basic
+            035_map_basic
+            036_string_basic
+            037_array_basic
+            038_tuple_basic
+          )
+          FAILED=()
+          for example in "${SMOKE_EXAMPLES[@]}"; do
+            dir="examples/${example}/rust_hicc"
+            echo "=== Running smoke tests for ${example} ==="
+            if cargo test --manifest-path "${dir}/Cargo.toml" \
+                --target-dir "${{ github.workspace }}/examples-target" \
+                --test smoke 2>&1; then
+              echo "✅ ${example}: smoke tests passed"
+            else
+              echo "❌ ${example}: smoke tests FAILED"
+              FAILED+=("${example}")
+            fi
+          done
+          if [ ${#FAILED[@]} -ne 0 ]; then
+            echo ""
+            echo "Failed smoke tests: ${FAILED[*]}"
+            exit 1
+          fi
+
   # ── L4: rapidjson 端到端门禁（init + merge 全流程）──────────────
   l4-rapidjson-e2e:
     name: L4 rapidjson E2E

@@ -3,6 +3,14 @@ name = "string_basic"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "string_basic"
+path = "src/lib.rs"
+
+[[bin]]
+name = "string_basic"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

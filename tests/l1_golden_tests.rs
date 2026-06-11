@@ -53,6 +53,11 @@ macro_rules! golden_test_unix_only {
 // `unsafe fn`（无 pub），因此比较前通过 strip_pub_visibility 规范化可见性修饰符。
 macro_rules! golden_test_lib {
     ($name:ident, $example:literal) => {
+        golden_test_lib!($name, $example, "rust_hicc/src/lib.rs");
+    };
+    // 当 lib.rs 含有超出工具自动生成范围的手动修改时，可通过 $golden_file 指向
+    // 单独维护的支架黄金文件（lib_scaffold.rs），以避免手动修改干扰自动生成验证。
+    ($name:ident, $example:literal, $golden_file:literal) => {
         #[test]
         #[cfg_attr(
             not(feature = "full-test"),
@@ -61,8 +66,8 @@ macro_rules! golden_test_lib {
         fn $name() {
             let example_dir = concat!("examples/", $example);
             let generated = common::run_tool_on(example_dir);
-            let golden_raw = common::read_golden(example_dir, "rust_hicc/src/lib.rs");
-            // 从 lib.rs 提取 hicc 块后，规范化 pub 可见性再比较
+            let golden_raw = common::read_golden(example_dir, $golden_file);
+            // 从黄金文件提取 hicc 块后，规范化 pub 可见性再比较
             let golden = common::extract_hicc_blocks(&golden_raw);
             assert_eq!(
                 common::normalize(&generated),
@@ -91,7 +96,9 @@ golden_test!(test_014_inheritance_multiple, "014_inheritance_multiple");
 golden_test_lib!(test_015_virtual_basic, "015_virtual_basic");
 golden_test_lib!(test_016_virtual_pure, "016_virtual_pure");
 golden_test_lib!(test_017_virtual_override, "017_virtual_override");
-golden_test_lib!(test_018_virtual_diamond, "018_virtual_diamond");
+// lib.rs 含有针对 hicc member_addr 截断 this 偏移量问题的手动包装函数修复，
+// 使用独立的 lib_scaffold.rs 作为工具自动生成部分的黄金比对文件。
+golden_test_lib!(test_018_virtual_diamond, "018_virtual_diamond", "rust_hicc/src/lib_scaffold.rs");
 golden_test!(test_019_operator_overload, "019_operator_overload");
 golden_test!(test_020_friend_function, "020_friend_function");
 golden_test!(test_021_explicit_ctor, "021_explicit_ctor");
@@ -107,11 +114,11 @@ golden_test!(test_030_shared_ptr, "030_shared_ptr");
 golden_test_unix_only!(test_031_custom_deleter, "031_custom_deleter");
 golden_test!(test_032_placement_new, "032_placement_new");
 golden_test!(test_033_raii_pattern, "033_raii_pattern");
-golden_test!(test_034_vector_basic, "034_vector_basic");
-golden_test!(test_035_map_basic, "035_map_basic");
-golden_test!(test_036_string_basic, "036_string_basic");
-golden_test!(test_037_array_basic, "037_array_basic");
-golden_test!(test_038_tuple_basic, "038_tuple_basic");
+golden_test_lib!(test_034_vector_basic, "034_vector_basic");
+golden_test_lib!(test_035_map_basic, "035_map_basic");
+golden_test_lib!(test_036_string_basic, "036_string_basic");
+golden_test_lib!(test_037_array_basic, "037_array_basic");
+golden_test_lib!(test_038_tuple_basic, "038_tuple_basic");
 golden_test_unix_only!(test_039_lambda_basic, "039_lambda_basic");
 golden_test!(test_040_std_function, "040_std_function");
 golden_test!(test_041_functional_bind, "041_functional_bind");

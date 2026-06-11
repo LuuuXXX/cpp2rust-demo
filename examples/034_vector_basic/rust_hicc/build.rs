@@ -8,14 +8,14 @@ fn main() {
     cc_build.include(".");
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("vector_basic.cpp"));
-    build.rust_file("src/main.rs").compile("vector_basic");
+    build.rust_file("src/lib.rs").compile("vector_basic");
 
     println!("cargo::rustc-link-lib=vector_basic");
     #[cfg(target_os = "macos")]
     println!("cargo::rustc-link-lib=c++");
     #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
-    println!("cargo::rerun-if-changed=src/main.rs");
+    println!("cargo::rerun-if-changed=src/lib.rs");
     println!("cargo::rerun-if-changed=../cpp/vector_basic.cpp");
     println!("cargo::rerun-if-changed=../cpp/vector_basic.h");
 }

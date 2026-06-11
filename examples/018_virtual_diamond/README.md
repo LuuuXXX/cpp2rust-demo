@@ -179,7 +179,7 @@ Virtual inheritance ensures only ONE A subobject in D
 Values:
   A value (via B): 1
   B value: 2
-  C value: 2
+  C value: 3
   D value: 4
 
 D::compute: a=1 b=2 c=3 d=4

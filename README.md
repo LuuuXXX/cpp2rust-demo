@@ -658,11 +658,11 @@ hicc::import_lib! {
 | [031_custom_deleter](examples/031_custom_deleter) | 智能指针/内存 | 自定义删除器 | ✅ | 全平台 | 删除器函数注入 `hicc::cpp!`，`*_delete()` shim 内部调用自定义删除器 |
 | [032_placement_new](examples/032_placement_new) | 智能指针/内存 | placement new | ✅ | 全平台 | 生成 `*_placement_new(ptr, ...)` 必要 shim |
 | [033_raii_pattern](examples/033_raii_pattern) | 智能指针/内存 | RAII 模式 | ✅ | 全平台 | 析构函数生成 `*_delete()` shim，Rust 侧可实现 `Drop` trait |
-| [034_vector_basic](examples/034_vector_basic) | STL 容器 | std::vector\<T\> | ✅ | 全平台¹ | 薄 wrapper 类 `IntVector`（`VectorImpl<int>` 封装）→ `import_class!` |
-| [035_map_basic](examples/035_map_basic) | STL 容器 | std::map\<K,V\> | ✅ | 全平台¹ | 薄 wrapper 类 `StringIntMap`（`MapImpl<string,int>` 封装）→ `import_class!` |
-| [036_string_basic](examples/036_string_basic) | STL 容器 | std::string | ✅ | 全平台¹ | string wrapper，`c_str()`/`length()` 等通过 `import_class!` 绑定 |
-| [037_array_basic](examples/037_array_basic) | STL 容器 | std::array\<T,N\> | ✅ | 全平台¹ | 数组 wrapper（N 在实例化时已知）→ `import_class!` |
-| [038_tuple_basic](examples/038_tuple_basic) | STL 容器 | std::tuple\<T...\> | ✅ | 全平台¹ | tuple wrapper，按位置 `get<N>()` 通过 `import_class!` 绑定 |
+| [034_vector_basic](examples/034_vector_basic) | STL 容器 | std::vector\<T\> | ✅ | 全平台¹ | 薄 wrapper 类 `IntVector`（`VectorImpl<int>` 封装）→ `import_class!`；`lib.rs + tests/smoke.rs` 结构，含冒烟测试 |
+| [035_map_basic](examples/035_map_basic) | STL 容器 | std::map\<K,V\> | ✅ | 全平台¹ | 薄 wrapper 类 `StringIntMap`（`MapImpl<string,int>` 封装）→ `import_class!`；`lib.rs + tests/smoke.rs` 结构，含冒烟测试 |
+| [036_string_basic](examples/036_string_basic) | STL 容器 | std::string | ✅ | 全平台¹ | string wrapper，`c_str()`/`length()` 等通过 `import_class!` 绑定；`lib.rs + tests/smoke.rs` 结构，含冒烟测试 |
+| [037_array_basic](examples/037_array_basic) | STL 容器 | std::array\<T,N\> | ✅ | 全平台¹ | 数组 wrapper（N 在实例化时已知）→ `import_class!`；`lib.rs + tests/smoke.rs` 结构，含冒烟测试 |
+| [038_tuple_basic](examples/038_tuple_basic) | STL 容器 | std::tuple\<T...\> | ✅ | 全平台¹ | tuple wrapper，按位置 `get<N>()` 通过 `import_class!` 绑定；`lib.rs + tests/smoke.rs` 结构，含冒烟测试 |
 | [039_lambda_basic](examples/039_lambda_basic) | 函数对象 | Lambda 表达式 | ⚠️ `[LM]` | 全平台 | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + `call()` 方法；C 函数指针参数自动映射为 `unsafe extern "C" fn(...)`（加 `[FP]` 注释） |
 | [040_std_function](examples/040_std_function) | 函数对象 | std::function\<Sig\> | ⚠️ `[LM]` | 全平台 | 类型擦除容器，统一用 class wrapper + opaque pointer；C 函数指针参数自动映射为 `unsafe extern "C" fn(...)` |
 | [041_functional_bind](examples/041_functional_bind) | 函数对象 | std::bind | ✅ | 全平台 | 产物本质是函数对象，同有状态 lambda 策略，`import_class!` 完全覆盖 |
@@ -760,6 +760,11 @@ cd examples/016_virtual_pure/rust_hicc && cargo test
 cd examples/017_virtual_override/rust_hicc && cargo test
 cd examples/018_virtual_diamond/rust_hicc && cargo test
 cd examples/023_typeid_rtti/rust_hicc && cargo test
+cd examples/034_vector_basic/rust_hicc && cargo test
+cd examples/035_map_basic/rust_hicc && cargo test
+cd examples/036_string_basic/rust_hicc && cargo test
+cd examples/037_array_basic/rust_hicc && cargo test
+cd examples/038_tuple_basic/rust_hicc && cargo test
 
 # 更新黄金文件（工具输出有意变更时使用）
 cargo test --test l1_golden_tests update_all_goldens -- --include-ignored
