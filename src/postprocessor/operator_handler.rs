@@ -8,10 +8,31 @@ use crate::extractor::type_mapper::{clean_type, cpp_to_rust, to_snake_case};
 use crate::ffi_model::{FfiSpec, FnBinding};
 
 /// 支持的二元运算符名称及其 C++ 符号
-const BINARY_OPS: &[(&str, &str)] = &[("add", "+"), ("sub", "-"), ("mul", "*"), ("div", "/")];
+const BINARY_OPS: &[(&str, &str)] = &[
+    ("add", "+"),
+    ("sub", "-"),
+    ("mul", "*"),
+    ("div", "/"),
+    ("mod", "%"),
+    ("shl", "<<"),
+    ("shr", ">>"),
+    ("bitand", "&"),
+    ("bitor", "|"),
+    ("bitxor", "^"),
+];
+
+/// 支持的比较运算符名称及其 C++ 符号
+const COMPARE_OPS: &[(&str, &str)] = &[
+    ("eq", "=="),
+    ("ne", "!="),
+    ("lt", "<"),
+    ("gt", ">"),
+    ("le", "<="),
+    ("ge", ">="),
+];
 
 /// 支持的一元运算符名称
-const UNARY_OPS: &[&str] = &["negate"];
+const UNARY_OPS: &[&str] = &["negate", "not", "bitnot", "pre_inc", "pre_dec"];
 
 /// 对所有类应用运算符 shim 生成。
 pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
@@ -109,6 +130,10 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                 AccessorKind::UnaryOp => {
                     let body = match stripped {
                         "negate" => format!("return new {}(-*a);", ci.name),
+                        "not" => format!("return new {}(!*a);", ci.name),
+                        "bitnot" => format!("return new {}(~*a);", ci.name),
+                        "pre_inc" => format!("auto tmp = *a; ++tmp; return new {}(tmp);", ci.name),
+                        "pre_dec" => format!("auto tmp = *a; --tmp; return new {}(tmp);", ci.name),
                         _ => continue,
                     };
 
@@ -130,31 +155,58 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                     });
                 }
                 AccessorKind::Compare => {
-                    let ret_cpp = clean_type(&fi.return_type).to_string();
-                    let ret_rust = cpp_to_rust(&fi.return_type);
+                    // 比较运算符生成 bool shim（使用 COMPARE_OPS 中的运算符符号）
+                    if let Some((_, op_sym)) = COMPARE_OPS.iter().find(|(n, _)| *n == stripped) {
+                        cpp_shims.push(format!(
+                            "bool {}(const {}* a, const {}* b) {{",
+                            shim_fn_name, ci.name, ci.name
+                        ));
+                        cpp_shims.push(format!("    return *a {} *b;", op_sym));
+                        cpp_shims.push("}".to_string());
+                        cpp_shims.push(String::new());
 
-                    cpp_shims.push(format!(
-                        "{} {}(const {}* a, const {}* b) {{",
-                        ret_cpp, shim_fn_name, ci.name, ci.name
-                    ));
-                    cpp_shims.push(format!("    return a->{}(*b);", stripped));
-                    cpp_shims.push("}".to_string());
-                    cpp_shims.push(String::new());
+                        new_bindings.push(FnBinding {
+                            cpp_sig: format!(
+                                "bool {}(const {}*, const {}*)",
+                                shim_fn_name, ci.name, ci.name
+                            ),
+                            rust_name: fi.name.clone(),
+                            params: vec![
+                                ("a".to_string(), format!("*const {}", ci.name)),
+                                ("b".to_string(), format!("*const {}", ci.name)),
+                            ],
+                            ret_type: Some("bool".to_string()),
+                            is_unsafe: false,
+                            has_fn_ptr_param: false,
+                        });
+                    } else {
+                        // 退回为原始比较方法（基于实际返回类型）
+                        let ret_cpp = clean_type(&fi.return_type).to_string();
+                        let ret_rust = cpp_to_rust(&fi.return_type);
 
-                    new_bindings.push(FnBinding {
-                        cpp_sig: format!(
-                            "{} {}(const {}*, const {}*)",
+                        cpp_shims.push(format!(
+                            "{} {}(const {}* a, const {}* b) {{",
                             ret_cpp, shim_fn_name, ci.name, ci.name
-                        ),
-                        rust_name: fi.name.clone(),
-                        params: vec![
-                            ("a".to_string(), format!("*const {}", ci.name)),
-                            ("b".to_string(), format!("*const {}", ci.name)),
-                        ],
-                        ret_type: Some(ret_rust),
-                        is_unsafe: false,
-                        has_fn_ptr_param: false,
-                    });
+                        ));
+                        cpp_shims.push(format!("    return a->{}(*b);", stripped));
+                        cpp_shims.push("}".to_string());
+                        cpp_shims.push(String::new());
+
+                        new_bindings.push(FnBinding {
+                            cpp_sig: format!(
+                                "{} {}(const {}*, const {}*)",
+                                ret_cpp, shim_fn_name, ci.name, ci.name
+                            ),
+                            rust_name: fi.name.clone(),
+                            params: vec![
+                                ("a".to_string(), format!("*const {}", ci.name)),
+                                ("b".to_string(), format!("*const {}", ci.name)),
+                            ],
+                            ret_type: Some(ret_rust),
+                            is_unsafe: false,
+                            has_fn_ptr_param: false,
+                        });
+                    }
                 }
                 AccessorKind::Other => {}
             }
@@ -216,6 +268,15 @@ fn classify_accessor(fi: &FunctionInfo, prefix: &str, class_name: &str) -> Acces
     if UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class {
         return AccessorKind::UnaryOp;
     }
+    // 比较运算符：名称在 COMPARE_OPS 中，且有一个同类型参数，返回非 void 非类类型
+    if COMPARE_OPS.iter().any(|(n, _)| *n == stripped)
+        && extra_params.len() == 1
+        && !ret_is_class
+        && !ret_is_void
+    {
+        return AccessorKind::Compare;
+    }
+    // 旧式 compare accessor：有一个同类型参数，返回非 void 非类类型
     if extra_params.len() == 1 && !ret_is_class && !ret_is_void && is_compare_accessor(fi, class_name) {
         return AccessorKind::Compare;
     }

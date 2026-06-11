@@ -147,7 +147,7 @@ fn merge_units_from_golden_files_deduplicates_correctly() {
         return;
     }
 
-    let spec = merger::merge_units(&paths);
+    let (spec, _) = merger::merge_units(&paths);
 
     // 合并后应有函数绑定（三个示例都有导出函数）
     assert!(
@@ -179,7 +179,7 @@ fn merge_units_extracts_class_bindings() {
         return;
     }
 
-    let spec = merger::merge_units(&paths);
+    let (spec, _) = merger::merge_units(&paths);
 
     // 006 包含 Counter 类
     assert!(
@@ -208,7 +208,7 @@ fn merge_units_collects_degraded_sigs_from_fn_ptr_examples() {
         return;
     }
 
-    let spec = merger::merge_units(&paths);
+    let (spec, _) = merger::merge_units(&paths);
 
     assert!(
         !spec.degraded_sigs.is_empty(),

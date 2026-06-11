@@ -115,6 +115,11 @@ fn cpp_to_rust_inner(cpp: &str, depth: u8) -> String {
         "uint16_t" => return "u16".to_string(),
         "uint32_t" => return "u32".to_string(),
         "uint64_t" => return "u64".to_string(),
+        // wchar_t：Windows（LLP64/MSVC）定义为 u16，其他平台（LP64）定义为 i32
+        #[cfg(target_os = "windows")]
+        "wchar_t" => return "u16".to_string(),
+        #[cfg(not(target_os = "windows"))]
+        "wchar_t" => return "i32".to_string(),
         _ => {}
     }
 
@@ -362,14 +367,27 @@ mod tests {
     #[test]
     fn test_restrict_qualifier_stripped() {
         // 后缀形式（有空格）：__restrict / __restrict__ 出现在指针末尾时应被去掉，生成合法 Rust 类型
-        assert_eq!(cpp_to_rust("wchar_t * __restrict"), "*mut wchar_t");
-        assert_eq!(cpp_to_rust("const wchar_t * __restrict"), "*const wchar_t");
-        assert_eq!(cpp_to_rust("wchar_t * __restrict__"), "*mut wchar_t");
+        // wchar_t 现在映射为平台相关整数类型
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert_eq!(cpp_to_rust("wchar_t * __restrict"), "*mut i32");
+            assert_eq!(cpp_to_rust("const wchar_t * __restrict"), "*const i32");
+            assert_eq!(cpp_to_rust("wchar_t * __restrict__"), "*mut i32");
+            assert_eq!(cpp_to_rust("wchar_t *__restrict"), "*mut i32");
+            assert_eq!(cpp_to_rust("const wchar_t *__restrict"), "*const i32");
+            assert_eq!(cpp_to_rust("wchar_t *__restrict__"), "*mut i32");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(cpp_to_rust("wchar_t * __restrict"), "*mut u16");
+            assert_eq!(cpp_to_rust("const wchar_t * __restrict"), "*const u16");
+            assert_eq!(cpp_to_rust("wchar_t * __restrict__"), "*mut u16");
+            assert_eq!(cpp_to_rust("wchar_t *__restrict"), "*mut u16");
+            assert_eq!(cpp_to_rust("const wchar_t *__restrict"), "*const u16");
+            assert_eq!(cpp_to_rust("wchar_t *__restrict__"), "*mut u16");
+        }
         assert_eq!(cpp_to_rust("char * restrict"), "*mut i8");
-        // 无空格形式：libclang 预处理展开后的实际输出（如 `wchar_t *__restrict`）
-        assert_eq!(cpp_to_rust("wchar_t *__restrict"), "*mut wchar_t");
-        assert_eq!(cpp_to_rust("const wchar_t *__restrict"), "*const wchar_t");
-        assert_eq!(cpp_to_rust("wchar_t *__restrict__"), "*mut wchar_t");
+        // 无空格形式：libclang 预处理展开后的实际输出
         assert_eq!(cpp_to_rust("char *__restrict"), "*mut i8");
         // 前缀形式：MSVC 风格 `__restrict int *` / `__restrict__ char *`
         assert_eq!(cpp_to_rust("__restrict int *"), "*mut i32");
@@ -474,12 +492,20 @@ mod tests {
 
     #[test]
     fn wchar_t_pointer() {
-        // `wchar_t *` → 可变指针
-        assert_eq!(cpp_to_rust("wchar_t *"), "*mut wchar_t");
-        // `wchar_t const *` → 后置 const（East const）已规范化，正确映射为 `*const wchar_t`
-        assert_eq!(cpp_to_rust("wchar_t const *"), "*const wchar_t");
-        // `const wchar_t *` → 前置 const，同样映射为 `*const wchar_t`
-        assert_eq!(cpp_to_rust("const wchar_t *"), "*const wchar_t");
+        // `wchar_t` 现在映射为平台相关的整数类型（LP64 → i32，Windows → u16）
+        // 所以 `wchar_t *` 等价于 `*mut i32`（非 Windows）或 `*mut u16`（Windows）
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert_eq!(cpp_to_rust("wchar_t *"), "*mut i32");
+            assert_eq!(cpp_to_rust("wchar_t const *"), "*const i32");
+            assert_eq!(cpp_to_rust("const wchar_t *"), "*const i32");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(cpp_to_rust("wchar_t *"), "*mut u16");
+            assert_eq!(cpp_to_rust("wchar_t const *"), "*const u16");
+            assert_eq!(cpp_to_rust("const wchar_t *"), "*const u16");
+        }
     }
 
     #[test]
@@ -583,7 +609,11 @@ mod tests {
         // `T const *` 与 `const T *` 语义等价，均应映射为 `*const T_rust`
         assert_eq!(cpp_to_rust("int const *"), "*const i32");
         assert_eq!(cpp_to_rust("char const *"), "*const i8");
-        assert_eq!(cpp_to_rust("wchar_t const *"), "*const wchar_t");
+        // wchar_t 现在映射为平台相关整数类型
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(cpp_to_rust("wchar_t const *"), "*const i32");
+        #[cfg(target_os = "windows")]
+        assert_eq!(cpp_to_rust("wchar_t const *"), "*const u16");
         assert_eq!(cpp_to_rust("unsigned char const *"), "*const u8");
         assert_eq!(cpp_to_rust("double const *"), "*const f64");
     }

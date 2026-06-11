@@ -17,7 +17,7 @@ pub(super) fn build_lib_spec(
     class_names: &[&str],
 ) -> LibSpec {
     let shims = classify_functions(functions, class_names);
-    let fn_bindings: Vec<FnBinding> = shims
+    let mut fn_bindings: Vec<FnBinding> = shims
         .iter()
         .filter(|(_, k)| !matches!(k, ShimKind::MethodAccessor))
         .filter(|(fi, _)| !fi.is_variadic)
@@ -37,6 +37,29 @@ pub(super) fn build_lib_spec(
         })
         .map(|(fi, _)| build_fn_binding(fi, class_names))
         .collect();
+
+    // 对生成结果中 rust_name 相同的函数（C++ 重载）添加数字后缀（_1, _2, ...）
+    // 以确保生成的 Rust 绑定名称不重复
+    {
+        // 统计每个 rust_name 出现的次数
+        let mut name_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for fb in &fn_bindings {
+            *name_counts.entry(fb.rust_name.clone()).or_insert(0) += 1;
+        }
+        // 对出现多次的 rust_name，从第二次开始追加 _1、_2 … 后缀
+        let mut seen_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for fb in &mut fn_bindings {
+            if name_counts.get(&fb.rust_name).copied().unwrap_or(0) > 1 {
+                let idx = seen_counts.entry(fb.rust_name.clone()).or_insert(0);
+                if *idx > 0 {
+                    fb.rust_name = format!("{}_{}", fb.rust_name, *idx);
+                }
+                *idx += 1;
+            }
+        }
+    }
 
     // 前向声明：只包含在函数签名中实际引用的类（按原始顺序）
     let used_classes: std::collections::HashSet<&str> = fn_bindings

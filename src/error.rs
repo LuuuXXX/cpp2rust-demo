@@ -29,6 +29,12 @@ impl std::fmt::Display for Cpp2RustError {
 
 impl std::error::Error for Cpp2RustError {}
 
+impl From<std::io::Error> for Cpp2RustError {
+    fn from(e: std::io::Error) -> Self {
+        Cpp2RustError::IoError(e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,5 +68,16 @@ mod tests {
         let e: Box<dyn std::error::Error> =
             Box::new(Cpp2RustError::IoError("test".to_string()));
         assert!(!e.to_string().is_empty());
+    }
+
+    #[test]
+    fn from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let cpp_err = Cpp2RustError::from(io_err);
+        assert!(
+            matches!(cpp_err, Cpp2RustError::IoError(_)),
+            "From<io::Error> 应转换为 IoError 变体"
+        );
+        assert!(cpp_err.to_string().contains("I/O 错误"));
     }
 }

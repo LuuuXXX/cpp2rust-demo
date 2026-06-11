@@ -65,8 +65,13 @@ pub struct ParsedMethod {
 /// 合并多个 unit `.rs` 文件到一个 `MergedSpec`。
 ///
 /// 在读取每个文件时顺带收集降级签名（`degraded_sigs`），避免二次 I/O。
-pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
+///
+/// 返回 `(MergedSpec, Vec<String>)`：
+/// - `MergedSpec`：合并后的 FFI 规格
+/// - `Vec<String>`：读取失败的文件路径列表（含错误信息），由调用方决定是警告还是报错
+pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> (MergedSpec, Vec<String>) {
     let mut spec = MergedSpec::default();
+    let mut read_errors: Vec<String> = Vec::new();
     let mut cpp_line_seen: HashSet<String> = HashSet::new();
     let mut template_body_seen: HashSet<String> = HashSet::new();
     // (cpp_sig → rust fn line)：冲突检测
@@ -79,7 +84,7 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
         let src = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("  Warning: cannot read {}: {}", path.display(), e);
+                read_errors.push(format!("{}: {}", path.display(), e));
                 continue;
             }
         };
@@ -97,7 +102,7 @@ pub fn merge_units(unit_rs_paths: &[std::path::PathBuf]) -> MergedSpec {
         collect_degraded_sigs_from_str(&src, &mut spec.degraded_sigs);
     }
 
-    spec
+    (spec, read_errors)
 }
 
 /// 从单个文件内容字符串中提取含 `cpp2rust-todo` 标记的 C++ 签名，追加到 `degraded`。
@@ -460,7 +465,7 @@ mod tests {
         std::fs::write(&p1, src1).unwrap();
         std::fs::write(&p2, src2).unwrap();
 
-        let spec = merge_units(&[p1, p2]);
+        let (spec, _) = merge_units(&[p1, p2]);
         // foo.h 应只出现一次
         let foo_count = spec
             .cpp_lines
@@ -494,7 +499,7 @@ hicc::import_class! {
         std::fs::write(&p1, src).unwrap();
         std::fs::write(&p2, src).unwrap();
 
-        let spec = merge_units(&[p1, p2]);
+        let (spec, _) = merge_units(&[p1, p2]);
         let foo_methods = spec.classes.get("Foo").unwrap();
         assert_eq!(foo_methods.len(), 1, "duplicate method should be deduped");
     }
@@ -520,7 +525,7 @@ hicc::import_lib! {
         std::fs::write(&p1, src).unwrap();
         std::fs::write(&p2, src).unwrap();
 
-        let spec = merge_units(&[p1, p2]);
+        let (spec, _) = merge_units(&[p1, p2]);
         assert_eq!(
             spec.fn_bindings.len(),
             1,
@@ -807,7 +812,7 @@ hicc::import_lib! {
 
     #[test]
     fn merge_units_empty_input_returns_default_spec() {
-        let spec = merge_units(&[]);
+        let (spec, _) = merge_units(&[]);
         assert!(spec.cpp_lines.is_empty());
         assert!(spec.classes.is_empty());
         assert!(spec.fn_bindings.is_empty());
@@ -840,7 +845,7 @@ hicc::import_lib! {
         let p = dir.path().join("unit.rs");
         std::fs::write(&p, src).unwrap();
 
-        let spec = merge_units(&[p]);
+        let (spec, _) = merge_units(&[p]);
         assert_eq!(spec.cpp_lines.len(), 1, "cpp_lines should contain 1 include");
         assert!(spec.cpp_lines[0].contains("foo.h"));
         assert!(spec.classes.contains_key("Foo"));
@@ -874,7 +879,7 @@ hicc::import_lib! {
         std::fs::write(&p1, src1).unwrap();
         std::fs::write(&p2, src2).unwrap();
 
-        let spec = merge_units(&[p1, p2]);
+        let (spec, _) = merge_units(&[p1, p2]);
         // 冲突：相同 method attr 但 fn_sig 不一致
         assert!(
             !spec.conflicts.is_empty(),
@@ -904,7 +909,7 @@ hicc::import_lib! {
         std::fs::write(&p1, src1).unwrap();
         std::fs::write(&p2, src2).unwrap();
 
-        let spec = merge_units(&[p1, p2]);
+        let (spec, _) = merge_units(&[p1, p2]);
         assert!(
             !spec.conflicts.is_empty(),
             "应检测到函数绑定冲突：{:?}",
@@ -942,7 +947,7 @@ hicc::import_lib! {
         std::fs::write(&p2, src2).unwrap();
         std::fs::write(&p3, src3).unwrap();
 
-        let spec = merge_units(&[p1, p2, p3]);
+        let (spec, _) = merge_units(&[p1, p2, p3]);
         let common_count = spec
             .cpp_lines
             .iter()

@@ -200,14 +200,24 @@ fn detect_namespace_mode(
         })
 }
 
-/// 去重：对于同名函数优先保留 body_offset 且 is_extern_c=false 的版本
+/// 去重：
+/// - 以 `(name, param_types_joined)` 为键，对具有相同名称**且**相同参数类型签名的函数去重，
+///   保留 score 最高的版本（有 body_offset 且非 extern_c 的版本胜出）。
+/// - 具有相同名称但不同参数类型签名的函数（C++ 重载）分别保留，
+///   下游代码负责为其生成带数字后缀的不同 Rust 名称。
 fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
-    let mut map: std::collections::HashMap<&str, &'a FunctionInfo> =
+    // 键：(函数名, 参数类型字符串拼接)
+    let mut map: std::collections::HashMap<(&str, String), &'a FunctionInfo> =
         std::collections::HashMap::new();
 
     for fi in functions {
-        let entry = map.entry(fi.name.as_str()).or_insert(fi);
-        // 替换规则：有 body_offset 且不是 extern_c 的版本胜出
+        let sig_key = fi
+            .params
+            .iter()
+            .map(|p| p.type_name.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        let entry = map.entry((fi.name.as_str(), sig_key.clone())).or_insert(fi);
         let new_score = score(fi);
         let old_score = score(entry);
         if new_score > old_score {
@@ -215,14 +225,19 @@ fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
         }
     }
 
-    // 按原始顺序输出
+    // 按原始顺序输出，同一签名键只出现一次
     let mut result: Vec<&'a FunctionInfo> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<(&str, String)> = std::collections::HashSet::new();
     for fi in functions {
-        if !seen.contains(fi.name.as_str()) {
-            if let Some(&best) = map.get(fi.name.as_str()) {
+        let sig_key = fi
+            .params
+            .iter()
+            .map(|p| p.type_name.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        if seen.insert((fi.name.as_str(), sig_key.clone())) {
+            if let Some(&best) = map.get(&(fi.name.as_str(), sig_key)) {
                 result.push(best);
-                seen.insert(fi.name.as_str());
             }
         }
     }
@@ -408,6 +423,19 @@ fn is_mappable_rust_type(rust_ty: &str, class_names: &[&str]) -> bool {
         // 指向原始类型的指针（如 *mut i32）合法
         if PRIMITIVES.contains(&inner) {
             return true;
+        }
+        // 双重指针：*mut *mut T 或 *const *const T（深度限为 2）
+        if let Some(inner2) = inner
+            .strip_prefix("*mut ")
+            .or_else(|| inner.strip_prefix("*const "))
+        {
+            if inner2 == "i8" || inner2 == "u8" {
+                return true;
+            }
+            if PRIMITIVES.contains(&inner2) {
+                return true;
+            }
+            return class_names.contains(&inner2);
         }
         // 指向已知类的指针合法
         return class_names.contains(&inner);

@@ -47,7 +47,9 @@ pub(super) fn collect_namespace(
             }
             EntityKind::FunctionDecl => {
                 if let Some(fi) = extract_function(&entity, None, cpp_ranges) {
-                    ast.functions.push(fi);
+                    if fi.is_from_current_file {
+                        ast.functions.push(fi);
+                    }
                 }
             }
             EntityKind::EnumDecl if entity_is_from_current_file(&entity, cpp_ranges) => {
@@ -384,14 +386,30 @@ pub(super) fn extract_enum(entity: &clang::Entity<'_>) -> Option<EnumInfo> {
         .map(|t| t.get_display_name())
         .unwrap_or_else(|| "int".to_string());
 
-    // enum class（scoped enum）通过检查子节点中不含有同名符号来判断
-    // libclang 2.x 没有直接的 is_scoped_enum API；用 display_name 含 "::" 来近似
-    let is_scoped = entity
-        .get_children()
-        .first()
-        .and_then(|c| c.get_name())
-        .map(|cn| cn.starts_with(&name))
-        .unwrap_or(false);
+    // enum class（scoped enum）检测：
+    // libclang 对 scoped enum 的变体不附加枚举名前缀（变体名就是简单名称），
+    // 而对 unscoped enum，libclang 返回的变体名同样不带前缀（只是纯变体名）。
+    // 区分方式：检查 entity 的 DisplayName 是否以 "enum " 开头（unscoped）
+    // 还是 "enum class " 或 "enum struct " 开头（scoped）。
+    // 若 display_name 不可用，回退为启发式：第一个变体名以枚举名开头视为 unscoped。
+    let is_scoped = {
+        let display = entity
+            .get_display_name()
+            .unwrap_or_default();
+        if display.starts_with("enum class ") || display.starts_with("enum struct ") {
+            true
+        } else if display.starts_with("enum ") {
+            false
+        } else {
+            // 回退启发式：scoped enum 的变体名不以枚举名开头
+            !entity
+                .get_children()
+                .first()
+                .and_then(|c| c.get_name())
+                .map(|cn| cn.starts_with(&name))
+                .unwrap_or(false)
+        }
+    };
 
     let variants = entity
         .get_children()
