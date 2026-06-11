@@ -302,8 +302,15 @@ fn validate_example(spec: &ExampleSpec) {
     // under `target/debug/build/{pkg}-{hash}/out/`.  We scan all .a files
     // under `target/debug/` to cover that location without needing to know
     // the exact hash-suffixed directory name.
+    //
+    // When CARGO_TARGET_DIR is set (shared pre-build target directory), all
+    // example archives live there; fall back to the crate-local target/debug/.
     let cpp_set: HashSet<String> = cpp_exports.iter().cloned().collect();
-    let build_dir = example_dir.join("rust_hicc").join("target/debug");
+    let build_dir = if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
+        std::path::PathBuf::from(&target_dir).join("debug")
+    } else {
+        example_dir.join("rust_hicc").join("target/debug")
+    };
     let archive_symbols = collect_archive_symbols(&build_dir);
     let rust_linked: HashSet<String> = cpp_set.intersection(&archive_symbols).cloned().collect();
 

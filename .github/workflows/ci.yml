@@ -431,13 +431,33 @@ jobs:
             (cd "$dir" && g++ -shared *.cpp -o "${example##*_}.dll") || echo "⚠ Failed to build C++ DLL for $example (skipping)"
           done
 
-      # 并行预构建所有示例项目（MSYS2 bash），共享 CARGO_TARGET_DIR
+      # 并行预构建所有示例项目（PowerShell），共享 CARGO_TARGET_DIR。
+      # cargo 是 Windows 原生二进制，不在 MSYS2 PATH 中，因此不能使用 msys2 shell。
       - name: Pre-build all Rust example projects
-        shell: msys2 {0}
         run: |
-          ls -d examples/*/rust_hicc | \
-            xargs -P4 -I{} \
-              cargo build --manifest-path {}/Cargo.toml
+          $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
+          $libclangPath = "$env:LLVM_PATH\bin"
+          $manifests = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
+            Where-Object { $_.DirectoryName -like '*rust_hicc' } |
+            Select-Object -ExpandProperty FullName
+          $jobs = $manifests | ForEach-Object {
+            $manifestPath = $_
+            Start-Job -ScriptBlock {
+              param($manifest, $tdir, $llvm)
+              $env:CARGO_TARGET_DIR = $tdir
+              $env:LIBCLANG_PATH = $llvm
+              $result = cargo build --manifest-path $manifest 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                throw "cargo build failed for $manifest`n$result"
+              }
+            } -ArgumentList $manifestPath, $targetDir, $libclangPath
+          }
+          $jobs | Wait-Job | Receive-Job
+          $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
+          if ($failed.Count -gt 0) {
+            $failed | ForEach-Object { Receive-Job $_ -ErrorAction SilentlyContinue }
+            throw "Pre-build failed for $($failed.Count) example project(s)"
+          }
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
@@ -707,8 +727,21 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+            examples-target
+          key: ${{ runner.os }}-cargo-l5-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-l5-
+            ${{ runner.os }}-cargo-
+
+      # 并行预构建所有示例 Rust crate：共享 CARGO_TARGET_DIR，hicc 只编译一次；
+      # 测试时每个 cargo_build_example 调用直接命中缓存，跳过 cargo 开销。
+      - name: Pre-build all Rust example projects
+        run: |
+          ls -d examples/*/rust_hicc | \
+            xargs -P$(nproc) -I{} \
+              cargo build --manifest-path {}/Cargo.toml
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
 
       # --nocapture：确保符号比对报告（C++ exports / Rust linked / missing）
       # 在 CI 日志中可见，无论测试成功与否均可追溯。
@@ -718,6 +751,8 @@ jobs:
             --ignored \
             --nocapture \
             --test-threads=4
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
 
   # ════════════════════════════════════════════════════════════════
   # Windows MSVC 系列（x86_64-pc-windows-msvc，无需 MSYS2）
@@ -971,13 +1006,47 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
+            examples-target
+          key: ${{ runner.os }}-msvc-cargo-l5-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-msvc-cargo-l5-
+            ${{ runner.os }}-msvc-cargo-
+
+      # 并行预构建所有示例 Rust crate（PowerShell），共享 CARGO_TARGET_DIR
+      - name: Pre-build all Rust example projects
+        run: |
+          $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
+          $libclangPath = "$env:LLVM_PATH\bin"
+          $manifests = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
+            Where-Object { $_.DirectoryName -like '*rust_hicc' } |
+            Select-Object -ExpandProperty FullName
+          $jobs = $manifests | ForEach-Object {
+            $manifestPath = $_
+            Start-Job -ScriptBlock {
+              param($manifest, $tdir, $llvm)
+              $env:CARGO_TARGET_DIR = $tdir
+              $env:LIBCLANG_PATH = $llvm
+              $result = cargo build --manifest-path $manifest 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                throw "cargo build failed for $manifest`n$result"
+              }
+            } -ArgumentList $manifestPath, $targetDir, $libclangPath
+          }
+          $jobs | Wait-Job | Receive-Job
+          $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
+          if ($failed.Count -gt 0) {
+            $failed | ForEach-Object { Receive-Job $_ -ErrorAction SilentlyContinue }
+            throw "Pre-build failed for $($failed.Count) example project(s)"
+          }
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
       - name: Run L5 nm symbol tests
         run: |
           cargo test --test l5_nm_symbol_tests -- --ignored --nocapture --test-threads=4
         env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
   # ── L5 Windows（MinGW + llvm-nm）: 符号链接验证 ─────────────────
@@ -1020,13 +1089,47 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
+            examples-target
+          key: ${{ runner.os }}-mingw-cargo-l5-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mingw-cargo-l5-
+            ${{ runner.os }}-mingw-cargo-
+
+      # 并行预构建所有示例 Rust crate（PowerShell），共享 CARGO_TARGET_DIR
+      - name: Pre-build all Rust example projects
+        run: |
+          $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
+          $libclangPath = "$env:LLVM_PATH\bin"
+          $manifests = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
+            Where-Object { $_.DirectoryName -like '*rust_hicc' } |
+            Select-Object -ExpandProperty FullName
+          $jobs = $manifests | ForEach-Object {
+            $manifestPath = $_
+            Start-Job -ScriptBlock {
+              param($manifest, $tdir, $llvm)
+              $env:CARGO_TARGET_DIR = $tdir
+              $env:LIBCLANG_PATH = $llvm
+              $result = cargo build --manifest-path $manifest 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                throw "cargo build failed for $manifest`n$result"
+              }
+            } -ArgumentList $manifestPath, $targetDir, $libclangPath
+          }
+          $jobs | Wait-Job | Receive-Job
+          $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
+          if ($failed.Count -gt 0) {
+            $failed | ForEach-Object { Receive-Job $_ -ErrorAction SilentlyContinue }
+            throw "Pre-build failed for $($failed.Count) example project(s)"
+          }
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
       - name: Run L5 nm symbol tests
         run: |
           cargo test --test l5_nm_symbol_tests -- --ignored --nocapture --test-threads=4
         env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
   # ════════════════════════════════════════════════════════════════
@@ -1331,8 +1434,20 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+            examples-target
+          key: ${{ runner.os }}-cargo-l5-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-l5-
+            ${{ runner.os }}-cargo-
+
+      # 并行预构建所有示例 Rust crate：共享 CARGO_TARGET_DIR，hicc 只编译一次
+      - name: Pre-build all Rust example projects
+        run: |
+          ls -d examples/*/rust_hicc | \
+            xargs -P$(sysctl -n hw.logicalcpu) -I{} \
+              cargo build --manifest-path {}/Cargo.toml
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
 
       # --nocapture：确保符号比对报告在 CI 日志中可见
       - name: Run L5 nm symbol tests
@@ -1341,6 +1456,8 @@ jobs:
             --ignored \
             --nocapture \
             --test-threads=4
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
 
   # ── L4: 五个新项目 E2E 端到端验证（tinyxml2/pugixml/sqlite3/nlohmann/fmtlib）─
   l4-e2e-libraries:
