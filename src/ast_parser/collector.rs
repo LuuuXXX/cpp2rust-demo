@@ -7,7 +7,7 @@ use clang::{EntityKind, Language};
 use super::range_scanner::{entity_is_from_current_file, entity_presumed_from_user_file};
 use super::{
     BaseInfo, ClassInfo, CppAst, EnumInfo, EnumVariantInfo, FieldInfo, FunctionInfo, MethodInfo,
-    ParamInfo,
+    ParamInfo, TemplateClassInfo, TemplateFunctionInfo, TemplateParamInfo,
 };
 
 pub(super) fn collect_namespace(
@@ -43,6 +43,22 @@ pub(super) fn collect_namespace(
                     }
                     ci.is_in_namespace = true;
                     ast.classes.push(ci);
+                }
+            }
+            EntityKind::ClassTemplate => {
+                if let Some(mut tc) = extract_template_class(&entity, cpp_ranges) {
+                    if !ns_name.is_empty() {
+                        tc.name = format!("{}_{}", ns_name, tc.name);
+                    }
+                    tc.is_in_namespace = true;
+                    ast.template_classes.push(tc);
+                }
+            }
+            EntityKind::FunctionTemplate => {
+                if let Some(tf) = extract_template_function(&entity, cpp_ranges) {
+                    if tf.is_from_current_file {
+                        ast.template_functions.push(tf);
+                    }
                 }
             }
             EntityKind::FunctionDecl => {
@@ -242,6 +258,150 @@ pub(super) fn extract_class(
         methods,
         fields,
         is_in_namespace: false,
+        is_from_current_file,
+    })
+}
+
+/// 提取模板形参列表（类型形参 / 非类型形参 / 模板模板形参）。
+pub(super) fn extract_template_params(entity: &clang::Entity<'_>) -> Vec<TemplateParamInfo> {
+    let mut params = Vec::new();
+    for child in entity.get_children() {
+        let kind = match child.get_kind() {
+            EntityKind::TemplateTypeParameter => "type",
+            EntityKind::NonTypeTemplateParameter => "non_type",
+            EntityKind::TemplateTemplateParameter => "template",
+            _ => continue,
+        };
+        params.push(TemplateParamInfo {
+            name: child.get_name().unwrap_or_default(),
+            kind: kind.to_string(),
+        });
+    }
+    params
+}
+
+/// 提取模板类（`ClassTemplate` 实体）的结构化信息：泛型形参 + 成员。
+///
+/// 成员遍历逻辑与 [`extract_class`] 一致（基类 / 方法 / 字段），
+/// 额外通过 [`extract_template_params`] 收集 `<...>` 中的泛型形参。
+pub(super) fn extract_template_class(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> Option<TemplateClassInfo> {
+    let name = entity.get_name()?;
+    // ClassTemplate 的模板实体本身用 ClassDecl/StructDecl 表征其底层记录类型。
+    let is_struct = entity.get_kind() == EntityKind::StructDecl;
+    let is_abstract = entity.is_abstract_record();
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
+    let type_params = extract_template_params(entity);
+
+    let mut bases = Vec::new();
+    let mut methods = Vec::new();
+    let mut fields = Vec::new();
+
+    for child in entity.get_children() {
+        match child.get_kind() {
+            EntityKind::BaseSpecifier => {
+                let base_name = child
+                    .get_type()
+                    .map(|t| t.get_display_name())
+                    .unwrap_or_default();
+                bases.push(BaseInfo {
+                    name: base_name,
+                    is_virtual: child.is_virtual_base(),
+                });
+            }
+            EntityKind::Method | EntityKind::Constructor | EntityKind::Destructor => {
+                if let Some(mi) = extract_method(&child) {
+                    methods.push(mi);
+                }
+            }
+            EntityKind::FieldDecl | EntityKind::VarDecl => {
+                let is_static = child.get_kind() == EntityKind::VarDecl;
+                let field_name = child.get_name().unwrap_or_default();
+                let type_name = child
+                    .get_type()
+                    .map(|t| t.get_display_name())
+                    .unwrap_or_default();
+                let accessibility = access_str(child.get_accessibility());
+                let field_offset = child.get_range().map(|r| {
+                    let start = r.get_start().get_file_location().offset;
+                    let end = r.get_end().get_file_location().offset;
+                    (start, end)
+                });
+                fields.push(FieldInfo {
+                    name: field_name,
+                    type_name,
+                    is_mutable: !is_static && child.is_mutable(),
+                    is_static,
+                    accessibility,
+                    field_offset,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    Some(TemplateClassInfo {
+        name,
+        is_struct,
+        is_abstract,
+        type_params,
+        bases,
+        methods,
+        fields,
+        is_in_namespace: false,
+        is_from_current_file,
+    })
+}
+
+/// 提取模板函数（`FunctionTemplate` 实体）的结构化信息：签名 + 泛型形参。
+pub(super) fn extract_template_function(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> Option<TemplateFunctionInfo> {
+    let name = entity.get_name()?;
+    // 与自由函数一致：跳过 operator 命名的模板函数（C 链接层无法表示）。
+    if name.starts_with("operator") {
+        return None;
+    }
+    let return_type = entity
+        .get_result_type()
+        .map(|t| t.get_display_name())
+        .unwrap_or_default();
+    // FunctionTemplate 的 `get_arguments()` 返回 None，参数以 ParmDecl 子节点形式出现，
+    // 因此从子节点收集参数（与 extract_params 的 ParamInfo 字段一致）。
+    let params = entity
+        .get_children()
+        .iter()
+        .filter(|c| c.get_kind() == EntityKind::ParmDecl)
+        .map(|arg| {
+            let name = arg.get_name().unwrap_or_else(|| "_".to_string());
+            let type_name = arg
+                .get_type()
+                .map(|t| t.get_display_name())
+                .unwrap_or_default();
+            let has_default = arg
+                .get_children()
+                .iter()
+                .any(|c| is_expression_kind(c.get_kind()));
+            ParamInfo {
+                name,
+                type_name,
+                has_default,
+            }
+        })
+        .collect();
+    let type_params = extract_template_params(entity);
+    let is_variadic = entity.get_type().map(|t| t.is_variadic()).unwrap_or(false);
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
+
+    Some(TemplateFunctionInfo {
+        name,
+        return_type,
+        params,
+        type_params,
+        is_variadic,
         is_from_current_file,
     })
 }

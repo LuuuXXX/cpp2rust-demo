@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::error::Cpp2RustError;
 use collector::{
     collect_linkage_spec, collect_namespace, collect_typedef, extract_class, extract_function,
-    is_noninline_fn_def,
+    extract_template_class, extract_template_function, is_noninline_fn_def,
 };
 use range_scanner::entity_is_from_current_file;
 
@@ -128,6 +128,52 @@ pub struct FunctionInfo {
     pub is_from_current_file: bool,
 }
 
+/// 模板形参（类型形参 / 非类型形参 / 模板模板形参）
+#[derive(Debug, Clone)]
+pub struct TemplateParamInfo {
+    pub name: String,
+    /// "type"（如 `class T` / `typename T`）
+    /// | "non_type"（如 `int N`）
+    /// | "template"（模板模板形参）
+    pub kind: String,
+}
+
+/// 模板类（`template<...> class X { ... }`）的结构化信息。
+///
+/// 与 [`ClassInfo`] 平行，但额外携带泛型形参列表 `type_params`。
+/// Phase A 仅负责提取，不参与代码生成（不消费此字段则不改变生成产物）。
+#[derive(Debug, Clone)]
+pub struct TemplateClassInfo {
+    pub name: String,
+    pub is_struct: bool,
+    pub is_abstract: bool,
+    /// 模板形参列表（如 `<typename T, int N>` → [T(type), N(non_type)]）
+    pub type_params: Vec<TemplateParamInfo>,
+    pub bases: Vec<BaseInfo>,
+    pub methods: Vec<MethodInfo>,
+    pub fields: Vec<FieldInfo>,
+    /// 是否来自命名空间（collect_namespace 收集的模板类）
+    pub is_in_namespace: bool,
+    /// 是否定义在当前被解析的 `.cpp2rust` 文件中
+    pub is_from_current_file: bool,
+}
+
+/// 模板函数（`template<...> ret f(...)`）的结构化信息。
+///
+/// 与 [`FunctionInfo`] 平行，但额外携带泛型形参列表 `type_params`。
+/// Phase A 仅负责提取，不参与代码生成。
+#[derive(Debug, Clone)]
+pub struct TemplateFunctionInfo {
+    pub name: String,
+    pub return_type: String,
+    pub params: Vec<ParamInfo>,
+    /// 模板形参列表
+    pub type_params: Vec<TemplateParamInfo>,
+    pub is_variadic: bool,
+    /// 是否来自当前 `.cpp2rust` 文件（而非被 include 的头文件）
+    pub is_from_current_file: bool,
+}
+
 /// 顶层 AST 结果
 #[derive(Debug)]
 pub struct CppAst {
@@ -140,6 +186,10 @@ pub struct CppAst {
     pub typedefs: Vec<(String, u32, u32)>,
     /// 模板类源码范围列表：(名称, 起始偏移, 结束偏移)
     pub template_class_ranges: Vec<(String, u32, u32)>,
+    /// 模板类的结构化信息（Phase A 新增；与 `template_class_ranges` 并存，互不影响）
+    pub template_classes: Vec<TemplateClassInfo>,
+    /// 模板函数的结构化信息（Phase A 新增）
+    pub template_functions: Vec<TemplateFunctionInfo>,
 }
 
 // ─────────────────────────────────────────────
@@ -203,6 +253,8 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         enums: Vec::new(),
         typedefs: Vec::new(),
         template_class_ranges: Vec::new(),
+        template_classes: Vec::new(),
+        template_functions: Vec::new(),
     };
 
     let root = tu.get_entity();
@@ -249,6 +301,11 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                         let name = entity.get_name().unwrap_or_default();
                         ast.template_class_ranges.push((name, start, end));
                     }
+                    // Phase A：额外提取模板类的结构化信息（泛型形参 + 成员），
+                    // 与上面的源码范围并存，供后续阶段生成泛型 import_class!。
+                    if let Some(tc) = extract_template_class(&entity, &cpp_ranges) {
+                        ast.template_classes.push(tc);
+                    }
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
@@ -261,7 +318,14 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                     ast.functions.push(fi);
                 }
             }
-            EntityKind::FunctionTemplate => {}
+            EntityKind::FunctionTemplate => {
+                // Phase A：提取模板函数签名与泛型形参（仅当前编译单元）。
+                if let Some(tf) = extract_template_function(&entity, &cpp_ranges) {
+                    if tf.is_from_current_file {
+                        ast.template_functions.push(tf);
+                    }
+                }
+            }
             EntityKind::EnumDecl if entity_is_from_current_file(&entity, &cpp_ranges) => {
                 if let Some(ei) = collector::extract_enum(&entity) {
                     ast.enums.push(ei);
@@ -416,7 +480,66 @@ impl CppAst {
                 println!("  - EnumConstantDecl: {} = {}", v.name, v.value);
             }
         }
+
+        for tc in &self.template_classes {
+            let kind = if tc.is_struct {
+                "StructTemplate"
+            } else {
+                "ClassTemplate"
+            };
+            let abstract_tag = if tc.is_abstract { " [abstract]" } else { "" };
+            println!(
+                "- {}: {}{}{}",
+                kind,
+                tc.name,
+                template_params_str(&tc.type_params),
+                abstract_tag
+            );
+            for base in &tc.bases {
+                let virt = if base.is_virtual { " [virtual]" } else { "" };
+                println!("  - BaseSpecifier: {}{}", base.name, virt);
+            }
+            for method in &tc.methods {
+                let tags = method_tags(method);
+                println!("  - {}: {}{}", method_kind_str(method), method.name, tags);
+                for param in &method.params {
+                    let def = if param.has_default { " [default]" } else { "" };
+                    println!(
+                        "    - ParmDecl: {} : {}{}",
+                        param.name, param.type_name, def
+                    );
+                }
+            }
+            for field in &tc.fields {
+                let tags = field_tags(field);
+                println!(
+                    "  - FieldDecl: {} : {}{}",
+                    field.name, field.type_name, tags
+                );
+            }
+        }
+
+        for tf in &self.template_functions {
+            println!(
+                "- FunctionTemplate: {}{}",
+                tf.name,
+                template_params_str(&tf.type_params)
+            );
+            for param in &tf.params {
+                let def = if param.has_default { " [default]" } else { "" };
+                println!("  - ParmDecl: {} : {}{}", param.name, param.type_name, def);
+            }
+        }
     }
+}
+
+/// 将模板形参列表格式化为 `<T, N, ...>` 文本（空列表返回空串）。
+fn template_params_str(params: &[TemplateParamInfo]) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+    format!("<{}>", names.join(", "))
 }
 
 fn method_kind_str(m: &MethodInfo) -> &'static str {

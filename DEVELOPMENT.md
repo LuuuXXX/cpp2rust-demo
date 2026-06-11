@@ -153,6 +153,8 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 **冒烟测试生成（L_smoke）**：`init` 默认在 `.cpp2rust/<feature>/rust/tests/smoke.rs` 生成冒烟测试，对生成的 pub class 类型做编译期可用性断言（私有工厂函数以 `cpp2rust-todo[SMOKE]` 占位列出）。进入生成目录执行 `cargo test` 即可验证 FFI 编译链接闭环。生成逻辑见 `src/generator/smoke_test_gen.rs`，写文件见 `project_generator::write_smoke_test`（幂等，已存在不覆盖）；可用环境变量 `CPP2RUST_GEN_SMOKE=0` 关闭。
 
+**模板 AST 提取测试（v6 Phase A）**：`tests/template_ast_tests.rs` 验证 `ast_parser::parse_preprocessed` 能从模板类（`ClassTemplate`）/ 模板函数（`FunctionTemplate`）声明中提取结构化信息——泛型形参（`TemplateParamInfo`）、成员方法/字段、函数签名，分别存入 `CppAst::template_classes` / `CppAst::template_functions`。这些字段为后续阶段（泛型 `import_class!` / `import_lib!` 生成）提供输入，**当前不参与代码生成**（不消费即不改变生成产物）。需 libclang 与 C++ 预处理器，故以 `full-test` 门禁：`cargo test --test template_ast_tests --features full-test -- --test-threads=1`。
+
 ### 分层快速运行命令
 
 ```sh
