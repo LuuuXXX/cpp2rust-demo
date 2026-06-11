@@ -485,9 +485,9 @@ fn main() {
 }
 ```
 
-## cpp2rust-demo 的模板映射（v6）
+## cpp2rust-demo 的模板映射（v6 引入，v7 起默认）
 
-> 本节说明 cpp2rust-demo 工具如何把 C++ 模板声明映射为 hicc 骨架，对应 hicc 的模板类 / 模板函数 / 实例化能力。该能力由环境变量 `CPP2RUST_GEN_TEMPLATES` 控制，**默认关闭**（设为 `1`/`true`/`yes`/`on` 开启），关闭时默认产物逐字节不变。所有骨架均带 `cpp2rust-todo[TMPL]` 占位注释，提示用户按实际实例化类型校验签名与 `AbiType` 约束后补全。
+> 本节说明 cpp2rust-demo 工具如何把 C++ 模板声明映射为 hicc 骨架，对应 hicc 的模板类 / 模板函数 / 实例化能力。**v7 起该能力默认生成、无需任何环境变量开关**。由于「未实例化的模板没有可链接符号、泛型 `<T>` 无法直接编译」，模板类 / 模板函数 / 实例化别名 / 构造工厂默认以**注释骨架**形式输出（带 `cpp2rust-todo[TMPL]` 占位注释），保证工具默认产物始终可编译；用户按实际实例化类型校验签名与 `AbiType` 约束、补全后取消注释即可启用。
 
 ### 1. 模板类 → 泛型 `import_class!` 骨架
 
@@ -543,12 +543,12 @@ hicc::import_lib! {
 }
 ```
 
-## cpp2rust-demo 的接口代理映射（v6 Phase C）
+## cpp2rust-demo 的接口代理映射（v6 Phase C 引入，v7 起默认）
 
 > 本节说明 cpp2rust-demo 工具如何把「继承 C++ 抽象接口的具体类」映射为 hicc 的
-> `@make_proxy` 代理工厂骨架，使 Rust 侧可实现 C++ 抽象类。该能力由环境变量
-> `CPP2RUST_GEN_PROXY` 控制，**默认关闭**（设为 `1`/`true`/`yes`/`on` 开启），关闭时默认
-> 产物逐字节不变。骨架带 `cpp2rust-todo[PROXY]` 占位注释，提示用户提供接口实现并校验
+> `@make_proxy` 代理工厂骨架，使 Rust 侧可实现 C++ 抽象类。**v7 起该能力默认生成、无需
+> 任何环境变量开关**；`@make_proxy` 使用 hicc 内建指令、对接具体类型，默认输出为可编译的
+> 活动绑定。骨架带 `cpp2rust-todo[PROXY]` 占位注释，提示用户提供接口实现并校验
 > `@make_proxy` 参数类型列表。
 
 纯虚接口类已映射为 `#[interface]`（参与默认产物）。在此基础上，对「非抽象、可实例化，
@@ -830,55 +830,51 @@ hicc-rs/
 
 ---
 
-## v6 新增能力速查（Phase A–C）
+## v6 新增能力速查（Phase A–C，v7 起默认生成）
 
-> 以下内容对应 cpp2rust-demo v6 方案中 Phase A/B/C 落地的生成能力，均通过环境变量开关控制（默认关闭，不影响默认产物）。
+> 以下内容对应 cpp2rust-demo v6 方案中 Phase A/B/C 落地的生成能力。**v7 起这些能力全部默认生成、不再有任何环境变量开关**：模板类 / 函数 / 别名 / 工厂以**注释骨架**形式默认输出（保证可编译），`@make_proxy` / `@dynamic_cast` 默认输出可编译的活动绑定。
 
-### 1. 模板类泛型骨架（`CPP2RUST_GEN_TEMPLATES=1`）
+### 1. 模板类泛型骨架（默认生成，注释形式）
 
-将 C++ 模板类映射为 hicc 泛型 `import_class!` 骨架：
+将 C++ 模板类映射为 hicc 泛型 `import_class!` 注释骨架：
 
 ```rust
-// cpp2rust-todo[TMPL]: 模板类泛型骨架，请按实际实例化类型校验签名与 AbiType 约束；
+// cpp2rust-todo[TMPL]: 模板类泛型骨架（已注释），请按实际实例化类型校验签名与 AbiType 约束后取消注释；
 // 构造函数/静态方法需在 import_lib! 中声明，复杂依赖类型（如 T::OutputRef）请手动补全。
-#[cpp(class = "template<class T> Stack<T>")]
-pub class Stack<T> {
-    #[cpp(method = "void push(T value)")]
-    fn push(&mut self, value: T);
-
-    #[cpp(method = "T top() const")]
-    fn top(&self) -> T;
-
-    #[cpp(method = "bool empty() const")]
-    fn empty(&self) -> bool;
-}
+// hicc::import_class! {
+//     #[cpp(class = "template<class T> Stack<T>")]
+//     pub class Stack<T> {
+//         #[cpp(method = "void push(T value)")]
+//         pub fn push(&mut self, value: T);
+//     }
+// }
 ```
 
-同时为检测到的模板实例化（字段/方法参数/显式实例化/局部变量）生成类型别名与构造工厂：
+同时为检测到的模板实例化（字段/方法参数/显式实例化/局部变量）生成类型别名与构造工厂注释骨架：
 
 ```rust
-// cpp2rust-todo[TMPL]: 以下为模板实例化别名骨架，请确认实参类型与 AbiType 约束；
-pub type StackI32 = Stack<hicc::Pod<i32>>;
+// cpp2rust-todo[TMPL]: 以下为模板实例化别名骨架（已注释），请确认实参类型与 AbiType 约束后取消注释；
+// pub type StackI32 = Stack<hicc::Pod<i32>>;
 
-// cpp2rust-todo[TMPL]: StackI32 构造工厂骨架
-#[cpp(func = "Stack<int>* stack_i32_new(int initial)")]
-pub unsafe fn stack_i32_new(initial: i32) -> StackI32;
+// cpp2rust-todo[TMPL]: StackI32 构造工厂骨架（已注释）
+// #[cpp(func = "Stack<int>* stack_i32_new(int initial)")]
+// pub unsafe fn stack_i32_new(initial: i32) -> StackI32;
 ```
 
-### 2. 模板函数泛型骨架（`CPP2RUST_GEN_TEMPLATES=1`）
+### 2. 模板函数泛型骨架（默认生成，注释形式）
 
-将 C++ 模板函数映射为 `import_lib!` 中的泛型占位骨架：
+将 C++ 模板函数映射为 `import_lib!` 中的泛型占位注释骨架（未实例化函数模板无可链接符号，故注释）：
 
 ```rust
-// cpp2rust-todo[TMPL]: 模板函数需按实例化类型声明（如 do_swap<int>(int*, int*)）；
+// cpp2rust-todo[TMPL]: 模板函数骨架（已注释），需按实例化类型声明（如 do_swap<int>(int*, int*)）后取消注释；
 // 下方 <T> 为泛型占位，请替换为实际实例化类型并确认安全性。
-#[cpp(func = "void do_swap<T>(T*, T*)")]
-pub unsafe fn do_swap(a: *mut T, b: *mut T);
+// #[cpp(func = "void do_swap<T>(T*, T*)")]
+// pub unsafe fn do_swap(a: *mut T, b: *mut T);
 ```
 
-### 3. `@make_proxy` 代理工厂（`CPP2RUST_GEN_PROXY=1`）
+### 3. `@make_proxy` 代理工厂（默认生成，活动绑定）
 
-为继承纯虚接口的具体类生成 Rust 侧实现 C++ 抽象类的代理工厂骨架：
+为继承纯虚接口的具体类生成 Rust 侧实现 C++ 抽象类的代理工厂绑定：
 
 ```rust
 // cpp2rust-todo[PROXY]: @make_proxy 代理工厂骨架 —— 让 Rust 实现 C++ 抽象类 IFoo；
@@ -888,9 +884,9 @@ pub unsafe fn do_swap(a: *mut T, b: *mut T);
 pub unsafe fn make_concrete_foo() -> ConcreteFoo;
 ```
 
-### 4. `@dynamic_cast` 下行转换（`CPP2RUST_GEN_DYNAMIC_CAST=1`）
+### 4. `@dynamic_cast` 下行转换（默认生成，活动绑定）
 
-为「继承多态基类的派生类」生成裸指针形式与引用形式下行转换骨架，覆盖直接基类与跨层间接祖先：
+为「继承多态基类的派生类」生成裸指针形式与引用形式下行转换绑定，覆盖直接基类与跨层间接祖先：
 
 ```rust
 // cpp2rust-todo[DCAST]: @dynamic_cast 下行转换骨架 —— 多态基类 Base 向下转换为派生类 Derived；
@@ -904,18 +900,19 @@ pub unsafe fn dynamic_cast_base_to_derived_ref(src: &Base) -> &Derived;
 
 **注意**：引用形式要求转换必定成功；若转换可能失败，必须使用裸指针形式并判空（`is_null()`）。
 
-### 5. 冒烟测试生成（`CPP2RUST_GEN_SMOKE`，默认开启）
+### 5. 冒烟测试生成（默认生成）
 
 `init` 阶段在 `.cpp2rust/<feature>/rust/tests/smoke.rs` 自动生成冒烟测试：
 - 对所有 `pub class` 类型生成编译期类型可用性断言；
 - 对无法从集成测试直接调用的工厂/全局函数生成 `cpp2rust-todo[SMOKE]` 占位说明；
-- 设置 `CPP2RUST_GEN_SMOKE=0` 可关闭生成。
+- 文件幂等：已存在的用户改动不会被覆盖。
 
-### 6. 环境变量汇总
+### 6. 默认生成约定（v7：无环境变量开关）
 
-| 环境变量 | 默认值 | 说明 |
-|---------|--------|------|
-| `CPP2RUST_GEN_TEMPLATES` | 关闭 | 生成模板类/函数泛型骨架与实例化别名 |
-| `CPP2RUST_GEN_PROXY` | 关闭 | 生成 `@make_proxy` 代理工厂骨架 |
-| `CPP2RUST_GEN_DYNAMIC_CAST` | 关闭 | 生成 `@dynamic_cast` 下行转换骨架（含引用形式） |
-| `CPP2RUST_GEN_SMOKE` | 开启 | 生成 `tests/smoke.rs` 冒烟测试（`0`/`false`/`no`/`off` 关闭） |
+| 生成能力 | 默认 | 输出形式 | 说明 |
+|---------|------|---------|------|
+| 模板类 / 函数泛型骨架与实例化别名 / 工厂 | 默认生成 | 注释骨架 | 未实例化模板无可链接符号，注释保证可编译；用户补全后取消注释 |
+| `@make_proxy` 代理工厂 | 默认生成 | 活动绑定 | hicc 内建指令，对接具体类型 |
+| `@dynamic_cast` 下行转换（含引用形式） | 默认生成 | 活动绑定 | hicc 内建指令，对接具体类型 |
+| `tests/smoke.rs` 冒烟测试 | 默认生成 | 文件 | 幂等，已存在不覆盖 |
+
