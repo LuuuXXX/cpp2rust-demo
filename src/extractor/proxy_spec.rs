@@ -83,8 +83,7 @@ fn is_copy_or_move_ctor(ctor: &MethodInfo, class_name: &str) -> bool {
         .trim_end_matches('&')
         .trim()
         .trim_start_matches("const ")
-        .trim_start_matches("volatile ")
-        .trim();
+        .trim_start_matches("volatile ");
     (ty.contains('&')) && core == class_name
 }
 
