@@ -88,6 +88,23 @@ fn enabled_emits_instantiation_aliases() {
         generated.contains("class StackDouble = Stack<hicc::Pod<f64>>;"),
         "应为 Stack<double> 生成实例化别名 StackDouble，实际：\n{generated}"
     );
+    // Stack<T> 具备默认构造函数（Stack() = default;），故每个实例化别名应附带
+    // make_unique 形式的默认构造函数绑定。
+    assert!(
+        generated.contains(
+            "#[cpp(func = \"std::unique_ptr<Stack<int>> hicc::make_unique<Stack<int>>()\")]"
+        ),
+        "应为 StackInt 生成 make_unique 默认构造函数绑定，实际：\n{generated}"
+    );
+    assert!(
+        generated.contains("#[member(class = StackInt, method = new)]")
+            && generated.contains("pub fn stack_int_new() -> StackInt;"),
+        "应为 StackInt 生成 stack_int_new 构造函数，实际：\n{generated}"
+    );
+    assert!(
+        generated.contains("pub fn stack_double_new() -> StackDouble;"),
+        "应为 StackDouble 生成 stack_double_new 构造函数，实际：\n{generated}"
+    );
 }
 
 #[test]

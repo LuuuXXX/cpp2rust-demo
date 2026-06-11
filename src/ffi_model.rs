@@ -40,6 +40,10 @@ pub struct TemplateClassSpec {
     /// 仅纳入所有实参均可映射（POD 或已导出 C++ 类）的实例化；生成器据此在
     /// `import_lib!` 中输出 `class StackInt = Stack<hicc::Pod<i32>>;` 形式别名。
     pub instantiations: Vec<TemplateInstantiation>,
+    /// 模板类是否具备可访问的默认构造函数（零参 public 构造函数，或无任何用户声明
+    /// 构造函数的非抽象类的隐式默认构造函数）。为 `true` 时，生成器为每个实例化别名
+    /// 追加 `make_unique` 形式的默认构造函数绑定（`pub fn xxx_new() -> Xxx;`）。
+    pub has_default_ctor: bool,
 }
 
 /// 模板类的一个具体实例化别名规格（Phase B 续）。
@@ -53,6 +57,9 @@ pub struct TemplateInstantiation {
     pub alias: String,
     /// Rust 侧实例化目标（如 `"Stack<hicc::Pod<i32>>"`）
     pub rust_target: String,
+    /// C++ 侧实例化目标形式（如 `"Stack<int>"`），用于生成 `make_unique` 构造函数的
+    /// `#[cpp(func = "...")]` 属性。
+    pub cpp_target: String,
     /// C++ 侧实参列表（如 `["int"]`），保留供注释/调试
     pub cpp_args: Vec<String>,
 }

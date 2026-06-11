@@ -6,6 +6,13 @@
 
 ### 新增
 
+- **模板实例化别名的默认构造函数绑定（v6 Phase B 续²，默认关闭）**：在既有实例化别名（`class StackInt = Stack<hicc::Pod<i32>>;`）之上，当模板类具备可访问的默认构造函数时，为每个实例化别名追加 `make_unique` 形式的默认构造函数绑定，使实例化类型可直接构造（参照 `references/hicc` 的 hicc-std 写法）：
+  - `ffi_model`：`TemplateClassSpec` 新增 `has_default_ctor` 字段；`TemplateInstantiation` 新增 `cpp_target` 字段（C++ 侧实例化目标形式，如 `Stack<int>`）。
+  - `extractor`：新增 `template_has_default_ctor`（零参 public 构造函数 / 无用户声明构造函数的非抽象类的隐式默认构造函数判定，抽象类与仅带参/非 public 构造函数返回 `false`）；`collect_instantiations` 填充 `cpp_target`。
+  - `hicc_codegen`：具备默认构造函数时，在 `import_lib!` 中为每个别名生成 `#[cpp(func = "std::unique_ptr<Stack<int>> hicc::make_unique<Stack<int>>()")]` + `#[member(class = StackInt, method = new)]` + `pub fn stack_int_new() -> StackInt;`，并将该类的别名注释由 `cpp2rust-todo[TPL]` 升级为普通说明；不具备默认构造函数时仍保留 `cpp2rust-todo[TPL]` 手动补充提示。
+  - 全部生成受 `CPP2RUST_GEN_TEMPLATES` 控制，默认关闭，默认产物逐字节不变（L1 黄金 52/52 零变更）；新行为仅在显式开启时生效。
+  - 测试：`template_spec` 新增 6 个单元测试（`cpp_target` 填充、显式/隐式默认构造函数、带参/抽象/非 public 构造函数判定）；`tests/template_gen_tests.rs` 新增 `make_unique` 构造函数绑定断言。
+
 - **模板类具体实例化别名生成（v6 Phase B 续，默认关闭）**：在 `CPP2RUST_GEN_TEMPLATES` 开启时，除既有泛型 `import_class!` 骨架外，新增从用户代码类型用法中发现模板类实例化并在 `import_lib!` 中生成 `class StackInt = Stack<hicc::Pod<i32>>;` 形式的实例化别名：
   - `ffi_model`：`TemplateClassSpec` 新增 `instantiations` 字段，新增 `TemplateInstantiation` 结构（别名 / Rust 实例化目标 / C++ 实参）。
   - `extractor`：新增 `collect_type_usages`（收集类字段、方法/函数签名中的类型字符串）与 `template_spec::collect_instantiations`（平衡尖括号解析 `Name<...>`、POD→`hicc::Pod<T>` 与已导出类映射、去重排序）。

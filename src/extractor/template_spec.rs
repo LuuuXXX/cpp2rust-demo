@@ -162,6 +162,7 @@ fn collect_instantiations(
             if seen.insert(alias.clone()) {
                 insts.push(TemplateInstantiation {
                     rust_target: format!("{}<{}>", class_name, rust_parts.join(", ")),
+                    cpp_target: format!("{}<{}>", class_name, args.join(", ")),
                     alias,
                     cpp_args: args,
                 });
@@ -214,7 +215,29 @@ fn build_template_class_spec(
         type_params,
         methods,
         instantiations,
+        has_default_ctor: template_has_default_ctor(tc),
     })
+}
+
+/// 判断模板类是否具备可访问的默认构造函数。
+///
+/// 规则（与 C++ 语义对齐）：
+/// - 抽象类无法实例化，直接返回 `false`；
+/// - 若存在零参的 public 构造函数（含 `= default`）→ `true`；
+/// - 若无任何用户声明的构造函数 → 编译器隐式生成默认构造函数 → `true`；
+/// - 否则（仅有带参/非 public 构造函数）→ `false`。
+fn template_has_default_ctor(tc: &TemplateClassInfo) -> bool {
+    if tc.is_abstract {
+        return false;
+    }
+    let ctors: Vec<&crate::ast_parser::MethodInfo> =
+        tc.methods.iter().filter(|m| m.is_constructor).collect();
+    if ctors.is_empty() {
+        return true;
+    }
+    ctors
+        .iter()
+        .any(|c| c.accessibility == "public" && c.params.is_empty())
 }
 
 /// 从 `TemplateFunctionInfo` 构建 `TemplateFnSpec`（泛型 `import_lib!` 骨架）。
@@ -519,5 +542,67 @@ mod tests {
         assert_eq!(spec.instantiations.len(), 2);
         assert_eq!(spec.instantiations[0].alias, "StackDouble");
         assert_eq!(spec.instantiations[1].alias, "StackInt");
+    }
+
+    #[test]
+    fn collect_instantiations_fills_cpp_target() {
+        let usages = vec!["Stack<int>".to_string()];
+        let insts = collect_instantiations("Stack", &usages, &[]);
+        assert_eq!(insts.len(), 1);
+        // C++ 侧目标形式保留原始实参，用于 make_unique 的 #[cpp(func = "...")]。
+        assert_eq!(insts[0].cpp_target, "Stack<int>");
+        assert_eq!(insts[0].rust_target, "Stack<hicc::Pod<i32>>");
+    }
+
+    #[test]
+    fn default_ctor_detected_for_explicit_zero_arg_ctor() {
+        let mut ctor = method("Stack", "", vec![], false);
+        ctor.is_constructor = true;
+        let tc = template_class(
+            "Stack",
+            vec!["T"],
+            vec![ctor, method("size", "int", vec![], true)],
+        );
+        assert!(template_has_default_ctor(&tc));
+    }
+
+    #[test]
+    fn default_ctor_detected_when_no_user_ctor() {
+        // 无任何用户声明构造函数 → 编译器隐式默认构造函数。
+        let tc = template_class("Stack", vec!["T"], vec![method("size", "int", vec![], true)]);
+        assert!(template_has_default_ctor(&tc));
+    }
+
+    #[test]
+    fn default_ctor_absent_when_only_parameterized_ctor() {
+        // 仅有带参构造函数 → 无默认构造函数。
+        let mut ctor = method("Stack", "", vec![("n", "int")], false);
+        ctor.is_constructor = true;
+        let tc = template_class(
+            "Stack",
+            vec!["T"],
+            vec![ctor, method("size", "int", vec![], true)],
+        );
+        assert!(!template_has_default_ctor(&tc));
+    }
+
+    #[test]
+    fn default_ctor_absent_for_abstract_class() {
+        let mut tc = template_class("Stack", vec!["T"], vec![method("size", "int", vec![], true)]);
+        tc.is_abstract = true;
+        assert!(!template_has_default_ctor(&tc));
+    }
+
+    #[test]
+    fn default_ctor_absent_for_non_public_ctor() {
+        let mut ctor = method("Stack", "", vec![], false);
+        ctor.is_constructor = true;
+        ctor.accessibility = "private".to_string();
+        let tc = template_class(
+            "Stack",
+            vec!["T"],
+            vec![ctor, method("size", "int", vec![], true)],
+        );
+        assert!(!template_has_default_ctor(&tc));
     }
 }

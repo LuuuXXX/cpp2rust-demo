@@ -7,6 +7,7 @@
 //! 关联函数（ctor/factory）在 `import_lib!` 中作为顶层自由函数输出，
 //! 使用完整的 Rust 函数名（如 `counter_new`），以匹配 `main()` 中的调用方式。
 
+use crate::extractor::type_mapper::to_snake_case;
 use crate::ffi_model::{FfiSpec, FnBinding, SelfKind, TemplateClassSpec, TemplateFnSpec};
 
 /// 控制是否生成模板（泛型）绑定骨架的环境变量。
@@ -300,15 +301,39 @@ fn emit_template_blocks(spec: &FfiSpec) -> String {
                 continue;
             }
             out.push('\n');
-            out.push_str(&format!(
-                "    // cpp2rust-todo[TPL]: {} 的具体实例化别名；构造函数/工厂请在此手动补充\n",
-                cs.name
-            ));
+            if cs.has_default_ctor {
+                out.push_str(&format!(
+                    "    // {} 的具体实例化别名 + 默认构造函数（make_unique）；如需其他构造函数/工厂请手动补充\n",
+                    cs.name
+                ));
+            } else {
+                out.push_str(&format!(
+                    "    // cpp2rust-todo[TPL]: {} 的具体实例化别名；构造函数/工厂请在此手动补充\n",
+                    cs.name
+                ));
+            }
             for inst in &cs.instantiations {
                 out.push_str(&format!(
                     "    class {} = {};\n",
                     inst.alias, inst.rust_target
                 ));
+                // 模板类具备可访问默认构造函数时，为该实例化生成 make_unique 形式的
+                // 默认构造函数绑定（参照 references/hicc 的 hicc-std 写法）。
+                if cs.has_default_ctor {
+                    out.push_str(&format!(
+                        "    #[cpp(func = \"std::unique_ptr<{cpp}> hicc::make_unique<{cpp}>()\")]\n",
+                        cpp = inst.cpp_target
+                    ));
+                    out.push_str(&format!(
+                        "    #[member(class = {}, method = new)]\n",
+                        inst.alias
+                    ));
+                    out.push_str(&format!(
+                        "    pub fn {}_new() -> {};\n",
+                        to_snake_case(&inst.alias),
+                        inst.alias
+                    ));
+                }
             }
         }
         for tf in &spec.template_fns {
