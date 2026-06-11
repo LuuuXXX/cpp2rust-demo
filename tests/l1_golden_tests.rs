@@ -79,6 +79,35 @@ macro_rules! golden_test_lib {
     };
 }
 
+// v7：当工具默认输出含生成器自带 `pub` 修饰的骨架（如模板函数 `pub unsafe fn do_swap`、
+// 模板构造工厂、代理工厂、dynamic_cast 等）时，不能用 `strip_pub_visibility` 规范化
+// （否则会把生成器输出的 `pub` 也一并剥除导致不匹配）。本宏直接与独立维护的支架黄金
+// 文件（`lib_scaffold.rs`）做精确比对（不剥除 `pub`），用于校验工具默认产物。
+macro_rules! golden_test_scaffold {
+    ($name:ident, $example:literal) => {
+        golden_test_scaffold!($name, $example, "rust_hicc/src/lib_scaffold.rs");
+    };
+    ($name:ident, $example:literal, $golden_file:literal) => {
+        #[test]
+        #[cfg_attr(
+            not(feature = "full-test"),
+            ignore = "requires libclang; run with --features full-test --test-threads=1"
+        )]
+        fn $name() {
+            let example_dir = concat!("examples/", $example);
+            let generated = common::run_tool_on(example_dir);
+            let golden_raw = common::read_golden(example_dir, $golden_file);
+            let golden = common::extract_hicc_blocks(&golden_raw);
+            assert_eq!(
+                common::normalize(&generated),
+                common::normalize(&golden),
+                "FFI scaffold mismatch for {}",
+                $example
+            );
+        }
+    };
+}
+
 golden_test!(test_001_hello_world, "001_hello_world");
 golden_test!(test_002_function_overload, "002_function_overload");
 golden_test!(test_003_default_args, "003_default_args");
@@ -98,16 +127,26 @@ golden_test_lib!(test_016_virtual_pure, "016_virtual_pure");
 golden_test_lib!(test_017_virtual_override, "017_virtual_override");
 // lib.rs 含有针对 hicc member_addr 截断 this 偏移量问题的手动包装函数修复，
 // 使用独立的 lib_scaffold.rs 作为工具自动生成部分的黄金比对文件。
-golden_test_lib!(test_018_virtual_diamond, "018_virtual_diamond", "rust_hicc/src/lib_scaffold.rs");
+golden_test_lib!(
+    test_018_virtual_diamond,
+    "018_virtual_diamond",
+    "rust_hicc/src/lib_scaffold.rs"
+);
 golden_test!(test_019_operator_overload, "019_operator_overload");
 golden_test!(test_020_friend_function, "020_friend_function");
 golden_test!(test_021_explicit_ctor, "021_explicit_ctor");
 golden_test!(test_022_mutable_member, "022_mutable_member");
 golden_test_lib!(test_023_typeid_rtti, "023_typeid_rtti");
-golden_test_lib!(test_024_template_function, "024_template_function");
+golden_test_scaffold!(test_024_template_function, "024_template_function");
 golden_test_lib!(test_025_template_class, "025_template_class");
-golden_test_lib!(test_026_template_specialization, "026_template_specialization");
-golden_test_lib!(test_027_template_instantiation, "027_template_instantiation");
+golden_test_lib!(
+    test_026_template_specialization,
+    "026_template_specialization"
+);
+golden_test_lib!(
+    test_027_template_instantiation,
+    "027_template_instantiation"
+);
 golden_test!(test_028_variadic_template, "028_variadic_template");
 golden_test!(test_029_unique_ptr, "029_unique_ptr");
 golden_test!(test_030_shared_ptr, "030_shared_ptr");

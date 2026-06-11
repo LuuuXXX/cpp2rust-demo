@@ -12,49 +12,16 @@ use crate::ffi_model::{
     TemplateFactorySpec, TemplateFnSpec, TemplateInstanceSpec,
 };
 
-/// `CPP2RUST_GEN_TEMPLATES` 环境变量名 — v6 Phase B 模板骨架生成开关。
-pub const GEN_TEMPLATES_ENV: &str = "CPP2RUST_GEN_TEMPLATES";
-
-/// `CPP2RUST_GEN_PROXY` 环境变量名 — v6 Phase C `@make_proxy` 代理工厂骨架生成开关。
-pub const GEN_PROXY_ENV: &str = "CPP2RUST_GEN_PROXY";
-
-/// `CPP2RUST_GEN_DYNAMIC_CAST` 环境变量名 — v6 Phase C（续）`@dynamic_cast` 下行转换骨架生成开关。
-pub const GEN_DYNAMIC_CAST_ENV: &str = "CPP2RUST_GEN_DYNAMIC_CAST";
-
-/// 是否启用模板类 / 模板函数泛型骨架生成。
-///
-/// **默认关闭**：仅当 `CPP2RUST_GEN_TEMPLATES` 取值为 `1` / `true` / `yes` / `on`
-/// （忽略大小写）时启用。关闭时生成器不输出任何模板相关内容，默认产物逐字节不变，
-/// 符合 v6 方案「不改变现有使用方法」的硬约束。
-pub fn templates_enabled() -> bool {
-    env_switch_enabled(GEN_TEMPLATES_ENV)
-}
-
-/// 是否启用 `@make_proxy` 代理工厂骨架生成（v6 Phase C）。
-///
-/// **默认关闭**：仅当 `CPP2RUST_GEN_PROXY` 取值为 `1` / `true` / `yes` / `on`
-/// （忽略大小写）时启用。关闭时生成器不输出任何代理工厂内容，默认产物逐字节不变。
-pub fn proxy_enabled() -> bool {
-    env_switch_enabled(GEN_PROXY_ENV)
-}
-
-/// 是否启用 `@dynamic_cast` 下行转换骨架生成（v6 Phase C（续））。
-///
-/// **默认关闭**：仅当 `CPP2RUST_GEN_DYNAMIC_CAST` 取值为 `1` / `true` / `yes` / `on`
-/// （忽略大小写）时启用。关闭时生成器不输出任何下行转换内容，默认产物逐字节不变。
-pub fn dynamic_cast_enabled() -> bool {
-    env_switch_enabled(GEN_DYNAMIC_CAST_ENV)
-}
-
-/// 读取布尔型环境变量开关：取值为 `1` / `true` / `yes` / `on`（忽略大小写）时为 `true`。
-fn env_switch_enabled(var: &str) -> bool {
-    std::env::var(var)
-        .map(|v| {
-            let v = v.trim().to_ascii_lowercase();
-            matches!(v.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false)
-}
+// v7：模板类 / 模板函数 / `@make_proxy` / `@dynamic_cast` 骨架由 v6 的环境变量开关
+// （`CPP2RUST_GEN_TEMPLATES` / `CPP2RUST_GEN_PROXY` / `CPP2RUST_GEN_DYNAMIC_CAST`）
+// 控制、默认关闭，现已全部**默认生成**：只要对应 IR（`template_classes` /
+// `template_functions` / `proxy_factories` / `dynamic_casts` 等）非空即输出，不再依赖
+// 任何环境变量开关。生成路径由「开/关双路径」收敛为单路径。
+//
+// 其中：`@make_proxy` / `@dynamic_cast` 使用 hicc 内建指令、对接具体类型，默认输出为
+// **可编译的活动绑定**；而模板类/模板函数/实例化别名因「未实例化的模板无可链接符号、
+// 泛型 `<T>` 无法直接编译」，默认以**注释骨架**形式输出（带 `cpp2rust-todo[TMPL]` 指引），
+// 用户按实际实例化类型补全后取消注释即可。这样工具默认产物始终可通过 L6 gen-verify 编译。
 
 /// 将 cpp! 内容行写入 `hicc::cpp! { ... }` 块字符串（供 generator 和 merger 共用）。
 pub fn emit_cpp_block(lines: &[String]) -> String {
@@ -182,15 +149,12 @@ pub fn generate(spec: &FfiSpec) -> String {
         out.push_str("}\n");
     }
 
-    // ── 模板类 import_class!（v6 Phase B，受开关控制）──
-    let gen_templates = templates_enabled();
-    if gen_templates {
-        for tcs in &spec.template_classes {
-            emit_template_class(&mut out, tcs);
-        }
-        // 模板实例化别名（v6 Phase B 增强）：紧跟泛型骨架之后输出，便于对照
-        emit_template_instances(&mut out, &spec.template_instances);
+    // ── 模板类 import_class!（v7：默认输出）──
+    for tcs in &spec.template_classes {
+        emit_template_class(&mut out, tcs);
     }
+    // 模板实例化别名（v6 Phase B 增强）：紧跟泛型骨架之后输出，便于对照
+    emit_template_instances(&mut out, &spec.template_instances);
 
     // ── hicc::import_lib! ─────────────────────
     // 当没有任何绑定内容时（无可映射函数），跳过整个块
@@ -198,12 +162,10 @@ pub fn generate(spec: &FfiSpec) -> String {
         .class_specs
         .iter()
         .any(|cs| !cs.associated_fns.is_empty());
-    let has_template_fns = gen_templates && !spec.template_functions.is_empty();
-    let has_template_factories = gen_templates && !spec.template_factories.is_empty();
-    let gen_proxy = proxy_enabled();
-    let has_proxy_factories = gen_proxy && !spec.proxy_factories.is_empty();
-    let gen_dynamic_cast = dynamic_cast_enabled();
-    let has_dynamic_casts = gen_dynamic_cast && !spec.dynamic_casts.is_empty();
+    let has_template_fns = !spec.template_functions.is_empty();
+    let has_template_factories = !spec.template_factories.is_empty();
+    let has_proxy_factories = !spec.proxy_factories.is_empty();
+    let has_dynamic_casts = !spec.dynamic_casts.is_empty();
     if spec.lib_spec.fn_bindings.is_empty()
         && spec.lib_spec.fwd_decls.is_empty()
         && !has_associated_fns
@@ -246,31 +208,42 @@ pub fn generate(spec: &FfiSpec) -> String {
         emit_fn_binding(&mut out, fb, None);
     }
 
-    // 模板函数骨架（v6 Phase B，受开关控制）
+    // 模板函数骨架（v6 Phase B，v7 默认输出）
     if has_template_fns {
         for tfs in &spec.template_functions {
             emit_template_fn(&mut out, tfs);
         }
     }
 
-    // 模板实例化构造工厂骨架（v6 Phase B 增强（续），受开关控制）
+    // 模板实例化构造工厂骨架（v6 Phase B 增强（续），v7 默认输出）
     if has_template_factories {
         for tf in &spec.template_factories {
             emit_template_factory(&mut out, tf);
         }
     }
 
-    // @make_proxy 代理工厂骨架（v6 Phase C，受 CPP2RUST_GEN_PROXY 开关控制）
+    // @make_proxy 代理工厂骨架（v6 Phase C，v7 默认输出）
     if has_proxy_factories {
         for pf in &spec.proxy_factories {
             emit_proxy_factory(&mut out, pf);
         }
     }
 
-    // @dynamic_cast 下行转换骨架（v6 Phase C（续），受 CPP2RUST_GEN_DYNAMIC_CAST 开关控制）
+    // @dynamic_cast 下行转换骨架（v6 Phase C（续），v7 默认输出）
     if has_dynamic_casts {
+        // 仅当 src/dst 两端类型都有实际生成的 import_class! 块（即在本单元 Rust 作用域内可见）
+        // 时才输出活动绑定；否则（类型仅存在于 hicc::cpp! 原样 C++ 块、无对应 Rust 类型）
+        // 将绑定行注释化，避免引用未定义类型导致 `cannot find type` 而使生成项目不可编译。
+        let emitted_classes: std::collections::HashSet<&str> = spec
+            .class_specs
+            .iter()
+            .filter(|cs| !cs.is_empty())
+            .map(|cs| cs.name.as_str())
+            .collect();
         for dc in &spec.dynamic_casts {
-            emit_dynamic_cast(&mut out, dc);
+            let active = emitted_classes.contains(dc.src_class.as_str())
+                && emitted_classes.contains(dc.dst_class.as_str());
+            emit_dynamic_cast(&mut out, dc, active);
         }
     }
 
@@ -279,18 +252,18 @@ pub fn generate(spec: &FfiSpec) -> String {
     out
 }
 
-/// 输出单个模板类的泛型 `import_class!` 块（v6 Phase B 骨架）。
+/// 输出单个模板类的泛型 `import_class!` 骨架（v7：以注释形式默认输出）。
 ///
 /// 形如：
 /// ```text
-/// hicc::import_class! {
-///     // cpp2rust-todo[TMPL]: ...
-///     #[cpp(class = "template<class T> Stack<T>")]
-///     pub class Stack<T> {
-///         #[cpp(method = "void push(T)")]
-///         pub fn push(&mut self, value: T);
-///     }
-/// }
+/// // cpp2rust-todo[TMPL]: 模板类泛型骨架（已注释）...
+/// // hicc::import_class! {
+/// //     #[cpp(class = "template<class T> Stack<T>")]
+/// //     pub class Stack<T> {
+/// //         #[cpp(method = "void push(T)")]
+/// //         pub fn push(&mut self, value: T);
+/// //     }
+/// // }
 /// ```
 fn emit_template_class(out: &mut String, tcs: &TemplateClassSpec) {
     // 无可映射的公有成员方法时不输出空骨架（与 import_class! 跳过空块的策略一致）
@@ -307,18 +280,21 @@ fn emit_template_class(out: &mut String, tcs: &TemplateClassSpec) {
         .join(", ");
     let cpp_class = format!("template<{}> {}<{}>", cpp_params, tcs.name, params);
 
+    // v7：模板类骨架以**注释**形式输出。未实例化的类模板没有可链接符号，泛型 `<T>`
+    // 也无法直接编译，故整段以指引形式呈现——用户按实际实例化类型补全并取消注释即可，
+    // 同时保证工具默认产物始终可被 Rust 编译器接受（详见 L6 gen-verify）。
     out.push('\n');
-    out.push_str("hicc::import_class! {\n");
     out.push_str(
-        "    // cpp2rust-todo[TMPL]: 模板类泛型骨架，请按实际实例化类型校验签名与 AbiType 约束；\n",
+        "// cpp2rust-todo[TMPL]: 模板类泛型骨架（已注释），请按实际实例化类型校验签名与 AbiType 约束后取消注释；\n",
     );
     out.push_str(
-        "    // 构造函数/静态方法需在 import_lib! 中声明，复杂依赖类型（如 T::OutputRef）请手动补全。\n",
+        "// 构造函数/静态方法需在 import_lib! 中声明，复杂依赖类型（如 T::OutputRef）请手动补全。\n",
     );
-    out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cpp_class));
-    out.push_str(&format!("    pub class {}<{}> {{\n", tcs.name, params));
+    out.push_str("// hicc::import_class! {\n");
+    out.push_str(&format!("//     #[cpp(class = \"{}\")]\n", cpp_class));
+    out.push_str(&format!("//     pub class {}<{}> {{\n", tcs.name, params));
     for (i, mb) in tcs.methods.iter().enumerate() {
-        out.push_str(&format!("        #[cpp(method = \"{}\")]\n", mb.cpp_sig));
+        out.push_str(&format!("//         #[cpp(method = \"{}\")]\n", mb.cpp_sig));
         let self_ref = match mb.self_kind {
             SelfKind::Ref => "&self",
             SelfKind::RefMut => "&mut self",
@@ -338,25 +314,29 @@ fn emit_template_class(out: &mut String, tcs: &TemplateClassSpec) {
             None => String::new(),
         };
         out.push_str(&format!(
-            "        pub fn {}({}{}){};\n",
+            "//         pub fn {}({}{}){};\n",
             mb.rust_name, self_ref, params_str, ret_str
         ));
         if i + 1 < tcs.methods.len() {
-            out.push('\n');
+            out.push_str("//\n");
         }
     }
-    out.push_str("    }\n");
-    out.push_str("}\n");
+    out.push_str("//     }\n");
+    out.push_str("// }\n");
 }
 
-/// 在 `import_lib!` 块内输出单个模板函数骨架（v6 Phase B）。
+/// 在 `import_lib!` 块内输出单个模板函数骨架（v7：以注释形式默认输出）。
+///
+/// 未显式实例化的函数模板没有可链接符号，泛型 `<T>` 也无法直接编译，故以注释指引
+/// 形式呈现：用户按实际实例化类型（如 `do_swap<int>`）补全并取消注释即可。这样工具
+/// 默认产物始终可被 Rust 编译器接受（详见 L6 gen-verify）。
 fn emit_template_fn(out: &mut String, tfs: &TemplateFnSpec) {
     out.push('\n');
     out.push_str(
-        "    // cpp2rust-todo[TMPL]: 模板函数需按实例化类型声明（如 do_swap<int>(int*, int*)）；\n",
+        "    // cpp2rust-todo[TMPL]: 模板函数骨架（已注释），需按实例化类型声明（如 do_swap<int>(int*, int*)）后取消注释；\n",
     );
     out.push_str("    // 下方 <T> 为泛型占位，请替换为实际实例化类型并确认安全性。\n");
-    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", tfs.cpp_sig));
+    out.push_str(&format!("    // #[cpp(func = \"{}\")]\n", tfs.cpp_sig));
     let params_str = tfs
         .params
         .iter()
@@ -368,26 +348,26 @@ fn emit_template_fn(out: &mut String, tfs: &TemplateFnSpec) {
         None => String::new(),
     };
     out.push_str(&format!(
-        "    pub unsafe fn {}({}){};\n",
+        "    // pub unsafe fn {}({}){};\n",
         tfs.rust_name, params_str, ret_str
     ));
 }
 
-/// 在 `import_lib!` 块内输出单个模板实例化构造工厂骨架（v6 Phase B 增强（续））。
+/// 在 `import_lib!` 块内输出单个模板实例化构造工厂骨架（v7：以注释形式默认输出）。
 ///
 /// 形如：
 /// ```text
-/// // cpp2rust-todo[TMPL]: StackI32 构造工厂骨架 —— 需在 C++ 侧提供对应符号并校验签名
-/// #[cpp(func = "Stack<int>* stack_i32_new(int value)")]
-/// pub unsafe fn stack_i32_new(value: i32) -> StackI32;
+/// // cpp2rust-todo[TMPL]: StackI32 构造工厂骨架（已注释）—— 需在 C++ 侧提供对应符号并校验签名
+/// // #[cpp(func = "Stack<int>* stack_i32_new(int value)")]
+/// // pub unsafe fn stack_i32_new(value: i32) -> StackI32;
 /// ```
 fn emit_template_factory(out: &mut String, tf: &TemplateFactorySpec) {
     out.push('\n');
     out.push_str(&format!(
-        "    // cpp2rust-todo[TMPL]: {} 构造工厂骨架 —— 需在 C++ 侧提供对应符号（如显式实例化/包装）并校验签名\n",
+        "    // cpp2rust-todo[TMPL]: {} 构造工厂骨架（已注释）—— 需在 C++ 侧提供对应符号（如显式实例化/包装）并校验签名后取消注释\n",
         tf.alias_name
     ));
-    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", tf.cpp_sig));
+    out.push_str(&format!("    // #[cpp(func = \"{}\")]\n", tf.cpp_sig));
     let params_str = tf
         .params
         .iter()
@@ -395,7 +375,7 @@ fn emit_template_factory(out: &mut String, tf: &TemplateFactorySpec) {
         .collect::<Vec<_>>()
         .join(", ");
     out.push_str(&format!(
-        "    pub unsafe fn {}({}) -> {};\n",
+        "    // pub unsafe fn {}({}) -> {};\n",
         tf.rust_name, params_str, tf.alias_name
     ));
 }
@@ -438,14 +418,20 @@ fn emit_proxy_factory(out: &mut String, pf: &ProxyFactorySpec) {
 
 /// 在 `import_lib!` 块内输出单个 `@dynamic_cast` 下行转换骨架（v6 Phase C（续））。
 ///
-/// 形如：
+/// `active`：源/目标类型是否在本单元 Rust 作用域内有对应的 `import_class!` 定义。
+/// 当为 `true` 时输出活动绑定；当为 `false` 时（类型仅存在于 `hicc::cpp!` 原样 C++ 块、
+/// 无对应 Rust 类型）将绑定行注释化，避免引用未定义类型导致生成项目不可编译。
+///
+/// 形如（active=true）：
 /// ```text
 /// // cpp2rust-todo[DCAST]: @dynamic_cast 下行转换骨架 —— 多态基类 Foo 向下转换为派生类 Bar；
 /// // 转换失败返回空指针，调用方需判空（is_null）。RTTI 要求源类型为多态类型（含虚函数）。
 /// #[cpp(func = "const Bar* @dynamic_cast<const Bar*>(const Foo*)")]
 /// pub unsafe fn dynamic_cast_foo_to_bar(src: *const Foo) -> *const Bar;
 /// ```
-fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec) {
+fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec, active: bool) {
+    // 类型不在作用域内时，绑定行以 `// ` 注释化输出（仍保留骨架供用户补全后启用）。
+    let p = if active { "" } else { "// " };
     out.push('\n');
     out.push_str(&format!(
         "    // cpp2rust-todo[DCAST]: @dynamic_cast 下行转换骨架 —— 多态基类 {} 向下转换为派生类 {}；\n",
@@ -454,10 +440,19 @@ fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec) {
     out.push_str(
         "    // 转换失败返回空指针，调用方需判空（is_null）。RTTI 要求源类型为多态类型（含虚函数）。\n",
     );
-    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", dc.cpp_sig));
+    if !active {
+        out.push_str(&format!(
+            "    // cpp2rust-todo[DCAST]: 类型 {} / {} 在本单元无 import_class! 定义，绑定暂注释；\n",
+            dc.src_class, dc.dst_class
+        ));
+        out.push_str(
+            "    // 请先为相关类型补全 import_class! 映射，再取消下方绑定的注释以启用。\n",
+        );
+    }
+    out.push_str(&format!("    {}#[cpp(func = \"{}\")]\n", p, dc.cpp_sig));
     out.push_str(&format!(
-        "    pub unsafe fn {}(src: *const {}) -> *const {};\n",
-        dc.rust_name, dc.src_class, dc.dst_class
+        "    {}pub unsafe fn {}(src: *const {}) -> *const {};\n",
+        p, dc.rust_name, dc.src_class, dc.dst_class
     ));
     // 引用形式（&Src -> &Dst）：hicc 允许同一指针型 C++ 签名在 Rust 侧返回 &Dst
     // （见 references/hicc/examples/dynamic_cast 的 `as_foo(&self) -> &Foo`）。
@@ -466,31 +461,32 @@ fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec) {
     out.push_str(
         "    // cpp2rust-todo[DCAST]: 引用形式 —— 仅在转换必定成功时使用；否则请用上面的裸指针形式判空。\n",
     );
-    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", dc.cpp_sig));
+    out.push_str(&format!("    {}#[cpp(func = \"{}\")]\n", p, dc.cpp_sig));
     out.push_str(&format!(
-        "    pub unsafe fn {}(src: &{}) -> &{};\n",
-        dc.ref_rust_name, dc.src_class, dc.dst_class
+        "    {}pub unsafe fn {}(src: &{}) -> &{};\n",
+        p, dc.ref_rust_name, dc.src_class, dc.dst_class
     ));
 }
 
-/// 输出模板实例化别名骨架（v6 Phase B 增强）。
+/// 输出模板实例化别名骨架（v7：以注释形式默认输出）。
 ///
 /// 形如：
 /// ```text
-/// // cpp2rust-todo[TMPL]: 模板实例化别名 —— 请确认实参类型与 AbiType 约束
-/// pub type StackI32 = Stack<hicc::Pod<i32>>;
-/// pub type StackF64 = Stack<hicc::Pod<f64>>;
+/// // cpp2rust-todo[TMPL]: 模板实例化别名（已注释）—— 请确认实参类型与 AbiType 约束
+/// // pub type StackI32 = Stack<hicc::Pod<i32>>;
+/// // pub type StackF64 = Stack<hicc::Pod<f64>>;
 /// ```
 ///
 /// 别名是普通 Rust 类型别名，需与对应的泛型模板类骨架（`emit_template_class`）配合使用；
-/// 因此仅在 `CPP2RUST_GEN_TEMPLATES` 开启时输出，默认产物逐字节不变。
+/// 由于其依赖未实例化的泛型模板类（同样以注释形式输出），故一并以注释指引形式呈现，
+/// 用户补全模板类后连同别名一起取消注释即可。
 fn emit_template_instances(out: &mut String, instances: &[TemplateInstanceSpec]) {
     if instances.is_empty() {
         return;
     }
     out.push('\n');
     out.push_str(
-        "// cpp2rust-todo[TMPL]: 以下为模板实例化别名骨架，请确认实参类型与 AbiType 约束；\n",
+        "// cpp2rust-todo[TMPL]: 以下为模板实例化别名骨架（已注释），请确认实参类型与 AbiType 约束后取消注释；\n",
     );
     out.push_str(
         "// POD 标量已用 hicc::Pod 包装，类类型实参需替换为对应的 hicc 类（如 hicc_std::string）。\n",
@@ -503,7 +499,7 @@ fn emit_template_instances(out: &mut String, instances: &[TemplateInstanceSpec])
             ));
         }
         out.push_str(&format!(
-            "pub type {} = {}<{}>;\n",
+            "// pub type {} = {}<{}>;\n",
             inst.alias_name,
             inst.template_name,
             inst.hicc_args.join(", ")
@@ -524,7 +520,9 @@ fn strip_mut_ptr(ret_type: &str, class_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffi_model::{ClassSpec, FfiSpec, FnBinding, LibSpec, MethodBinding, SelfKind};
+    use crate::ffi_model::{
+        ClassSpec, DynamicCastSpec, FfiSpec, FnBinding, LibSpec, MethodBinding, SelfKind,
+    };
 
     fn make_fn_binding(name: &str, has_fn_ptr_param: bool) -> FnBinding {
         FnBinding {
@@ -631,6 +629,122 @@ mod tests {
         assert!(
             code.contains("#[allow(unused_imports)]"),
             "生成代码应包含 `#[allow(unused_imports)]`，实际输出：\n{}",
+            code
+        );
+    }
+
+    fn make_dynamic_cast(src: &str, dst: &str) -> DynamicCastSpec {
+        DynamicCastSpec {
+            rust_name: format!(
+                "dynamic_cast_{}_to_{}",
+                src.to_lowercase(),
+                dst.to_lowercase()
+            ),
+            ref_rust_name: format!(
+                "dynamic_cast_{}_to_{}_ref",
+                src.to_lowercase(),
+                dst.to_lowercase()
+            ),
+            src_class: src.to_string(),
+            dst_class: dst.to_string(),
+            cpp_sig: format!("const {dst}* @dynamic_cast<const {dst}*>(const {src}*)"),
+        }
+    }
+
+    /// 回归：@dynamic_cast 源/目标类型在本单元有 import_class! 定义时，应输出**活动**绑定
+    /// （未被注释），以便直接调用。
+    #[test]
+    fn dynamic_cast_active_when_types_in_scope() {
+        let spec = FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec!["#include <test.h>".to_string()],
+            // Foo / Bar 均有方法 → 生成 import_class!（非空），类型在作用域内
+            class_specs: vec![
+                ClassSpec {
+                    name: "Foo".to_string(),
+                    methods: vec![make_method_binding("foo", false)],
+                    associated_fns: vec![],
+                    destroy_fn: None,
+                    is_interface: false,
+                },
+                ClassSpec {
+                    name: "Bar".to_string(),
+                    methods: vec![make_method_binding("bar", false)],
+                    associated_fns: vec![],
+                    destroy_fn: None,
+                    is_interface: false,
+                },
+            ],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![],
+            },
+            dynamic_casts: vec![make_dynamic_cast("Foo", "Bar")],
+            ..Default::default()
+        };
+        let code = generate(&spec);
+        assert!(
+            code.contains(
+                "    pub unsafe fn dynamic_cast_foo_to_bar(src: *const Foo) -> *const Bar;"
+            ),
+            "类型在作用域内时应输出活动（未注释）的下行转换绑定，实际输出：\n{}",
+            code
+        );
+        assert!(
+            !code.contains("// pub unsafe fn dynamic_cast_foo_to_bar("),
+            "类型在作用域内时绑定不应被注释，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// 回归（CI 修复）：@dynamic_cast 源/目标类型在本单元**没有** import_class! 定义
+    /// （仅存在于 hicc::cpp! 原样 C++ 块）时，绑定行必须注释化，避免引用未定义 Rust 类型
+    /// 导致 `cannot find type` 而使生成项目不可编译。
+    #[test]
+    fn dynamic_cast_commented_when_types_not_in_scope() {
+        let spec = FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec!["#include <test.h>".to_string()],
+            // 无任何 import_class! 块 → Person / Employee 在 Rust 侧未定义
+            class_specs: vec![],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![make_fn_binding("main", false)],
+            },
+            dynamic_casts: vec![make_dynamic_cast("Person", "Employee")],
+            ..Default::default()
+        };
+        let code = generate(&spec);
+        // 裸指针与引用两种形式均应被注释化
+        assert!(
+            code.contains(
+                "    // pub unsafe fn dynamic_cast_person_to_employee(src: *const Person) -> *const Employee;"
+            ),
+            "类型不在作用域内时裸指针形式绑定应注释化，实际输出：\n{}",
+            code
+        );
+        assert!(
+            code.contains(
+                "    // pub unsafe fn dynamic_cast_person_to_employee_ref(src: &Person) -> &Employee;"
+            ),
+            "类型不在作用域内时引用形式绑定应注释化，实际输出：\n{}",
+            code
+        );
+        // 不应存在任何未注释的活动绑定行
+        for line in code.lines() {
+            let t = line.trim_start();
+            assert!(
+                !t.starts_with("pub unsafe fn dynamic_cast_person_to_employee"),
+                "类型不在作用域内时不应输出活动绑定，违规行：{}",
+                line
+            );
+        }
+        // 骨架说明注释仍应保留，指引用户补全后启用
+        assert!(
+            code.contains("cpp2rust-todo[DCAST]"),
+            "注释化后仍应保留 DCAST 骨架说明，实际输出：\n{}",
             code
         );
     }

@@ -79,9 +79,9 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
-    // 生成冒烟测试 tests/smoke.rs（"生成即验证"）；可由 CPP2RUST_GEN_SMOKE=0 关闭，
-    // 已存在则保留用户修改（幂等）。
-    if smoke_test_gen::smoke_enabled() {
+    // 生成冒烟测试 tests/smoke.rs（"生成即验证"）；v7 起默认生成、不再受环境变量开关控制，
+    // 已存在则保留用户修改（文件级幂等）。
+    {
         let specs: Vec<&FfiSpec> = all_units.iter().map(|ud| &ud.spec).collect();
         let smoke_content = smoke_test_gen::generate_smoke_test(&lib_name, &specs);
         match project_generator::write_smoke_test(&lo.rust_dir, &smoke_content) {

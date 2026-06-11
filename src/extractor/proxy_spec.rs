@@ -5,7 +5,7 @@
 //! （见 `references/hicc/examples/interface`）。
 //!
 //! 与 v6 模板能力一致：提取器**始终**构建规格（开销极小），是否输出由生成器侧的
-//! `CPP2RUST_GEN_PROXY` 开关裁决，默认关闭时不影响产物。
+//! v7 起由生成器默认输出（IR 非空即输出）。
 
 use super::class_spec::is_interface_class;
 use super::type_mapper::{clean_type, cpp_to_rust, to_snake_case};

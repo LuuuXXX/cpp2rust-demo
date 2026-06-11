@@ -6,7 +6,7 @@
 //! （对应 v6 方案 §3.2 示例 023 typeid_rtti）。
 //!
 //! 与 v6 其余高级映射能力一致：提取器**始终**构建规格（开销极小），是否输出由生成器侧的
-//! `CPP2RUST_GEN_DYNAMIC_CAST` 开关裁决，默认关闭时不影响产物。
+//! v7 起由生成器默认输出（IR 非空即输出）。
 
 use super::type_mapper::{clean_type, to_snake_case};
 use crate::ast_parser::ClassInfo;

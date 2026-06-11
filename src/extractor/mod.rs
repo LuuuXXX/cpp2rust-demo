@@ -137,8 +137,8 @@ pub fn extract(
     };
 
     // ── 模板类 / 模板函数规格（v6 Phase B）─────────
-    // 始终构建（开销极小），但仅在生成器侧 CPP2RUST_GEN_TEMPLATES 开启时输出，
-    // 因此默认产物逐字节不变。
+    // 构建模板 IR（开销极小），v7 起由生成器默认输出，
+    // 不再依赖任何环境变量开关。
     let (template_classes, template_functions) = template_spec::build_template_specs(ast);
     spec.template_classes = template_classes;
     spec.template_functions = template_functions;
@@ -147,13 +147,13 @@ pub fn extract(
         template_spec::build_template_factories(ast, &spec.template_instances);
 
     // ── @make_proxy 代理工厂规格（v6 Phase C）─────────
-    // 始终构建（开销极小），但仅在生成器侧 CPP2RUST_GEN_PROXY 开启时输出，
-    // 因此默认产物逐字节不变。
+    // 构建代理工厂 IR（开销极小），v7 起由生成器默认输出，
+    // 不再依赖任何环境变量开关。
     spec.proxy_factories = proxy_spec::build_proxy_factories(ast);
 
     // ── @dynamic_cast 下行转换规格（v6 Phase C（续））─────────
-    // 始终构建（开销极小），但仅在生成器侧 CPP2RUST_GEN_DYNAMIC_CAST 开启时输出，
-    // 因此默认产物逐字节不变。
+    // 构建 dynamic_cast IR（开销极小），v7 起由生成器默认输出，
+    // 不再依赖任何环境变量开关。
     spec.dynamic_casts = dynamic_cast_spec::build_dynamic_casts(ast);
 
     // ── 后处理器 ──────────────────────────────

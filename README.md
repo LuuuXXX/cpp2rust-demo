@@ -87,7 +87,7 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 3. 交互式选择参与转换的文件（非交互/CI 环境自动全选）
 4. libclang 解析 AST，提取类 / 函数 / 枚举 / 模板实例化
 5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
-6. 生成冒烟测试 `.cpp2rust/<feature>/rust/tests/smoke.rs`（验证生成的 FFI 类型可被编译链接；可用 `CPP2RUST_GEN_SMOKE=0` 关闭）
+6. 生成冒烟测试 `.cpp2rust/<feature>/rust/tests/smoke.rs`（默认生成，验证生成的 FFI 类型可被编译链接）
 
 > **验证闭环**：进入 `.cpp2rust/<feature>/rust/` 执行 `cargo test`，即可对生成的 Rust FFI 做"编译 + 冒烟"验证。`smoke.rs` 已存在时不会被覆盖，可在其上补充"构造→调用→断言"逻辑。
 
@@ -189,10 +189,8 @@ cpp2rust-demo merge --feature linux_x86 --feature arm_embedded --output-dir dist
 |------|------|
 | `CPP2RUST_CXX` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++，支持带版本后缀如 g++-13） |
 | `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
-| `CPP2RUST_GEN_SMOKE` | 控制是否生成冒烟测试 `tests/smoke.rs`（默认开启；设为 `0`/`false`/`no`/`off` 关闭） |
-| `CPP2RUST_GEN_TEMPLATES` | 控制是否生成模板类 / 模板函数的泛型 hicc 骨架、**模板实例化别名及构造工厂骨架**（默认**关闭**；设为 `1`/`true`/`yes`/`on` 开启）。关闭时默认产物逐字节不变 |
-| `CPP2RUST_GEN_PROXY` | 控制是否生成 `@make_proxy` 代理工厂骨架（让 Rust 侧实现 C++ 抽象接口；默认**关闭**；设为 `1`/`true`/`yes`/`on` 开启）。关闭时默认产物逐字节不变 |
-| `CPP2RUST_GEN_DYNAMIC_CAST` | 控制是否生成 `@dynamic_cast` 下行转换骨架（RTTI 场景把多态基类指针向下转换为派生类指针；默认**关闭**；设为 `1`/`true`/`yes`/`on` 开启）。关闭时默认产物逐字节不变 |
+
+> **v7 起不再有任何 `CPP2RUST_GEN_*` 生成开关**：模板类 / 模板函数泛型骨架、模板实例化别名及构造工厂、`@make_proxy` 代理工厂、`@dynamic_cast` 下行转换、以及冒烟测试 `tests/smoke.rs` 全部**默认生成**，无需配置。`@make_proxy` / `@dynamic_cast` 默认输出可编译的活动绑定；模板类 / 函数 / 别名因「未实例化的模板无可链接符号、泛型 `<T>` 不可直接编译」默认以**注释骨架**形式输出（带 `cpp2rust-todo[TMPL]` 指引），用户按实际实例化类型补全后取消注释即可。所有生成文件均**幂等**：已存在的用户改动不会被覆盖。
 
 ---
 

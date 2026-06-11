@@ -19,25 +19,8 @@
 
 use crate::ffi_model::FfiSpec;
 
-/// 控制是否生成冒烟测试的环境变量。设为 `"0"`（或 `"false"`）时关闭生成。
-pub const GEN_SMOKE_ENV: &str = "CPP2RUST_GEN_SMOKE";
-
 /// 冒烟测试文件相对生成项目根目录的路径（用于生成与用户提示保持一致）。
 pub const SMOKE_TEST_PATH: &str = "tests/smoke.rs";
-
-/// 根据环境变量判断是否应生成冒烟测试（默认开启）。
-///
-/// 仅当 `CPP2RUST_GEN_SMOKE` 显式设为 `0` / `false` / `no` / `off`（忽略大小写）时返回
-/// `false`，其余情况（含未设置）均返回 `true`。
-pub fn smoke_enabled() -> bool {
-    match std::env::var(GEN_SMOKE_ENV) {
-        Ok(v) => !matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "0" | "false" | "no" | "off"
-        ),
-        Err(_) => true,
-    }
-}
 
 /// 收集所有会经 `lib.rs` 重导出的 `pub class` 类型名（与 `hicc_codegen::generate`
 /// 的跳过条件一致：空 `ClassSpec` 不生成 `import_class!` 块，因此也不在此列出）。
@@ -89,10 +72,6 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
     out.push_str("//!\n");
     out.push_str("//! 目的：验证生成的 Rust FFI 绑定可编译并链接 C++ 实现（\"生成即验证\"）。\n");
     out.push_str("//! 运行：在本目录执行 `cargo test`。\n");
-    out.push_str(&format!(
-        "//! 关闭生成：设置环境变量 `{}=0` 后重新执行 `cpp2rust-demo init`。\n",
-        GEN_SMOKE_ENV
-    ));
     out.push_str("//!\n");
     out.push_str("//! 说明：`import_lib!` 中的工厂/全局函数为模块私有，集成测试无法直接调用，\n");
     out.push_str("//! 因此本文件仅做类型可用性与链接验证；如需构造实例做行为断言，\n");
@@ -193,13 +172,6 @@ mod tests {
             is_unsafe: false,
             has_fn_ptr_param: false,
         }
-    }
-
-    #[test]
-    fn smoke_enabled_defaults_true_when_unset() {
-        // 在未显式设置时默认开启。
-        std::env::remove_var(GEN_SMOKE_ENV);
-        assert!(smoke_enabled());
     }
 
     #[test]

@@ -13,26 +13,22 @@ pub struct FfiSpec {
     pub class_specs: Vec<ClassSpec>,
     /// import_lib! 块规格
     pub lib_spec: LibSpec,
-    /// 模板类绑定规格（v6 Phase B）。仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器输出泛型骨架；
-    /// 默认关闭时不影响产物。
+    /// 模板类绑定规格（v6 Phase B）。v7 起由生成器**默认输出**泛型骨架（IR 非空即输出）。
     pub template_classes: Vec<TemplateClassSpec>,
-    /// 模板函数绑定规格（v6 Phase B）。同上。
+    /// 模板函数绑定规格（v6 Phase B）。v7 起默认输出。
     pub template_functions: Vec<TemplateFnSpec>,
-    /// 模板实例化别名规格（v6 Phase B 增强）。仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器
-    /// 输出类型别名骨架（如 `pub type StackI32 = Stack<hicc::Pod<i32>>;`），默认关闭时不影响产物。
+    /// 模板实例化别名规格（v6 Phase B 增强）。v7 起由生成器**默认输出**类型别名骨架
+    /// （如 `pub type StackI32 = Stack<hicc::Pod<i32>>;`）。
     pub template_instances: Vec<TemplateInstanceSpec>,
     /// 模板实例化构造工厂骨架（v6 Phase B 增强（续））。由模板类构造函数派生，`T` 替换为
-    /// 具体实例化类型。仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器在 `import_lib!` 中输出
-    /// 工厂骨架，默认关闭时不影响产物。
+    /// 具体实例化类型。v7 起由生成器**默认**在 `import_lib!` 中输出工厂骨架。
     pub template_factories: Vec<TemplateFactorySpec>,
     /// `@make_proxy` 代理工厂骨架（v6 Phase C）。由「继承 C++ 抽象接口的具体类」的公有
-    /// 构造函数派生，使 Rust 侧可实现 C++ 接口。仅在 `CPP2RUST_GEN_PROXY` 开启时由生成器
-    /// 在 `import_lib!` 中输出，默认关闭时不影响产物。
+    /// 构造函数派生，使 Rust 侧可实现 C++ 接口。v7 起由生成器**默认**在 `import_lib!` 中输出。
     pub proxy_factories: Vec<ProxyFactorySpec>,
     /// `@dynamic_cast` 下行转换绑定骨架（v6 Phase C（续））。由「继承多态基类的派生类」派生，
     /// 用于在 RTTI 场景把多态基类指针向下转换为派生类指针，替代 v5 的整数枚举绕过方案。
-    /// 仅在 `CPP2RUST_GEN_DYNAMIC_CAST` 开启时由生成器在 `import_lib!` 中输出，
-    /// 默认关闭时不影响产物。
+    /// v7 起由生成器**默认**在 `import_lib!` 中输出。
     pub dynamic_casts: Vec<DynamicCastSpec>,
 }
 
