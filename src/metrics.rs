@@ -2,7 +2,7 @@
 //!
 //! 扫描生成的 `.rs` 文件，统计 FFI 绑定指标（import_lib! 数、绑定函数数、降级标记等）。
 
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 

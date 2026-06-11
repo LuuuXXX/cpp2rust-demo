@@ -19,7 +19,7 @@ struct UnitData {
     spec: FfiSpec,
 }
 
-use crate::generator::{hicc_codegen, project_generator, smoke_test_gen};
+use crate::generator::{hicc_codegen, project_generator};
 use crate::layout::{self, FeatureLayout, InitReportData, InitUnitStat};
 use crate::metrics::{count_file_lines, parse_todo_tag_from_line};
 use crate::selector::{FileSelector, InteractiveSelector};
@@ -78,14 +78,6 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
-    // 生成 tests/smoke_test.rs（冒烟测试）
-    let smoke_units: Vec<(&str, &FfiSpec)> = all_units
-        .iter()
-        .map(|ud| (ud.unit_path.as_str(), &ud.spec))
-        .collect();
-    let smoke_content = smoke_test_gen::generate(&smoke_units, &lib_name);
-    project_generator::write_smoke_test(&lo.rust_dir, &smoke_content)?;
-
     // 生成 meta/init-report.md
     let report_data = InitReportData {
         feature,
@@ -105,8 +97,7 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     println!("    └── rust/       （生成的 Rust 项目）");
     println!("        ├── Cargo.toml");
     println!("        ├── build.rs");
-    println!("        ├── src/        （lib.rs + 各编译单元 .rs 文件）");
-    println!("        └── tests/smoke_test.rs  （FFI 冒烟测试）");
+    println!("        └── src/        （lib.rs + 各编译单元 .rs 文件）");
     println!();
     println!(
         "已在 .cpp2rust/{}/rust/src/ 生成 {} 个单元文件",
@@ -332,7 +323,7 @@ fn print_degraded_summary(sorted_tags: &[(String, Vec<(String, usize)>)]) {
 }
 
 /// 使该类型自动实现 `AbiClass`，满足 `import_lib!` 中 `class TypeName;` 的 trait 约束。
-fn opaque_import_class_block(type_name: &str) -> String {
+pub fn opaque_import_class_block(type_name: &str) -> String {
     format!(
         "hicc::import_class! {{\n    #[cpp(class = \"{n}\")]\n    pub class {n} {{}}\n}}\n",
         n = type_name
@@ -379,7 +370,10 @@ fn parse_fwd_decl<'a>(fwd_decl: &'a str, unit_path: &str) -> Option<&'a str> {
 /// 当 `import_lib!` 块引用的类型在其他模块由 `import_class!` 定义时，
 /// 生成对应的 `use crate::...::TypeName;` 语句。
 /// 若类型未在任何模块定义（如 C typedef struct），则在本模块生成 opaque 类型声明。
-fn build_cross_module_preamble(
+///
+/// 公开可见，允许集成测试与 `rapidjson_e2e_test` 等测试直接复用，
+/// 避免在测试侧重复实现相同的跨模块前缀生成逻辑。
+pub fn build_cross_module_preamble(
     spec: &FfiSpec,
     current_unit_path: &str,
     class_to_module: &HashMap<String, String>,

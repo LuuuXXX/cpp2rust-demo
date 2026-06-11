@@ -101,8 +101,6 @@ fn run_merge_output(
     println!("  {}/", out_dir.display());
     println!("    ├── meta/        （.cpp2rust/ 的副本）");
     println!("    ├── src/         （合并后的 Rust 源码）");
-    println!("    ├── tests/");
-    println!("    │   └── smoke_test.rs  （FFI 冒烟测试）");
     println!("    ├── build.rs");
     println!("    └── Cargo.toml");
 
@@ -179,14 +177,7 @@ pub fn run_single_feature_merge(feature: &str, project_root: &std::path::Path) -
     };
     lo.save_merge_report(&report_data)?;
 
-    let mut manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
-
-    // 读取已生成的 smoke_test.rs，解析冒烟测试清单并附加到 manifest
-    let smoke_test_rs = lo.rust_dir.join("tests").join("smoke_test.rs");
-    if smoke_test_rs.exists() {
-        let smoke_content = std::fs::read_to_string(&smoke_test_rs).unwrap_or_default();
-        manifest.smoke_tests = layout::parse_smoke_test_entries(&smoke_content);
-    }
+    let manifest = build_api_manifest(feature, &merged_spec, &merged_spec.degraded_sigs);
 
     lo.save_api_manifest(&manifest)?;
 
@@ -364,7 +355,6 @@ fn build_api_manifest(
         classes,
         functions,
         template_groups,
-        smoke_tests: vec![],
     }
 }
 

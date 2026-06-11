@@ -90,13 +90,17 @@ fn insert_path(tree: &mut BTreeMap<String, ModuleNode>, parts: &[&str]) {
 ///
 /// 同时生成重新导出（`pub use self::xxx::*`），使各 unit 模块可通过
 /// `use crate::*;` 访问兄弟模块中定义的类型（如跨文件的 `hicc::import_class!` 类型引用）。
+/// 开头的 `#![allow(unused_imports)]` 抑制空模块（如无 extern-C 函数的 encoding 单元）的
+/// glob 重导出警告，这些警告纯属 lint 噪音，不影响功能。
 fn generate_mod_declarations(tree: &BTreeMap<String, ModuleNode>) -> String {
-    let mut content = String::new();
+    // 注意：content 始终以 allow 指令开头，因此不能用 `content.is_empty()` 来判断
+    // 树是否为空——这里改为直接检查 tree 本身。
+    let mut content = String::from("#![allow(unused_imports)]\n");
     for name in tree.keys() {
         content.push_str(&format!("pub mod {};\n", name));
         content.push_str(&format!("pub use self::{}::*;\n", name));
     }
-    if content.is_empty() {
+    if tree.is_empty() {
         content.push_str("// 未选择任何单元。\n");
     }
     content
@@ -252,17 +256,6 @@ pub fn write_unit_rs(rust_dir: &Path, unit_path: &str, code: &str) -> Result<()>
             .map_err(|e| anyhow!("create dir {}: {}", parent.display(), e))?;
     }
     std::fs::write(&file_path, code).map_err(|e| anyhow!("write {}: {}", file_path.display(), e))
-}
-
-/// 写出 `tests/smoke_test.rs`，内容为冒烟测试代码。
-///
-/// Cargo 自动识别 `tests/*.rs` 为集成测试，无需在 `Cargo.toml` 中显式声明。
-pub fn write_smoke_test(rust_dir: &Path, content: &str) -> Result<()> {
-    let tests_dir = rust_dir.join("tests");
-    std::fs::create_dir_all(&tests_dir)
-        .map_err(|e| anyhow!("create tests dir {}: {}", tests_dir.display(), e))?;
-    let path = tests_dir.join("smoke_test.rs");
-    std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
 }
 
 /// 写出 `build.rs`，调用 `hicc_build::Build::new()` 完成 C++ shim 编译。
