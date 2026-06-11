@@ -35,6 +35,9 @@ public:
     void use_short(Stack<short>& s);
 };
 
+// 显式实例化（v6 Phase B 增强（再续）：追踪 `template class Foo<T>;`）
+template class Stack<long>;
+
 template<typename T>
 void do_swap(T* a, T* b) {
     T tmp = *a;
@@ -81,6 +84,11 @@ fn template_skeleton_gated_by_env() {
     assert!(
         !off.contains("stack_i32_new"),
         "默认关闭时不应生成模板构造工厂骨架，实际输出：\n{}",
+        off
+    );
+    assert!(
+        !off.contains("pub type StackI64"),
+        "默认关闭时不应生成显式实例化别名，实际输出：\n{}",
         off
     );
 
@@ -157,6 +165,31 @@ fn template_skeleton_gated_by_env() {
     assert!(
         on.contains("pub unsafe fn stack_f64_new(initial: f64) -> StackF64;"),
         "应生成 StackF64 构造工厂骨架，实际输出：\n{}",
+        on
+    );
+
+    // v6 Phase B 增强（再续）：显式实例化 `template class Stack<long>;`
+    // 应生成 Stack<long> 的实例化别名与构造工厂骨架。
+    // `long` 的位宽随平台而异：LP64（Linux/macOS）映射为 i64，
+    // LLP64（Windows）映射为 i32，故别名与工厂名须与平台保持一致。
+    #[cfg(not(target_os = "windows"))]
+    let (expected_alias, expected_factory) = (
+        "pub type StackI64 = Stack<hicc::Pod<i64>>;",
+        "pub unsafe fn stack_i64_new(initial: i64) -> StackI64;",
+    );
+    #[cfg(target_os = "windows")]
+    let (expected_alias, expected_factory) = (
+        "pub type StackI32 = Stack<hicc::Pod<i32>>;",
+        "pub unsafe fn stack_i32_new(initial: i32) -> StackI32;",
+    );
+    assert!(
+        on.contains(expected_alias),
+        "应从显式实例化 template class Stack<long>; 收集到别名，实际输出：\n{}",
+        on
+    );
+    assert!(
+        on.contains(expected_factory),
+        "应为显式实例化派生构造工厂骨架，实际输出：\n{}",
         on
     );
 }

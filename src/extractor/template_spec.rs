@@ -129,11 +129,17 @@ fn build_template_fn_spec(tf: &TemplateFunctionInfo) -> Option<TemplateFnSpec> {
 
 /// 由 `CppAst` 构建模板实例化别名规格（v6 Phase B 增强）。
 ///
-/// 实例化追踪策略：仅依据当前编译单元中「以具体类型实例化某个本文件声明的模板类」的
-/// 使用点收集。当前实现扫描所有来自当前文件的类（含包装类）的**字段类型**，
-/// 例如 `Stack<int> impl;`，并以 `(模板名, 具体类型实参)` 记录实例化。这覆盖了
-/// v6 §3.2 中 025（`Stack<int>`/`Stack<double>`）与 027（`Matrix<int>`/`Matrix<double>`）
-/// 等以包装类持有模板成员的典型写法。
+/// 实例化追踪策略：依据当前编译单元中「以具体类型实例化某个本文件声明的模板类」的
+/// 使用点收集，覆盖以下来源：
+///
+/// 1. 类（含包装类）的**字段类型**，如 `Stack<int> impl;`；
+/// 2. 类方法的**参数 / 返回类型**，如 `void use(Stack<int>& s)`（v6 Phase B 增强（续））；
+/// 3. 全局函数的**参数 / 返回类型**（v6 Phase B 增强（续））；
+/// 4. **显式实例化** `template class Foo<int>;`（v6 Phase B 增强（再续））——
+///    libclang 将其表现为带模板实参的 `ClassDecl`，实参由 `ClassInfo::template_args` 携带。
+///
+/// 以 `(模板名, 具体类型实参)` 记录并去重。这覆盖了 v6 §3.2 中 025
+/// （`Stack<int>`/`Stack<double>`）、027（`Matrix<int>`/`Matrix<double>` 显式实例化）等写法。
 ///
 /// 只为「本文件声明的模板类」生成别名，避免把三方库模板（如 `std::vector`）误纳入。
 /// 复杂或非 POD 的类类型实参会被标记 `needs_class_type`，由生成器附 TODO 提示用户确认
@@ -177,7 +183,35 @@ pub(super) fn build_template_instances(ast: &CppAst) -> Vec<TemplateInstanceSpec
         }
     }
 
+    // 来源 4（v6 Phase B 增强（再续））：显式实例化 `template class Foo<int>;`。
+    // libclang 将其表现为带模板实参（`template_args` 非空）的 `ClassDecl`，名称与模板类
+    // 同名（如 `Stack`）。这里直接以已拆分好的具体类型实参记录实例化，无需再解析类型字符串。
+    for class in ast.classes.iter().filter(|c| c.is_from_current_file) {
+        if class.template_args.is_empty() || !template_names.contains(class.name.as_str()) {
+            continue;
+        }
+        record_instance(&class.name, &class.template_args, &mut seen, &mut out);
+    }
+
     out
+}
+
+/// 将一个 `(模板名, 具体类型实参列表)` 记录为实例化别名规格，按 `(名, 实参)` 在
+/// **本次 `build_template_instances` 调用范围内**去重（通过调用方传入的 `seen` 集合，
+/// 跨多个追踪来源共享；不跨编译单元或多次调用）。
+fn record_instance(
+    name: &str,
+    args: &[String],
+    seen: &mut std::collections::BTreeSet<(String, Vec<String>)>,
+    out: &mut Vec<TemplateInstanceSpec>,
+) {
+    let key = (name.to_string(), args.to_vec());
+    if !seen.insert(key) {
+        return;
+    }
+    if let Some(spec) = build_instance_spec(name, args) {
+        out.push(spec);
+    }
 }
 
 /// 从一个类型字符串中识别「本文件模板类的实例化使用点」，去重后追加到 `out`。
@@ -197,13 +231,7 @@ fn collect_instance_from_type(
     if !template_names.contains(name.as_str()) {
         return;
     }
-    let key = (name.clone(), args.clone());
-    if !seen.insert(key) {
-        return;
-    }
-    if let Some(spec) = build_instance_spec(&name, &args) {
-        out.push(spec);
-    }
+    record_instance(&name, &args, seen, out);
 }
 
 /// 由模板类构造函数与实例化别名派生构造工厂骨架（v6 Phase B 增强（续））。
@@ -567,6 +595,26 @@ mod tests {
         assert_eq!(spec.hicc_args, vec!["hicc::Pod<i32>".to_string()]);
         assert_eq!(spec.cpp_args, vec!["int".to_string()]);
         assert!(!spec.needs_class_type);
+    }
+
+    #[test]
+    fn record_instance_dedups_by_name_and_args() {
+        use std::collections::BTreeSet;
+        let mut seen: BTreeSet<(String, Vec<String>)> = BTreeSet::new();
+        let mut out = Vec::new();
+        // 显式实例化路径以已拆分的实参直接记录（如 `template class Stack<long>;`）
+        record_instance("Stack", &["long".to_string()], &mut seen, &mut out);
+        // 同一 (模板名, 实参) 再次出现（例如同时来自字段类型）应被去重
+        record_instance("Stack", &["long".to_string()], &mut seen, &mut out);
+        assert_eq!(out.len(), 1);
+        // `long` 的位宽随平台而异：LP64（Linux/macOS）映射为 i64，
+        // LLP64（Windows）映射为 i32，故别名后缀须与平台保持一致。
+        #[cfg(not(target_os = "windows"))]
+        let expected_alias = "StackI64";
+        #[cfg(target_os = "windows")]
+        let expected_alias = "StackI32";
+        assert_eq!(out[0].alias_name, expected_alias);
+        assert_eq!(out[0].cpp_args, vec!["long".to_string()]);
     }
 
     #[test]
