@@ -231,8 +231,19 @@ pub fn generate(spec: &FfiSpec) -> String {
 
     // @dynamic_cast 下行转换骨架（v6 Phase C（续），v7 默认输出）
     if has_dynamic_casts {
+        // 仅当 src/dst 两端类型都有实际生成的 import_class! 块（即在本单元 Rust 作用域内可见）
+        // 时才输出活动绑定；否则（类型仅存在于 hicc::cpp! 原样 C++ 块、无对应 Rust 类型）
+        // 将绑定行注释化，避免引用未定义类型导致 `cannot find type` 而使生成项目不可编译。
+        let emitted_classes: std::collections::HashSet<&str> = spec
+            .class_specs
+            .iter()
+            .filter(|cs| !cs.is_empty())
+            .map(|cs| cs.name.as_str())
+            .collect();
         for dc in &spec.dynamic_casts {
-            emit_dynamic_cast(&mut out, dc);
+            let active = emitted_classes.contains(dc.src_class.as_str())
+                && emitted_classes.contains(dc.dst_class.as_str());
+            emit_dynamic_cast(&mut out, dc, active);
         }
     }
 
@@ -407,14 +418,20 @@ fn emit_proxy_factory(out: &mut String, pf: &ProxyFactorySpec) {
 
 /// 在 `import_lib!` 块内输出单个 `@dynamic_cast` 下行转换骨架（v6 Phase C（续））。
 ///
-/// 形如：
+/// `active`：源/目标类型是否在本单元 Rust 作用域内有对应的 `import_class!` 定义。
+/// 当为 `true` 时输出活动绑定；当为 `false` 时（类型仅存在于 `hicc::cpp!` 原样 C++ 块、
+/// 无对应 Rust 类型）将绑定行注释化，避免引用未定义类型导致生成项目不可编译。
+///
+/// 形如（active=true）：
 /// ```text
 /// // cpp2rust-todo[DCAST]: @dynamic_cast 下行转换骨架 —— 多态基类 Foo 向下转换为派生类 Bar；
 /// // 转换失败返回空指针，调用方需判空（is_null）。RTTI 要求源类型为多态类型（含虚函数）。
 /// #[cpp(func = "const Bar* @dynamic_cast<const Bar*>(const Foo*)")]
 /// pub unsafe fn dynamic_cast_foo_to_bar(src: *const Foo) -> *const Bar;
 /// ```
-fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec) {
+fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec, active: bool) {
+    // 类型不在作用域内时，绑定行以 `// ` 注释化输出（仍保留骨架供用户补全后启用）。
+    let p = if active { "" } else { "// " };
     out.push('\n');
     out.push_str(&format!(
         "    // cpp2rust-todo[DCAST]: @dynamic_cast 下行转换骨架 —— 多态基类 {} 向下转换为派生类 {}；\n",
@@ -423,10 +440,19 @@ fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec) {
     out.push_str(
         "    // 转换失败返回空指针，调用方需判空（is_null）。RTTI 要求源类型为多态类型（含虚函数）。\n",
     );
-    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", dc.cpp_sig));
+    if !active {
+        out.push_str(&format!(
+            "    // cpp2rust-todo[DCAST]: 类型 {} / {} 在本单元无 import_class! 定义，绑定暂注释；\n",
+            dc.src_class, dc.dst_class
+        ));
+        out.push_str(
+            "    // 请先为相关类型补全 import_class! 映射，再取消下方绑定的注释以启用。\n",
+        );
+    }
+    out.push_str(&format!("    {}#[cpp(func = \"{}\")]\n", p, dc.cpp_sig));
     out.push_str(&format!(
-        "    pub unsafe fn {}(src: *const {}) -> *const {};\n",
-        dc.rust_name, dc.src_class, dc.dst_class
+        "    {}pub unsafe fn {}(src: *const {}) -> *const {};\n",
+        p, dc.rust_name, dc.src_class, dc.dst_class
     ));
     // 引用形式（&Src -> &Dst）：hicc 允许同一指针型 C++ 签名在 Rust 侧返回 &Dst
     // （见 references/hicc/examples/dynamic_cast 的 `as_foo(&self) -> &Foo`）。
@@ -435,10 +461,10 @@ fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec) {
     out.push_str(
         "    // cpp2rust-todo[DCAST]: 引用形式 —— 仅在转换必定成功时使用；否则请用上面的裸指针形式判空。\n",
     );
-    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", dc.cpp_sig));
+    out.push_str(&format!("    {}#[cpp(func = \"{}\")]\n", p, dc.cpp_sig));
     out.push_str(&format!(
-        "    pub unsafe fn {}(src: &{}) -> &{};\n",
-        dc.ref_rust_name, dc.src_class, dc.dst_class
+        "    {}pub unsafe fn {}(src: &{}) -> &{};\n",
+        p, dc.ref_rust_name, dc.src_class, dc.dst_class
     ));
 }
 
@@ -494,7 +520,9 @@ fn strip_mut_ptr(ret_type: &str, class_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffi_model::{ClassSpec, FfiSpec, FnBinding, LibSpec, MethodBinding, SelfKind};
+    use crate::ffi_model::{
+        ClassSpec, DynamicCastSpec, FfiSpec, FnBinding, LibSpec, MethodBinding, SelfKind,
+    };
 
     fn make_fn_binding(name: &str, has_fn_ptr_param: bool) -> FnBinding {
         FnBinding {
@@ -601,6 +629,122 @@ mod tests {
         assert!(
             code.contains("#[allow(unused_imports)]"),
             "生成代码应包含 `#[allow(unused_imports)]`，实际输出：\n{}",
+            code
+        );
+    }
+
+    fn make_dynamic_cast(src: &str, dst: &str) -> DynamicCastSpec {
+        DynamicCastSpec {
+            rust_name: format!(
+                "dynamic_cast_{}_to_{}",
+                src.to_lowercase(),
+                dst.to_lowercase()
+            ),
+            ref_rust_name: format!(
+                "dynamic_cast_{}_to_{}_ref",
+                src.to_lowercase(),
+                dst.to_lowercase()
+            ),
+            src_class: src.to_string(),
+            dst_class: dst.to_string(),
+            cpp_sig: format!("const {dst}* @dynamic_cast<const {dst}*>(const {src}*)"),
+        }
+    }
+
+    /// 回归：@dynamic_cast 源/目标类型在本单元有 import_class! 定义时，应输出**活动**绑定
+    /// （未被注释），以便直接调用。
+    #[test]
+    fn dynamic_cast_active_when_types_in_scope() {
+        let spec = FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec!["#include <test.h>".to_string()],
+            // Foo / Bar 均有方法 → 生成 import_class!（非空），类型在作用域内
+            class_specs: vec![
+                ClassSpec {
+                    name: "Foo".to_string(),
+                    methods: vec![make_method_binding("foo", false)],
+                    associated_fns: vec![],
+                    destroy_fn: None,
+                    is_interface: false,
+                },
+                ClassSpec {
+                    name: "Bar".to_string(),
+                    methods: vec![make_method_binding("bar", false)],
+                    associated_fns: vec![],
+                    destroy_fn: None,
+                    is_interface: false,
+                },
+            ],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![],
+            },
+            dynamic_casts: vec![make_dynamic_cast("Foo", "Bar")],
+            ..Default::default()
+        };
+        let code = generate(&spec);
+        assert!(
+            code.contains(
+                "    pub unsafe fn dynamic_cast_foo_to_bar(src: *const Foo) -> *const Bar;"
+            ),
+            "类型在作用域内时应输出活动（未注释）的下行转换绑定，实际输出：\n{}",
+            code
+        );
+        assert!(
+            !code.contains("// pub unsafe fn dynamic_cast_foo_to_bar("),
+            "类型在作用域内时绑定不应被注释，实际输出：\n{}",
+            code
+        );
+    }
+
+    /// 回归（CI 修复）：@dynamic_cast 源/目标类型在本单元**没有** import_class! 定义
+    /// （仅存在于 hicc::cpp! 原样 C++ 块）时，绑定行必须注释化，避免引用未定义 Rust 类型
+    /// 导致 `cannot find type` 而使生成项目不可编译。
+    #[test]
+    fn dynamic_cast_commented_when_types_not_in_scope() {
+        let spec = FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec!["#include <test.h>".to_string()],
+            // 无任何 import_class! 块 → Person / Employee 在 Rust 侧未定义
+            class_specs: vec![],
+            lib_spec: LibSpec {
+                link_name: "test".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![make_fn_binding("main", false)],
+            },
+            dynamic_casts: vec![make_dynamic_cast("Person", "Employee")],
+            ..Default::default()
+        };
+        let code = generate(&spec);
+        // 裸指针与引用两种形式均应被注释化
+        assert!(
+            code.contains(
+                "    // pub unsafe fn dynamic_cast_person_to_employee(src: *const Person) -> *const Employee;"
+            ),
+            "类型不在作用域内时裸指针形式绑定应注释化，实际输出：\n{}",
+            code
+        );
+        assert!(
+            code.contains(
+                "    // pub unsafe fn dynamic_cast_person_to_employee_ref(src: &Person) -> &Employee;"
+            ),
+            "类型不在作用域内时引用形式绑定应注释化，实际输出：\n{}",
+            code
+        );
+        // 不应存在任何未注释的活动绑定行
+        for line in code.lines() {
+            let t = line.trim_start();
+            assert!(
+                !t.starts_with("pub unsafe fn dynamic_cast_person_to_employee"),
+                "类型不在作用域内时不应输出活动绑定，违规行：{}",
+                line
+            );
+        }
+        // 骨架说明注释仍应保留，指引用户补全后启用
+        assert!(
+            code.contains("cpp2rust-todo[DCAST]"),
+            "注释化后仍应保留 DCAST 骨架说明，实际输出：\n{}",
             code
         );
     }
