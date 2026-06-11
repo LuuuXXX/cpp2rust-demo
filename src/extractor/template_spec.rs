@@ -212,8 +212,8 @@ fn collect_instance_from_type(
 /// 将类型参数 `T` 替换为该实例化的具体 C++ 类型，生成 `import_lib!` 工厂骨架：
 ///
 /// ```text
-/// #[cpp(func = "Stack<int>* stack_i32_new(T value)")]
-/// pub unsafe fn stack_i32_new(value: i32) -> StackI32;
+/// #[cpp(func = "Stack<int>* stack_i32_new(int initial)")]
+/// pub unsafe fn stack_i32_new(initial: i32) -> StackI32;
 /// ```
 ///
 /// 工厂对应的 C++ 符号通常需用户在 C++ 侧显式实例化 / 包装后才存在，因此生成器会附

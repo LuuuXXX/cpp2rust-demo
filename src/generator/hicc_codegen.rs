@@ -331,7 +331,7 @@ fn emit_template_fn(out: &mut String, tfs: &TemplateFnSpec) {
 /// 形如：
 /// ```text
 /// // cpp2rust-todo[TMPL]: StackI32 构造工厂骨架 —— 需在 C++ 侧提供对应符号并校验签名
-/// #[cpp(func = "Stack<int>* stack_i32_new(T value)")]
+/// #[cpp(func = "Stack<int>* stack_i32_new(int value)")]
 /// pub unsafe fn stack_i32_new(value: i32) -> StackI32;
 /// ```
 fn emit_template_factory(out: &mut String, tf: &TemplateFactorySpec) {
