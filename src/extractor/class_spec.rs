@@ -93,9 +93,7 @@ pub(super) fn build_class_spec(
     }
 
     // 检测纯虚接口类：所有 public 非 ctor/dtor 方法（含继承）均为纯虚
-    let is_interface = !own_methods.is_empty()
-        && own_methods.iter().all(|m| m.is_pure_virtual)
-        && inherited.iter().all(|m| m.is_pure_virtual);
+    let is_interface = is_interface_class(ci, all_classes);
 
     Some(ClassSpec {
         name: ci.name.clone(),
@@ -104,6 +102,24 @@ pub(super) fn build_class_spec(
         destroy_fn: None,
         is_interface,
     })
+}
+
+/// 判断一个类是否为「纯虚接口类」：其所有 public 非 ctor/dtor 方法（含继承）均为纯虚，
+/// 且至少有一个这样的方法。与 [`build_class_spec`] 内联的 `is_interface` 判定一致，
+/// 抽取为公共辅助以供 Phase C 的 `@make_proxy` 代理工厂识别接口基类复用。
+pub(super) fn is_interface_class(ci: &ClassInfo, all_classes: &[ClassInfo]) -> bool {
+    let own_methods: Vec<&MethodInfo> = ci
+        .methods
+        .iter()
+        .filter(|m| {
+            !m.is_constructor && !m.is_destructor && m.accessibility == "public" && !m.is_static
+        })
+        .filter(|m| !m.name.starts_with("operator") && !is_rust_keyword(&to_snake_case(&m.name)))
+        .collect();
+    let inherited = collect_inherited_methods(ci, all_classes);
+    !own_methods.is_empty()
+        && own_methods.iter().all(|m| m.is_pure_virtual)
+        && inherited.iter().all(|m| m.is_pure_virtual)
 }
 
 /// 递归收集所有基类的 public 非 ctor/dtor 方法（不含静态方法）

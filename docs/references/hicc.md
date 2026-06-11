@@ -543,6 +543,30 @@ hicc::import_lib! {
 }
 ```
 
+## cpp2rust-demo 的接口代理映射（v6 Phase C）
+
+> 本节说明 cpp2rust-demo 工具如何把「继承 C++ 抽象接口的具体类」映射为 hicc 的
+> `@make_proxy` 代理工厂骨架，使 Rust 侧可实现 C++ 抽象类。该能力由环境变量
+> `CPP2RUST_GEN_PROXY` 控制，**默认关闭**（设为 `1`/`true`/`yes`/`on` 开启），关闭时默认
+> 产物逐字节不变。骨架带 `cpp2rust-todo[PROXY]` 占位注释，提示用户提供接口实现并校验
+> `@make_proxy` 参数类型列表。
+
+纯虚接口类已映射为 `#[interface]`（参与默认产物）。在此基础上，对「非抽象、可实例化，
+且继承自某个纯虚接口基类」的具体类，工具由其公有构造函数（排除拷贝 / 移动构造）派生
+`@make_proxy` 工厂，结合直接接口基类的 `#[interface(name = ...)]`：
+
+```rust
+hicc::import_lib! {
+    // cpp2rust-todo[PROXY]: @make_proxy 工厂骨架 —— 使 Rust 侧可实现 C++ 接口 Bar；
+    // 需确认构造函数参数类型列表与 @make_proxy 一致，Rust 实现类经 hicc::Interface<Baz> 传入。
+    #[cpp(func = "Baz @make_proxy<Baz>()")]
+    #[interface(name = "Bar")]
+    fn new_rust_baz(intf: hicc::Interface<Baz>) -> Baz;
+}
+```
+
+第一个参数固定为 Rust 实现类（`hicc::Interface<具体类>`），其后接构造函数参数。
+
 ## hicc 与其他工具的对比
 
 ### hicc vs c2rust-demo

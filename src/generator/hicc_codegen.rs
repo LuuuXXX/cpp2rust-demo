@@ -8,12 +8,15 @@
 //! 使用完整的 Rust 函数名（如 `counter_new`），以匹配 `main()` 中的调用方式。
 
 use crate::ffi_model::{
-    FfiSpec, FnBinding, SelfKind, TemplateClassSpec, TemplateFactorySpec, TemplateFnSpec,
-    TemplateInstanceSpec,
+    FfiSpec, FnBinding, ProxyFactorySpec, SelfKind, TemplateClassSpec, TemplateFactorySpec,
+    TemplateFnSpec, TemplateInstanceSpec,
 };
 
 /// `CPP2RUST_GEN_TEMPLATES` 环境变量名 — v6 Phase B 模板骨架生成开关。
 pub const GEN_TEMPLATES_ENV: &str = "CPP2RUST_GEN_TEMPLATES";
+
+/// `CPP2RUST_GEN_PROXY` 环境变量名 — v6 Phase C `@make_proxy` 代理工厂骨架生成开关。
+pub const GEN_PROXY_ENV: &str = "CPP2RUST_GEN_PROXY";
 
 /// 是否启用模板类 / 模板函数泛型骨架生成。
 ///
@@ -21,7 +24,20 @@ pub const GEN_TEMPLATES_ENV: &str = "CPP2RUST_GEN_TEMPLATES";
 /// （忽略大小写）时启用。关闭时生成器不输出任何模板相关内容，默认产物逐字节不变，
 /// 符合 v6 方案「不改变现有使用方法」的硬约束。
 pub fn templates_enabled() -> bool {
-    std::env::var(GEN_TEMPLATES_ENV)
+    env_switch_enabled(GEN_TEMPLATES_ENV)
+}
+
+/// 是否启用 `@make_proxy` 代理工厂骨架生成（v6 Phase C）。
+///
+/// **默认关闭**：仅当 `CPP2RUST_GEN_PROXY` 取值为 `1` / `true` / `yes` / `on`
+/// （忽略大小写）时启用。关闭时生成器不输出任何代理工厂内容，默认产物逐字节不变。
+pub fn proxy_enabled() -> bool {
+    env_switch_enabled(GEN_PROXY_ENV)
+}
+
+/// 读取布尔型环境变量开关：取值为 `1` / `true` / `yes` / `on`（忽略大小写）时为 `true`。
+fn env_switch_enabled(var: &str) -> bool {
+    std::env::var(var)
         .map(|v| {
             let v = v.trim().to_ascii_lowercase();
             matches!(v.as_str(), "1" | "true" | "yes" | "on")
@@ -173,11 +189,14 @@ pub fn generate(spec: &FfiSpec) -> String {
         .any(|cs| !cs.associated_fns.is_empty());
     let has_template_fns = gen_templates && !spec.template_functions.is_empty();
     let has_template_factories = gen_templates && !spec.template_factories.is_empty();
+    let gen_proxy = proxy_enabled();
+    let has_proxy_factories = gen_proxy && !spec.proxy_factories.is_empty();
     if spec.lib_spec.fn_bindings.is_empty()
         && spec.lib_spec.fwd_decls.is_empty()
         && !has_associated_fns
         && !has_template_fns
         && !has_template_factories
+        && !has_proxy_factories
     {
         return out;
     }
@@ -224,6 +243,13 @@ pub fn generate(spec: &FfiSpec) -> String {
     if has_template_factories {
         for tf in &spec.template_factories {
             emit_template_factory(&mut out, tf);
+        }
+    }
+
+    // @make_proxy 代理工厂骨架（v6 Phase C，受 CPP2RUST_GEN_PROXY 开关控制）
+    if has_proxy_factories {
+        for pf in &spec.proxy_factories {
+            emit_proxy_factory(&mut out, pf);
         }
     }
 
@@ -350,6 +376,42 @@ fn emit_template_factory(out: &mut String, tf: &TemplateFactorySpec) {
     out.push_str(&format!(
         "    pub unsafe fn {}({}) -> {};\n",
         tf.rust_name, params_str, tf.alias_name
+    ));
+}
+
+/// 在 `import_lib!` 块内输出单个 `@make_proxy` 代理工厂骨架（v6 Phase C）。
+///
+/// 形如：
+/// ```text
+/// // cpp2rust-todo[PROXY]: @make_proxy 工厂骨架 —— 使 Rust 侧可实现 C++ 接口 Bar；
+/// // 需确认构造函数参数类型列表与 @make_proxy 一致，Rust 实现类经 hicc::Interface<Baz> 传入。
+/// #[cpp(func = "Baz @make_proxy<Baz>()")]
+/// #[interface(name = "Bar")]
+/// fn new_rust_baz(intf: hicc::Interface<Baz>) -> Baz;
+/// ```
+fn emit_proxy_factory(out: &mut String, pf: &ProxyFactorySpec) {
+    out.push('\n');
+    out.push_str(&format!(
+        "    // cpp2rust-todo[PROXY]: @make_proxy 工厂骨架 —— 使 Rust 侧可实现 C++ 接口 {}；\n",
+        pf.interface_name
+    ));
+    out.push_str(&format!(
+        "    // 需确认构造函数参数类型列表与 @make_proxy 一致，Rust 实现类经 hicc::Interface<{}> 传入。\n",
+        pf.concrete_class
+    ));
+    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", pf.cpp_sig));
+    out.push_str(&format!(
+        "    #[interface(name = \"{}\")]\n",
+        pf.interface_name
+    ));
+    // 第一个参数固定为 Rust 实现类（hicc::Interface<具体类>），其后为构造函数参数
+    let mut all_params: Vec<String> = vec![format!("intf: hicc::Interface<{}>", pf.concrete_class)];
+    all_params.extend(pf.params.iter().map(|(n, t)| format!("{}: {}", n, t)));
+    out.push_str(&format!(
+        "    fn {}({}) -> {};\n",
+        pf.rust_name,
+        all_params.join(", "),
+        pf.concrete_class
     ));
 }
 
