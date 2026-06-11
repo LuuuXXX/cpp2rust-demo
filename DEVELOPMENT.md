@@ -159,6 +159,8 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 **模板实例化追踪扩展 + 构造工厂骨架（v6 Phase B 增强（续））**：`build_template_instances` 的实例化追踪来源从「字段类型」扩展到**方法参数 / 返回类型**与**全局函数参数 / 返回类型**（如 `void use(Stack<short>& s)` 也能收集到 `Stack<short>` 别名）。在此基础上，`extractor::template_spec::build_template_factories` 由模板类的公有构造函数派生**构造工厂骨架**：将类型参数 `T` 按实例化的具体类型替换（`substitute_type_params`，以完整标识符为单位替换，避免误伤 `Time` 等子串），生成器 `emit_template_factory` 在 `import_lib!` 中输出工厂函数（如 `#[cpp(func = "Stack<int>* stack_i32_new(int initial)")] pub unsafe fn stack_i32_new(initial: i32) -> StackI32;`）。工厂对应的 C++ 符号通常需用户显式实例化 / 包装后才存在，故附 `cpp2rust-todo[TMPL]` 提示。该能力同样受 `CPP2RUST_GEN_TEMPLATES` 控制，默认关闭时产物逐字节不变。详见 `docs/plans/v6/development-progress-phase-b-plus2.md`。
 
+**显式实例化 + 局部变量声明追踪（v6 Phase B 增强（再续）/ 收尾）**：实例化追踪进一步扩展到 **显式实例化** `template class Foo<int>;`（libclang 表现为带模板实参的 `ClassDecl`，实参由 `ClassInfo::template_args` 携带）与 **函数 / 方法体内局部变量声明**（如 `Stack<int> s;`、`Stack<int>* p = new Stack<int>();`）。后者由 `ast_parser` 第三遍 `collector::collect_local_var_types` 递归收集函数 / 方法体内 `VarDecl` 的类型显示名（跳过系统头子树、仅限当前编译单元），写入 `CppAst.local_var_types`，再由 `build_template_instances` 的「来源 5」经 `collect_instance_from_type` 解析并去重。两者均复用既有 `build_instance_spec` / `build_template_factories`，输出受同一 `CPP2RUST_GEN_TEMPLATES` 开关控制，默认关闭时产物逐字节不变。详见 `docs/plans/v6/development-progress-phase-b-plus3.md` 与 `development-progress-phase-b-plus4.md`。
+
 ### 分层快速运行命令
 
 ```sh

@@ -137,6 +137,8 @@ fn build_template_fn_spec(tf: &TemplateFunctionInfo) -> Option<TemplateFnSpec> {
 /// 3. 全局函数的**参数 / 返回类型**（v6 Phase B 增强（续））；
 /// 4. **显式实例化** `template class Foo<int>;`（v6 Phase B 增强（再续））——
 ///    libclang 将其表现为带模板实参的 `ClassDecl`，实参由 `ClassInfo::template_args` 携带。
+/// 5. **局部变量声明**（v6 Phase B 收尾）——函数 / 方法体内 `Stack<int> s;`、
+///    `Stack<int>* p = new Stack<int>();` 等表达式级使用点，由 `CppAst::local_var_types` 携带。
 ///
 /// 以 `(模板名, 具体类型实参)` 记录并去重。这覆盖了 v6 §3.2 中 025
 /// （`Stack<int>`/`Stack<double>`）、027（`Matrix<int>`/`Matrix<double>` 显式实例化）等写法。
@@ -191,6 +193,13 @@ pub(super) fn build_template_instances(ast: &CppAst) -> Vec<TemplateInstanceSpec
             continue;
         }
         record_instance(&class.name, &class.template_args, &mut seen, &mut out);
+    }
+
+    // 来源 5（v6 Phase B 收尾）：函数 / 方法体内局部变量声明的类型，如
+    // `Stack<int> s;`、`Stack<int>* p = new Stack<int>();`。由 AST 第三遍递归收集，
+    // 已限定为当前编译单元。复用 `collect_instance_from_type` 解析 `Name<args>` 形式。
+    for type_name in &ast.local_var_types {
+        collect_instance_from_type(type_name, &template_names, &mut seen, &mut out);
     }
 
     out
@@ -647,5 +656,26 @@ mod tests {
         assert_eq!(substitute_type_params("U*", &params, &args), "double*");
         // 未出现的标识符保持不变
         assert_eq!(substitute_type_params("char", &params, &args), "char");
+    }
+
+    #[test]
+    fn collect_instance_from_local_var_type_records_alias() {
+        use std::collections::BTreeSet;
+        // 模拟 v6 Phase B 收尾「来源 5：局部变量声明」：
+        // `Stack<int> s;` 与 `Stack<int>* p = new Stack<int>();`（推导为 `Stack<int> *`）
+        let template_names: BTreeSet<&str> = ["Stack"].into_iter().collect();
+        let mut seen: BTreeSet<(String, Vec<String>)> = BTreeSet::new();
+        let mut out = Vec::new();
+
+        // 直接类型与指针类型（来自 `new Stack<int>()` 推导）都应收集到同一别名，并去重
+        collect_instance_from_type("Stack<int>", &template_names, &mut seen, &mut out);
+        collect_instance_from_type("Stack<int> *", &template_names, &mut seen, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].alias_name, "StackI32");
+        assert_eq!(out[0].template_name, "Stack");
+
+        // 非本文件模板（如 std::vector）不应被纳入
+        collect_instance_from_type("std::vector<int>", &template_names, &mut seen, &mut out);
+        assert_eq!(out.len(), 1);
     }
 }

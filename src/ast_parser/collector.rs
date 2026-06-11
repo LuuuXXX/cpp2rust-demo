@@ -10,6 +10,44 @@ use super::{
     ParamInfo, TemplateClassInfo, TemplateFunctionInfo,
 };
 
+/// 递归收集当前编译单元函数 / 方法体内**局部变量声明**的类型显示名（v6 Phase B 收尾）。
+///
+/// 用于模板实例化追踪：覆盖 `Stack<int> s;`、`Stack<int>* p = new Stack<int>();`
+/// 等表达式级使用点（`auto p = new Stack<int>();` 会被 libclang 推导为
+/// `Stack<int> *`，同样可被捕获）。
+///
+/// 遍历时跳过位于系统头的子树以限制成本；仅记录落在当前编译单元字节范围
+/// （`cpp_ranges`）内的 `VarDecl`。函数参数为 `ParmDecl`、类字段为 `FieldDecl`，
+/// 均不属于 `VarDecl`，因此不会在此重复收集（静态成员为 `VarDecl`，与字段来源
+/// 重叠的部分由提取器去重）。
+pub(super) fn collect_local_var_types(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+    out: &mut Vec<String>,
+) {
+    for child in entity.get_children() {
+        // 跳过系统头中的子树，避免遍历庞大的标准库实体树
+        if child
+            .get_location()
+            .map(|l| l.is_in_system_header())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if child.get_kind() == EntityKind::VarDecl
+            && entity_is_from_current_file(&child, cpp_ranges)
+        {
+            if let Some(t) = child.get_type() {
+                let name = t.get_display_name();
+                if !name.is_empty() {
+                    out.push(name);
+                }
+            }
+        }
+        collect_local_var_types(&child, cpp_ranges, out);
+    }
+}
+
 pub(super) fn collect_namespace(
     ns: &clang::Entity<'_>,
     ast: &mut CppAst,
