@@ -289,8 +289,9 @@ pub(super) fn extract_template_class(
     cpp_ranges: &[std::ops::Range<u32>],
 ) -> Option<TemplateClassInfo> {
     let name = entity.get_name()?;
-    // ClassTemplate 的模板实体本身用 ClassDecl/StructDecl 表征其底层记录类型。
-    let is_struct = entity.get_kind() == EntityKind::StructDecl;
+    // ClassTemplate 实体自身的 kind 恒为 ClassTemplate；其底层记录是 class 还是
+    // struct 需经 get_template_kind() 读取被模板化声明的 kind 才能区分。
+    let is_struct = entity.get_template_kind() == Some(EntityKind::StructDecl);
     let is_abstract = entity.is_abstract_record();
     let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
     let type_params = extract_template_params(entity);
