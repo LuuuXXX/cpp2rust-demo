@@ -161,6 +161,8 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 **显式实例化 + 局部变量声明追踪（v6 Phase B 增强（再续）/ 收尾）**：实例化追踪进一步扩展到 **显式实例化** `template class Foo<int>;`（libclang 表现为带模板实参的 `ClassDecl`，实参由 `ClassInfo::template_args` 携带）与 **函数 / 方法体内局部变量声明**（如 `Stack<int> s;`、`Stack<int>* p = new Stack<int>();`）。后者由 `ast_parser` 第三遍 `collector::collect_local_var_types` 递归收集函数 / 方法体内 `VarDecl` 的类型显示名（跳过系统头子树、仅限当前编译单元），写入 `CppAst.local_var_types`，再由 `build_template_instances` 的「来源 5」经 `collect_instance_from_type` 解析并去重。两者均复用既有 `build_instance_spec` / `build_template_factories`，输出受同一 `CPP2RUST_GEN_TEMPLATES` 开关控制，默认关闭时产物逐字节不变。详见 `docs/plans/v6/development-progress-phase-b-plus3.md` 与 `development-progress-phase-b-plus4.md`。
 
+**`@make_proxy` 代理工厂骨架（v6 Phase C：高级映射）**：在纯虚接口已映射为 `#[interface]`（`class_spec.rs`，参与默认产物）的基础上，`extractor::proxy_spec::build_proxy_factories` 识别「**继承 C++ 抽象接口的具体类**」（非抽象、且存在某个纯虚接口基类，接口判定复用 `class_spec::is_interface_class`），由其公有构造函数（排除拷贝 / 移动构造）派生 `ProxyFactorySpec`。生成器 `hicc_codegen::emit_proxy_factory` 在 `import_lib!` 中输出结合 `#[interface(name = "<直接接口基类>")]` 的 `@make_proxy` 工厂骨架（如 `#[cpp(func = "Baz @make_proxy<Baz>()")] #[interface(name = "Bar")] fn new_rust_baz(intf: hicc::Interface<Baz>) -> Baz;`），第一个参数固定为 Rust 实现类（`hicc::Interface<具体类>`），其后接构造函数参数。该能力由环境变量 `CPP2RUST_GEN_PROXY` 控制，**默认关闭**（仅取值 `1`/`true`/`yes`/`on` 时启用），关闭时默认产物逐字节不变（见 `hicc_codegen::proxy_enabled`）。骨架带 `cpp2rust-todo[PROXY]` 占位注释，提示用户提供接口实现并校验 `@make_proxy` 参数类型列表。生成行为测试见 `tests/proxy_gen_tests.rs`。详见 `docs/plans/v6/development-progress-phase-c.md`。
+
 ### 分层快速运行命令
 
 ```sh

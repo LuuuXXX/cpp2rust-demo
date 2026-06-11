@@ -25,6 +25,33 @@ pub struct FfiSpec {
     /// 具体实例化类型。仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器在 `import_lib!` 中输出
     /// 工厂骨架，默认关闭时不影响产物。
     pub template_factories: Vec<TemplateFactorySpec>,
+    /// `@make_proxy` 代理工厂骨架（v6 Phase C）。由「继承 C++ 抽象接口的具体类」的公有
+    /// 构造函数派生，使 Rust 侧可实现 C++ 接口。仅在 `CPP2RUST_GEN_PROXY` 开启时由生成器
+    /// 在 `import_lib!` 中输出，默认关闭时不影响产物。
+    pub proxy_factories: Vec<ProxyFactorySpec>,
+}
+
+/// `@make_proxy` 代理工厂骨架规格 — v6 Phase C（高级映射）
+///
+/// 由提取器从「继承 C++ 抽象接口（纯虚类）的具体类」的公有构造函数派生，生成 hicc
+/// `import_lib!` 中结合 `#[interface(name = ...)]` 的 `@make_proxy` 工厂骨架，使 Rust 侧
+/// 可通过组合模式实现 C++ 抽象类（见 `references/hicc/examples/interface`）。
+///
+/// 由于代理工厂需用户在 Rust 侧提供接口实现类，且构造函数参数类型列表须与 `@make_proxy`
+/// 一致，本规格生成的是**带 `cpp2rust-todo[PROXY]` 提示的骨架**（与其余高级映射能力一致），
+/// 需用户结合实际接口实现补全（符合 v6 方案 §8 的降级策略）。
+#[derive(Debug, Default, Clone)]
+pub struct ProxyFactorySpec {
+    /// Rust 工厂函数名（如 `new_rust_baz`）
+    pub rust_name: String,
+    /// 具体类名（既作为 `@make_proxy<...>` 的实参，也作为 Rust 返回类型，如 `Baz`）
+    pub concrete_class: String,
+    /// 直接接口基类名（用于 `#[interface(name = "...")]`，如 `Bar`）
+    pub interface_name: String,
+    /// C++ 工厂签名（用于 `#[cpp(func = "...")]`，如 `Baz @make_proxy<Baz>(int)`）
+    pub cpp_sig: String,
+    /// 构造函数参数列表 (rust_name, rust_type)；生成时位于 `intf: hicc::Interface<...>` 之后
+    pub params: Vec<(String, String)>,
 }
 
 /// 模板实例化构造工厂骨架规格 — v6 Phase B 增强（续）
