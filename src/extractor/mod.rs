@@ -136,8 +136,18 @@ pub fn extract(
         template_classes: Vec::new(),
         template_fns: Vec::new(),
     };
-    let (template_classes, template_fns) =
-        template_spec::build_template_specs(&ast.template_classes, &ast.template_functions);
+    // 收集用户代码中出现的类型字符串（类字段、方法/函数签名），供模板实例化发现。
+    // 仅为数据收集，不影响默认产物（实例化别名仅在 CPP2RUST_GEN_TEMPLATES 开启时生成）。
+    let type_usages = collect_type_usages(ast);
+    // 已生成 import_class! 的具体类名集合，供实例化实参中的类类型映射为 hicc class。
+    let exported_class_names: Vec<&str> =
+        spec.class_specs.iter().map(|c| c.name.as_str()).collect();
+    let (template_classes, template_fns) = template_spec::build_template_specs(
+        &ast.template_classes,
+        &ast.template_functions,
+        &type_usages,
+        &exported_class_names,
+    );
     spec.template_classes = template_classes;
     spec.template_fns = template_fns;
 
@@ -162,7 +172,31 @@ pub fn extract(
     spec
 }
 
-/// 计算函数签名中引用的类名集合。
+/// 收集用户代码中出现的类型字符串，供模板实例化发现（Phase B 续）。
+///
+/// 来源包括：所有类的字段类型、方法返回/参数类型，以及全局函数的返回/参数类型。
+/// 仅作为模板实例化发现的输入数据，不影响任何默认产物。
+fn collect_type_usages(ast: &CppAst) -> Vec<String> {
+    let mut usages = Vec::new();
+    for c in &ast.classes {
+        for f in &c.fields {
+            usages.push(f.type_name.clone());
+        }
+        for m in &c.methods {
+            usages.push(m.return_type.clone());
+            for p in &m.params {
+                usages.push(p.type_name.clone());
+            }
+        }
+    }
+    for f in &ast.functions {
+        usages.push(f.return_type.clone());
+        for p in &f.params {
+            usages.push(p.type_name.clone());
+        }
+    }
+    usages
+}
 ///
 /// 先检查 extern-C 函数，若无则检查所有符合条件的函数（有些 header 不用 extern "C" 包裹）。
 fn compute_used_classes(

@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **模板类具体实例化别名生成（v6 Phase B 续，默认关闭）**：在 `CPP2RUST_GEN_TEMPLATES` 开启时，除既有泛型 `import_class!` 骨架外，新增从用户代码类型用法中发现模板类实例化并在 `import_lib!` 中生成 `class StackInt = Stack<hicc::Pod<i32>>;` 形式的实例化别名：
+  - `ffi_model`：`TemplateClassSpec` 新增 `instantiations` 字段，新增 `TemplateInstantiation` 结构（别名 / Rust 实例化目标 / C++ 实参）。
+  - `extractor`：新增 `collect_type_usages`（收集类字段、方法/函数签名中的类型字符串）与 `template_spec::collect_instantiations`（平衡尖括号解析 `Name<...>`、POD→`hicc::Pod<T>` 与已导出类映射、去重排序）。
+  - `hicc_codegen`：模板类 `#[cpp(class = ...)]` 修正为 hicc 要求的完整模板形式（`template<class T> Stack<T>`，原为裸类名 `Stack`）；`import_lib!` 中输出实例化别名（构造函数/工厂仍以 `cpp2rust-todo[TPL]` 提示手动补充）。
+  - 全部生成受 `CPP2RUST_GEN_TEMPLATES` 控制，默认关闭，默认产物逐字节不变（L1 黄金 52/52、L2 基线零变更）；实例化发现仅为数据收集，不影响默认产物。
+  - 测试：`template_spec` 新增 6 个单元测试（CamelCase、实参映射、尖括号解析、去重排序等）；`tests/template_gen_tests.rs` 新增实例化别名与模板形式断言。
+
 ### 移除
 
 - **FFI 冒烟测试生成功能**：移除 `src/generator/smoke_test_gen.rs` 模块及相关代码，包括：

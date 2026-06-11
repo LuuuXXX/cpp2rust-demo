@@ -230,14 +230,26 @@ fn emit_template_blocks(spec: &FfiSpec) -> String {
 
     let mut out = String::new();
 
-    for cs in classes {
+    for cs in &classes {
         let generics = format!("<{}>", cs.type_params.join(", "));
         out.push('\n');
         out.push_str("hicc::import_class! {\n");
         out.push_str(
-            "    // cpp2rust-todo[TPL]: 泛型骨架；请在 import_lib! 中以具体实例化类型（如 hicc::Pod<i32>）声明别名与工厂\n",
+            "    // cpp2rust-todo[TPL]: 泛型骨架；具体实例化别名见下方 import_lib!，构造函数/工厂需手动补充\n",
         );
-        out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cs.name));
+        // hicc 要求模板类 #[cpp(class = ...)] 声明完整模板形式
+        // （如 `template<class T> Stack<T>`），而非裸类名 `Stack`。
+        let cpp_class_form = if cs.type_params.is_empty() {
+            cs.name.clone()
+        } else {
+            let decls: Vec<String> = cs
+                .type_params
+                .iter()
+                .map(|p| format!("class {}", p))
+                .collect();
+            format!("template<{}> {}{}", decls.join(", "), cs.name, generics)
+        };
+        out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cpp_class_form));
         out.push_str(&format!("    pub class {}{} {{\n", cs.name, generics));
         for (i, mb) in cs.methods.iter().enumerate() {
             if mb.has_fn_ptr_param {
@@ -274,13 +286,31 @@ fn emit_template_blocks(spec: &FfiSpec) -> String {
         out.push_str("}\n");
     }
 
-    if !spec.template_fns.is_empty() {
+    // import_lib! 块：实例化别名（class XxxInt = Stack<hicc::Pod<i32>>;）+ 模板函数骨架。
+    let has_insts = classes.iter().any(|cs| !cs.instantiations.is_empty());
+    if !spec.template_fns.is_empty() || has_insts {
         out.push('\n');
         out.push_str("hicc::import_lib! {\n");
         out.push_str(&format!(
             "    #![link_name = \"{}\"]\n",
             spec.lib_spec.link_name
         ));
+        for cs in &classes {
+            if cs.instantiations.is_empty() {
+                continue;
+            }
+            out.push('\n');
+            out.push_str(&format!(
+                "    // cpp2rust-todo[TPL]: {} 的具体实例化别名；构造函数/工厂请在此手动补充\n",
+                cs.name
+            ));
+            for inst in &cs.instantiations {
+                out.push_str(&format!(
+                    "    class {} = {};\n",
+                    inst.alias, inst.rust_target
+                ));
+            }
+        }
         for tf in &spec.template_fns {
             emit_template_fn(&mut out, tf);
         }

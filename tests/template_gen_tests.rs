@@ -39,6 +39,10 @@ fn default_off_emits_no_template_blocks() {
         !generated.contains("pub class Stack<"),
         "默认不应生成泛型 Stack<T> 骨架，实际：\n{generated}"
     );
+    assert!(
+        !generated.contains("= Stack<hicc::Pod<"),
+        "默认不应生成实例化别名，实际：\n{generated}"
+    );
 }
 
 #[test]
@@ -60,6 +64,29 @@ fn enabled_emits_generic_class_skeleton() {
     assert!(
         generated.contains("fn size(&self)"),
         "应映射 const 成员方法 size，实际：\n{generated}"
+    );
+    // 模板类 #[cpp(class = ...)] 应使用 hicc 要求的完整模板形式，而非裸类名
+    assert!(
+        generated.contains("#[cpp(class = \"template<class T> Stack<T>\")]"),
+        "模板类应声明完整模板形式 template<class T> Stack<T>，实际：\n{generated}"
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(feature = "full-test"),
+    ignore = "requires libclang; run with --features full-test --test-threads=1"
+)]
+fn enabled_emits_instantiation_aliases() {
+    // 025 中 IntStack/DoubleStack 分别以字段 Stack<int> / Stack<double> 实例化模板。
+    let generated = run_with_templates("examples/025_template_class", true);
+    assert!(
+        generated.contains("class StackInt = Stack<hicc::Pod<i32>>;"),
+        "应为 Stack<int> 生成实例化别名 StackInt，实际：\n{generated}"
+    );
+    assert!(
+        generated.contains("class StackDouble = Stack<hicc::Pod<f64>>;"),
+        "应为 Stack<double> 生成实例化别名 StackDouble，实际：\n{generated}"
     );
 }
 

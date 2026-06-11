@@ -36,6 +36,25 @@ pub struct TemplateClassSpec {
     pub type_params: Vec<String>,
     /// 成员方法绑定（复用 [`MethodBinding`]）
     pub methods: Vec<MethodBinding>,
+    /// 在用户代码中发现的具体实例化别名（如 `Stack<int>` → `StackInt`）。
+    /// 仅纳入所有实参均可映射（POD 或已导出 C++ 类）的实例化；生成器据此在
+    /// `import_lib!` 中输出 `class StackInt = Stack<hicc::Pod<i32>>;` 形式别名。
+    pub instantiations: Vec<TemplateInstantiation>,
+}
+
+/// 模板类的一个具体实例化别名规格（Phase B 续）。
+///
+/// 例如 C++ 中出现 `Stack<int>` 时，构建 `alias = "StackInt"`、
+/// `rust_target = "Stack<hicc::Pod<i32>>"`、`cpp_args = ["int"]`。生成器据此输出
+/// hicc 的 `class <alias> = <rust_target>;` 别名（参照 hicc-std 的实例化写法）。
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TemplateInstantiation {
+    /// Rust 侧别名（如 `"StackInt"`）
+    pub alias: String,
+    /// Rust 侧实例化目标（如 `"Stack<hicc::Pod<i32>>"`）
+    pub rust_target: String,
+    /// C++ 侧实参列表（如 `["int"]`），保留供注释/调试
+    pub cpp_args: Vec<String>,
 }
 
 impl TemplateClassSpec {
