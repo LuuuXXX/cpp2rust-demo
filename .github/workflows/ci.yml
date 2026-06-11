@@ -872,19 +872,28 @@ jobs:
       - name: Pre-build all Rust example projects
         run: |
           $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
-          $env:CARGO_TARGET_DIR = $targetDir
-          $jobs = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
+          $manifests = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
             Where-Object { $_.DirectoryName -like '*rust_hicc' } |
-            ForEach-Object {
-              $manifestPath = $_.FullName
-              Start-Job -ScriptBlock {
-                param($manifest, $tdir)
-                $env:CARGO_TARGET_DIR = $tdir
-                cargo build --manifest-path $manifest 2>&1
-              } -ArgumentList $manifestPath, $targetDir
-            }
+            Select-Object -ExpandProperty FullName
+          $jobs = $manifests | ForEach-Object {
+            $manifestPath = $_
+            Start-Job -ScriptBlock {
+              param($manifest, $tdir)
+              $env:CARGO_TARGET_DIR = $tdir
+              $result = cargo build --manifest-path $manifest 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                throw "cargo build failed for $manifest`n$result"
+              }
+            } -ArgumentList $manifestPath, $targetDir
+          }
           $jobs | Wait-Job | Receive-Job
+          $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
+          if ($failed.Count -gt 0) {
+            $failed | ForEach-Object { Receive-Job $_ -ErrorAction SilentlyContinue }
+            throw "Pre-build failed for $($failed.Count) example project(s)"
+          }
         env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
       - name: Run L3 run tests

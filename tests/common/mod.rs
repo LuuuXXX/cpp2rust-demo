@@ -223,6 +223,15 @@ pub fn cargo_run(dir: &str) -> String {
                     .current_dir(dir)
                     .output()
                     .unwrap_or_else(|e| panic!("Failed to run binary {}: {}", bin_path, e));
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    panic!(
+                        "Binary {} exited with {:?}\nstderr:\n{}",
+                        bin_path,
+                        output.status.code(),
+                        stderr
+                    );
+                }
                 return String::from_utf8_lossy(&output.stdout).to_string();
             }
         }
@@ -236,15 +245,38 @@ pub fn cargo_run(dir: &str) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
-/// 从 Cargo.toml 文件中解析 `[package] name` 字段。
+/// 从 Cargo.toml 文件中解析 `[package]` section 的 `name` 字段。
+///
+/// 支持带空格（`name = "foo"`）和不带空格（`name="foo"`）两种格式。
 fn parse_cargo_package_name(manifest_path: &str) -> Option<String> {
     let content = std::fs::read_to_string(manifest_path).ok()?;
+    let mut in_package = false;
     for line in content.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("name = \"") {
-            if let Some(name) = rest.strip_suffix('"') {
-                return Some(name.to_string());
-            }
+        // 跟踪当前 TOML section
+        if trimmed.starts_with('[') {
+            in_package = trimmed == "[package]";
+            continue;
+        }
+        if !in_package {
+            continue;
+        }
+        // 匹配 `name` 键（避免匹配 `name_blah` 等键名）
+        let after_name = match trimmed.strip_prefix("name") {
+            Some(s) => s,
+            None => continue,
+        };
+        if after_name.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            continue; // 不是精确的 name 键
+        }
+        let after_eq = match after_name.trim_start().strip_prefix('=') {
+            Some(s) => s,
+            None => continue,
+        };
+        let value = after_eq.trim();
+        // 提取双引号包裹的值
+        if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+            return Some(value[1..value.len() - 1].to_string());
         }
     }
     None
