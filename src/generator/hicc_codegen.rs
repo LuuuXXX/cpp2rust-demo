@@ -8,8 +8,8 @@
 //! 使用完整的 Rust 函数名（如 `counter_new`），以匹配 `main()` 中的调用方式。
 
 use crate::ffi_model::{
-    FfiSpec, FnBinding, ProxyFactorySpec, SelfKind, TemplateClassSpec, TemplateFactorySpec,
-    TemplateFnSpec, TemplateInstanceSpec,
+    DynamicCastSpec, FfiSpec, FnBinding, ProxyFactorySpec, SelfKind, TemplateClassSpec,
+    TemplateFactorySpec, TemplateFnSpec, TemplateInstanceSpec,
 };
 
 /// `CPP2RUST_GEN_TEMPLATES` 环境变量名 — v6 Phase B 模板骨架生成开关。
@@ -17,6 +17,9 @@ pub const GEN_TEMPLATES_ENV: &str = "CPP2RUST_GEN_TEMPLATES";
 
 /// `CPP2RUST_GEN_PROXY` 环境变量名 — v6 Phase C `@make_proxy` 代理工厂骨架生成开关。
 pub const GEN_PROXY_ENV: &str = "CPP2RUST_GEN_PROXY";
+
+/// `CPP2RUST_GEN_DYNAMIC_CAST` 环境变量名 — v6 Phase C（续）`@dynamic_cast` 下行转换骨架生成开关。
+pub const GEN_DYNAMIC_CAST_ENV: &str = "CPP2RUST_GEN_DYNAMIC_CAST";
 
 /// 是否启用模板类 / 模板函数泛型骨架生成。
 ///
@@ -33,6 +36,14 @@ pub fn templates_enabled() -> bool {
 /// （忽略大小写）时启用。关闭时生成器不输出任何代理工厂内容，默认产物逐字节不变。
 pub fn proxy_enabled() -> bool {
     env_switch_enabled(GEN_PROXY_ENV)
+}
+
+/// 是否启用 `@dynamic_cast` 下行转换骨架生成（v6 Phase C（续））。
+///
+/// **默认关闭**：仅当 `CPP2RUST_GEN_DYNAMIC_CAST` 取值为 `1` / `true` / `yes` / `on`
+/// （忽略大小写）时启用。关闭时生成器不输出任何下行转换内容，默认产物逐字节不变。
+pub fn dynamic_cast_enabled() -> bool {
+    env_switch_enabled(GEN_DYNAMIC_CAST_ENV)
 }
 
 /// 读取布尔型环境变量开关：取值为 `1` / `true` / `yes` / `on`（忽略大小写）时为 `true`。
@@ -191,12 +202,15 @@ pub fn generate(spec: &FfiSpec) -> String {
     let has_template_factories = gen_templates && !spec.template_factories.is_empty();
     let gen_proxy = proxy_enabled();
     let has_proxy_factories = gen_proxy && !spec.proxy_factories.is_empty();
+    let gen_dynamic_cast = dynamic_cast_enabled();
+    let has_dynamic_casts = gen_dynamic_cast && !spec.dynamic_casts.is_empty();
     if spec.lib_spec.fn_bindings.is_empty()
         && spec.lib_spec.fwd_decls.is_empty()
         && !has_associated_fns
         && !has_template_fns
         && !has_template_factories
         && !has_proxy_factories
+        && !has_dynamic_casts
     {
         return out;
     }
@@ -250,6 +264,13 @@ pub fn generate(spec: &FfiSpec) -> String {
     if has_proxy_factories {
         for pf in &spec.proxy_factories {
             emit_proxy_factory(&mut out, pf);
+        }
+    }
+
+    // @dynamic_cast 下行转换骨架（v6 Phase C（续），受 CPP2RUST_GEN_DYNAMIC_CAST 开关控制）
+    if has_dynamic_casts {
+        for dc in &spec.dynamic_casts {
+            emit_dynamic_cast(&mut out, dc);
         }
     }
 
@@ -412,6 +433,31 @@ fn emit_proxy_factory(out: &mut String, pf: &ProxyFactorySpec) {
         pf.rust_name,
         all_params.join(", "),
         pf.concrete_class
+    ));
+}
+
+/// 在 `import_lib!` 块内输出单个 `@dynamic_cast` 下行转换骨架（v6 Phase C（续））。
+///
+/// 形如：
+/// ```text
+/// // cpp2rust-todo[DCAST]: @dynamic_cast 下行转换骨架 —— 多态基类 Foo 向下转换为派生类 Bar；
+/// // 转换失败返回空指针，调用方需判空（is_null）。RTTI 要求源类型为多态类型（含虚函数）。
+/// #[cpp(func = "const Bar* @dynamic_cast<const Bar*>(const Foo*)")]
+/// pub unsafe fn dynamic_cast_foo_to_bar(src: *const Foo) -> *const Bar;
+/// ```
+fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec) {
+    out.push('\n');
+    out.push_str(&format!(
+        "    // cpp2rust-todo[DCAST]: @dynamic_cast 下行转换骨架 —— 多态基类 {} 向下转换为派生类 {}；\n",
+        dc.src_class, dc.dst_class
+    ));
+    out.push_str(
+        "    // 转换失败返回空指针，调用方需判空（is_null）。RTTI 要求源类型为多态类型（含虚函数）。\n",
+    );
+    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", dc.cpp_sig));
+    out.push_str(&format!(
+        "    pub unsafe fn {}(src: *const {}) -> *const {};\n",
+        dc.rust_name, dc.src_class, dc.dst_class
     ));
 }
 

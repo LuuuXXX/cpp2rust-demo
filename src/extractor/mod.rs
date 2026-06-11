@@ -6,6 +6,7 @@ pub mod type_mapper;
 
 mod class_spec;
 mod cpp_block;
+mod dynamic_cast_spec;
 mod lib_spec;
 mod proxy_spec;
 mod template_spec;
@@ -149,6 +150,11 @@ pub fn extract(
     // 始终构建（开销极小），但仅在生成器侧 CPP2RUST_GEN_PROXY 开启时输出，
     // 因此默认产物逐字节不变。
     spec.proxy_factories = proxy_spec::build_proxy_factories(ast);
+
+    // ── @dynamic_cast 下行转换规格（v6 Phase C（续））─────────
+    // 始终构建（开销极小），但仅在生成器侧 CPP2RUST_GEN_DYNAMIC_CAST 开启时输出，
+    // 因此默认产物逐字节不变。
+    spec.dynamic_casts = dynamic_cast_spec::build_dynamic_casts(ast);
 
     // ── 后处理器 ──────────────────────────────
     crate::postprocessor::diamond_handler::apply(&mut spec, ast, &functions);

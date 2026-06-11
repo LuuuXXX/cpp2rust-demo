@@ -192,6 +192,7 @@ cpp2rust-demo merge --feature linux_x86 --feature arm_embedded --output-dir dist
 | `CPP2RUST_GEN_SMOKE` | 控制是否生成冒烟测试 `tests/smoke.rs`（默认开启；设为 `0`/`false`/`no`/`off` 关闭） |
 | `CPP2RUST_GEN_TEMPLATES` | 控制是否生成模板类 / 模板函数的泛型 hicc 骨架、**模板实例化别名及构造工厂骨架**（默认**关闭**；设为 `1`/`true`/`yes`/`on` 开启）。关闭时默认产物逐字节不变 |
 | `CPP2RUST_GEN_PROXY` | 控制是否生成 `@make_proxy` 代理工厂骨架（让 Rust 侧实现 C++ 抽象接口；默认**关闭**；设为 `1`/`true`/`yes`/`on` 开启）。关闭时默认产物逐字节不变 |
+| `CPP2RUST_GEN_DYNAMIC_CAST` | 控制是否生成 `@dynamic_cast` 下行转换骨架（RTTI 场景把多态基类指针向下转换为派生类指针；默认**关闭**；设为 `1`/`true`/`yes`/`on` 开启）。关闭时默认产物逐字节不变 |
 
 ---
 
