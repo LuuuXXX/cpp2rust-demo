@@ -169,15 +169,27 @@ fn template_skeleton_gated_by_env() {
     );
 
     // v6 Phase B 增强（再续）：显式实例化 `template class Stack<long>;`
-    // 应生成 Stack<long> 的实例化别名与构造工厂骨架
+    // 应生成 Stack<long> 的实例化别名与构造工厂骨架。
+    // `long` 的位宽随平台而异：LP64（Linux/macOS）映射为 i64，
+    // LLP64（Windows）映射为 i32，故别名与工厂名须与平台保持一致。
+    #[cfg(not(target_os = "windows"))]
+    let (expected_alias, expected_factory) = (
+        "pub type StackI64 = Stack<hicc::Pod<i64>>;",
+        "pub unsafe fn stack_i64_new(initial: i64) -> StackI64;",
+    );
+    #[cfg(target_os = "windows")]
+    let (expected_alias, expected_factory) = (
+        "pub type StackI32 = Stack<hicc::Pod<i32>>;",
+        "pub unsafe fn stack_i32_new(initial: i32) -> StackI32;",
+    );
     assert!(
-        on.contains("pub type StackI64 = Stack<hicc::Pod<i64>>;"),
+        on.contains(expected_alias),
         "应从显式实例化 template class Stack<long>; 收集到别名，实际输出：\n{}",
         on
     );
     assert!(
-        on.contains("pub unsafe fn stack_i64_new(initial: i64) -> StackI64;"),
-        "应为显式实例化派生 StackI64 构造工厂骨架，实际输出：\n{}",
+        on.contains(expected_factory),
+        "应为显式实例化派生构造工厂骨架，实际输出：\n{}",
         on
     );
 }
