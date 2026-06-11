@@ -284,7 +284,10 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         // 与第一遍相同的过滤逻辑（通过 should_skip_entity 共用）。
         // LinkageSpec/UnexposedDecl 在第二遍不需要处理（方法定义由 semantic_parent 定位），
         // 但仍需保持与第一遍一致的非内联函数定义豁免。
-        if kind != EntityKind::LinkageSpec && kind != EntityKind::UnexposedDecl && should_skip_entity(&entity, kind) {
+        if kind != EntityKind::LinkageSpec
+            && kind != EntityKind::UnexposedDecl
+            && should_skip_entity(&entity, kind)
+        {
             continue;
         }
         let is_method_def = matches!(

@@ -3,7 +3,9 @@
 //! ClassInfo と FunctionInfo から hicc の `cpp! { ... }` ブロックのソース行を生成する。
 
 use super::type_mapper::clean_type;
-use super::{classify_functions, extract_range_text, format_params_cpp, normalize_ptr_spacing, ShimKind};
+use super::{
+    classify_functions, extract_range_text, format_params_cpp, normalize_ptr_spacing, ShimKind,
+};
 use crate::ast_parser::{ClassInfo, CppAst, FieldInfo, FunctionInfo, MethodInfo};
 
 pub(super) fn build_cpp_block(

@@ -42,8 +42,7 @@ pub(super) fn build_lib_spec(
     // 经 build_fn_binding 规范化后生成相同的 cpp_sig（如 friend 声明与 extern-C 声明）。
     // 保留首次出现的版本，避免后续误将其视为重载而追加数字后缀。
     {
-        let mut seen_sigs: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut seen_sigs: std::collections::HashSet<String> = std::collections::HashSet::new();
         fn_bindings.retain(|fb| seen_sigs.insert(fb.cpp_sig.clone()));
     }
 

@@ -25,11 +25,7 @@ const FEATURE_A_SOURCES: &[&str] = &[
 ];
 
 /// Feature B：rapidjson extern-C shim 文件（少量）
-const FEATURE_B_SHIM_SOURCES: &[&str] = &[
-    "document_ffi.cpp",
-    "value_ffi.cpp",
-    "reader_ffi.cpp",
-];
+const FEATURE_B_SHIM_SOURCES: &[&str] = &["document_ffi.cpp", "value_ffi.cpp", "reader_ffi.cpp"];
 
 // ─────────────────────────────────────────────────────────────────
 //  辅助函数
@@ -85,8 +81,7 @@ fn setup_feature(
         .unwrap_or_else(|e| panic!("write_build_rs: {}", e));
 
     // meta/build_cmd.txt：merge 阶段 FeatureLayout::save_merge_report 写入此目录
-    std::fs::write(meta_dir.join("build_cmd.txt"), "make")
-        .expect("写入 build_cmd.txt 失败");
+    std::fs::write(meta_dir.join("build_cmd.txt"), "make").expect("写入 build_cmd.txt 失败");
 
     println!(
         "  setup_feature '{}': {} 个 unit 文件就绪",
@@ -153,7 +148,9 @@ fn rapidjson_multi_feature_merge() {
         &[RAPIDJSON_INCLUDE],
     );
     if feat_a_units.is_empty() {
-        eprintln!("multi_feature_e2e: feat_examples 预处理全部失败，跳过（g++ / clang++ 是否已安装？）");
+        eprintln!(
+            "multi_feature_e2e: feat_examples 预处理全部失败，跳过（g++ / clang++ 是否已安装？）"
+        );
         return;
     }
 
@@ -174,8 +171,10 @@ fn rapidjson_multi_feature_merge() {
         &project_root,
         &[
             "merge",
-            "--feature", "feat_examples",
-            "--feature", "feat_shim",
+            "--feature",
+            "feat_examples",
+            "--feature",
+            "feat_shim",
         ],
     );
     dump_output("multi-feature merge", &output);
@@ -221,8 +220,7 @@ fn rapidjson_multi_feature_merge() {
     );
 
     // Cargo.toml 必须含 [features] 及两个 feature 条目
-    let cargo_toml_content =
-        std::fs::read_to_string(combined_rust.join("Cargo.toml")).unwrap();
+    let cargo_toml_content = std::fs::read_to_string(combined_rust.join("Cargo.toml")).unwrap();
     assert!(
         cargo_toml_content.contains("feat_examples = []"),
         "Cargo.toml 缺少 feat_examples feature 条目\n内容：\n{}",
@@ -235,8 +233,7 @@ fn rapidjson_multi_feature_merge() {
     );
 
     // src/lib.rs 必须含 #[cfg(feature = "...")] 条件编译守卫
-    let lib_rs_content =
-        std::fs::read_to_string(combined_rust.join("src").join("lib.rs")).unwrap();
+    let lib_rs_content = std::fs::read_to_string(combined_rust.join("src").join("lib.rs")).unwrap();
     assert!(
         lib_rs_content.contains("#[cfg(feature = \"feat_examples\")]"),
         "src/lib.rs 缺少 feat_examples 条件编译守卫\n内容：\n{}",
@@ -300,8 +297,10 @@ fn rapidjson_merge_output_dir() {
         &project_root,
         &[
             "merge",
-            "--feature", "feat_shim",
-            "--output-dir", out_dir.to_str().unwrap(),
+            "--feature",
+            "feat_shim",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
         ],
     );
     dump_output("merge --output-dir", &output);
@@ -315,19 +314,12 @@ fn rapidjson_merge_output_dir() {
     );
 
     // ── 验证导出目录结构 ──────────────────────────────────────────────────
-    assert!(
-        out_dir.exists(),
-        "导出目录不存在：{}",
-        out_dir.display()
-    );
+    assert!(out_dir.exists(), "导出目录不存在：{}", out_dir.display());
     assert!(
         out_dir.join("Cargo.toml").exists(),
         "导出目录缺少 Cargo.toml"
     );
-    assert!(
-        out_dir.join("build.rs").exists(),
-        "导出目录缺少 build.rs"
-    );
+    assert!(out_dir.join("build.rs").exists(), "导出目录缺少 build.rs");
     assert!(
         out_dir.join("src").join("lib.rs").exists(),
         "导出目录缺少 src/lib.rs"
@@ -356,9 +348,7 @@ fn rapidjson_merge_output_dir() {
 #[test]
 fn rapidjson_multi_feature_with_output_dir() {
     if !Path::new(RAPIDJSON_ROOT).exists() {
-        eprintln!(
-            "multi_feature_output_dir_e2e: rapidjson 子模块未初始化，跳过"
-        );
+        eprintln!("multi_feature_output_dir_e2e: rapidjson 子模块未初始化，跳过");
         return;
     }
 
@@ -400,9 +390,12 @@ fn rapidjson_multi_feature_with_output_dir() {
         &project_root,
         &[
             "merge",
-            "--feature", "feat_examples",
-            "--feature", "feat_shim",
-            "--output-dir", out_dir.to_str().unwrap(),
+            "--feature",
+            "feat_examples",
+            "--feature",
+            "feat_shim",
+            "--output-dir",
+            out_dir.to_str().unwrap(),
         ],
     );
     dump_output("multi-feature merge --output-dir", &output);
@@ -417,7 +410,10 @@ fn rapidjson_multi_feature_with_output_dir() {
 
     // ── 验证导出目录结构 ──────────────────────────────────────────────────
     assert!(out_dir.exists(), "导出目录不存在：{}", out_dir.display());
-    assert!(out_dir.join("Cargo.toml").exists(), "导出目录缺少 Cargo.toml");
+    assert!(
+        out_dir.join("Cargo.toml").exists(),
+        "导出目录缺少 Cargo.toml"
+    );
     assert!(out_dir.join("build.rs").exists(), "导出目录缺少 build.rs");
     assert!(
         out_dir.join("src").join("lib.rs").exists(),
@@ -426,8 +422,7 @@ fn rapidjson_multi_feature_with_output_dir() {
     assert!(out_dir.join("meta").exists(), "导出目录缺少 meta/");
 
     // 导出的 src/lib.rs 应含两个 feature 的条件编译守卫
-    let lib_rs_content =
-        std::fs::read_to_string(out_dir.join("src").join("lib.rs")).unwrap();
+    let lib_rs_content = std::fs::read_to_string(out_dir.join("src").join("lib.rs")).unwrap();
     assert!(
         lib_rs_content.contains("#[cfg(feature = \"feat_examples\")]"),
         "导出 src/lib.rs 缺少 feat_examples 守卫\n内容：\n{}",

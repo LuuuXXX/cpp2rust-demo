@@ -452,10 +452,17 @@ fn nm_rapidjson_shim_validation() {
     // refactoring/`.  When `cargo build` is run inside `rapidjson_sys/`, cargo
     // uses the workspace-level target directory one level up, NOT a local
     // `target/` inside `rapidjson_sys/` itself.
-    let build_dir = rapidjson_sys_dir
-        .parent()
-        .expect("rapidjson_sys_dir should have a parent workspace directory")
-        .join("target/debug");
+    //
+    // When CARGO_TARGET_DIR is set (shared pre-build target directory used in
+    // CI), cargo writes all artifacts there instead; look there first.
+    let build_dir = if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
+        std::path::PathBuf::from(&target_dir).join("debug")
+    } else {
+        rapidjson_sys_dir
+            .parent()
+            .expect("rapidjson_sys_dir should have a parent workspace directory")
+            .join("target/debug")
+    };
     let rust_archive_symbols = collect_archive_symbols(&build_dir);
 
     println!(

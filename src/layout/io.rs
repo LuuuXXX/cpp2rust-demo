@@ -6,10 +6,8 @@
 use anyhow::anyhow;
 use std::path::PathBuf;
 
+use super::types::{ApiManifest, FeatureLayout, InitReportData, MergeReportData};
 use crate::error::Result;
-use super::types::{
-    ApiManifest, FeatureLayout, InitReportData, MergeReportData,
-};
 
 impl FeatureLayout {
     pub fn new(project_root: PathBuf, feature_name: &str) -> Self {

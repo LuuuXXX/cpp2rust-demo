@@ -68,7 +68,8 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
 
     let (all_units, unit_stats) = first_pass_parse(&selected, &lo.c_dir, &project_root)?;
     let class_to_module = collect_class_map(&all_units);
-    let (unit_paths, sorted_tags) = second_pass_generate(&all_units, &class_to_module, &lo.rust_dir)?;
+    let (unit_paths, sorted_tags) =
+        second_pass_generate(&all_units, &class_to_module, &lo.rust_dir)?;
 
     print_degraded_summary(&sorted_tags);
 
@@ -230,10 +231,7 @@ fn first_pass_parse(
 
     // 若存在解析失败的文件，汇总打印但不中断（只要有成功的文件即可继续）
     if !failed_files.is_empty() {
-        eprintln!(
-            "\n⚠ {} 个文件解析失败（已跳过）：",
-            failed_files.len()
-        );
+        eprintln!("\n⚠ {} 个文件解析失败（已跳过）：", failed_files.len());
         for f in &failed_files {
             eprintln!("    ✗ {}", f);
         }
@@ -508,7 +506,8 @@ mod tests {
 
     #[test]
     fn count_degraded_tags_basic() {
-        let code = "// cpp2rust-todo[FP] some\n// cpp2rust-todo[OP] other\n// cpp2rust-todo[FP] again\n";
+        let code =
+            "// cpp2rust-todo[FP] some\n// cpp2rust-todo[OP] other\n// cpp2rust-todo[FP] again\n";
         let mut tags: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
         count_degraded_tags(code, "unit/foo", &mut tags);
         assert_eq!(tags["FP"]["unit/foo"], 2);
@@ -610,7 +609,10 @@ mod tests {
 
         // Foo 在本模块（class_specs 含 Foo 且非空），不生成任何 use/opaque
         let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
-        assert!(result.is_empty(), "本模块已定义的类不应生成 use 或 opaque，got: {result:?}");
+        assert!(
+            result.is_empty(),
+            "本模块已定义的类不应生成 use 或 opaque，got: {result:?}"
+        );
     }
 
     /// 他模块类（class_to_module 中有该类，且非本模块）→ 生成 `use crate::...::TypeName;`
@@ -625,7 +627,10 @@ mod tests {
             result.contains("use crate::unit::bar::Bar;"),
             "他模块类应生成 use 语句，got: {result:?}"
         );
-        assert!(!result.contains("import_class"), "不应生成 opaque import_class! 块，got: {result:?}");
+        assert!(
+            !result.contains("import_class"),
+            "不应生成 opaque import_class! 块，got: {result:?}"
+        );
     }
 
     /// 同 unit_path 的类（def_module == current_unit_path）→ 不生成 use
@@ -637,7 +642,10 @@ mod tests {
         class_to_module.insert("Baz".to_string(), "unit/foo".to_string());
 
         let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
-        assert!(result.is_empty(), "同 unit_path 的类不应生成 use，got: {result:?}");
+        assert!(
+            result.is_empty(),
+            "同 unit_path 的类不应生成 use，got: {result:?}"
+        );
     }
 
     /// 未定义类（class_to_module 中无该类）→ 生成 opaque import_class! 块
@@ -655,7 +663,10 @@ mod tests {
             result.contains("Unknown"),
             "opaque 块应含类名，got: {result:?}"
         );
-        assert!(!result.contains("use crate"), "不应生成 use 语句，got: {result:?}");
+        assert!(
+            !result.contains("use crate"),
+            "不应生成 use 语句，got: {result:?}"
+        );
     }
 
     /// 多斜杠路径：路径中的 `/` 应转换为 `::` 生成嵌套模块路径
@@ -689,6 +700,9 @@ mod tests {
         let class_to_module = HashMap::new();
 
         let result = build_cross_module_preamble(&spec, "unit/foo", &class_to_module);
-        assert!(result.is_empty(), "无 fwd_decls 时应返回空，got: {result:?}");
+        assert!(
+            result.is_empty(),
+            "无 fwd_decls 时应返回空，got: {result:?}"
+        );
     }
 }

@@ -65,8 +65,7 @@ mod tests {
 
     #[test]
     fn implements_std_error() {
-        let e: Box<dyn std::error::Error> =
-            Box::new(Cpp2RustError::IoError("test".to_string()));
+        let e: Box<dyn std::error::Error> = Box::new(Cpp2RustError::IoError("test".to_string()));
         assert!(!e.to_string().is_empty());
     }
 

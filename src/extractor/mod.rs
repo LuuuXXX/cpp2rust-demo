@@ -4,8 +4,8 @@
 
 pub mod type_mapper;
 
-mod cpp_block;
 mod class_spec;
+mod cpp_block;
 mod lib_spec;
 
 use crate::ast_parser::{CppAst, FunctionInfo, ParamInfo};
@@ -107,12 +107,11 @@ pub fn extract(
             .filter(|c| !c.name.is_empty())
             .filter(|c| used_classes.contains(&c.name))
             .map(|ci| {
-                class_spec::build_class_spec(ci, &ast.classes, &exported_class_names).unwrap_or_else(|| {
-                    ClassSpec {
+                class_spec::build_class_spec(ci, &ast.classes, &exported_class_names)
+                    .unwrap_or_else(|| ClassSpec {
                         name: ci.name.clone(),
                         ..Default::default()
-                    }
-                })
+                    })
             })
             .collect()
     };
@@ -176,8 +175,7 @@ fn compute_used_classes(
     };
     for fi in &candidate_fns {
         for cn in &all_cn {
-            if fi.return_type.contains(cn) || fi.params.iter().any(|p| p.type_name.contains(cn))
-            {
+            if fi.return_type.contains(cn) || fi.params.iter().any(|p| p.type_name.contains(cn)) {
                 set.insert(cn.to_string());
             }
         }
@@ -325,7 +323,9 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
         || fi.name.ends_with("_new")
         || fi.name.contains("_new_")
         || fi.name.find("_new").map_or(false, |p| {
-            fi.name.get(p + 4..).map_or(false, |rest| rest.starts_with(|c: char| c.is_uppercase()))
+            fi.name
+                .get(p + 4..)
+                .map_or(false, |rest| rest.starts_with(|c: char| c.is_uppercase()))
         });
 
     if ret_is_class_ptr && name_has_new {
@@ -770,11 +770,11 @@ fn assign_associated_fns(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::cpp_block::clean_shim_text;
-    use super::class_spec::build_method_binding;
     use super::class_spec::build_class_spec;
+    use super::class_spec::build_method_binding;
+    use super::cpp_block::clean_shim_text;
     use super::lib_spec::build_lib_spec;
+    use super::*;
     use crate::ast_parser::{FunctionInfo, MethodInfo, ParamInfo};
 
     #[test]
@@ -1216,11 +1216,7 @@ mod tests {
 
     // ── classify_fn 单元测试 ─────────────────────────────────────────
 
-    fn make_fn_with_params(
-        name: &str,
-        return_type: &str,
-        params: &[(&str, &str)],
-    ) -> FunctionInfo {
+    fn make_fn_with_params(name: &str, return_type: &str, params: &[(&str, &str)]) -> FunctionInfo {
         FunctionInfo {
             name: name.to_string(),
             return_type: return_type.to_string(),
@@ -1315,7 +1311,11 @@ mod tests {
     #[test]
     fn classify_fn_dtor_deleter_suffix() {
         // refcounted_file_deleter 等以 _deleter 结尾的函数 → Dtor
-        let fi = make_fn_with_params("refcounted_file_deleter", "void", &[("self", "FileHandle *")]);
+        let fi = make_fn_with_params(
+            "refcounted_file_deleter",
+            "void",
+            &[("self", "FileHandle *")],
+        );
         assert_eq!(classify_fn(&fi, &["FileHandle"]), ShimKind::Dtor);
     }
 
@@ -1380,8 +1380,8 @@ mod tests {
     fn dedup_functions_body_offset_wins() {
         // score(body=Some, extern_c=false)=3 优于 score(body=None, extern_c=true)=0
         let funcs = vec![
-            make_fn_scored("foo", None, true),              // score 0
-            make_fn_scored("foo", Some((10, 20)), false),   // score 3
+            make_fn_scored("foo", None, true),            // score 0
+            make_fn_scored("foo", Some((10, 20)), false), // score 3
         ];
         let result = dedup_functions(&funcs);
         assert_eq!(result.len(), 1);
@@ -1401,7 +1401,10 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].name, "beta");
         assert_eq!(result[1].name, "alpha");
-        assert!(result[0].body_offset.is_some(), "beta 应选取 body_offset 版本");
+        assert!(
+            result[0].body_offset.is_some(),
+            "beta 应选取 body_offset 版本"
+        );
     }
 
     // ── T2: dedup_functions 函数重载场景测试 ──────────────────────────────────
@@ -1415,7 +1418,11 @@ mod tests {
         let funcs = vec![fi_no_param, fi_one_param];
         let result = dedup_functions(&funcs);
         // 两个重载应都保留
-        assert_eq!(result.len(), 2, "同名不同签名的重载函数应各自保留，dedup 后应有 2 条");
+        assert_eq!(
+            result.len(),
+            2,
+            "同名不同签名的重载函数应各自保留，dedup 后应有 2 条"
+        );
     }
 
     /// 同名且参数完全相同的函数仅保留一条（去重）
@@ -1438,7 +1445,11 @@ mod tests {
         // 两个重载函数都应生成绑定
         assert_eq!(spec.fn_bindings.len(), 2, "两个重载函数都应生成绑定");
         // 它们的 rust_name 应不同（第二个加了 _1 后缀）
-        let names: Vec<&str> = spec.fn_bindings.iter().map(|fb| fb.rust_name.as_str()).collect();
+        let names: Vec<&str> = spec
+            .fn_bindings
+            .iter()
+            .map(|fb| fb.rust_name.as_str())
+            .collect();
         assert_ne!(names[0], names[1], "重载函数的 rust_name 应不同");
         // 后缀形如 get_value_1
         assert!(
@@ -1527,9 +1538,7 @@ mod tests {
         let eligible: Vec<&FunctionInfo> = all_fns
             .iter()
             .filter(|f| {
-                f.is_from_current_file
-                    || f.is_extern_c
-                    || (f.body_offset.is_some() && !f.is_inline)
+                f.is_from_current_file || f.is_extern_c || (f.body_offset.is_some() && !f.is_inline)
             })
             .collect();
 
