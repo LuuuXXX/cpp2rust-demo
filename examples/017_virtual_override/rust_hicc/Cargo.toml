@@ -3,6 +3,14 @@ name = "virtual_override"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "virtual_override"
+path = "src/lib.rs"
+
+[[bin]]
+name = "virtual_override"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

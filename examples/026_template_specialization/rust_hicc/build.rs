@@ -9,14 +9,14 @@ fn main() {
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("template_specialization.cpp"));
 
-    build.rust_file("src/main.rs").compile("template_specialization");
+    build.rust_file("src/lib.rs").compile("template_specialization");
 
     println!("cargo::rustc-link-lib=template_specialization");
     #[cfg(target_os = "macos")]
     println!("cargo::rustc-link-lib=c++");
     #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
-    println!("cargo::rerun-if-changed=src/main.rs");
+    println!("cargo::rerun-if-changed=src/lib.rs");
     println!("cargo::rerun-if-changed=../cpp/template_specialization.cpp");
     println!("cargo::rerun-if-changed=../cpp/template_specialization.h");
 }

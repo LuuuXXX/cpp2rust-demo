@@ -713,9 +713,10 @@ hicc::import_lib! {
 
 | 层 | 文件 | 验证内容 | 当前状态 |
 |----|------|---------|---------|
-| **L1** 黄金文件测试 | `l1_golden_tests.rs` | 工具生成的 hicc 脚手架与 `rust_hicc/src/main.rs` 中对应块一致 | ✅ **49/49 通过** |
+| **L1** 黄金文件测试 | `l1_golden_tests.rs` | 工具生成的 hicc 脚手架与 `rust_hicc/src/lib.rs`（或 `main.rs`）中对应块一致 | ✅ **49/49 通过** |
 | **L2** 编译测试 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | ✅ **48/48 通过** |
 | **L3** 运行测试 | `l3_run_tests.rs` | `cargo run` 输出与各示例 README 中"运行结果"一致 | ✅ **48/48 通过** |
+| **L_smoke** 冒烟测试 | 各示例 `tests/smoke.rs` | `cargo test` 验证 FFI 绑定行为（015–018、023–027 已覆盖） | ✅ 通过（已改造示例） |
 | **L4** E2E 测试 | `rapidjson_e2e_test.rs` 等 | 对真实开源项目执行完整 init + merge 转换：①rapidjson（10 子系统 shim）验证 `import_lib!` FFI 绑定；②五大库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）验证工具在不同类型项目上的覆盖率与鲁棒性 | ✅ 通过 |
 | **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
@@ -745,8 +746,20 @@ cargo test --test fmtlib_e2e_test -- --test-threads=1
 # 运行 L5 nm 符号验证测试
 cargo test --test l5_nm_symbol_tests -- --include-ignored
 
-# 运行某个示例的全部测试
+# 运行某个示例的全部测试（含 smoke 冒烟）
 cargo test 006_class_basic
+
+# 运行改造示例的 L_smoke 冒烟测试（需在示例目录执行 cargo test）
+# 例如：
+cd examples/024_template_function/rust_hicc && cargo test
+cd examples/025_template_class/rust_hicc && cargo test
+cd examples/026_template_specialization/rust_hicc && cargo test
+cd examples/027_template_instantiation/rust_hicc && cargo test
+cd examples/015_virtual_basic/rust_hicc && cargo test
+cd examples/016_virtual_pure/rust_hicc && cargo test
+cd examples/017_virtual_override/rust_hicc && cargo test
+cd examples/018_virtual_diamond/rust_hicc && cargo test
+cd examples/023_typeid_rtti/rust_hicc && cargo test
 
 # 更新黄金文件（工具输出有意变更时使用）
 cargo test --test l1_golden_tests update_all_goldens -- --include-ignored

@@ -3,6 +3,14 @@ name = "typeid_rtti"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "typeid_rtti"
+path = "src/lib.rs"
+
+[[bin]]
+name = "typeid_rtti"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

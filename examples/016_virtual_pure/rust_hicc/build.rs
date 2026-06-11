@@ -9,14 +9,14 @@ fn main() {
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("virtual_pure.cpp"));
 
-    build.rust_file("src/main.rs").compile("virtual_pure");
+    build.rust_file("src/lib.rs").compile("virtual_pure");
 
     println!("cargo::rustc-link-lib=virtual_pure");
     #[cfg(target_os = "macos")]
     println!("cargo::rustc-link-lib=c++");
     #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
-    println!("cargo::rerun-if-changed=src/main.rs");
+    println!("cargo::rerun-if-changed=src/lib.rs");
     println!("cargo::rerun-if-changed=../cpp/virtual_pure.cpp");
     println!("cargo::rerun-if-changed=../cpp/virtual_pure.h");
 }
