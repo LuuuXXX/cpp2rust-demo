@@ -7,10 +7,23 @@
 //! 需 libclang 与 C++ 预处理器（clang++ / g++），故以 `full-test` 门禁。
 
 use cpp2rust_demo::ast_parser;
+use std::sync::Mutex;
+
+/// libclang 在每个进程内只允许存在一个 `Clang` 实例，并发解析会报
+/// "an instance of `Clang` already exists"。用全局锁串行化解析调用，
+/// 使本测试无需依赖 `--test-threads=1` 即可稳定运行。
+static CLANG_LOCK: Mutex<()> = Mutex::new(());
+
+/// 串行解析预处理文件（持锁期间完成解析，避免与其他测试线程争用 libclang）。
+fn parse_locked(pre: &std::path::Path) -> cpp2rust_demo::ast_parser::CppAst {
+    let _guard = CLANG_LOCK.lock().unwrap();
+    ast_parser::parse_preprocessed(pre).expect("parse failed")
+}
 
 /// 将 C++ 源码写入临时 `.cpp`，用 clang++/g++ 预处理为 `.cpp2rust`，返回其路径。
 fn preprocess(cpp_src: &str, stem: &str) -> Option<std::path::PathBuf> {
-    let dir = std::env::temp_dir().join(format!("cpp2rust_tmpl_{}", stem));
+    // 目录名加入进程 ID，避免并发/重复运行时的临时文件冲突。
+    let dir = std::env::temp_dir().join(format!("cpp2rust_tmpl_{}_{}", std::process::id(), stem));
     std::fs::create_dir_all(&dir).ok()?;
     let cpp = dir.join(format!("{}.cpp", stem));
     std::fs::write(&cpp, cpp_src).ok()?;
@@ -52,7 +65,7 @@ public:
 };
 "#;
     let pre = preprocess(src, "stack").expect("preprocess failed");
-    let ast = ast_parser::parse_preprocessed(&pre).expect("parse failed");
+    let ast = parse_locked(&pre);
 
     let tc = ast
         .template_classes
@@ -99,7 +112,7 @@ void do_swap(T* a, T* b) {
 }
 "#;
     let pre = preprocess(src, "do_swap").expect("preprocess failed");
-    let ast = ast_parser::parse_preprocessed(&pre).expect("parse failed");
+    let ast = parse_locked(&pre);
 
     let tf = ast
         .template_functions
@@ -130,7 +143,7 @@ public:
 };
 "#;
     let pre = preprocess(src, "fixed_array").expect("preprocess failed");
-    let ast = ast_parser::parse_preprocessed(&pre).expect("parse failed");
+    let ast = parse_locked(&pre);
 
     let tc = ast
         .template_classes
