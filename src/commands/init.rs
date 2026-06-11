@@ -85,8 +85,14 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
         let specs: Vec<&FfiSpec> = all_units.iter().map(|ud| &ud.spec).collect();
         let smoke_content = smoke_test_gen::generate_smoke_test(&lib_name, &specs);
         match project_generator::write_smoke_test(&lo.rust_dir, &smoke_content) {
-            Ok(true) => println!("已生成冒烟测试 tests/smoke.rs（运行 `cargo test` 验证）"),
-            Ok(false) => println!("冒烟测试 tests/smoke.rs 已存在，保留现有内容"),
+            Ok(true) => println!(
+                "已生成冒烟测试 {}（运行 `cargo test` 验证）",
+                smoke_test_gen::SMOKE_TEST_PATH
+            ),
+            Ok(false) => println!(
+                "冒烟测试 {} 已存在，保留现有内容",
+                smoke_test_gen::SMOKE_TEST_PATH
+            ),
             Err(e) => eprintln!("警告：生成冒烟测试失败：{}", e),
         }
     }

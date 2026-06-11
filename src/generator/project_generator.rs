@@ -264,7 +264,7 @@ pub fn write_unit_rs(rust_dir: &Path, unit_path: &str, code: &str) -> Result<()>
 /// 返回 `Ok(true)` 表示已写出新文件，`Ok(false)` 表示文件已存在故跳过。
 pub fn write_smoke_test(rust_dir: &Path, content: &str) -> Result<bool> {
     let tests_dir = rust_dir.join("tests");
-    let path = tests_dir.join("smoke.rs");
+    let path = rust_dir.join(crate::generator::smoke_test_gen::SMOKE_TEST_PATH);
     if path.exists() {
         return Ok(false);
     }

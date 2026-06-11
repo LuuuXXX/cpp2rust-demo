@@ -22,6 +22,9 @@ use crate::ffi_model::FfiSpec;
 /// 控制是否生成冒烟测试的环境变量。设为 `"0"`（或 `"false"`）时关闭生成。
 pub const GEN_SMOKE_ENV: &str = "CPP2RUST_GEN_SMOKE";
 
+/// 冒烟测试文件相对生成项目根目录的路径（用于生成与用户提示保持一致）。
+pub const SMOKE_TEST_PATH: &str = "tests/smoke.rs";
+
 /// 根据环境变量判断是否应生成冒烟测试（默认开启）。
 ///
 /// 仅当 `CPP2RUST_GEN_SMOKE` 显式设为 `0` / `false` / `no` / `off`（忽略大小写）时返回
