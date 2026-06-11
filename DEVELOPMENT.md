@@ -153,6 +153,8 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 **冒烟测试生成（L_smoke）**：`init` 默认在 `.cpp2rust/<feature>/rust/tests/smoke.rs` 生成冒烟测试，对生成的 pub class 类型做编译期可用性断言（私有工厂函数以 `cpp2rust-todo[SMOKE]` 占位列出）。进入生成目录执行 `cargo test` 即可验证 FFI 编译链接闭环。生成逻辑见 `src/generator/smoke_test_gen.rs`，写文件见 `project_generator::write_smoke_test`（幂等，已存在不覆盖）；可用环境变量 `CPP2RUST_GEN_SMOKE=0` 关闭。
 
+**模板泛型骨架生成（v6 Phase A/B）**：`ast_parser` 现已提取模板类（`ClassTemplate`）与模板函数（`FunctionTemplate`）的结构化信息（`CppAst.template_classes` / `template_functions`，见 `src/ast_parser/collector.rs` 的 `extract_template_class` / `extract_template_function`）。`extractor::template_spec` 据此构建 `TemplateClassSpec` / `TemplateFnSpec`，生成器 `hicc_codegen` 输出泛型 `import_class!`（`#[cpp(class = "template<class T> Name<T>")] pub class Name<T> { ... }`）与 `import_lib!`（`#[cpp(func = "ret name<T>(...)")]`）骨架。该能力由环境变量 `CPP2RUST_GEN_TEMPLATES` 控制，**默认关闭**（仅取值 `1`/`true`/`yes`/`on` 时启用），关闭时默认产物逐字节不变（见 `hicc_codegen::templates_enabled`）。骨架带 `cpp2rust-todo[TMPL]` 占位注释，提示用户按实际实例化类型补全签名与 `AbiType` 约束。生成行为测试见 `tests/template_gen_tests.rs`。
+
 ### 分层快速运行命令
 
 ```sh

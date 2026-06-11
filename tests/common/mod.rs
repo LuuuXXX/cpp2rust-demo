@@ -70,6 +70,25 @@ pub fn run_tool_on(example_dir: &str) -> String {
     extract_hicc_blocks(&raw)
 }
 
+/// 对一段 C++ 源码运行「预处理 → 解析 → 提取 → 生成」流水线，返回完整的生成代码
+/// （含文件级前缀）。供模板生成测试使用，可自定义临时文件名以隔离并发测试。
+///
+/// 返回 `None` 表示当前环境缺少 C++ 预处理器或 libclang，调用方应据此跳过断言。
+pub fn generate_from_source(unit_name: &str, cpp_source: &str) -> Option<String> {
+    let tmp_dir = std::env::temp_dir().join(format!("cpp2rust_src_{}", unit_name));
+    std::fs::create_dir_all(&tmp_dir).ok()?;
+    let cpp_file = tmp_dir.join(format!("{}.cpp", unit_name));
+    std::fs::write(&cpp_file, cpp_source).ok()?;
+    let preprocessed = tmp_dir.join(format!("{}.cpp2rust", unit_name));
+    if !run_preprocess(&cpp_file, &preprocessed) {
+        return None;
+    }
+    let ast = ast_parser::parse_preprocessed(&preprocessed).ok()?;
+    let (system_includes, project_header) = extractor::read_source_includes(&cpp_file);
+    let spec = extractor::extract(&ast, unit_name, &system_includes, project_header.as_deref());
+    Some(hicc_codegen::generate(&spec))
+}
+
 fn find_cpp_file(dir: &str) -> Option<std::path::PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
     for entry in entries.flatten() {

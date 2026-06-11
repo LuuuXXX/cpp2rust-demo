@@ -190,6 +190,7 @@ cpp2rust-demo merge --feature linux_x86 --feature arm_embedded --output-dir dist
 | `CPP2RUST_CXX` | 覆盖默认 C++ 编译器（默认自动检测 g++/clang++/c++，支持带版本后缀如 g++-13） |
 | `CPP2RUST_DEBUG` | 非空时输出 hook 调试日志到 stderr |
 | `CPP2RUST_GEN_SMOKE` | 控制是否生成冒烟测试 `tests/smoke.rs`（默认开启；设为 `0`/`false`/`no`/`off` 关闭） |
+| `CPP2RUST_GEN_TEMPLATES` | 控制是否生成模板类 / 模板函数的泛型 hicc 骨架（默认**关闭**；设为 `1`/`true`/`yes`/`on` 开启）。关闭时默认产物逐字节不变 |
 
 ---
 

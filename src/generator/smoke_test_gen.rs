@@ -180,6 +180,7 @@ mod tests {
                 fwd_decls: vec![],
                 fn_bindings: fns,
             },
+            ..Default::default()
         }
     }
 

@@ -13,6 +13,39 @@ pub struct FfiSpec {
     pub class_specs: Vec<ClassSpec>,
     /// import_lib! 块规格
     pub lib_spec: LibSpec,
+    /// 模板类绑定规格（v6 Phase B）。仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器输出泛型骨架；
+    /// 默认关闭时不影响产物。
+    pub template_classes: Vec<TemplateClassSpec>,
+    /// 模板函数绑定规格（v6 Phase B）。同上。
+    pub template_functions: Vec<TemplateFnSpec>,
+}
+
+/// 模板类绑定规格（生成泛型 `import_class!` 骨架）— v6 Phase B
+#[derive(Debug, Default, Clone)]
+pub struct TemplateClassSpec {
+    /// 模板类名（如 `Stack`）
+    pub name: String,
+    /// 类型参数名（如 `["T"]`）
+    pub type_params: Vec<String>,
+    /// 成员方法绑定（复用 [`MethodBinding`]，签名中保留泛型 `T`）
+    pub methods: Vec<MethodBinding>,
+}
+
+/// 模板函数绑定规格（生成泛型 `import_lib!` 骨架）— v6 Phase B
+#[derive(Debug, Default, Clone)]
+pub struct TemplateFnSpec {
+    /// 模板函数名（如 `do_swap`）
+    pub name: String,
+    /// 类型参数名（如 `["T"]`）
+    pub type_params: Vec<String>,
+    /// C++ 模板函数签名（含实例化占位，如 `void do_swap<T>(T*, T*)`）
+    pub cpp_sig: String,
+    /// Rust 函数名（snake_case）
+    pub rust_name: String,
+    /// 参数列表 (rust_name, rust_type)
+    pub params: Vec<(String, String)>,
+    /// 返回类型（None 表示 void）
+    pub ret_type: Option<String>,
 }
 
 /// 单个类的绑定规格
