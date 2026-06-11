@@ -119,6 +119,34 @@ Stack<int> -> IntStack
 Stack<double> -> DoubleStack
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_int_stack_basic` | `int_stack_new()` → `push(42)` → `top()` 返回 42，`empty()` 为 false |
+| `smoke_double_stack_basic` | `double_stack_new()` → `push(3.14)` → `top()` ≈ 3.14 |
+| `smoke_int_stack_type_available` | `IntStack` 类型可用性断言 |
+
+### 运行方式
+
+```bash
+cd examples/025_template_class/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 - 类模板的 FFI 需要为每种类型创建独立结构

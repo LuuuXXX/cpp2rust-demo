@@ -86,6 +86,36 @@ Rust FFI: 模板必须在 C++ 侧实例化
 swap_int, swap_double, swap_char 是三个不同的函数
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_swap_int` | `swap_int(&mut a, &mut b)` 后 a、b 互换 |
+| `smoke_swap_double` | `swap_double(&mut x, &mut y)` 后 x、y 互换 |
+| `smoke_swap_char` | `swap_char(&mut c1, &mut c2)` 后字符互换 |
+| `smoke_array_get_set` | `set_int_array` 后 `get_int_array` 返回相同值 |
+| `smoke_swap_int_array` | `swap_int_array(arr, 0, 4)` 后首尾元素互换 |
+
+### 运行方式
+
+```bash
+cd examples/024_template_function/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 - C++ 模板无法直接 FFI 导出

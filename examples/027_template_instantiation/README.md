@@ -129,6 +129,35 @@ Matrix<int> -> IntMatrix
 Matrix<double> -> DoubleMatrix
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_int_matrix_dimensions` | `int_matrix_new(3, 4)` 后 `rows()` = 3，`cols()` = 4 |
+| `smoke_int_matrix_get_set` | `set(1, 2, 42)` 后 `get(1, 2)` 返回 42 |
+| `smoke_double_matrix_dimensions` | `double_matrix_new(2, 2)` 后维度正确 |
+| `smoke_double_matrix_get_set` | double 矩阵 set/get 行为正确 |
+
+### 运行方式
+
+```bash
+cd examples/027_template_instantiation/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 - 显式实例化是模板 FFI 的标准方法

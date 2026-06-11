@@ -110,6 +110,36 @@ Rust FFI: 每个模板特化是独立的结构
 偏特化: StringHolder (处理 char*)
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_int_holder_get` | `int_holder_new(42)` 后 `get()` 返回 42 |
+| `smoke_int_holder_describe` | `describe()` 返回非空字符串 |
+| `smoke_double_holder_get` | `double_holder_new(3.14)` 后 `get()` ≈ 3.14 |
+| `smoke_double_holder_describe` | `describe()` 返回非空字符串 |
+| `smoke_string_holder_get` | `string_holder_new("hello")` 后 `get()` 返回非空字符串 |
+
+### 运行方式
+
+```bash
+cd examples/026_template_specialization/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
 ## 总结
 
 - 模板偏特化在 FFI 中需要为每个特化创建独立结构

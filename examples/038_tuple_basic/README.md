@@ -206,6 +206,51 @@ Rust FFI: std::tuple 映射
 4. 字符串等复杂类型需要额外的内存管理
 ```
 
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 实现，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_tuple2_new` | `tuple2_new(42, "hello")` 后 `get_first()` = 42，`get_second()` = "hello" |
+| `smoke_tuple3_new` | `tuple3_new(100, 3.14, "world")` 后三个字段均正确 |
+| `smoke_tuple4_new` | `tuple4_new(1, 2.71, "tuple", 4)` 后四个字段均正确 |
+
+### 运行方式
+
+```bash
+cd examples/038_tuple_basic/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
+
+## 冒烟测试
+
+本示例在 `.cpp2rust/tuple_basic/rust/tests/smoke.rs` 中包含以下冒烟测试，CI 通过 `l-smoke` job 自动运行：
+
+| 测试函数 | 验证内容 |
+|----------|----------|
+| `smoke_tuple2_new` | `tuple2_new()` 分配成功；`get_first` / `get_second` 返回正确值 |
+| `smoke_tuple3_new` | `tuple3_new()` 分配成功；三个元素访问函数均返回正确值 |
+| `smoke_tuple4_new` | `tuple4_new()` 分配成功；四个元素访问函数均返回正确值 |
+
+运行单个冒烟测试：
+
+```bash
+cd examples/038_tuple_basic/.cpp2rust/tuple_basic/rust
+cargo test smoke_tuple3_new -- --nocapture
+```
+
 ## 总结
 
 - std::tuple 是固定大小的异构容器
