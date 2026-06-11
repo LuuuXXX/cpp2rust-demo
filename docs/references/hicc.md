@@ -827,3 +827,95 @@ hicc-rs/
     └── docs/
         └── design.md      # 详细设计文档
 ```
+
+---
+
+## v6 新增能力速查（Phase A–C）
+
+> 以下内容对应 cpp2rust-demo v6 方案中 Phase A/B/C 落地的生成能力，均通过环境变量开关控制（默认关闭，不影响默认产物）。
+
+### 1. 模板类泛型骨架（`CPP2RUST_GEN_TEMPLATES=1`）
+
+将 C++ 模板类映射为 hicc 泛型 `import_class!` 骨架：
+
+```rust
+// cpp2rust-todo[TMPL]: 模板类泛型骨架，请按实际实例化类型校验签名与 AbiType 约束；
+// 构造函数/静态方法需在 import_lib! 中声明，复杂依赖类型（如 T::OutputRef）请手动补全。
+#[cpp(class = "template<class T> Stack<T>")]
+pub class Stack<T> {
+    #[cpp(method = "void push(T value)")]
+    fn push(&mut self, value: T);
+
+    #[cpp(method = "T top() const")]
+    fn top(&self) -> T;
+
+    #[cpp(method = "bool empty() const")]
+    fn empty(&self) -> bool;
+}
+```
+
+同时为检测到的模板实例化（字段/方法参数/显式实例化/局部变量）生成类型别名与构造工厂：
+
+```rust
+// cpp2rust-todo[TMPL]: 以下为模板实例化别名骨架，请确认实参类型与 AbiType 约束；
+pub type StackI32 = Stack<hicc::Pod<i32>>;
+
+// cpp2rust-todo[TMPL]: StackI32 构造工厂骨架
+#[cpp(func = "Stack<int>* stack_i32_new(int initial)")]
+pub unsafe fn stack_i32_new(initial: i32) -> StackI32;
+```
+
+### 2. 模板函数泛型骨架（`CPP2RUST_GEN_TEMPLATES=1`）
+
+将 C++ 模板函数映射为 `import_lib!` 中的泛型占位骨架：
+
+```rust
+// cpp2rust-todo[TMPL]: 模板函数需按实例化类型声明（如 do_swap<int>(int*, int*)）；
+// 下方 <T> 为泛型占位，请替换为实际实例化类型并确认安全性。
+#[cpp(func = "void do_swap<T>(T*, T*)")]
+pub unsafe fn do_swap(a: *mut T, b: *mut T);
+```
+
+### 3. `@make_proxy` 代理工厂（`CPP2RUST_GEN_PROXY=1`）
+
+为继承纯虚接口的具体类生成 Rust 侧实现 C++ 抽象类的代理工厂骨架：
+
+```rust
+// cpp2rust-todo[PROXY]: @make_proxy 代理工厂骨架 —— 让 Rust 实现 C++ 抽象类 IFoo；
+// 需先用 #[interface] 定义对应 Trait，再在 @make_proxy 工厂中创建 Rust 实现。
+#[cpp(func = "IFoo* @make_proxy<IFoo, ConcreteFoo>()")]
+#[interface(name = "IFoo")]
+pub unsafe fn make_concrete_foo() -> ConcreteFoo;
+```
+
+### 4. `@dynamic_cast` 下行转换（`CPP2RUST_GEN_DYNAMIC_CAST=1`）
+
+为「继承多态基类的派生类」生成裸指针形式与引用形式下行转换骨架，覆盖直接基类与跨层间接祖先：
+
+```rust
+// cpp2rust-todo[DCAST]: @dynamic_cast 下行转换骨架 —— 多态基类 Base 向下转换为派生类 Derived；
+// 转换失败返回空指针，调用方需判空（is_null）。RTTI 要求源类型为多态类型（含虚函数）。
+#[cpp(func = "const Derived* @dynamic_cast<const Derived*>(const Base*)")]
+pub unsafe fn dynamic_cast_base_to_derived(src: *const Base) -> *const Derived;
+// cpp2rust-todo[DCAST]: 引用形式 —— 仅在转换必定成功时使用；否则请用上面的裸指针形式判空。
+#[cpp(func = "const Derived* @dynamic_cast<const Derived*>(const Base*)")]
+pub unsafe fn dynamic_cast_base_to_derived_ref(src: &Base) -> &Derived;
+```
+
+**注意**：引用形式要求转换必定成功；若转换可能失败，必须使用裸指针形式并判空（`is_null()`）。
+
+### 5. 冒烟测试生成（`CPP2RUST_GEN_SMOKE`，默认开启）
+
+`init` 阶段在 `.cpp2rust/<feature>/rust/tests/smoke.rs` 自动生成冒烟测试：
+- 对所有 `pub class` 类型生成编译期类型可用性断言；
+- 对无法从集成测试直接调用的工厂/全局函数生成 `cpp2rust-todo[SMOKE]` 占位说明；
+- 设置 `CPP2RUST_GEN_SMOKE=0` 可关闭生成。
+
+### 6. 环境变量汇总
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `CPP2RUST_GEN_TEMPLATES` | 关闭 | 生成模板类/函数泛型骨架与实例化别名 |
+| `CPP2RUST_GEN_PROXY` | 关闭 | 生成 `@make_proxy` 代理工厂骨架 |
+| `CPP2RUST_GEN_DYNAMIC_CAST` | 关闭 | 生成 `@dynamic_cast` 下行转换骨架（含引用形式） |
+| `CPP2RUST_GEN_SMOKE` | 开启 | 生成 `tests/smoke.rs` 冒烟测试（`0`/`false`/`no`/`off` 关闭） |

@@ -48,6 +48,32 @@ macro_rules! golden_test_unix_only {
     };
 }
 
+// Phase E 升级示例（lib.rs + main.rs 结构）：从 lib.rs 读取黄金内容。
+// lib.rs 中函数使用 `pub unsafe fn` 以支持集成测试访问，而工具生成器暂输出
+// `unsafe fn`（无 pub），因此比较前通过 strip_pub_visibility 规范化可见性修饰符。
+macro_rules! golden_test_lib {
+    ($name:ident, $example:literal) => {
+        #[test]
+        #[cfg_attr(
+            not(feature = "full-test"),
+            ignore = "requires libclang; run with --features full-test --test-threads=1"
+        )]
+        fn $name() {
+            let example_dir = concat!("examples/", $example);
+            let generated = common::run_tool_on(example_dir);
+            let golden_raw = common::read_golden(example_dir, "rust_hicc/src/lib.rs");
+            // 从 lib.rs 提取 hicc 块后，规范化 pub 可见性再比较
+            let golden = common::extract_hicc_blocks(&golden_raw);
+            assert_eq!(
+                common::normalize(&generated),
+                common::normalize(&common::strip_pub_visibility(&golden)),
+                "FFI scaffold mismatch for {}",
+                $example
+            );
+        }
+    };
+}
+
 golden_test!(test_001_hello_world, "001_hello_world");
 golden_test!(test_002_function_overload, "002_function_overload");
 golden_test!(test_003_default_args, "003_default_args");
@@ -71,8 +97,8 @@ golden_test!(test_020_friend_function, "020_friend_function");
 golden_test!(test_021_explicit_ctor, "021_explicit_ctor");
 golden_test!(test_022_mutable_member, "022_mutable_member");
 golden_test!(test_023_typeid_rtti, "023_typeid_rtti");
-golden_test!(test_024_template_function, "024_template_function");
-golden_test!(test_025_template_class, "025_template_class");
+golden_test_lib!(test_024_template_function, "024_template_function");
+golden_test_lib!(test_025_template_class, "025_template_class");
 golden_test!(
     test_026_template_specialization,
     "026_template_specialization"
