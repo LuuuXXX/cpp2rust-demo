@@ -428,7 +428,7 @@ mod tests {
         let cpp_has_add = spec
             .cpp_block_lines
             .iter()
-            .any(|l| l.contains("vec2_add") || l.contains("vec2_add"));
+            .any(|l| l.contains("vec2_add"));
         assert!(cpp_has_add, "apply 应在 cpp_block_lines 中生成 C++ shim");
     }
 

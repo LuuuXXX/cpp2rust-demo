@@ -808,7 +808,8 @@ mod tests {
         // void** → `*mut *mut u8`
         assert_eq!(cpp_to_rust("void **"), "*mut *mut u8");
         // `const char **`：mapper 先剥离尾部 ` *` 得到 `const char *`，再映射为 `*const *mut i8`
-        // （语义上 const 修饰的是 char，但 mapper 的逐层剥离逻辑将 const 归属给外层指针）
+        // cpp2rust-todo[TYPE_PARSER]：语义上 const 修饰的是 char（应映射为 *mut *const i8），
+        // 但当前逐层剥离逻辑将 const 归属给外层指针。精确修复需引入完整 C++ 类型解析器。
         assert_eq!(cpp_to_rust("const char **"), "*const *mut i8");
         // int** → `*mut *mut i32`
         assert_eq!(cpp_to_rust("int **"), "*mut *mut i32");
