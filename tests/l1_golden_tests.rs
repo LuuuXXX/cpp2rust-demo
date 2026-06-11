@@ -96,7 +96,7 @@ golden_test!(test_019_operator_overload, "019_operator_overload");
 golden_test!(test_020_friend_function, "020_friend_function");
 golden_test!(test_021_explicit_ctor, "021_explicit_ctor");
 golden_test!(test_022_mutable_member, "022_mutable_member");
-golden_test!(test_023_typeid_rtti, "023_typeid_rtti");
+golden_test_lib!(test_023_typeid_rtti, "023_typeid_rtti");
 golden_test_lib!(test_024_template_function, "024_template_function");
 golden_test_lib!(test_025_template_class, "025_template_class");
 golden_test_lib!(test_026_template_specialization, "026_template_specialization");
