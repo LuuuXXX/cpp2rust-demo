@@ -162,8 +162,13 @@ pub(super) fn collect_typedef(
 ///
 /// 主要用于显式实例化（如 `template class Matrix<int>;`，在 AST 中表现为带模板实参的
 /// `ClassDecl`）的实参提取。`TemplateArgument::Type(t)` 取 `t.get_display_name()`
-/// 得到 `int` / `double` 等可直接复用的类型名；非类型实参（整型常量等）回退到
-/// libclang 的调试表示，供后续按需处理。
+/// 得到 `int` / `double` 等可直接复用的类型名。
+///
+/// 非类型实参（如整型常量 `template<int N>` 的 `N`）暂回退到 libclang 的调试表示。
+/// **该回退字符串并非合法 C++ 类型/表达式**；下游实例化别名提取（`template_spec`）
+/// 主要面向类型实参，对该回退串会按「类类型」处理并附 `cpp2rust-todo[TMPL]` 提示用户
+/// 补全（且仅在 `CPP2RUST_GEN_TEMPLATES` 开关开启时输出）。完整的非类型模板参数支持
+/// 留待后续阶段扩展。
 fn template_arg_display(arg: &TemplateArgument<'_>) -> String {
     match arg {
         TemplateArgument::Type(t) => t.get_display_name(),

@@ -196,7 +196,9 @@ pub(super) fn build_template_instances(ast: &CppAst) -> Vec<TemplateInstanceSpec
     out
 }
 
-/// 将一个 `(模板名, 具体类型实参列表)` 记录为实例化别名规格，按 `(名, 实参)` 全局去重。
+/// 将一个 `(模板名, 具体类型实参列表)` 记录为实例化别名规格，按 `(名, 实参)` 在
+/// **本次 `build_template_instances` 调用范围内**去重（通过调用方传入的 `seen` 集合，
+/// 跨多个追踪来源共享；不跨编译单元或多次调用）。
 fn record_instance(
     name: &str,
     args: &[String],
