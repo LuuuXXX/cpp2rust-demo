@@ -160,7 +160,11 @@ pub fn run_single_feature_merge(feature: &str, project_root: &std::path::Path) -
     let m = collect_rust_src_metrics(&rust_src);
 
     // 生成 meta/api-manifest.md（C++ → Rust API 对账清单）
-    let merged_spec = merger::merge_units(&unit_files);
+    let (merged_spec, read_errors) = merger::merge_units(&unit_files);
+    // 将读取失败的文件路径作为警告输出（不中断流程）
+    for err in &read_errors {
+        eprintln!("  Warning: cannot read {}", err);
+    }
 
     // 生成 meta/merge-report.md
     // 注：merge_units 需在 save_merge_report 之前调用，以便将冲突信息写入报告

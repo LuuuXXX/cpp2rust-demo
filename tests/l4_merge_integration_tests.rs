@@ -147,7 +147,7 @@ fn merge_units_from_golden_files_deduplicates_correctly() {
         return;
     }
 
-    let spec = merger::merge_units(&paths);
+    let (spec, _) = merger::merge_units(&paths);
 
     // 合并后应有函数绑定（三个示例都有导出函数）
     assert!(
@@ -179,7 +179,7 @@ fn merge_units_extracts_class_bindings() {
         return;
     }
 
-    let spec = merger::merge_units(&paths);
+    let (spec, _) = merger::merge_units(&paths);
 
     // 006 包含 Counter 类
     assert!(
@@ -208,7 +208,7 @@ fn merge_units_collects_degraded_sigs_from_fn_ptr_examples() {
         return;
     }
 
-    let spec = merger::merge_units(&paths);
+    let (spec, _) = merger::merge_units(&paths);
 
     assert!(
         !spec.degraded_sigs.is_empty(),
@@ -243,4 +243,47 @@ fn collect_unit_rs_files_respects_subdirs() {
     assert!(names.contains(&"a.rs".to_string()), "应包含 a.rs");
     assert!(names.contains(&"b.rs".to_string()), "应包含 sub/b.rs");
     assert!(!names.contains(&"lib.rs".to_string()), "不应包含 lib.rs");
+}
+
+// ─────────────────────────────────────────────────────────────
+//  T5: merge_units 冲突检测路径测试
+// ─────────────────────────────────────────────────────────────
+
+/// 两个文件含相同 cpp 属性但 Rust 签名不同的函数绑定时，conflicts 字段应非空
+#[test]
+fn merge_units_detects_fn_binding_sig_conflict() {
+    let tmp = TempDir::new().unwrap();
+
+    // 文件 A：fn get() -> i32
+    let file_a = tmp.path().join("unit_a.rs");
+    std::fs::write(
+        &file_a,
+        r#"hicc::import_lib! {
+    #![link_name = "mylib"]
+    #[cpp(func = "int get()")]
+    fn get() -> i32;
+}
+"#,
+    )
+    .unwrap();
+
+    // 文件 B：同一 cpp 属性但 Rust 签名不同（返回 i64）
+    let file_b = tmp.path().join("unit_b.rs");
+    std::fs::write(
+        &file_b,
+        r#"hicc::import_lib! {
+    #![link_name = "mylib"]
+    #[cpp(func = "int get()")]
+    fn get() -> i64;
+}
+"#,
+    )
+    .unwrap();
+
+    let (spec, _errors) = merger::merge_units(&[file_a, file_b]);
+    assert!(
+        !spec.conflicts.is_empty(),
+        "两个文件对同一 cpp 属性有不同 Rust 签名时，conflicts 应非空，实际: {:?}",
+        spec.conflicts
+    );
 }

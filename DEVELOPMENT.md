@@ -166,6 +166,42 @@ cargo test -- --ignored
 
 ---
 
+## 4.5 代码质量
+
+### clippy 配置
+
+项目在 CI 中运行 `cargo clippy` 且设定为零警告模式：
+
+```sh
+cargo clippy -- -D warnings
+```
+
+如需仅在本地快速检查（允许警告），可使用：
+
+```sh
+cargo clippy
+```
+
+### CI Gate
+
+CI（`.github/workflows/ci.yml`）在每次 Push / Pull Request 时执行以下门控检查（顺序）：
+
+1. `cargo fmt --check` — 格式化一致性（非阻塞 lint，不影响 clippy）
+2. `cargo clippy -- -D warnings` — 零警告门控（所有 Warning 级别 lint 均阻塞合并）
+3. `cargo test` — L2 编译测试（含 `--lib` 单元测试）
+
+### 已豁免的 lint
+
+项目中以下 lint 经过评估后通过 `#[allow(...)]` 局部豁免，不属于代码缺陷：
+
+| lint | 位置 | 原因 |
+|------|------|------|
+| `clippy::too_many_lines` | 部分生成逻辑函数 | 历史原因，重构计划中 |
+| `clippy::match_wildcard_for_single_variants` | `operator_handler.rs` | 枚举变体后续可扩展 |
+| `dead_code` | 测试辅助结构体字段 | 字段在条件编译路径中使用 |
+
+---
+
 ## 5. 当前进度（截至 2026-06-08，最新更新）
 
 ### 5.1 Phase 完成状态

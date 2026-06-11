@@ -146,6 +146,28 @@ pub struct CppAst {
 //  解析入口
 // ─────────────────────────────────────────────
 
+/// 判断顶层实体是否应被跳过（两遍扫描共用的过滤谓词）。
+///
+/// 跳过条件：
+/// 1. 实体不是"非内联函数定义"（非内联定义不可能来自系统头，必须保留）；
+/// 2. 且 `is_in_system_header()` 为 true，或位置不可用时使用 `skip_if_no_location` 默认值。
+///
+/// `skip_if_no_location` 对 `FunctionDecl` 的规则：非 C 语言时为 `true`（跳过无位置的
+/// 系统 C++ 声明）；其他 kind 默认为 `true`。
+fn should_skip_entity(entity: &clang::Entity<'_>, kind: EntityKind) -> bool {
+    if is_noninline_fn_def(entity) {
+        return false;
+    }
+    let skip_if_no_location = match kind {
+        EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
+        _ => true,
+    };
+    entity
+        .get_location()
+        .map(|l| l.is_in_system_header())
+        .unwrap_or(skip_if_no_location)
+}
+
 /// 解析 `.cpp2rust` 预处理文件，返回结构化 AST。
 ///
 /// 输入文件由 `g++ -E -C` 生成，扩展名为非标准的 `.cpp2rust`，
@@ -202,27 +224,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
             continue;
         }
 
-        // 非内联函数**定义**不可能来自系统头（系统头只有声明），
-        // 因此即使 Windows LLVM 17 的 is_in_system_header() 错误返回 true，
-        // 也必须保留——否则以顶层 FunctionDecl 出现的用户 extern "C" 定义
-        // （如 hello_world）将被丢弃，导致 fn_bindings 为空。
-        // 注意：使用 is_noninline_fn_def（不检查语言），因为在 .cpp 文件中
-        // extern "C" {} 块内的函数定义，get_language() 可能返回 CPlusPlus。
-        // 与 collect_linkage_spec 中的相同逻辑保持一致。
-
-        // FunctionDecl 在 Windows LLVM 17 上 get_location() 有时返回 None；
-        // 对非 C 语言的 FunctionDecl 使用 skip_if_no_location=true，
-        // 避免无位置的系统 C++ 声明被保留。
-        let skip_if_no_location = match kind {
-            EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
-            _ => true,
-        };
-        if !is_noninline_fn_def(&entity)
-            && entity
-                .get_location()
-                .map(|l| l.is_in_system_header())
-                .unwrap_or(skip_if_no_location)
-        {
+        if should_skip_entity(&entity, kind) {
             continue;
         }
         match kind {
@@ -279,19 +281,10 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     for entity in root.get_children() {
         let kind = entity.get_kind();
 
-        // 与第一遍相同：非内联函数定义不受 is_in_system_header() 过滤，
-        // 使用 is_noninline_fn_def（不检查语言）。
-        let skip_if_no_location = match kind {
-            EntityKind::LinkageSpec | EntityKind::UnexposedDecl => false,
-            EntityKind::FunctionDecl => entity.get_language() != Some(Language::C),
-            _ => true,
-        };
-        if !is_noninline_fn_def(&entity)
-            && entity
-                .get_location()
-                .map(|l| l.is_in_system_header())
-                .unwrap_or(skip_if_no_location)
-        {
+        // 与第一遍相同的过滤逻辑（通过 should_skip_entity 共用）。
+        // LinkageSpec/UnexposedDecl 在第二遍不需要处理（方法定义由 semantic_parent 定位），
+        // 但仍需保持与第一遍一致的非内联函数定义豁免。
+        if kind != EntityKind::LinkageSpec && kind != EntityKind::UnexposedDecl && should_skip_entity(&entity, kind) {
             continue;
         }
         let is_method_def = matches!(

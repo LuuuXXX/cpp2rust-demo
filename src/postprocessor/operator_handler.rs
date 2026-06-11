@@ -8,10 +8,31 @@ use crate::extractor::type_mapper::{clean_type, cpp_to_rust, to_snake_case};
 use crate::ffi_model::{FfiSpec, FnBinding};
 
 /// 支持的二元运算符名称及其 C++ 符号
-const BINARY_OPS: &[(&str, &str)] = &[("add", "+"), ("sub", "-"), ("mul", "*"), ("div", "/")];
+const BINARY_OPS: &[(&str, &str)] = &[
+    ("add", "+"),
+    ("sub", "-"),
+    ("mul", "*"),
+    ("div", "/"),
+    ("mod", "%"),
+    ("shl", "<<"),
+    ("shr", ">>"),
+    ("bitand", "&"),
+    ("bitor", "|"),
+    ("bitxor", "^"),
+];
+
+/// 支持的比较运算符名称及其 C++ 符号
+const COMPARE_OPS: &[(&str, &str)] = &[
+    ("eq", "=="),
+    ("ne", "!="),
+    ("lt", "<"),
+    ("gt", ">"),
+    ("le", "<="),
+    ("ge", ">="),
+];
 
 /// 支持的一元运算符名称
-const UNARY_OPS: &[&str] = &["negate"];
+const UNARY_OPS: &[&str] = &["negate", "not", "bitnot", "pre_inc", "pre_dec"];
 
 /// 对所有类应用运算符 shim 生成。
 pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
@@ -109,6 +130,10 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                 AccessorKind::UnaryOp => {
                     let body = match stripped {
                         "negate" => format!("return new {}(-*a);", ci.name),
+                        "not" => format!("return new {}(!*a);", ci.name),
+                        "bitnot" => format!("return new {}(~*a);", ci.name),
+                        "pre_inc" => format!("auto tmp = *a; ++tmp; return new {}(tmp);", ci.name),
+                        "pre_dec" => format!("auto tmp = *a; --tmp; return new {}(tmp);", ci.name),
                         _ => continue,
                     };
 
@@ -130,31 +155,58 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
                     });
                 }
                 AccessorKind::Compare => {
-                    let ret_cpp = clean_type(&fi.return_type).to_string();
-                    let ret_rust = cpp_to_rust(&fi.return_type);
+                    // 比较运算符生成 bool shim（使用 COMPARE_OPS 中的运算符符号）
+                    if let Some((_, op_sym)) = COMPARE_OPS.iter().find(|(n, _)| *n == stripped) {
+                        cpp_shims.push(format!(
+                            "bool {}(const {}* a, const {}* b) {{",
+                            shim_fn_name, ci.name, ci.name
+                        ));
+                        cpp_shims.push(format!("    return *a {} *b;", op_sym));
+                        cpp_shims.push("}".to_string());
+                        cpp_shims.push(String::new());
 
-                    cpp_shims.push(format!(
-                        "{} {}(const {}* a, const {}* b) {{",
-                        ret_cpp, shim_fn_name, ci.name, ci.name
-                    ));
-                    cpp_shims.push(format!("    return a->{}(*b);", stripped));
-                    cpp_shims.push("}".to_string());
-                    cpp_shims.push(String::new());
+                        new_bindings.push(FnBinding {
+                            cpp_sig: format!(
+                                "bool {}(const {}*, const {}*)",
+                                shim_fn_name, ci.name, ci.name
+                            ),
+                            rust_name: fi.name.clone(),
+                            params: vec![
+                                ("a".to_string(), format!("*const {}", ci.name)),
+                                ("b".to_string(), format!("*const {}", ci.name)),
+                            ],
+                            ret_type: Some("bool".to_string()),
+                            is_unsafe: false,
+                            has_fn_ptr_param: false,
+                        });
+                    } else {
+                        // 退回为原始比较方法（基于实际返回类型）
+                        let ret_cpp = clean_type(&fi.return_type).to_string();
+                        let ret_rust = cpp_to_rust(&fi.return_type);
 
-                    new_bindings.push(FnBinding {
-                        cpp_sig: format!(
-                            "{} {}(const {}*, const {}*)",
+                        cpp_shims.push(format!(
+                            "{} {}(const {}* a, const {}* b) {{",
                             ret_cpp, shim_fn_name, ci.name, ci.name
-                        ),
-                        rust_name: fi.name.clone(),
-                        params: vec![
-                            ("a".to_string(), format!("*const {}", ci.name)),
-                            ("b".to_string(), format!("*const {}", ci.name)),
-                        ],
-                        ret_type: Some(ret_rust),
-                        is_unsafe: false,
-                        has_fn_ptr_param: false,
-                    });
+                        ));
+                        cpp_shims.push(format!("    return a->{}(*b);", stripped));
+                        cpp_shims.push("}".to_string());
+                        cpp_shims.push(String::new());
+
+                        new_bindings.push(FnBinding {
+                            cpp_sig: format!(
+                                "{} {}(const {}*, const {}*)",
+                                ret_cpp, shim_fn_name, ci.name, ci.name
+                            ),
+                            rust_name: fi.name.clone(),
+                            params: vec![
+                                ("a".to_string(), format!("*const {}", ci.name)),
+                                ("b".to_string(), format!("*const {}", ci.name)),
+                            ],
+                            ret_type: Some(ret_rust),
+                            is_unsafe: false,
+                            has_fn_ptr_param: false,
+                        });
+                    }
                 }
                 AccessorKind::Other => {}
             }
@@ -216,6 +268,15 @@ fn classify_accessor(fi: &FunctionInfo, prefix: &str, class_name: &str) -> Acces
     if UNARY_OPS.contains(&stripped) && extra_params.is_empty() && ret_is_class {
         return AccessorKind::UnaryOp;
     }
+    // 比较运算符：名称在 COMPARE_OPS 中，且有一个同类型参数，返回非 void 非类类型
+    if COMPARE_OPS.iter().any(|(n, _)| *n == stripped)
+        && extra_params.len() == 1
+        && !ret_is_class
+        && !ret_is_void
+    {
+        return AccessorKind::Compare;
+    }
+    // 旧式 compare accessor：有一个同类型参数，返回非 void 非类类型
     if extra_params.len() == 1 && !ret_is_class && !ret_is_void && is_compare_accessor(fi, class_name) {
         return AccessorKind::Compare;
     }
@@ -259,5 +320,164 @@ fn accessor_category(fi: &FunctionInfo, prefix: &str, class_name: &str) -> u8 {
         AccessorKind::UnaryOp => 2,
         AccessorKind::Compare => 3,
         AccessorKind::Other => 4,
+    }
+}
+
+// ─────────────────────────────────────────────
+//  T3: operator_handler 核心逻辑单元测试
+// ─────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast_parser::{ClassInfo, CppAst, FunctionInfo, ParamInfo};
+    use crate::ffi_model::{FfiSpec, LibSpec, MethodBinding, SelfKind};
+
+    fn make_class(name: &str) -> ClassInfo {
+        ClassInfo {
+            name: name.to_string(),
+            is_struct: false,
+            is_abstract: false,
+            template_args: vec![],
+            bases: vec![],
+            methods: vec![],
+            fields: vec![],
+            is_in_namespace: false,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_fi(name: &str, return_type: &str, params: &[(&str, &str)]) -> FunctionInfo {
+        FunctionInfo {
+            name: name.to_string(),
+            return_type: return_type.to_string(),
+            params: params
+                .iter()
+                .map(|(n, t)| ParamInfo {
+                    name: n.to_string(),
+                    type_name: t.to_string(),
+                    has_default: false,
+                })
+                .collect(),
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_spec_with_class(class_name: &str) -> FfiSpec {
+        FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec![],
+            class_specs: vec![crate::ffi_model::ClassSpec {
+                name: class_name.to_string(),
+                methods: vec![MethodBinding {
+                    cpp_sig: format!("int {}_value(const {}* self) const", class_name.to_lowercase(), class_name),
+                    rust_name: "value".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: Some("i32".to_string()),
+                    has_fn_ptr_param: false,
+                }],
+                associated_fns: vec![],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            lib_spec: LibSpec::default(),
+        }
+    }
+
+    fn make_ast_with_class(class_name: &str) -> CppAst {
+        CppAst {
+            file: std::path::PathBuf::from("test.cpp"),
+            classes: vec![make_class(class_name)],
+            functions: vec![],
+            enums: vec![],
+            typedefs: vec![],
+            template_class_ranges: vec![],
+        }
+    }
+
+    /// (a) operator_handler 为 binary add 生成正确的命名 shim
+    #[test]
+    fn apply_generates_binary_add_shim() {
+        let cn = "Vec2";
+        let prefix = "vec2_";
+        // 函数：vec2_add(self: Vec2*, other: Vec2*) -> Vec2*
+        let fi = make_fi(
+            &format!("{}add", prefix),
+            &format!("{} *", cn),
+            &[
+                ("self", &format!("{} *", cn)),
+                ("other", &format!("{} *", cn)),
+            ],
+        );
+        let mut spec = make_spec_with_class(cn);
+        let ast = make_ast_with_class(cn);
+        let fns = vec![&fi];
+        apply(&mut spec, &ast, &fns);
+
+        // 应在 fn_bindings 中找到 add shim
+        let found = spec.lib_spec.fn_bindings.iter().any(|fb| fb.rust_name.contains("add"));
+        assert!(found, "apply 应生成 vec2_add shim，但 fn_bindings 中没有");
+
+        // 应在 cpp_block_lines 中找到 add 的 C++ shim 代码
+        let cpp_has_add = spec
+            .cpp_block_lines
+            .iter()
+            .any(|l| l.contains("vec2_add"));
+        assert!(cpp_has_add, "apply 应在 cpp_block_lines 中生成 C++ shim");
+    }
+
+    /// (b) operator_handler 为比较运算符 eq 生成 bool shim
+    #[test]
+    fn apply_generates_compare_eq_shim() {
+        let cn = "Num";
+        let prefix = "num_";
+        // 函数：num_eq(self: Num*, other: Num*) -> bool
+        let fi = make_fi(
+            &format!("{}eq", prefix),
+            "bool",
+            &[("self", &format!("{} *", cn)), ("other", &format!("{} *", cn))],
+        );
+        let mut spec = make_spec_with_class(cn);
+        let ast = make_ast_with_class(cn);
+        let fns = vec![&fi];
+        apply(&mut spec, &ast, &fns);
+
+        let eq_binding = spec.lib_spec.fn_bindings.iter().find(|fb| fb.rust_name.contains("eq"));
+        assert!(eq_binding.is_some(), "apply 应生成 num_eq shim");
+        // eq shim 的返回类型应为 bool
+        let ret = eq_binding.unwrap().ret_type.as_deref().unwrap_or("");
+        assert_eq!(ret, "bool", "eq shim 的返回类型应为 bool");
+    }
+
+    /// (c) operator_handler 为新增一元运算符 not 生成正确 shim
+    #[test]
+    fn apply_generates_unary_not_shim() {
+        let cn = "Flag";
+        let prefix = "flag_";
+        // 函数：flag_not(self: Flag*) -> Flag*
+        let fi = make_fi(
+            &format!("{}not", prefix),
+            &format!("{} *", cn),
+            &[("self", &format!("{} *", cn))],
+        );
+        let mut spec = make_spec_with_class(cn);
+        let ast = make_ast_with_class(cn);
+        let fns = vec![&fi];
+        apply(&mut spec, &ast, &fns);
+
+        let not_binding = spec
+            .lib_spec
+            .fn_bindings
+            .iter()
+            .find(|fb| fb.rust_name.contains("not"));
+        assert!(not_binding.is_some(), "apply 应生成 flag_not shim");
+        // 一元 shim 的参数应只有 self（1 个参数）
+        assert_eq!(not_binding.unwrap().params.len(), 1, "一元 shim 应只有 1 个参数");
     }
 }

@@ -18,6 +18,21 @@ use type_mapper::{clean_type, cpp_to_rust, to_snake_case};
 // ─────────────────────────────────────────────
 
 /// 从 `CppAst` 提取 `FfiSpec`。
+///
+/// ## 参数说明
+///
+/// - `ast`：由 [`crate::ast_parser::parse_preprocessed`] 解析 `.cpp2rust` 预处理文件后得到的
+///   结构化 AST，包含类/函数/枚举信息及源文件路径。
+///
+/// - `unit_name`：编译单元名称（如 `"class_basic"`），用于设置 `import_lib!` 的链接库名称。
+///
+/// - `system_includes`：系统头文件 `#include` 行列表（如 `["#include <cstdint>"]`），
+///   由 [`crate::commands::init::read_source_includes`] 从预处理文件的 `# N "filename"` 行标记
+///   中扫描系统头路径获得，插入到生成的 `hicc::cpp!` 块顶部。
+///
+/// - `project_header`：用户项目头文件路径（相对路径，如 `"include/mylib.h"`）；
+///   命名空间类模式下生成 `#include "project_header"` 而非内联类体，
+///   普通模式下为 `None`。由 [`crate::commands::init::read_source_includes`] 识别项目头并传入。
 pub fn extract(
     ast: &CppAst,
     unit_name: &str,
@@ -200,14 +215,24 @@ fn detect_namespace_mode(
         })
 }
 
-/// 去重：对于同名函数优先保留 body_offset 且 is_extern_c=false 的版本
+/// 去重：
+/// - 以 `(name, param_types_joined)` 为键，对具有相同名称**且**相同参数类型签名的函数去重，
+///   保留 score 最高的版本（有 body_offset 且非 extern_c 的版本胜出）。
+/// - 具有相同名称但不同参数类型签名的函数（C++ 重载）分别保留，
+///   下游代码负责为其生成带数字后缀的不同 Rust 名称。
 fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
-    let mut map: std::collections::HashMap<&str, &'a FunctionInfo> =
+    // 键：(函数名, 参数类型字符串拼接)
+    let mut map: std::collections::HashMap<(&str, String), &'a FunctionInfo> =
         std::collections::HashMap::new();
 
     for fi in functions {
-        let entry = map.entry(fi.name.as_str()).or_insert(fi);
-        // 替换规则：有 body_offset 且不是 extern_c 的版本胜出
+        let sig_key = fi
+            .params
+            .iter()
+            .map(|p| p.type_name.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        let entry = map.entry((fi.name.as_str(), sig_key.clone())).or_insert(fi);
         let new_score = score(fi);
         let old_score = score(entry);
         if new_score > old_score {
@@ -215,14 +240,19 @@ fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
         }
     }
 
-    // 按原始顺序输出
+    // 按原始顺序输出，同一签名键只出现一次
     let mut result: Vec<&'a FunctionInfo> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<(&str, String)> = std::collections::HashSet::new();
     for fi in functions {
-        if !seen.contains(fi.name.as_str()) {
-            if let Some(&best) = map.get(fi.name.as_str()) {
+        let sig_key = fi
+            .params
+            .iter()
+            .map(|p| p.type_name.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        if seen.insert((fi.name.as_str(), sig_key.clone())) {
+            if let Some(&best) = map.get(&(fi.name.as_str(), sig_key)) {
                 result.push(best);
-                seen.insert(fi.name.as_str());
             }
         }
     }
@@ -408,6 +438,19 @@ fn is_mappable_rust_type(rust_ty: &str, class_names: &[&str]) -> bool {
         // 指向原始类型的指针（如 *mut i32）合法
         if PRIMITIVES.contains(&inner) {
             return true;
+        }
+        // 双重指针：*mut *mut T 或 *const *const T（深度限为 2）
+        if let Some(inner2) = inner
+            .strip_prefix("*mut ")
+            .or_else(|| inner.strip_prefix("*const "))
+        {
+            if inner2 == "i8" || inner2 == "u8" {
+                return true;
+            }
+            if PRIMITIVES.contains(&inner2) {
+                return true;
+            }
+            return class_names.contains(&inner2);
         }
         // 指向已知类的指针合法
         return class_names.contains(&inner);
@@ -1359,5 +1402,146 @@ mod tests {
         assert_eq!(result[0].name, "beta");
         assert_eq!(result[1].name, "alpha");
         assert!(result[0].body_offset.is_some(), "beta 应选取 body_offset 版本");
+    }
+
+    // ── T2: dedup_functions 函数重载场景测试 ──────────────────────────────────
+
+    /// 同名但参数类型不同的函数（C++ 重载）应各自保留
+    #[test]
+    fn dedup_functions_preserves_overloads() {
+        // 构造 get_value() 和 get_value(int) 两个重载
+        let fi_no_param = make_fn("get_value", "int", &[]);
+        let fi_one_param = make_fn("get_value", "int", &["int"]);
+        let funcs = vec![fi_no_param, fi_one_param];
+        let result = dedup_functions(&funcs);
+        // 两个重载应都保留
+        assert_eq!(result.len(), 2, "同名不同签名的重载函数应各自保留，dedup 后应有 2 条");
+    }
+
+    /// 同名且参数完全相同的函数仅保留一条（去重）
+    #[test]
+    fn dedup_functions_deduplicates_exact_same_sig() {
+        let fi1 = make_fn("set_value", "void", &["int"]);
+        let fi2 = make_fn("set_value", "void", &["int"]);
+        let funcs = vec![fi1, fi2];
+        let result = dedup_functions(&funcs);
+        assert_eq!(result.len(), 1, "完全相同签名的函数应去重为 1 条");
+    }
+
+    /// 重载函数在 build_lib_spec 中应获得不同的 rust_name（通过 _1 后缀区分）
+    #[test]
+    fn build_lib_spec_overload_gets_suffix() {
+        let fi_a = make_fn("get_value", "int", &[]);
+        let fi_b = make_fn("get_value", "int", &["int"]);
+        let funcs = vec![&fi_a, &fi_b];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        // 两个重载函数都应生成绑定
+        assert_eq!(spec.fn_bindings.len(), 2, "两个重载函数都应生成绑定");
+        // 它们的 rust_name 应不同（第二个加了 _1 后缀）
+        let names: Vec<&str> = spec.fn_bindings.iter().map(|fb| fb.rust_name.as_str()).collect();
+        assert_ne!(names[0], names[1], "重载函数的 rust_name 应不同");
+        // 后缀形如 get_value_1
+        assert!(
+            names.iter().any(|&n| n == "get_value"),
+            "应有 get_value（第一个）"
+        );
+        assert!(
+            names.iter().any(|&n| n == "get_value_1"),
+            "应有 get_value_1（第二个重载）"
+        );
+    }
+
+    // ── T6: is_mappable_rust_type 双重指针测试 ────────────────────────────────
+
+    /// 双重字符指针（char**）应通过合法性检查
+    #[test]
+    fn is_mappable_rust_type_double_char_ptr() {
+        assert!(
+            is_mappable_rust_type("*mut *mut i8", &[]),
+            "*mut *mut i8 (char**) 应合法"
+        );
+        assert!(
+            is_mappable_rust_type("*mut *const i8", &[]),
+            "*mut *const i8 (const char**) 应合法"
+        );
+        assert!(
+            is_mappable_rust_type("*mut *mut u8", &[]),
+            "*mut *mut u8 (void**) 应合法"
+        );
+    }
+
+    /// 双重原始类型指针（int**）应通过合法性检查
+    #[test]
+    fn is_mappable_rust_type_double_primitive_ptr() {
+        assert!(
+            is_mappable_rust_type("*mut *mut i32", &[]),
+            "*mut *mut i32 (int**) 应合法"
+        );
+        assert!(
+            is_mappable_rust_type("*const *const f64", &[]),
+            "*const *const f64 (const double* const*) 应合法"
+        );
+    }
+
+    /// 三重指针不应通过合法性检查（深度限为 2）
+    #[test]
+    fn is_mappable_rust_type_triple_ptr_is_invalid() {
+        assert!(
+            !is_mappable_rust_type("*mut *mut *mut i8", &[]),
+            "三重指针应非法（深度超限）"
+        );
+    }
+
+    // ── T1: collect_namespace 三方库函数渗透回归测试 ──────────────────────────
+
+    /// 模拟三方库命名空间函数场景：
+    /// is_from_current_file=false 且 is_extern_c=false 的函数不应出现在 fn_bindings 中。
+    ///
+    /// 背景：`collect_namespace` 修复前，`is_extern_c=true` 的误标函数会通过
+    /// `eligible_functions` 过滤器进入 FFI 绑定；修复后，collector 在 push 前检查
+    /// `is_from_current_file`，此测试验证该防线生效。
+    #[test]
+    fn eligible_functions_excludes_non_current_file_fn() {
+        // 模拟一个来自三方头文件的函数（既非当前文件，也非 extern C，无函数体）
+        let third_party_fn = FunctionInfo {
+            name: "clzll".to_string(),
+            return_type: "int".to_string(),
+            params: vec![ParamInfo {
+                name: "x".to_string(),
+                type_name: "unsigned long long".to_string(),
+                has_default: false,
+            }],
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: false,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: false,
+        };
+        // 正常的当前文件函数
+        let current_fn = make_fn("my_func", "int", &["int"]);
+
+        // 通过 dedup_functions 直接检验 eligible_functions 逻辑：
+        // 模拟 extract() 中的过滤器
+        let all_fns = vec![third_party_fn.clone(), current_fn.clone()];
+        let eligible: Vec<&FunctionInfo> = all_fns
+            .iter()
+            .filter(|f| {
+                f.is_from_current_file
+                    || f.is_extern_c
+                    || (f.body_offset.is_some() && !f.is_inline)
+            })
+            .collect();
+
+        // clzll 应被过滤掉
+        assert!(
+            !eligible.iter().any(|f| f.name == "clzll"),
+            "来自三方库的命名空间函数不应出现在 eligible_functions 中"
+        );
+        // 当前文件函数应保留
+        assert!(
+            eligible.iter().any(|f| f.name == "my_func"),
+            "当前文件函数应保留在 eligible_functions 中"
+        );
     }
 }

@@ -675,7 +675,7 @@ hicc::import_lib! {
 
 | TAG | 示例 | C++ 特性 | 无法完全自动的根本原因 | 自动降级策略 | 用户剩余工作 |
 |-----|------|---------|---------------------|------------|------------|
-| `[OP]` | 019 | 运算符重载 | C ABI 无运算符符号；FFI 边界只能传命名函数 | 为每个运算符生成命名 shim（`{class}_add/sub/...`），写入 `hicc::cpp!` + `import_lib!` | 可选：手动实现 `impl std::ops::Add<T> for T` 等 |
+| `[OP]` | 019 | 运算符重载 | C ABI 无运算符符号；FFI 边界只能传命名函数 | 为每个运算符生成命名 shim（`{class}_add/sub/mul/div/mod/shl/shr/bitand/bitor/bitxor`、比较：`{class}_eq/ne/lt/gt/le/ge`、一元：`{class}_negate/not/bitnot/pre_inc/pre_dec`），写入 `hicc::cpp!` + `import_lib!` | 可选：手动实现 `impl std::ops::Add<T> for T` 等 |
 | `[VA]` | 028 | 可变参数模板 | `...Args` 是编译期展开，FFI 无法表达"任意数量参数" | 生成 wrapper 类，按参数数量和类型组合分别封装为静态方法（`sum_1`/`sum_2` 等） | 若需要新的参数数量/类型组合，在 `hicc::cpp!` 中手动添加对应方法和包装函数 |
 | `[LM]` | 039 | 有状态 Lambda | 匿名闭包类型，FFI 无法表达捕获列表 | 无状态 lambda → 函数指针；有状态 lambda → class wrapper + opaque pointer | 若需 Rust 闭包 → C++ 回调，手动编写 trampoline |
 | `[LM]` | 040 | std::function | 类型擦除容器，捕获状态不透明 | 统一使用 class wrapper + opaque pointer | 可选：手动实现 Rust 闭包 → `std::function` 适配层 |

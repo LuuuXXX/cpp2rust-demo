@@ -91,17 +91,32 @@ bar.cpp             │                  │                    │             
 
 **shim 命名规则**：`{class_snake_case}_{method_name}`，例如类 `Dog`、方法 `eat` → shim 名 `dog_eat`。菱形 shim 不标记 `unsafe`（遵循 golden 规则）。
 
+**调用顺序**：`diamond_handler::apply` 先于 `operator_handler::apply` 执行，两者均直接修改 `FfiSpec`（`cpp_block_lines` + `lib_spec.fn_bindings` + `class_specs`）。
+
 ##### `operator_handler`：运算符重载处理
 
-**触发条件**：类的方法名以 `operator` 开头（包括二元、一元、比较等运算符）。
+**触发条件**：类的 MethodAccessor 函数名（`{class_lower}_{stripped}`）中 `stripped` 匹配以下支持的运算符名称集合之一。
 
-**处理逻辑**：
-- **Getter/Accessor 系列**（`[]`、`()`、解引用 `*` 等）：生成命名 accessor shim
-- **BinaryOp 系列**（`+`、`-`、`*`、`/` 等）：生成命名二元函数 `{class}_add` / `{class}_sub` 等
-- **UnaryOp 系列**（前缀 `++`、`--`、一元 `-` 等）：生成命名一元函数
-- **Compare 系列**（`==`、`!=`、`<`、`>` 等）：生成命名比较函数 `{class}_eq` 等
+**支持的运算符**：
 
-**输出位置**：命名 shim 函数进 `cpp!` 块；对应绑定进 `import_lib!`；原 `import_class!` 中的 operator 方法移除。降级位置标记 `cpp2rust-todo[OP]`。
+| 类别 | 识别名称 | 对应 C++ 符号 | 生成形式 |
+|------|---------|------------|---------|
+| 二元算术 | `add` `sub` `mul` `div` `mod` `shl` `shr` `bitand` `bitor` `bitxor` | `+` `-` `*` `/` `%` `<<` `>>` `&` `\|` `^` | `Class* {class}_{op}(const Class* a, const Class* b)` |
+| 比较 | `eq` `ne` `lt` `gt` `le` `ge` | `==` `!=` `<` `>` `<=` `>=` | `bool {class}_{op}(const Class* a, const Class* b)` |
+| 一元 | `negate` `not` `bitnot` `pre_inc` `pre_dec` | `-` `!` `~` `++` `--` | `Class* {class}_{op}(const Class* a)` |
+| Getter | 无额外参数、非 void 返回、非类类型返回 | 任意 accessor | `RetType {class}_{stripped}(const Class* self)` |
+
+**分类逻辑**（`classify_accessor`）：
+1. 无额外参数且返回非 void 非类类型 → `Getter`
+2. 名称在 `BINARY_OPS` 中、有 1 个额外参数、返回类类型 → `BinaryOp`
+3. 名称在 `UNARY_OPS` 中、无额外参数、返回类类型 → `UnaryOp`
+4. 名称在 `COMPARE_OPS` 中、有 1 个额外参数、返回非 void 非类类型 → `Compare`
+5. 其余 → `Other`（跳过）
+
+**对 FfiSpec 的修改**：
+- `cpp_block_lines`：追加生成的 C++ shim 函数（追加于 dtor shim 之后）
+- `lib_spec.fn_bindings`：追加新 shim 的 `FnBinding`
+- `class_specs[*].methods`：移除有类类型参数的方法（如 compare 系列），避免类型冲突
 
 ### 最终产出：hicc 三段式
 
