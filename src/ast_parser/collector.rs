@@ -205,7 +205,7 @@ pub(super) fn collect_typedef(
 /// 非类型实参（如整型常量 `template<int N>` 的 `N`）暂回退到 libclang 的调试表示。
 /// **该回退字符串并非合法 C++ 类型/表达式**；下游实例化别名提取（`template_spec`）
 /// 主要面向类型实参，对该回退串会按「类类型」处理并附 `cpp2rust-todo[TMPL]` 提示用户
-/// 补全（且仅在 `CPP2RUST_GEN_TEMPLATES` 开关开启时输出）。完整的非类型模板参数支持
+/// 补全（v7 起模板骨架默认输出）。完整的非类型模板参数支持
 /// 留待后续阶段扩展。
 fn template_arg_display(arg: &TemplateArgument<'_>) -> String {
     match arg {
@@ -326,7 +326,7 @@ fn collect_template_params(entity: &clang::Entity<'_>) -> Vec<String> {
 /// 提取模板类（`ClassTemplate`）的结构化信息 — v6 Phase A。
 ///
 /// 复用 `extract_method` 收集成员方法，并通过 [`collect_template_params`] 获取
-/// 泛型参数名。仅用于生成器侧的泛型骨架输出（受 `CPP2RUST_GEN_TEMPLATES` 开关控制），
+/// 泛型参数名。用于生成器侧的泛型骨架输出（v7 起默认输出），
 /// 不影响默认产物。
 pub(super) fn extract_template_class(
     entity: &clang::Entity<'_>,

@@ -1,11 +1,8 @@
-//! v6 Phase A/B：模板类 / 模板函数泛型骨架生成测试。
+//! v6 Phase A/B → v7：模板类 / 模板函数泛型骨架生成测试。
 //!
-//! 验证：
-//! 1. 默认（未设置 `CPP2RUST_GEN_TEMPLATES`）时，生成器不输出任何模板骨架；
-//! 2. 开启开关后，模板类生成泛型 `import_class!`、模板函数生成泛型 `import_lib!` 骨架。
-//!
-//! 因为开关通过进程级环境变量控制，所有断言集中在单个 `#[test]` 中串行执行，
-//! 避免与其他测试并发设置/读取环境变量产生竞态。
+//! 验证 v7 起**默认**（无需任何环境变量开关）即输出：
+//! 模板类生成泛型 `import_class!`、模板函数生成泛型 `import_lib!` 骨架，
+//! 以及实例化别名与构造工厂骨架。
 
 mod common;
 
@@ -59,58 +56,15 @@ void do_swap(T* a, T* b) {
     not(feature = "full-test"),
     ignore = "requires libclang; run with --features full-test --test-threads=1"
 )]
-fn template_skeleton_gated_by_env() {
-    // ── 默认关闭：不应输出任何模板骨架 ──
-    std::env::remove_var("CPP2RUST_GEN_TEMPLATES");
-    let off = match common::generate_from_source("tmpl_off", TEMPLATE_CLASS_SRC) {
+fn template_skeleton_emitted_by_default() {
+    // v7：无需任何环境变量开关，默认即输出模板骨架。
+    let on = match common::generate_from_source("tmpl_default", TEMPLATE_CLASS_SRC) {
         Some(s) => s,
         None => {
             eprintln!("跳过：当前环境缺少 C++ 预处理器或 libclang");
             return;
         }
     };
-    assert!(
-        !off.contains("pub class Stack<T>"),
-        "默认关闭时不应生成模板类骨架，实际输出：\n{}",
-        off
-    );
-    assert!(
-        !off.contains("do_swap<T>"),
-        "默认关闭时不应生成模板函数骨架，实际输出：\n{}",
-        off
-    );
-    assert!(
-        !off.contains("cpp2rust-todo[TMPL]"),
-        "默认关闭时不应出现 TMPL 占位，实际输出：\n{}",
-        off
-    );
-    assert!(
-        !off.contains("pub type StackI32"),
-        "默认关闭时不应生成模板实例化别名，实际输出：\n{}",
-        off
-    );
-    assert!(
-        !off.contains("stack_i32_new"),
-        "默认关闭时不应生成模板构造工厂骨架，实际输出：\n{}",
-        off
-    );
-    assert!(
-        !off.contains("pub type StackI64"),
-        "默认关闭时不应生成显式实例化别名，实际输出：\n{}",
-        off
-    );
-    assert!(
-        !off.contains("pub type StackU32"),
-        "默认关闭时不应生成局部变量声明追踪的实例化别名，实际输出：\n{}",
-        off
-    );
-
-    // ── 开启开关：应输出泛型骨架 ──
-    std::env::set_var("CPP2RUST_GEN_TEMPLATES", "1");
-    let on = common::generate_from_source("tmpl_on", TEMPLATE_CLASS_SRC)
-        .expect("已确认环境可用，生成不应失败");
-    std::env::remove_var("CPP2RUST_GEN_TEMPLATES");
-
     // 模板类：泛型 import_class! + #[cpp(class = "template<...> Stack<T>")]
     assert!(
         on.contains("pub class Stack<T>"),
@@ -213,4 +167,23 @@ fn template_skeleton_gated_by_env() {
         "应从局部变量声明 Stack<unsigned int> 收集到实例化别名，实际输出：\n{}",
         on
     );
+
+    // v7 关键约定：模板骨架默认以**注释**形式输出（未实例化的模板无可链接符号、
+    // 泛型 <T> 无法直接编译），故工具默认产物必须可编译。校验模板函数/模板类/别名
+    // 三类骨架均处于注释行（以 `//` 起始），不存在未注释的活动绑定。
+    for needle in [
+        "pub unsafe fn do_swap(",
+        "pub class Stack<T>",
+        "pub type StackI32 = Stack<hicc::Pod<i32>>;",
+    ] {
+        for line in on.lines() {
+            if line.contains(needle) {
+                assert!(
+                    line.trim_start().starts_with("//"),
+                    "模板骨架行应为注释（以 // 起始）以保证默认产物可编译，实际行：\n{}",
+                    line
+                );
+            }
+        }
+    }
 }

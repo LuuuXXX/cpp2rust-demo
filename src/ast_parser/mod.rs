@@ -130,8 +130,8 @@ pub struct FunctionInfo {
 
 /// 模板类声明（`ClassTemplate`）— v6 Phase A
 ///
-/// 仅收集来自当前编译单元的模板类，用于在生成器侧（受 `CPP2RUST_GEN_TEMPLATES`
-/// 开关控制）输出泛型 `import_class!` 骨架。与 `template_class_ranges` 互补：
+/// 仅收集来自当前编译单元的模板类，用于在生成器侧（v7 起默认）
+/// 输出泛型 `import_class!` 骨架。与 `template_class_ranges` 互补：
 /// 后者保存源码文本（供内联到 `hicc::cpp!`），本结构保存结构化签名信息。
 #[derive(Debug, Clone)]
 pub struct TemplateClassInfo {
@@ -176,8 +176,7 @@ pub struct CppAst {
     /// 当前编译单元函数 / 方法体内**局部变量声明**的类型显示名（v6 Phase B 收尾）。
     ///
     /// 用于模板实例化追踪：覆盖 `Stack<int> s;`、`Stack<int>* p = new Stack<int>();`
-    /// 等表达式级使用点。仅在生成器侧 `CPP2RUST_GEN_TEMPLATES` 开关开启时被消费，
-    /// 因此始终收集也不改变默认产物。
+    /// 等表达式级使用点。v7 起在生成器侧默认被消费。
     pub local_var_types: Vec<String>,
 }
 
@@ -409,8 +408,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
 
     // 第三遍（v6 Phase B 收尾）：收集函数 / 方法体内局部变量声明的类型，供模板实例化
     // 追踪使用（如 `Stack<int> s;`、`Stack<int>* p = new Stack<int>();`）。
-    // 仅遍历当前编译单元的子树（跳过系统头），限制遍历成本；结果仅在生成器侧
-    // `CPP2RUST_GEN_TEMPLATES` 开关开启时被消费，因此不改变默认产物。
+    // 仅遍历当前编译单元的子树（跳过系统头），限制遍历成本；结果 v7 起在生成器侧默认被消费。
     let mut local_var_types = Vec::new();
     collector::collect_local_var_types(&root, &cpp_ranges, &mut local_var_types);
     ast.local_var_types = local_var_types;

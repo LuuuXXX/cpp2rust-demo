@@ -4,9 +4,8 @@
 //! [`TemplateClassSpec`] / [`TemplateFnSpec`]，供生成器输出泛型
 //! `import_class!` / `import_lib!` 骨架。
 //!
-//! 本模块产出的规格仅在生成器侧 `CPP2RUST_GEN_TEMPLATES` 开关开启时被输出，
-//! 因此即便始终构建这些规格，默认产物也逐字节不变（见
-//! `generator::hicc_codegen::templates_enabled`）。
+//! 本模块产出的规格 v7 起由生成器默认输出（IR 非空即输出），
+//! 不再依赖任何环境变量开关。
 //!
 //! ## 设计取舍
 //!
