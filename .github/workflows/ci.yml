@@ -347,8 +347,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+            examples-target
+          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-l3-
+            ${{ runner.os }}-cargo-
 
       - name: Build C++ shared libraries for all examples
         run: |
@@ -358,11 +361,23 @@ jobs:
             (cd "$dir" && g++ -shared -fPIC *.cpp -o "lib${example##*_}.so") || echo "⚠ Failed to build C++ lib for $example (skipping)"
           done
 
+      # 并行预构建所有示例项目：共享同一 CARGO_TARGET_DIR，hicc 只编译一次；
+      # 测试时 cargo_run 直接执行已编译二进制，跳过 cargo 开销。
+      - name: Pre-build all Rust example projects
+        run: |
+          ls -d examples/*/rust_hicc | \
+            xargs -P$(nproc) -I{} \
+              cargo build --manifest-path {}/Cargo.toml
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
+
       - name: Run L3 run tests
         run: |
           cargo test --test l3_run_tests -- \
             --include-ignored \
-            --test-threads=1
+            --test-threads=4
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
 
   # ── L3 Windows（MinGW）: 在 windows-latest 上验证示例运行输出 ───
   l3-run-windows:
@@ -401,8 +416,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
+            examples-target
+          key: ${{ runner.os }}-mingw-cargo-l3-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mingw-cargo-l3-
+            ${{ runner.os }}-mingw-cargo-
 
       - name: Build C++ DLLs for all examples
         shell: msys2 {0}
@@ -413,10 +431,22 @@ jobs:
             (cd "$dir" && g++ -shared *.cpp -o "${example##*_}.dll") || echo "⚠ Failed to build C++ DLL for $example (skipping)"
           done
 
+      # 并行预构建所有示例项目（MSYS2 bash），共享 CARGO_TARGET_DIR
+      - name: Pre-build all Rust example projects
+        shell: msys2 {0}
+        run: |
+          ls -d examples/*/rust_hicc | \
+            xargs -P4 -I{} \
+              cargo build --manifest-path {}/Cargo.toml
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
       - name: Run L3 run tests
         run: |
-          cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+          cargo test --test l3_run_tests -- --include-ignored --test-threads=4
         env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
   # ── L4: rapidjson 端到端门禁（init + merge 全流程）──────────────
@@ -832,13 +862,36 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
+            examples-target
+          key: ${{ runner.os }}-msvc-cargo-l3-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-msvc-cargo-l3-
+            ${{ runner.os }}-msvc-cargo-
+
+      # 预构建所有示例项目（PowerShell），共享 CARGO_TARGET_DIR
+      - name: Pre-build all Rust example projects
+        run: |
+          $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
+          $env:CARGO_TARGET_DIR = $targetDir
+          $jobs = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
+            Where-Object { $_.DirectoryName -like '*rust_hicc' } |
+            ForEach-Object {
+              $manifestPath = $_.FullName
+              Start-Job -ScriptBlock {
+                param($manifest, $tdir)
+                $env:CARGO_TARGET_DIR = $tdir
+                cargo build --manifest-path $manifest 2>&1
+              } -ArgumentList $manifestPath, $targetDir
+            }
+          $jobs | Wait-Job | Receive-Job
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
       - name: Run L3 run tests
         run: |
-          cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+          cargo test --test l3_run_tests -- --include-ignored --test-threads=4
         env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
   # ── L4 Windows MSVC: 在 windows-latest 上验证 E2E 捕获流程 ──────
@@ -1133,8 +1186,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+            examples-target
+          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-l3-
+            ${{ runner.os }}-cargo-
 
       - name: Build C++ shared libraries for all examples
         run: |
@@ -1145,11 +1201,22 @@ jobs:
             (cd "$dir" && /usr/bin/clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") || echo "⚠ Failed to build C++ dylib for $example (skipping)"
           done
 
+      # 并行预构建所有示例项目，共享 CARGO_TARGET_DIR，hicc 只编译一次
+      - name: Pre-build all Rust example projects
+        run: |
+          ls -d examples/*/rust_hicc | \
+            xargs -P$(sysctl -n hw.logicalcpu) -I{} \
+              cargo build --manifest-path {}/Cargo.toml
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
+
       - name: Run L3 run tests
         run: |
           cargo test --test l3_run_tests -- \
             --include-ignored \
-            --test-threads=1
+            --test-threads=4
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
 
   # ── L4 rapidjson E2E (macOS) ──────────────────────────────────────
   l4-rapidjson-e2e-macos:
