@@ -13,6 +13,56 @@ pub struct FfiSpec {
     pub class_specs: Vec<ClassSpec>,
     /// import_lib! 块规格
     pub lib_spec: LibSpec,
+    /// 模板类绑定规格（Phase B）：消费 AST 的模板类信息生成泛型 `import_class!` 骨架。
+    /// 仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器消费；默认不消费，故不改变默认产物。
+    pub template_classes: Vec<TemplateClassSpec>,
+    /// 模板函数绑定规格（Phase B）：消费 AST 的模板函数信息生成泛型 `import_lib!` 骨架。
+    pub template_fns: Vec<TemplateFnSpec>,
+}
+
+/// 模板类绑定规格（Phase B）。
+///
+/// 与 [`ClassSpec`] 平行，但额外携带泛型形参名列表 `type_params`，用于生成
+/// `pub class Name<T> { ... }` 形式的泛型 `import_class!` 骨架。
+///
+/// 当前仅生成泛型骨架（成员方法签名沿用 C++ 模板成员签名），具体实例化类型
+/// （如 `Stack<hicc::Pod<i32>>`）的别名与工厂绑定需后续阶段补充——生成器为此
+/// 输出 `cpp2rust-todo[TPL]` 提示，符合既有降级标记约定。
+#[derive(Debug, Default, Clone)]
+pub struct TemplateClassSpec {
+    /// 泛型类名（如 `"Stack"`）
+    pub name: String,
+    /// 泛型形参名列表（如 `["T"]`；非类型/模板模板形参同样以名字列出）
+    pub type_params: Vec<String>,
+    /// 成员方法绑定（复用 [`MethodBinding`]）
+    pub methods: Vec<MethodBinding>,
+}
+
+impl TemplateClassSpec {
+    /// 无任何可生成的成员方法时返回 `true`（与 `ClassSpec::is_empty` 语义一致）。
+    pub fn is_empty(&self) -> bool {
+        self.methods.is_empty()
+    }
+}
+
+/// 模板函数绑定规格（Phase B）。
+///
+/// 与 [`FnBinding`] 平行，但携带泛型形参名列表 `type_params`，`cpp_sig` 保留
+/// C++ 模板形参（如 `void do_swap<T>(T*, T*)`）。具体实例化类型需后续阶段补充。
+#[derive(Debug, Default, Clone)]
+pub struct TemplateFnSpec {
+    /// 函数名（如 `"do_swap"`）
+    pub name: String,
+    /// 泛型形参名列表（如 `["T"]`）
+    pub type_params: Vec<String>,
+    /// C++ 模板函数签名（含泛型形参），用于 `#[cpp(func = "...")]`
+    pub cpp_sig: String,
+    /// Rust 函数名（snake_case）
+    pub rust_name: String,
+    /// 参数列表 (rust_name, rust_type)
+    pub params: Vec<(String, String)>,
+    /// 返回类型（None 表示 void）
+    pub ret_type: Option<String>,
 }
 
 /// 单个类的绑定规格

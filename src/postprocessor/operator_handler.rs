@@ -395,6 +395,7 @@ mod tests {
                 is_interface: false,
             }],
             lib_spec: LibSpec::default(),
+            ..Default::default()
         }
     }
 

@@ -286,7 +286,8 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::ClassTemplate => {
-                // 仅收集来自当前编译单元的模板类（用字节范围排除 include 进来的头文件）
+                // template_class_ranges 维持"仅当前 .cpp 文件"口径（cpp_ranges），
+                // 以保证既有 hicc::cpp! 内联产物逐字节不变。
                 let from_current = entity
                     .get_range()
                     .map(|r| {
@@ -301,8 +302,18 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                         let name = entity.get_name().unwrap_or_default();
                         ast.template_class_ranges.push((name, start, end));
                     }
-                    // Phase A：额外提取模板类的结构化信息（泛型形参 + 成员），
-                    // 与上面的源码范围并存，供后续阶段生成泛型 import_class!。
+                }
+                // Phase B：结构化模板类信息（template_classes）放宽到"用户代码"
+                // （含用户头文件，排除系统头 user_ranges），供默认关闭的模板绑定生成消费。
+                // 该字段仅被 CPP2RUST_GEN_TEMPLATES 开启时的生成器读取，不影响任何默认产物。
+                let from_user = entity
+                    .get_range()
+                    .map(|r| {
+                        let offset = r.get_start().get_file_location().offset;
+                        user_ranges.iter().any(|range| range.contains(&offset))
+                    })
+                    .unwrap_or(false);
+                if from_user {
                     if let Some(tc) = extract_template_class(&entity, &cpp_ranges) {
                         ast.template_classes.push(tc);
                     }
@@ -319,9 +330,17 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::FunctionTemplate => {
-                // Phase A：提取模板函数签名与泛型形参（仅当前编译单元）。
-                if let Some(tf) = extract_template_function(&entity, &cpp_ranges) {
-                    if tf.is_from_current_file {
+                // Phase B：模板函数信息同样放宽到"用户代码"口径（user_ranges），
+                // 供默认关闭的模板绑定生成消费；不影响任何默认产物。
+                let from_user = entity
+                    .get_range()
+                    .map(|r| {
+                        let offset = r.get_start().get_file_location().offset;
+                        user_ranges.iter().any(|range| range.contains(&offset))
+                    })
+                    .unwrap_or(false);
+                if from_user {
+                    if let Some(tf) = extract_template_function(&entity, &cpp_ranges) {
                         ast.template_functions.push(tf);
                     }
                 }

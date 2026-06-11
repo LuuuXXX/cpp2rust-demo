@@ -7,6 +7,7 @@ pub mod type_mapper;
 mod class_spec;
 mod cpp_block;
 mod lib_spec;
+mod template_spec;
 
 use crate::ast_parser::{CppAst, FunctionInfo, ParamInfo};
 use crate::ffi_model::{ClassSpec, FfiSpec};
@@ -130,7 +131,15 @@ pub fn extract(
         cpp_block_lines,
         class_specs,
         lib_spec,
+        // Phase B：构建模板绑定规格。始终构建（仅为数据，不影响默认产物）；
+        // 是否生成对应代码由 hicc_codegen 依 CPP2RUST_GEN_TEMPLATES 决定。
+        template_classes: Vec::new(),
+        template_fns: Vec::new(),
     };
+    let (template_classes, template_fns) =
+        template_spec::build_template_specs(&ast.template_classes, &ast.template_functions);
+    spec.template_classes = template_classes;
+    spec.template_fns = template_fns;
 
     // ── 后处理器 ──────────────────────────────
     crate::postprocessor::diamond_handler::apply(&mut spec, ast, &functions);

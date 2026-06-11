@@ -155,6 +155,8 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 
 **模板 AST 提取测试（v6 Phase A）**：`tests/template_ast_tests.rs` 验证 `ast_parser::parse_preprocessed` 能从模板类（`ClassTemplate`）/ 模板函数（`FunctionTemplate`）声明中提取结构化信息——泛型形参（`TemplateParamInfo`）、成员方法/字段、函数签名，分别存入 `CppAst::template_classes` / `CppAst::template_functions`。这些字段为后续阶段（泛型 `import_class!` / `import_lib!` 生成）提供输入，**当前不参与代码生成**（不消费即不改变生成产物）。需 libclang 与 C++ 预处理器，故以 `full-test` 门禁：`cargo test --test template_ast_tests --features full-test -- --test-threads=1`。
 
+**模板绑定生成（v6 Phase B）**：`extractor` 由 `CppAst::template_classes` / `template_functions` 构建 `TemplateClassSpec` / `TemplateFnSpec`（见 `src/extractor/template_spec.rs`），`hicc_codegen` 据此生成泛型 `import_class!`（`pub class Name<T> { ... }`）与 `import_lib!` 模板函数骨架。具体实例化类型（如 `Stack<hicc::Pod<i32>>`）尚需后续阶段补充，故骨架带 `cpp2rust-todo[TPL]` 提示。该生成由环境变量 `CPP2RUST_GEN_TEMPLATES` 控制，**默认关闭**：未设置或为 `0`/`false`/`no`/`off` 时不生成模板块，从而保证默认产物逐字节不变（L1 黄金 / L2 编译基线零变更）；设为 `1`/`true`/`on` 时启用。AST 层将 `template_classes` / `template_functions` 的采集口径放宽到**用户代码**（含用户头文件，排除系统头），使头文件中定义的模板（如示例 025 的 `Stack<T>`）可被消费；该放宽仅影响这两个 Phase B 专用字段，不触动 `template_class_ranges`（仍仅限 `.cpp` 自身）与任何默认产物。集成测试见 `tests/template_gen_tests.rs`（`full-test` 门禁）：`cargo test --test template_gen_tests --features full-test -- --test-threads=1`。
+
 ### 分层快速运行命令
 
 ```sh
