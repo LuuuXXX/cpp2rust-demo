@@ -607,7 +607,13 @@ mod tests {
         // 同一 (模板名, 实参) 再次出现（例如同时来自字段类型）应被去重
         record_instance("Stack", &["long".to_string()], &mut seen, &mut out);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].alias_name, "StackI64");
+        // `long` 的位宽随平台而异：LP64（Linux/macOS）映射为 i64，
+        // LLP64（Windows）映射为 i32，故别名后缀须与平台保持一致。
+        #[cfg(not(target_os = "windows"))]
+        let expected_alias = "StackI64";
+        #[cfg(target_os = "windows")]
+        let expected_alias = "StackI32";
+        assert_eq!(out[0].alias_name, expected_alias);
         assert_eq!(out[0].cpp_args, vec!["long".to_string()]);
     }
 
