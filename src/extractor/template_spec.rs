@@ -65,7 +65,9 @@ fn find_instantiation_args(name: &str, usage: &str) -> Vec<Vec<String>> {
     let bytes = usage.as_bytes();
     let nb = name.as_bytes();
     let mut i = 0usize;
-    while i + nb.len() < bytes.len() {
+    // 用 `<=` 以覆盖 name 恰好位于末尾的情形；切片上界可等于 len，访问安全。
+    // 此后的 `<` 检查（j < bytes.len()）会自然排除末尾无后继 `<` 的非实例化。
+    while i + nb.len() <= bytes.len() {
         if &bytes[i..i + nb.len()] == nb {
             // 单词边界检查：前一字符不能是标识符字符。
             let boundary_ok = i == 0 || {
