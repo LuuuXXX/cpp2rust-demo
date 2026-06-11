@@ -101,8 +101,7 @@ fn nlohmann_json_merge_phase() {
     }
 
     // 生成 Cargo.toml 与 lib.rs
-    project_generator::write_cargo_toml(&rust_dir, "nlohmann-json")
-        .expect("write_cargo_toml 失败");
+    project_generator::write_cargo_toml(&rust_dir, "nlohmann-json").expect("write_cargo_toml 失败");
     project_generator::write_lib_rs(&rust_dir, &unit_paths).expect("write_lib_rs 失败");
 
     // ── Merge 阶段 ─────────────────────────────────────────────────
@@ -112,7 +111,10 @@ fn nlohmann_json_merge_phase() {
     let src1 = rust_dir.join("src.1");
     let src_dir = rust_dir.join("src");
 
-    assert!(src1.is_dir(), "nlohmann_json_merge_phase: src.1/ 目录不存在");
+    assert!(
+        src1.is_dir(),
+        "nlohmann_json_merge_phase: src.1/ 目录不存在"
+    );
     assert!(
         src_dir.is_dir() && !src_dir.is_symlink(),
         "nlohmann_json_merge_phase: src/ 不存在或为符号链接"

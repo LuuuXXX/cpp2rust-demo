@@ -385,6 +385,10 @@ pub fn assert_cpp_exports_linked(
 /// Run `cargo build` in `dir` and return the path to the compiled binary named
 /// `bin_name` (the `package.name` in that crate's Cargo.toml).
 /// Returns `None` if the build fails or the binary is not found.
+///
+/// When the `CARGO_TARGET_DIR` environment variable is set (e.g. a shared
+/// target directory used by the pre-build CI step), the binary is looked up
+/// there first before falling back to the crate-local `target/debug/`.
 pub fn cargo_build_example(dir: &str, bin_name: &str) -> Option<PathBuf> {
     let status = Command::new("cargo")
         .args(["build"])
@@ -400,6 +404,17 @@ pub fn cargo_build_example(dir: &str, bin_name: &str) -> Option<PathBuf> {
     let bin_name_with_ext = format!("{}.exe", bin_name);
     #[cfg(not(windows))]
     let bin_name_with_ext = bin_name.to_string();
+
+    // Prefer the shared target directory when CARGO_TARGET_DIR is set.
+    if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
+        let bin = PathBuf::from(&target_dir)
+            .join("debug")
+            .join(&bin_name_with_ext);
+        if bin.exists() {
+            return Some(bin);
+        }
+    }
+
     let bin = PathBuf::from(dir)
         .join("target/debug")
         .join(&bin_name_with_ext);

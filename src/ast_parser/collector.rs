@@ -393,9 +393,7 @@ pub(super) fn extract_enum(entity: &clang::Entity<'_>) -> Option<EnumInfo> {
     // 还是 "enum class " 或 "enum struct " 开头（scoped）。
     // 若 display_name 不可用，回退为启发式：第一个变体名以枚举名开头视为 unscoped。
     let is_scoped = {
-        let display = entity
-            .get_display_name()
-            .unwrap_or_default();
+        let display = entity.get_display_name().unwrap_or_default();
         if display.starts_with("enum class ") || display.starts_with("enum struct ") {
             true
         } else if display.starts_with("enum ") {

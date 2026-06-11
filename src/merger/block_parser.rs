@@ -328,9 +328,7 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
                 continue;
             }
             // `class Foo {` 或 `pub class Foo {` 行（codegen 会生成 pub class）
-            let class_part = trimmed
-                .strip_prefix("pub ")
-                .unwrap_or(trimmed);
+            let class_part = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
             if class_part.starts_with("class ") && trimmed.contains('{') {
                 // 若是 interface 类，从这里提取类名
                 if class_name.is_empty() {
@@ -730,7 +728,11 @@ hicc::import_lib! {
     fn parse_multiple_class_blocks() {
         let unit = parse_unit_rs(MULTI_CLASS);
         assert_eq!(unit.class_blocks.len(), 2, "应解析出 2 个 import_class! 块");
-        let names: Vec<&str> = unit.class_blocks.iter().map(|b| b.class_name.as_str()).collect();
+        let names: Vec<&str> = unit
+            .class_blocks
+            .iter()
+            .map(|b| b.class_name.as_str())
+            .collect();
         assert!(names.contains(&"Alpha"), "应包含 Alpha 类");
         assert!(names.contains(&"Beta"), "应包含 Beta 类");
     }

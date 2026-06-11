@@ -141,6 +141,9 @@ fn sqlite3_merge_phase() {
             );
         }
         Ok(_) => println!("sqlite3_merge_phase: cargo check 通过"),
-        Err(e) => eprintln!("sqlite3_merge_phase: cargo check 跳过（cargo 不可用: {}）", e),
+        Err(e) => eprintln!(
+            "sqlite3_merge_phase: cargo check 跳过（cargo 不可用: {}）",
+            e
+        ),
     }
 }

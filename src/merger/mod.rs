@@ -846,7 +846,11 @@ hicc::import_lib! {
         std::fs::write(&p, src).unwrap();
 
         let (spec, _) = merge_units(&[p]);
-        assert_eq!(spec.cpp_lines.len(), 1, "cpp_lines should contain 1 include");
+        assert_eq!(
+            spec.cpp_lines.len(),
+            1,
+            "cpp_lines should contain 1 include"
+        );
         assert!(spec.cpp_lines[0].contains("foo.h"));
         assert!(spec.classes.contains_key("Foo"));
         assert_eq!(spec.classes["Foo"].len(), 1, "Foo should have 1 method");
@@ -953,7 +957,11 @@ hicc::import_lib! {
             .iter()
             .filter(|l| l.contains("common.h"))
             .count();
-        assert_eq!(common_count, 1, "common.h 应只出现一次，实际 cpp_lines: {:?}", spec.cpp_lines);
+        assert_eq!(
+            common_count, 1,
+            "common.h 应只出现一次，实际 cpp_lines: {:?}",
+            spec.cpp_lines
+        );
     }
 
     // ── collect_degraded_sigs_from_str 边界测试 ──────────────────────────────
@@ -967,7 +975,11 @@ hicc::import_lib! {
 fn foo();\n";
         let mut degraded = HashSet::new();
         collect_degraded_sigs_from_str(content, &mut degraded);
-        assert!(degraded.contains("void foo()"), "应收集到降级签名，实际: {:?}", degraded);
+        assert!(
+            degraded.contains("void foo()"),
+            "应收集到降级签名，实际: {:?}",
+            degraded
+        );
     }
 
     #[test]
@@ -978,7 +990,11 @@ fn foo();\n";
 fn bar();\n";
         let mut degraded = HashSet::new();
         collect_degraded_sigs_from_str(content, &mut degraded);
-        assert!(degraded.is_empty(), "无降级注释时不应收集，实际: {:?}", degraded);
+        assert!(
+            degraded.is_empty(),
+            "无降级注释时不应收集，实际: {:?}",
+            degraded
+        );
     }
 
     #[test]
@@ -988,7 +1004,11 @@ fn bar();\n";
         let content = "#[cpp(func = \"void first()\")]\nfn first();\n";
         let mut degraded = HashSet::new();
         collect_degraded_sigs_from_str(content, &mut degraded);
-        assert!(degraded.is_empty(), "第 0 行的签名前无 todo 注释，不应收集，实际: {:?}", degraded);
+        assert!(
+            degraded.is_empty(),
+            "第 0 行的签名前无 todo 注释，不应收集，实际: {:?}",
+            degraded
+        );
     }
 
     #[test]
@@ -998,7 +1018,11 @@ fn bar();\n";
         let content = "// cpp2rust-todo[OP]\n#[cpp(func = \"int op()\")]\nfn op() -> i32;\n";
         let mut degraded = HashSet::new();
         collect_degraded_sigs_from_str(content, &mut degraded);
-        assert!(degraded.contains("int op()"), "第 1 行签名前有 todo 注释，应收集，实际: {:?}", degraded);
+        assert!(
+            degraded.contains("int op()"),
+            "第 1 行签名前有 todo 注释，应收集，实际: {:?}",
+            degraded
+        );
     }
 
     #[test]
@@ -1028,6 +1052,10 @@ fn set(&mut self, v: i32);\n";
 fn far();\n";
         let mut degraded = HashSet::new();
         collect_degraded_sigs_from_str(content, &mut degraded);
-        assert!(degraded.is_empty(), "距离超 2 行的 todo 不应触发收集，实际: {:?}", degraded);
+        assert!(
+            degraded.is_empty(),
+            "距离超 2 行的 todo 不应触发收集，实际: {:?}",
+            degraded
+        );
     }
 }

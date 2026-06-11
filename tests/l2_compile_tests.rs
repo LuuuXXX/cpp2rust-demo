@@ -3,7 +3,10 @@ mod common;
 macro_rules! compile_test {
     ($name:ident, $example:literal) => {
         #[test]
-        #[cfg_attr(not(feature = "full-test"), ignore = "requires C++ toolchain; run with --features full-test")]
+        #[cfg_attr(
+            not(feature = "full-test"),
+            ignore = "requires C++ toolchain; run with --features full-test"
+        )]
         fn $name() {
             let dir = concat!("examples/", $example, "/rust_hicc");
             assert!(

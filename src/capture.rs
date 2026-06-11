@@ -163,7 +163,9 @@ fn run_with_hook_unix(
 fn hook_dir() -> Result<PathBuf> {
     // 从 exe 所在目录与当前工作目录分别向上搜索，最多 5 层。
     let search_roots: Vec<PathBuf> = [
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf())),
         std::env::current_dir().ok(),
     ]
     .into_iter()
@@ -200,8 +202,9 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
     let hook_dir = base.join("cpp2rust-demo").join("hook");
 
-    std::fs::create_dir_all(&hook_dir)
-        .map_err(|e| Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display())))?;
+    std::fs::create_dir_all(&hook_dir).map_err(|e| {
+        Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display()))
+    })?;
 
     // 若 hook.cpp 不存在或内容有变化，则写入（二进制更新时自动升级）。
     let _ = write_if_changed(&hook_dir.join("hook.cpp"), HOOK_CPP)?;
@@ -243,8 +246,9 @@ fn write_if_changed(path: &Path, content: &str) -> Result<bool> {
 fn build_hook_windows() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
     let hook_dir = base.join("cpp2rust-demo").join("hook");
-    std::fs::create_dir_all(&hook_dir)
-        .map_err(|e| Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display())))?;
+    std::fs::create_dir_all(&hook_dir).map_err(|e| {
+        Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display()))
+    })?;
 
     let shim_rs = hook_dir.join("hook_shim.rs");
     let shim_exe = hook_dir.join("hook_shim.exe");

@@ -3,7 +3,10 @@ mod common;
 macro_rules! golden_test {
     ($name:ident, $example:literal) => {
         #[test]
-        #[cfg_attr(not(feature = "full-test"), ignore = "requires libclang; run with --features full-test --test-threads=1")]
+        #[cfg_attr(
+            not(feature = "full-test"),
+            ignore = "requires libclang; run with --features full-test --test-threads=1"
+        )]
         fn $name() {
             let example_dir = concat!("examples/", $example);
             let generated = common::run_tool_on(example_dir);
@@ -26,7 +29,10 @@ macro_rules! golden_test_unix_only {
     ($name:ident, $example:literal) => {
         #[test]
         #[cfg(not(windows))]
-        #[cfg_attr(not(feature = "full-test"), ignore = "requires libclang; run with --features full-test --test-threads=1")]
+        #[cfg_attr(
+            not(feature = "full-test"),
+            ignore = "requires libclang; run with --features full-test --test-threads=1"
+        )]
         fn $name() {
             let example_dir = concat!("examples/", $example);
             let generated = common::run_tool_on(example_dir);
@@ -105,7 +111,10 @@ golden_test!(test_048_summary, "048_summary");
 macro_rules! todo_tag_test {
     ($name:ident, $example:literal, $tag:literal) => {
         #[test]
-        #[cfg_attr(not(feature = "full-test"), ignore = "requires libclang; run with --features full-test --test-threads=1")]
+        #[cfg_attr(
+            not(feature = "full-test"),
+            ignore = "requires libclang; run with --features full-test --test-threads=1"
+        )]
         fn $name() {
             let example_dir = concat!("examples/", $example);
             let generated = common::run_tool_on(example_dir);

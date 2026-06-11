@@ -21,10 +21,7 @@ impl FileSelector for InteractiveSelector {
         }
 
         if is_non_interactive() {
-            println!(
-                "非交互式终端：自动选择全部 {} 个文件。",
-                candidates.len()
-            );
+            println!("非交互式终端：自动选择全部 {} 个文件。", candidates.len());
             return Ok(candidates.to_vec());
         }
 
@@ -33,9 +30,7 @@ impl FileSelector for InteractiveSelector {
         let items: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
 
         let selections = MultiSelect::with_theme(&ColorfulTheme::default())
-            .with_prompt(
-                "选择要包含在本 feature 中的文件（空格切换选中，回车确认）",
-            )
+            .with_prompt("选择要包含在本 feature 中的文件（空格切换选中，回车确认）")
             .items(&items)
             .defaults(&vec![true; items.len()])
             .interact()

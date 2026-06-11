@@ -242,11 +242,11 @@ pub fn apply(spec: &mut FfiSpec, ast: &CppAst, functions: &[&FunctionInfo]) {
 /// accessor 的功能类别（用于排序和逻辑分支）
 #[derive(Debug, PartialEq, Eq)]
 enum AccessorKind {
-    Getter,    // 0 个额外参数，基础类型返回值
-    BinaryOp,  // 1 个额外参数，返回类类型，名称在 BINARY_OPS 中
-    UnaryOp,   // 0 个额外参数，返回类类型，名称在 UNARY_OPS 中
-    Compare,   // 1 个额外类类型参数，返回基础类型
-    Other,     // 不属于以上任何类别
+    Getter,   // 0 个额外参数，基础类型返回值
+    BinaryOp, // 1 个额外参数，返回类类型，名称在 BINARY_OPS 中
+    UnaryOp,  // 0 个额外参数，返回类类型，名称在 UNARY_OPS 中
+    Compare,  // 1 个额外类类型参数，返回基础类型
+    Other,    // 不属于以上任何类别
 }
 
 /// 对给定 accessor 函数进行分类，消除 `apply` 和 `accessor_category` 的重复逻辑。
@@ -277,7 +277,11 @@ fn classify_accessor(fi: &FunctionInfo, prefix: &str, class_name: &str) -> Acces
         return AccessorKind::Compare;
     }
     // 旧式 compare accessor：有一个同类型参数，返回非 void 非类类型
-    if extra_params.len() == 1 && !ret_is_class && !ret_is_void && is_compare_accessor(fi, class_name) {
+    if extra_params.len() == 1
+        && !ret_is_class
+        && !ret_is_void
+        && is_compare_accessor(fi, class_name)
+    {
         return AccessorKind::Compare;
     }
     AccessorKind::Other
@@ -375,7 +379,11 @@ mod tests {
             class_specs: vec![crate::ffi_model::ClassSpec {
                 name: class_name.to_string(),
                 methods: vec![MethodBinding {
-                    cpp_sig: format!("int {}_value(const {}* self) const", class_name.to_lowercase(), class_name),
+                    cpp_sig: format!(
+                        "int {}_value(const {}* self) const",
+                        class_name.to_lowercase(),
+                        class_name
+                    ),
                     rust_name: "value".to_string(),
                     self_kind: SelfKind::Ref,
                     params: vec![],
@@ -421,14 +429,15 @@ mod tests {
         apply(&mut spec, &ast, &fns);
 
         // 应在 fn_bindings 中找到 add shim
-        let found = spec.lib_spec.fn_bindings.iter().any(|fb| fb.rust_name.contains("add"));
+        let found = spec
+            .lib_spec
+            .fn_bindings
+            .iter()
+            .any(|fb| fb.rust_name.contains("add"));
         assert!(found, "apply 应生成 vec2_add shim，但 fn_bindings 中没有");
 
         // 应在 cpp_block_lines 中找到 add 的 C++ shim 代码
-        let cpp_has_add = spec
-            .cpp_block_lines
-            .iter()
-            .any(|l| l.contains("vec2_add"));
+        let cpp_has_add = spec.cpp_block_lines.iter().any(|l| l.contains("vec2_add"));
         assert!(cpp_has_add, "apply 应在 cpp_block_lines 中生成 C++ shim");
     }
 
@@ -441,14 +450,21 @@ mod tests {
         let fi = make_fi(
             &format!("{}eq", prefix),
             "bool",
-            &[("self", &format!("{} *", cn)), ("other", &format!("{} *", cn))],
+            &[
+                ("self", &format!("{} *", cn)),
+                ("other", &format!("{} *", cn)),
+            ],
         );
         let mut spec = make_spec_with_class(cn);
         let ast = make_ast_with_class(cn);
         let fns = vec![&fi];
         apply(&mut spec, &ast, &fns);
 
-        let eq_binding = spec.lib_spec.fn_bindings.iter().find(|fb| fb.rust_name.contains("eq"));
+        let eq_binding = spec
+            .lib_spec
+            .fn_bindings
+            .iter()
+            .find(|fb| fb.rust_name.contains("eq"));
         assert!(eq_binding.is_some(), "apply 应生成 num_eq shim");
         // eq shim 的返回类型应为 bool
         let ret = eq_binding.unwrap().ret_type.as_deref().unwrap_or("");
@@ -478,6 +494,10 @@ mod tests {
             .find(|fb| fb.rust_name.contains("not"));
         assert!(not_binding.is_some(), "apply 应生成 flag_not shim");
         // 一元 shim 的参数应只有 self（1 个参数）
-        assert_eq!(not_binding.unwrap().params.len(), 1, "一元 shim 应只有 1 个参数");
+        assert_eq!(
+            not_binding.unwrap().params.len(),
+            1,
+            "一元 shim 应只有 1 个参数"
+        );
     }
 }

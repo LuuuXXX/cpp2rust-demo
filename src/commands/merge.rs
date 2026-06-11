@@ -449,11 +449,7 @@ fn print_manifest_summary(manifest: &ApiManifest) {
 }
 
 /// 打印 merge 完成后的汇总表格。
-fn print_merge_summary_table(
-    feature: &str,
-    unit_count: usize,
-    m: &crate::metrics::RustSrcMetrics,
-) {
+fn print_merge_summary_table(feature: &str, unit_count: usize, m: &crate::metrics::RustSrcMetrics) {
     println!();
     println!("┌─────────────────────────────────────────────────────────┐");
     println!("│             cpp2rust-demo Merge 汇总                    │");

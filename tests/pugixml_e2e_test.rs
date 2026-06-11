@@ -151,7 +151,13 @@ fn pugixml_merge_phase() {
                 stderr
             );
         }
-        Ok(_) => println!("pugixml_merge_phase: cargo check 通过 ({} 个 unit)", unit_paths.len()),
-        Err(e) => eprintln!("pugixml_merge_phase: cargo check 跳过（cargo 不可用: {}）", e),
+        Ok(_) => println!(
+            "pugixml_merge_phase: cargo check 通过 ({} 个 unit)",
+            unit_paths.len()
+        ),
+        Err(e) => eprintln!(
+            "pugixml_merge_phase: cargo check 跳过（cargo 不可用: {}）",
+            e
+        ),
     }
 }
