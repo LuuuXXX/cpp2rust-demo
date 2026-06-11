@@ -459,6 +459,18 @@ fn emit_dynamic_cast(out: &mut String, dc: &DynamicCastSpec) {
         "    pub unsafe fn {}(src: *const {}) -> *const {};\n",
         dc.rust_name, dc.src_class, dc.dst_class
     ));
+    // 引用形式（&Src -> &Dst）：hicc 允许同一指针型 C++ 签名在 Rust 侧返回 &Dst
+    // （见 references/hicc/examples/dynamic_cast 的 `as_foo(&self) -> &Foo`）。
+    // 更符合 Rust 习惯，但要求转换必定成功——失败时由空指针构造引用属未定义行为，
+    // 调用方无法确保类型成立时应改用上面的裸指针形式并判空。
+    out.push_str(
+        "    // cpp2rust-todo[DCAST]: 引用形式 —— 仅在转换必定成功时使用；否则请用上面的裸指针形式判空。\n",
+    );
+    out.push_str(&format!("    #[cpp(func = \"{}\")]\n", dc.cpp_sig));
+    out.push_str(&format!(
+        "    pub unsafe fn {}(src: &{}) -> &{};\n",
+        dc.ref_rust_name, dc.src_class, dc.dst_class
+    ));
 }
 
 /// 输出模板实例化别名骨架（v6 Phase B 增强）。
