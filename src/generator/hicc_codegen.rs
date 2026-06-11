@@ -7,7 +7,9 @@
 //! 关联函数（ctor/factory）在 `import_lib!` 中作为顶层自由函数输出，
 //! 使用完整的 Rust 函数名（如 `counter_new`），以匹配 `main()` 中的调用方式。
 
-use crate::ffi_model::{FfiSpec, FnBinding, SelfKind, TemplateClassSpec, TemplateFnSpec};
+use crate::ffi_model::{
+    FfiSpec, FnBinding, SelfKind, TemplateClassSpec, TemplateFnSpec, TemplateInstanceSpec,
+};
 
 /// `CPP2RUST_GEN_TEMPLATES` 环境变量名 — v6 Phase B 模板骨架生成开关。
 pub const GEN_TEMPLATES_ENV: &str = "CPP2RUST_GEN_TEMPLATES";
@@ -158,6 +160,8 @@ pub fn generate(spec: &FfiSpec) -> String {
         for tcs in &spec.template_classes {
             emit_template_class(&mut out, tcs);
         }
+        // 模板实例化别名（v6 Phase B 增强）：紧跟泛型骨架之后输出，便于对照
+        emit_template_instances(&mut out, &spec.template_instances);
     }
 
     // ── hicc::import_lib! ─────────────────────
@@ -310,6 +314,44 @@ fn emit_template_fn(out: &mut String, tfs: &TemplateFnSpec) {
         "    pub unsafe fn {}({}){};\n",
         tfs.rust_name, params_str, ret_str
     ));
+}
+
+/// 输出模板实例化别名骨架（v6 Phase B 增强）。
+///
+/// 形如：
+/// ```text
+/// // cpp2rust-todo[TMPL]: 模板实例化别名 —— 请确认实参类型与 AbiType 约束
+/// pub type StackI32 = Stack<hicc::Pod<i32>>;
+/// pub type StackF64 = Stack<hicc::Pod<f64>>;
+/// ```
+///
+/// 别名是普通 Rust 类型别名，需与对应的泛型模板类骨架（`emit_template_class`）配合使用；
+/// 因此仅在 `CPP2RUST_GEN_TEMPLATES` 开启时输出，默认产物逐字节不变。
+fn emit_template_instances(out: &mut String, instances: &[TemplateInstanceSpec]) {
+    if instances.is_empty() {
+        return;
+    }
+    out.push('\n');
+    out.push_str(
+        "// cpp2rust-todo[TMPL]: 以下为模板实例化别名骨架，请确认实参类型与 AbiType 约束；\n",
+    );
+    out.push_str(
+        "// POD 标量已用 hicc::Pod 包装，类类型实参需替换为对应的 hicc 类（如 hicc_std::string）。\n",
+    );
+    for inst in instances {
+        if inst.needs_class_type {
+            out.push_str(&format!(
+                "// cpp2rust-todo[TMPL]: {} 含类类型实参，请将其替换为对应的 hicc 类型\n",
+                inst.alias_name
+            ));
+        }
+        out.push_str(&format!(
+            "pub type {} = {}<{}>;\n",
+            inst.alias_name,
+            inst.template_name,
+            inst.hicc_args.join(", ")
+        ));
+    }
 }
 
 /// P1-2 辅助：若返回类型是 `*mut ClassName`，去掉指针返回 `ClassName`（owned）

@@ -140,6 +140,7 @@ pub fn extract(
     let (template_classes, template_functions) = template_spec::build_template_specs(ast);
     spec.template_classes = template_classes;
     spec.template_functions = template_functions;
+    spec.template_instances = template_spec::build_template_instances(ast);
 
     // ── 后处理器 ──────────────────────────────
     crate::postprocessor::diamond_handler::apply(&mut spec, ast, &functions);

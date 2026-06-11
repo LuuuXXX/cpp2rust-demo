@@ -18,6 +18,16 @@ public:
     bool empty() const;
 };
 
+class IntStack {
+public:
+    Stack<int> impl;
+};
+
+class DoubleStack {
+public:
+    Stack<double> impl;
+};
+
 template<typename T>
 void do_swap(T* a, T* b) {
     T tmp = *a;
@@ -56,6 +66,11 @@ fn template_skeleton_gated_by_env() {
         "默认关闭时不应出现 TMPL 占位，实际输出：\n{}",
         off
     );
+    assert!(
+        !off.contains("pub type StackI32"),
+        "默认关闭时不应生成模板实例化别名，实际输出：\n{}",
+        off
+    );
 
     // ── 开启开关：应输出泛型骨架 ──
     std::env::set_var("CPP2RUST_GEN_TEMPLATES", "1");
@@ -91,6 +106,19 @@ fn template_skeleton_gated_by_env() {
     assert!(
         on.contains("cpp2rust-todo[TMPL]"),
         "模板骨架应附带 TMPL 占位注释，实际输出：\n{}",
+        on
+    );
+
+    // 模板实例化别名（v6 Phase B 增强）：包装类字段 Stack<int>/Stack<double>
+    // 应生成 hicc::Pod 包装的类型别名
+    assert!(
+        on.contains("pub type StackI32 = Stack<hicc::Pod<i32>>;"),
+        "应生成 Stack<int> 的实例化别名，实际输出：\n{}",
+        on
+    );
+    assert!(
+        on.contains("pub type StackF64 = Stack<hicc::Pod<f64>>;"),
+        "应生成 Stack<double> 的实例化别名，实际输出：\n{}",
         on
     );
 }

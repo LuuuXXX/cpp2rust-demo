@@ -18,6 +18,26 @@ pub struct FfiSpec {
     pub template_classes: Vec<TemplateClassSpec>,
     /// 模板函数绑定规格（v6 Phase B）。同上。
     pub template_functions: Vec<TemplateFnSpec>,
+    /// 模板实例化别名规格（v6 Phase B 增强）。仅在 `CPP2RUST_GEN_TEMPLATES` 开启时由生成器
+    /// 输出类型别名骨架（如 `pub type StackI32 = Stack<hicc::Pod<i32>>;`），默认关闭时不影响产物。
+    pub template_instances: Vec<TemplateInstanceSpec>,
+}
+
+/// 模板实例化别名规格（生成具体实例化类型别名）— v6 Phase B 增强
+///
+/// 由提取器从当前编译单元中「以具体类型实例化某模板类」的使用点（目前为包装类的字段类型，
+/// 如 `Stack<int> impl;`）收集而来，生成 hicc 形式的类型别名骨架：
+/// `pub type <alias_name> = <template_name><<hicc_args>>;`。
+#[derive(Debug, Default, Clone)]
+pub struct TemplateInstanceSpec {
+    /// Rust 侧别名（如 `StackI32`）
+    pub alias_name: String,
+    /// 模板类名（如 `Stack`）
+    pub template_name: String,
+    /// hicc 形式的实例化类型实参（POD 标量为 `hicc::Pod<i32>`；类类型保留原 C++ 名并附 TODO）
+    pub hicc_args: Vec<String>,
+    /// 是否含无法判定为 POD 的类类型实参（true 时生成 cpp2rust-todo[TMPL] 提示用户确认 hicc 类型）
+    pub needs_class_type: bool,
 }
 
 /// 模板类绑定规格（生成泛型 `import_class!` 骨架）— v6 Phase B
