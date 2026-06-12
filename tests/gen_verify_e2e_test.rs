@@ -66,11 +66,7 @@ fn gen_verify_virtual_basic() {
 #[test]
 #[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_class_basic() {
-    gen_verify_example(
-        "examples/006_class_basic",
-        "class_basic",
-        "class_basic",
-    );
+    gen_verify_example("examples/006_class_basic", "class_basic", "class_basic");
 }
 
 /// L6-5：013_inheritance_single — 单继承
@@ -105,11 +101,7 @@ fn gen_verify_exception_basic() {
 #[test]
 #[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_unique_ptr() {
-    gen_verify_example(
-        "examples/029_unique_ptr",
-        "unique_ptr",
-        "unique_ptr",
-    );
+    gen_verify_example("examples/029_unique_ptr", "unique_ptr", "unique_ptr");
 }
 
 /// L6-8：034_vector_basic — STL 容器（vector）
@@ -118,11 +110,7 @@ fn gen_verify_unique_ptr() {
 #[test]
 #[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_vector_basic() {
-    gen_verify_example(
-        "examples/034_vector_basic",
-        "vector_basic",
-        "vector_basic",
-    );
+    gen_verify_example("examples/034_vector_basic", "vector_basic", "vector_basic");
 }
 
 /// L6-9：001_hello_world — 基础函数
@@ -288,7 +276,11 @@ fn gen_verify_friend_function() {
 #[test]
 #[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_explicit_ctor() {
-    gen_verify_example("examples/021_explicit_ctor", "explicit_ctor", "explicit_ctor");
+    gen_verify_example(
+        "examples/021_explicit_ctor",
+        "explicit_ctor",
+        "explicit_ctor",
+    );
 }
 
 /// L6-27：022_mutable_member — mutable 成员
@@ -353,14 +345,22 @@ fn gen_verify_shared_ptr() {
 #[test]
 #[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_custom_deleter() {
-    gen_verify_example("examples/031_custom_deleter", "custom_deleter", "custom_deleter");
+    gen_verify_example(
+        "examples/031_custom_deleter",
+        "custom_deleter",
+        "custom_deleter",
+    );
 }
 
 /// L6-34：032_placement_new — 定位 new
 #[test]
 #[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_placement_new() {
-    gen_verify_example("examples/032_placement_new", "placement_new", "placement_new");
+    gen_verify_example(
+        "examples/032_placement_new",
+        "placement_new",
+        "placement_new",
+    );
 }
 
 /// L6-35：033_raii_pattern — RAII 模式
@@ -463,7 +463,11 @@ fn gen_verify_constexpr_basic() {
 #[test]
 #[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_noexcept_basic() {
-    gen_verify_example("examples/047_noexcept_basic", "noexcept_basic", "noexcept_basic");
+    gen_verify_example(
+        "examples/047_noexcept_basic",
+        "noexcept_basic",
+        "noexcept_basic",
+    );
 }
 
 /// L6-48：048_summary — 综合示例
@@ -516,7 +520,13 @@ fn gen_verify_example(example_dir: &str, lib_name: &str, cpp_stem: &str) {
     // ── 步骤 3：创建临时 Cargo 项目 ──────────────────────────────
     let tmp = TempDir::new().expect("创建临时目录失败");
     let project_dir = tmp.path().to_path_buf();
-    setup_gen_verify_project(&project_dir, lib_name, cpp_stem, example_dir, &generated_code);
+    setup_gen_verify_project(
+        &project_dir,
+        lib_name,
+        cpp_stem,
+        example_dir,
+        &generated_code,
+    );
 
     // ── 步骤 4：运行 cargo build ──────────────────────────────────
     let output = std::process::Command::new("cargo")
@@ -554,8 +564,7 @@ fn setup_gen_verify_project(
 
     // ── lib.rs ────────────────────────────────────────────────────
     // 工具生成的 hicc 三段式就是完整的 lib.rs 内容
-    std::fs::write(src_dir.join("lib.rs"), generated_code)
-        .expect("写 lib.rs 失败");
+    std::fs::write(src_dir.join("lib.rs"), generated_code).expect("写 lib.rs 失败");
 
     // ── Cargo.toml ───────────────────────────────────────────────
     let lib_name_ident = lib_name.replace('-', "_");
@@ -579,8 +588,7 @@ cc = "1.0"
         lib_name = lib_name,
         lib_name_ident = lib_name_ident,
     );
-    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml)
-        .expect("写 Cargo.toml 失败");
+    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).expect("写 Cargo.toml 失败");
 
     // ── build.rs ─────────────────────────────────────────────────
     // 使用绝对路径引用原示例 C++ 文件，避免相对路径问题
@@ -600,19 +608,19 @@ cc = "1.0"
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("cpp"))
         .collect();
 
-    let cpp_file_lines: String = cpp_files
-        .iter()
-        .map(|f| format!("    cc_build.file({:?});\n", f))
-        .collect();
+    let cpp_file_lines: String = cpp_files.iter().fold(String::new(), |mut s, f| {
+        use std::fmt::Write;
+        let _ = writeln!(s, "    cc_build.file({:?});", f);
+        s
+    });
 
     // rerun-if-changed 行
-    let rerun_lines: String = cpp_files
-        .iter()
-        .map(|f| {
-            let escaped = f.display().to_string().replace('\\', "\\\\");
-            format!("    println!(\"cargo::rerun-if-changed={}\");\n", escaped)
-        })
-        .collect();
+    let rerun_lines: String = cpp_files.iter().fold(String::new(), |mut s, f| {
+        use std::fmt::Write;
+        let escaped = f.display().to_string().replace('\\', "\\\\");
+        let _ = writeln!(s, "    println!(\"cargo::rerun-if-changed={}\");", escaped);
+        s
+    });
 
     let build_rs = format!(
         r#"fn main() {{
@@ -640,6 +648,5 @@ cc = "1.0"
         rerun_lines = rerun_lines,
     );
 
-    std::fs::write(project_dir.join("build.rs"), build_rs)
-        .expect("写 build.rs 失败");
+    std::fs::write(project_dir.join("build.rs"), build_rs).expect("写 build.rs 失败");
 }

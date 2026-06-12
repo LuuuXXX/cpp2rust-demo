@@ -6,7 +6,7 @@
 
 ### 变更（v7：高级映射能力默认生成，移除环境变量开关）
 
-- **移除全部 `CPP2RUST_GEN_*` 生成开关**：删除 `CPP2RUST_GEN_TEMPLATES` / `CPP2RUST_GEN_PROXY` / `CPP2RUST_GEN_DYNAMIC_CAST` / `CPP2RUST_GEN_SMOKE` 四个环境变量及相关的 `*_enabled()` / `*_ENV` 基础设施（`hicc_codegen` 的 `templates_enabled` / `proxy_enabled` / `dynamic_cast_enabled` / `env_switch_enabled`、`smoke_test_gen::smoke_enabled`）。生成路径由「开/关双路径」收敛为「IR 非空即输出」单路径。
+- **移除全部 `CPP2RUST_GEN_*` 生成开关**：删除 `CPP2RUST_GEN_TEMPLATES` / `CPP2RUST_GEN_PROXY` / `CPP2RUST_GEN_DYNAMIC_CAST` / `CPP2RUST_GEN_SMOKE` 四个环境变量及相关的 `*_enabled()` / `*_ENV` 基础设施（`hicc_codegen` 的 `templates_enabled` / `proxy_enabled` / `dynamic_cast_enabled` / `env_switch_enabled`）。生成路径由「开/关双路径」收敛为「IR 非空即输出」单路径。`smoke_test_gen` 模块本身保留，但不再受环境变量控制。
 - **模板类 / 模板函数 / 实例化别名 / 构造工厂、`@make_proxy`、`@dynamic_cast`、冒烟测试 `tests/smoke.rs` 一律默认生成**，命令签名（`init` + `merge`）与目录结构不变；以「文件级幂等」（已存在的用户改动不覆盖）替代开关。
 - **模板骨架以注释形式输出**：因「未实例化的模板没有可链接符号、泛型 `<T>` 不可直接编译」，模板类 / 函数 / 别名 / 工厂默认以**注释骨架**（带 `cpp2rust-todo[TMPL]` 指引）输出，保证工具默认产物始终可通过 L6 gen-verify 编译；`@make_proxy` / `@dynamic_cast` 使用 hicc 内建指令、对接具体类型，默认输出为可编译的活动绑定。
 - **行为变更提示**：依赖上述开关「默认关闭、产物逐字节不变」的旧行为不再成立——首次对含模板/接口/多态的示例运行 `init` 会额外生成对应骨架（模板为注释、proxy/dynamic_cast 为活动绑定）。
@@ -19,10 +19,8 @@
 
 ### 移除
 
-- **FFI 冒烟测试生成功能**：移除 `src/generator/smoke_test_gen.rs` 模块及相关代码，包括：
-  - `init` 阶段不再生成 `tests/smoke_test.rs`
-  - `project_generator::write_smoke_test` 函数
-  - `merge` 阶段不再读取/解析冒烟测试清单
+- **FFI 冒烟测试环境变量控制**：移除 `smoke_test_gen::smoke_enabled` 环境变量开关及相关代码，冒烟测试默认生成且不再受 `CPP2RUST_GEN_SMOKE` 控制。`src/generator/smoke_test_gen.rs` 模块及 `project_generator::write_smoke_test` 函数保留，冒烟测试在 `init` 阶段默认生成。
+- 移除以下已废弃的基础设施：
   - `layout::SmokeTestEntry` 结构体及 `ApiManifest::smoke_tests` 字段
   - `layout::parse_smoke_test_entries` 函数
   - `api-manifest.md` 中的冒烟测试章节

@@ -14,7 +14,7 @@ l3-setup:
 
 ## 编译库 + 运行所有 L3 运行测试（单线程，避免动态库加载冲突）
 l3-test: l3-setup
-	cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+	cargo test --test l3_run_tests --features full-test -- --test-threads=1
 
 ## 初始化 E2E 测试所需的外部库子模块
 submodules:

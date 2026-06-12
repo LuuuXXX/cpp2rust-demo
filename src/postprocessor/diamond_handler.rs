@@ -61,7 +61,7 @@ fn apply_class(spec: &mut FfiSpec, ast: &CppAst, ci: &ClassInfo, functions: &[&F
         } else {
             // 从基类方法获取返回类型
             let m_ret = find_method_return_type(method_name, &diamond_bases, &ast.classes);
-            m_ret.unwrap_or_else(|| "int".to_string())
+            m_ret.unwrap_or_else(|| "void".to_string())
         };
 
         // 生成 snake_case shim 名（如 d_get_a_value）
@@ -204,4 +204,230 @@ fn find_ctor_binding_pos(fn_bindings: &[FnBinding], cn_lower: &str) -> usize {
         }
     }
     fn_bindings.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast_parser::{BaseInfo, ClassInfo, CppAst, FunctionInfo, MethodInfo, ParamInfo};
+    use crate::ffi_model::{ClassSpec, FfiSpec, LibSpec, MethodBinding, SelfKind};
+
+    fn make_class_with_bases(name: &str, bases: Vec<(&str, bool)>) -> ClassInfo {
+        ClassInfo {
+            name: name.to_string(),
+            is_struct: false,
+            is_abstract: false,
+            template_args: vec![],
+            bases: bases
+                .into_iter()
+                .map(|(n, v)| BaseInfo {
+                    name: n.to_string(),
+                    is_virtual: v,
+                })
+                .collect(),
+            methods: vec![],
+            fields: vec![],
+            is_in_namespace: false,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_class_with_methods(name: &str, method_names: &[&str]) -> ClassInfo {
+        ClassInfo {
+            name: name.to_string(),
+            is_struct: false,
+            is_abstract: false,
+            template_args: vec![],
+            bases: vec![],
+            methods: method_names
+                .iter()
+                .map(|m| MethodInfo {
+                    name: m.to_string(),
+                    return_type: "int".to_string(),
+                    params: vec![],
+                    is_const: true,
+                    is_volatile: false,
+                    is_virtual: false,
+                    is_pure_virtual: false,
+                    is_static: false,
+                    is_constructor: false,
+                    is_destructor: false,
+                    is_inline: true,
+                    accessibility: "public".to_string(),
+                    body_offset: None,
+                    is_override: false,
+                    is_default: false,
+                })
+                .collect(),
+            fields: vec![],
+            is_in_namespace: false,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_fi(name: &str, return_type: &str, params: &[(&str, &str)]) -> FunctionInfo {
+        FunctionInfo {
+            name: name.to_string(),
+            return_type: return_type.to_string(),
+            params: params
+                .iter()
+                .map(|(n, t)| ParamInfo {
+                    name: n.to_string(),
+                    type_name: t.to_string(),
+                    has_default: false,
+                })
+                .collect(),
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+        }
+    }
+
+    fn make_ast(classes: Vec<ClassInfo>) -> CppAst {
+        CppAst {
+            file: std::path::PathBuf::from("test.cpp"),
+            classes,
+            functions: vec![],
+            enums: vec![],
+            typedefs: vec![],
+            template_class_ranges: vec![],
+            template_classes: vec![],
+            template_functions: vec![],
+            local_var_types: vec![],
+        }
+    }
+
+    fn make_spec_with_ctor(class_name: &str) -> FfiSpec {
+        let cn_lower = to_snake_case(class_name);
+        FfiSpec {
+            unit_name: "test".to_string(),
+            cpp_block_lines: vec![format!(
+                "{}* {}_new() {{ return new {}(); }}",
+                class_name, cn_lower, class_name
+            )],
+            class_specs: vec![ClassSpec {
+                name: class_name.to_string(),
+                methods: vec![MethodBinding {
+                    cpp_sig: "int get_value() const".to_string(),
+                    rust_name: "get_value".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: Some("i32".to_string()),
+                    has_fn_ptr_param: false,
+                }],
+                associated_fns: vec![],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            lib_spec: LibSpec {
+                fn_bindings: vec![FnBinding {
+                    cpp_sig: format!("{}* {}_new()", class_name, cn_lower),
+                    rust_name: format!("{}_new", cn_lower),
+                    params: vec![],
+                    ret_type: Some(format!("*mut {}", class_name)),
+                    is_unsafe: false,
+                    has_fn_ptr_param: false,
+                }],
+                fwd_decls: vec![format!("class {};", class_name)],
+                link_name: "test".to_string(),
+            },
+            ..Default::default()
+        }
+    }
+
+    /// 无菱形继承（单基类）不应触发任何修改
+    #[test]
+    fn no_diamond_single_base() {
+        let base = make_class_with_methods("Base", &["get_value"]);
+        let derived = make_class_with_bases("Derived", vec![("Base", false)]);
+        let ast = make_ast(vec![base, derived]);
+        let mut spec = make_spec_with_ctor("Derived");
+        let fns: Vec<FunctionInfo> = vec![];
+        let fn_refs: Vec<&FunctionInfo> = fns.iter().collect();
+
+        apply(&mut spec, &ast, &fn_refs);
+
+        // 不应有新增 shim
+        assert!(
+            spec.lib_spec.fn_bindings.len() == 1,
+            "单基类不应生成菱形 shim"
+        );
+    }
+
+    /// 菱形继承：Derived 继承 MidA 和 MidB，两者都继承自 Base
+    #[test]
+    fn diamond_detected_with_two_paths() {
+        let base = make_class_with_methods("Base", &["get_value"]);
+        let mid_a = make_class_with_bases("MidA", vec![("Base", true)]);
+        let mid_b = make_class_with_bases("MidB", vec![("Base", true)]);
+        let derived = make_class_with_bases("Derived", vec![("MidA", false), ("MidB", false)]);
+
+        let ast = make_ast(vec![base, mid_a, mid_b, derived]);
+        let diamonds = find_diamond_bases(ast.classes.last().unwrap(), &ast.classes);
+        assert!(
+            diamonds.contains("Base"),
+            "Base 应被识别为菱形基类，结果为 {:?}",
+            diamonds
+        );
+    }
+
+    /// 菱形继承应生成 shim 并从 class_spec 中移除冲突方法
+    #[test]
+    fn diamond_generates_shims() {
+        let base = make_class_with_methods("Base", &["get_value"]);
+        let mid_a = make_class_with_bases("MidA", vec![("Base", true)]);
+        let mid_b = make_class_with_bases("MidB", vec![("Base", true)]);
+        let derived = make_class_with_bases("Derived", vec![("MidA", false), ("MidB", false)]);
+
+        // 提供 accessor 函数
+        let accessor = make_fi("derived_get_value", "int", &[("self", "Derived *")]);
+
+        let ast = make_ast(vec![base, mid_a, mid_b, derived]);
+        let mut spec = make_spec_with_ctor("Derived");
+        let fns = [accessor];
+        let fn_refs: Vec<&FunctionInfo> = fns.iter().collect();
+
+        apply(&mut spec, &ast, &fn_refs);
+
+        // 应在 fn_bindings 中找到 shim（原有 1 个 ctor + 新增 shim）
+        assert!(
+            spec.lib_spec.fn_bindings.len() > 1,
+            "菱形继承应生成至少 1 个 shim，实际 {} 个",
+            spec.lib_spec.fn_bindings.len()
+        );
+
+        // 应在 cpp_block_lines 中找到 shim
+        let has_shim = spec
+            .cpp_block_lines
+            .iter()
+            .any(|l| l.contains("derived_get_value"));
+        assert!(has_shim, "cpp! 块中应包含菱形 shim 函数");
+    }
+
+    /// find_diamond_bases 对少于 2 个基类的类应返回空集
+    #[test]
+    fn find_diamond_bases_requires_two_bases() {
+        let ci = make_class_with_bases("Single", vec![("Base", false)]);
+        let result = find_diamond_bases(&ci, &[]);
+        assert!(result.is_empty());
+    }
+
+    /// 两个不相关的基类不应产生菱形
+    #[test]
+    fn no_diamond_unrelated_bases() {
+        let base_a = make_class_with_methods("BaseA", &["get_a"]);
+        let base_b = make_class_with_methods("BaseB", &["get_b"]);
+        let derived = make_class_with_bases("Derived", vec![("BaseA", false), ("BaseB", false)]);
+
+        let ast = make_ast(vec![base_a, base_b, derived]);
+        let diamonds = find_diamond_bases(ast.classes.last().unwrap(), &ast.classes);
+        assert!(
+            diamonds.is_empty(),
+            "不相关的基类不应产生菱形，结果为 {:?}",
+            diamonds
+        );
+    }
 }

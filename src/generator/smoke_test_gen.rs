@@ -74,10 +74,7 @@ fn is_zero_param(fb: &FnBinding) -> bool {
 }
 
 /// 查找某类的零参构造/工厂函数。
-fn find_zero_param_factory<'a>(
-    specs: &[&'a FfiSpec],
-    class_name: &str,
-) -> Option<&'a FnBinding> {
+fn find_zero_param_factory<'a>(specs: &[&'a FfiSpec], class_name: &str) -> Option<&'a FnBinding> {
     for spec in specs {
         for cs in &spec.class_specs {
             if cs.name == class_name {
@@ -90,12 +87,6 @@ fn find_zero_param_factory<'a>(
         }
     }
     None
-}
-
-/// 判断返回类型是否为指针。
-#[allow(dead_code)]
-fn is_ptr_type(ty: &str) -> bool {
-    ty.starts_with("*mut ") || ty.starts_with("*const ")
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -147,22 +138,13 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
                 tested_fns.push(fb.rust_name.clone());
 
                 if is_zero_param(fb) {
-                    out.push_str(&format!(
-                        "#[test]\nfn smoke_{}() {{\n",
-                        fb.rust_name
-                    ));
+                    out.push_str(&format!("#[test]\nfn smoke_{}() {{\n", fb.rust_name));
                     if fb.is_unsafe {
                         out.push_str("    unsafe {\n");
-                        out.push_str(&format!(
-                            "        let _obj = {}();\n",
-                            fb.rust_name
-                        ));
+                        out.push_str(&format!("        let _obj = {}();\n", fb.rust_name));
                         out.push_str("    }\n");
                     } else {
-                        out.push_str(&format!(
-                            "    let _obj = {}();\n",
-                            fb.rust_name
-                        ));
+                        out.push_str(&format!("    let _obj = {}();\n", fb.rust_name));
                     }
                     out.push_str("}\n\n");
                     factory_count += 1;
@@ -172,7 +154,6 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
     }
 
     // ── C. 类方法测试（有零参构造函数的类）──────────────────────
-    let mut _method_count: usize = 0;
 
     for spec in specs {
         for cs in &spec.class_specs {
@@ -196,10 +177,7 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
                 }
                 tested_fns.push(mb.rust_name.clone());
 
-                out.push_str(&format!(
-                    "#[test]\nfn smoke_{}() {{\n",
-                    mb.rust_name
-                ));
+                out.push_str(&format!("#[test]\nfn smoke_{}() {{\n", mb.rust_name));
 
                 // 构造实例
                 if factory_is_unsafe {
@@ -226,7 +204,6 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
                     }
                 }
                 out.push_str("}\n\n");
-                _method_count += 1;
             }
         }
     }
@@ -245,14 +222,13 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
             }
             tested_fns.push(fb.rust_name.clone());
 
-            out.push_str(&format!(
-                "#[test]\nfn smoke_{}() {{\n",
-                fb.rust_name
-            ));
+            out.push_str(&format!("#[test]\nfn smoke_{}() {{\n", fb.rust_name));
             if fb.is_unsafe {
                 out.push_str("    unsafe {\n");
                 match &fb.ret_type {
-                    Some(_) => out.push_str(&format!("        let _result = {}();\n", fb.rust_name)),
+                    Some(_) => {
+                        out.push_str(&format!("        let _result = {}();\n", fb.rust_name))
+                    }
                     None => out.push_str(&format!("        {}();\n", fb.rust_name)),
                 }
                 out.push_str("    }\n");
@@ -286,9 +262,7 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
 
     if !untested.is_empty() {
         out.push('\n');
-        out.push_str(
-            "// cpp2rust-todo[SMOKE]: 以下函数含非平凡参数，无法自动生成调用测试。\n",
-        );
+        out.push_str("// cpp2rust-todo[SMOKE]: 以下函数含非平凡参数，无法自动生成调用测试。\n");
         out.push_str(
             "// 如需补充行为断言，请在对应函数声明中将参数替换为可构造的默认值后手动测试。\n",
         );
@@ -338,7 +312,7 @@ mod tests {
                 cpp_sig: format!("{}* {}_new()", name, name.to_lowercase()),
                 rust_name: format!("{}_new", name.to_lowercase()),
                 params: vec![],
-                ret_type: Some(format!("{}", name)),
+                ret_type: Some(name.to_string()),
                 is_unsafe: false,
                 has_fn_ptr_param: false,
             }],

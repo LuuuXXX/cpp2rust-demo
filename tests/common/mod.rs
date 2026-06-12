@@ -568,7 +568,7 @@ pub fn process_cpp_source(
 pub fn ensure_cpp_lib(example: &str) {
     let cpp_dir = format!("examples/{}/cpp", example);
     // 去掉形如 "013_" 的数字前缀，得到库的短名称
-    let short_name = example.splitn(2, '_').nth(1).unwrap_or(example);
+    let short_name = example.split_once('_').map(|(_, s)| s).unwrap_or(example);
 
     let lib_name = if cfg!(target_os = "macos") {
         format!("lib{}.dylib", short_name)
@@ -637,4 +637,148 @@ pub fn assert_contains_todo_tag(code: &str, tag: &str, unit_name: &str) {
         unit_name,
         marker
     );
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  E2E merge_phase 共用辅助函数
+// ─────────────────────────────────────────────────────────────────
+
+/// E2E merge 阶段共用逻辑：执行 init → merge → 验证目录结构 → cargo check → cargo test。
+///
+/// 将 tinyxml2 / pugixml / fmtlib 等 E2E 测试中高度重复的 merge_phase 代码统一到此处。
+///
+/// ## 参数
+/// - `project_name`: Cargo.toml 中的 package name（如 "tinyxml2"）
+/// - `project_root`: C++ 项目根目录路径（如 "references/tinyxml2"）
+/// - `sources`: 要处理的 C++ 源文件相对路径列表（如 `&["tinyxml2.cpp"]`）
+/// - `includes`: 传递给 `process_cpp_source` 的 include 目录列表
+pub fn run_merge_phase_e2e(
+    project_name: &str,
+    project_root: &str,
+    sources: &[&str],
+    includes: &[&str],
+) {
+    use cpp2rust_demo::{generator::project_generator, merger};
+    use tempfile::TempDir;
+
+    let tmp = TempDir::new().unwrap();
+    let preprocess_dir = tmp.path().join("c");
+    let rust_dir = tmp.path().join("rust");
+    std::fs::create_dir_all(&preprocess_dir).unwrap();
+
+    let mut unit_paths: Vec<String> = Vec::new();
+
+    // ── Init 阶段：生成所有 unit .rs 文件 ──────────────────────────
+    for src_rel in sources {
+        let src_path = std::path::Path::new(project_root).join(src_rel);
+        if let Some((unit_name, code)) = process_cpp_source(&src_path, includes, &preprocess_dir) {
+            project_generator::write_unit_rs(&rust_dir, &unit_name, &code)
+                .expect("write_unit_rs 失败");
+            unit_paths.push(unit_name);
+        }
+    }
+
+    assert!(
+        !unit_paths.is_empty(),
+        "{}_merge_phase: init 阶段未生成任何 unit 文件（g++ / clang++ 是否已安装？）",
+        project_name
+    );
+
+    // 生成 Cargo.toml 与 lib.rs（merge 前必须存在 src/）
+    project_generator::write_cargo_toml(&rust_dir, project_name).expect("write_cargo_toml 失败");
+    project_generator::write_lib_rs(&rust_dir, &unit_paths).expect("write_lib_rs 失败");
+
+    // ── Merge 阶段 ─────────────────────────────────────────────────
+    merger::merge_in_place(&rust_dir).expect("merge_in_place 失败");
+
+    // ── 验证输出目录结构 ────────────────────────────────────────────
+    let src1 = rust_dir.join("src.1");
+    let src_dir = rust_dir.join("src");
+
+    assert!(
+        src1.is_dir(),
+        "{}_merge_phase: src.1/ 目录不存在",
+        project_name
+    );
+    assert!(
+        src_dir.is_dir() && !src_dir.is_symlink(),
+        "{}_merge_phase: src/ 不存在或为符号链接",
+        project_name
+    );
+    assert!(
+        !rust_dir.join("src.2").exists(),
+        "{}_merge_phase: src.2 应已被 rename 为 src",
+        project_name
+    );
+
+    // ── 验证合并后文件 hicc 格式 ─────────────────────────────────
+    let merged_files = merger::collect_unit_rs_files(&src_dir);
+    assert!(
+        !merged_files.is_empty(),
+        "{}_merge_phase: src/ 下未找到任何 .rs 文件",
+        project_name
+    );
+    for rs_path in &merged_files {
+        let fname = rs_path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        if fname == "lib.rs" || fname == "mod.rs" {
+            continue;
+        }
+        let content = std::fs::read_to_string(rs_path).expect("读取合并后 .rs 文件失败");
+        assert_valid_hicc_format(&content, rs_path.to_str().unwrap_or("?"));
+    }
+
+    // ── cargo check：验证生成的 Rust 项目可编译 ────────────────────
+    match std::process::Command::new("cargo")
+        .args(["check", "--quiet"])
+        .current_dir(&rust_dir)
+        .output()
+    {
+        Ok(output) if !output.status.success() => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            panic!(
+                "{}_merge_phase: cargo check 失败（生成的 Rust 项目不可编译）:\n{}",
+                project_name, stderr
+            );
+        }
+        Ok(_) => println!(
+            "{}_merge_phase: cargo check 通过 ({} 个 unit)",
+            project_name,
+            unit_paths.len()
+        ),
+        Err(e) => eprintln!(
+            "{}_merge_phase: cargo check 跳过（cargo 不可用: {}）",
+            project_name, e
+        ),
+    }
+
+    // ── cargo test：验证生成的冒烟测试可通过 ───────────────────────
+    let smoke_test_path = rust_dir.join("tests/smoke.rs");
+    if smoke_test_path.exists() {
+        match std::process::Command::new("cargo")
+            .args(["test", "--quiet"])
+            .current_dir(&rust_dir)
+            .output()
+        {
+            Ok(output) if !output.status.success() => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                panic!(
+                    "{}_merge_phase: cargo test 失败（生成的冒烟测试未通过）:\n{}",
+                    project_name, stderr
+                );
+            }
+            Ok(_) => println!(
+                "{}_merge_phase: cargo test 通过（生成的冒烟测试全部通过）",
+                project_name
+            ),
+            Err(e) => eprintln!(
+                "{}_merge_phase: cargo test 跳过（cargo 不可用: {}）",
+                project_name, e
+            ),
+        }
+    } else {
+        println!(
+            "{}_merge_phase: cargo test 跳过（未生成 tests/smoke.rs）",
+            project_name
+        );
+    }
 }

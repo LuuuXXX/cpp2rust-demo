@@ -18,6 +18,9 @@ use anyhow::anyhow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+const RUST_EDITION: &str = "2018"; // 2018 而非 2021：避免 Rust 2021 对 L'\0' 宽字符字面量的 lex 错误
+const HICC_MIN_VERSION: &str = "0.2";
+
 // ─────────────────────────────────────────────
 //  标识符清理
 // ─────────────────────────────────────────────
@@ -200,20 +203,20 @@ pub fn write_cargo_toml(rust_dir: &Path, feature_name: &str) -> Result<()> {
         r#"[package]
 name = "{feature_name}"
 version = "0.1.0"
-edition = "2018"
+edition = "{RUST_EDITION}"
 
 [lib]
 name = "{lib_name}"
 path = "src/lib.rs"
 
 [dependencies]
-hicc = {{ version = "0.2" }}
+hicc = {{ version = "{HICC_MIN_VERSION}" }}
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-hicc-std = {{ version = "0.2" }}
+hicc-std = {{ version = "{HICC_MIN_VERSION}" }}
 
 [build-dependencies]
-hicc-build = {{ version = "0.2" }}
+hicc-build = {{ version = "{HICC_MIN_VERSION}" }}
 cc = "1.0"
 "#,
         feature_name = feature_name,
@@ -319,7 +322,7 @@ pub fn write_multi_feature_cargo_toml(
         r#"[package]
 name = "{combined_name}"
 version = "0.1.0"
-edition = "2018"
+edition = "{RUST_EDITION}"
 
 [lib]
 name = "{lib_name}"
@@ -329,18 +332,20 @@ path = "src/lib.rs"
 {features_section}
 
 [dependencies]
-hicc = {{ version = "0.2" }}
+hicc = {{ version = "{HICC_MIN_VERSION}" }}
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-hicc-std = {{ version = "0.2" }}
+hicc-std = {{ version = "{HICC_MIN_VERSION}" }}
 
 [build-dependencies]
-hicc-build = {{ version = "0.2" }}
+hicc-build = {{ version = "{HICC_MIN_VERSION}" }}
 cc = "1.0"
 "#,
         combined_name = combined_name,
         lib_name = lib_name,
         features_section = features_section,
+        RUST_EDITION = RUST_EDITION,
+        HICC_MIN_VERSION = HICC_MIN_VERSION,
     );
     let path = rust_dir.join("Cargo.toml");
     std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
