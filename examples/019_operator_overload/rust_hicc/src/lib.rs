@@ -49,7 +49,7 @@ hicc::import_lib! {
     pub fn number_new(value: i32) -> Number;
 
     #[cpp(func = "int number_get_value(const Number*)")]
-    pub fn number_get_value(self_: *const Number) -> i32;
+    pub fn number_getValue(self_: *const Number) -> i32;
 
     #[cpp(func = "Number* number_add(const Number*, const Number*)")]
     pub fn number_add(a: *const Number, b: *const Number) -> *mut Number;

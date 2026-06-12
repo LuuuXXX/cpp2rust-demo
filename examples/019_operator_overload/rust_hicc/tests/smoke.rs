@@ -16,7 +16,7 @@ fn smoke_number_add() {
     let a = number_new(10);
     let b = number_new(3);
     let sum = number_add(&a.as_ptr(), &b.as_ptr());
-    let result = number_get_value(&sum.as_ptr());
+    let result = number_getValue(&sum.as_ptr());
     assert_eq!(result, 13, "10 + 3 应为 13");
 }
 
@@ -25,7 +25,7 @@ fn smoke_number_sub() {
     let a = number_new(10);
     let b = number_new(3);
     let diff = number_sub(&a.as_ptr(), &b.as_ptr());
-    let result = number_get_value(&diff.as_ptr());
+    let result = number_getValue(&diff.as_ptr());
     assert_eq!(result, 7, "10 - 3 应为 7");
 }
 
@@ -34,7 +34,7 @@ fn smoke_number_mul() {
     let a = number_new(10);
     let b = number_new(3);
     let prod = number_mul(&a.as_ptr(), &b.as_ptr());
-    let result = number_get_value(&prod.as_ptr());
+    let result = number_getValue(&prod.as_ptr());
     assert_eq!(result, 30, "10 * 3 应为 30");
 }
 
@@ -43,7 +43,7 @@ fn smoke_number_div() {
     let a = number_new(10);
     let b = number_new(3);
     let quot = number_div(&a.as_ptr(), &b.as_ptr());
-    let result = number_get_value(&quot.as_ptr());
+    let result = number_getValue(&quot.as_ptr());
     assert_eq!(result, 3, "10 / 3 (整数除法) 应为 3");
 }
 
@@ -51,7 +51,7 @@ fn smoke_number_div() {
 fn smoke_number_negate() {
     let a = number_new(10);
     let neg = number_negate(&a.as_ptr());
-    let result = number_get_value(&neg.as_ptr());
+    let result = number_getValue(&neg.as_ptr());
     assert_eq!(result, -10, "-10 的否定应为 -10");
 }
 
