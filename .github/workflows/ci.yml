@@ -506,7 +506,7 @@ jobs:
           passed=0
           total=0
           for smoke_file in examples/*/rust_hicc/tests/smoke.rs; do
-            example=$(basename $(dirname $(dirname "$smoke_file")))
+            example=$(basename $(dirname $(dirname $(dirname "$smoke_file"))))
             dir="examples/${example}/rust_hicc"
             total=$((total + 1))
             echo "=== Running smoke tests for ${example} ==="
