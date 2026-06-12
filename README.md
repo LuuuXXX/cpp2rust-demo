@@ -722,13 +722,13 @@ hicc::import_lib! {
 
 ```bash
 # 运行 L1 黄金文件测试（须单线程：clang 全局状态竞争）
-cargo test --test l1_golden_tests -- --include-ignored --test-threads=1
+cargo test --test l1_golden_tests --features full-test -- --test-threads=1
 
 # 运行 L2 编译测试
 cargo test --test l2_compile_tests
 
 # 运行 L3 运行测试
-cargo test --test l3_run_tests -- --include-ignored --test-threads=1
+cargo test --test l3_run_tests --features full-test -- --test-threads=1
 
 # 运行 L4 rapidjson E2E 测试（须单线程：避免并行磁盘操作冲突）
 cargo test --test rapidjson_e2e_test -- --test-threads=1

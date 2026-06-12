@@ -11,7 +11,6 @@
 
 mod common;
 
-use cpp2rust_demo::{generator::project_generator, merger};
 use std::path::Path;
 use tempfile::TempDir;
 
@@ -81,116 +80,5 @@ fn fmtlib_merge_phase() {
         return;
     }
 
-    let tmp = TempDir::new().unwrap();
-    let preprocess_dir = tmp.path().join("c");
-    let rust_dir = tmp.path().join("rust");
-    std::fs::create_dir_all(&preprocess_dir).unwrap();
-
-    let includes = &[FMT_INCLUDE, FMT_SRC];
-    let mut unit_paths: Vec<String> = Vec::new();
-
-    // ── Init 阶段：生成所有 unit .rs 文件（允许部分失败）────────────
-    for src_rel in SOURCES {
-        let src_path = Path::new(PROJECT_ROOT).join(src_rel);
-        if let Some((unit_name, code)) =
-            common::process_cpp_source(&src_path, includes, &preprocess_dir)
-        {
-            project_generator::write_unit_rs(&rust_dir, &unit_name, &code)
-                .expect("write_unit_rs 失败");
-            unit_paths.push(unit_name);
-        } else {
-            eprintln!("fmtlib_merge_phase: 跳过预处理失败的文件 {}", src_rel);
-        }
-    }
-
-    if unit_paths.is_empty() {
-        eprintln!("fmtlib_merge_phase: 全部文件预处理失败，跳过（g++ / clang++ 是否已安装？）");
-        return;
-    }
-
-    // 生成 Cargo.toml 与 lib.rs
-    project_generator::write_cargo_toml(&rust_dir, "fmtlib").expect("write_cargo_toml 失败");
-    project_generator::write_lib_rs(&rust_dir, &unit_paths).expect("write_lib_rs 失败");
-
-    // ── Merge 阶段 ─────────────────────────────────────────────────
-    merger::merge_in_place(&rust_dir).expect("merge_in_place 失败");
-
-    // ── 验证输出目录结构 ────────────────────────────────────────────
-    let src1 = rust_dir.join("src.1");
-    let src_dir = rust_dir.join("src");
-
-    assert!(src1.is_dir(), "fmtlib_merge_phase: src.1/ 目录不存在");
-    assert!(
-        src_dir.is_dir() && !src_dir.is_symlink(),
-        "fmtlib_merge_phase: src/ 不存在或为符号链接"
-    );
-    assert!(
-        !rust_dir.join("src.2").exists(),
-        "fmtlib_merge_phase: src.2 应已被 rename 为 src"
-    );
-
-    // ── 验证合并后文件 hicc 格式 ─────────────────────────────────
-    let merged_files = merger::collect_unit_rs_files(&src_dir);
-    assert!(
-        !merged_files.is_empty(),
-        "fmtlib_merge_phase: src/ 下未找到任何 .rs 文件"
-    );
-    for rs_path in &merged_files {
-        let fname = rs_path.file_name().and_then(|f| f.to_str()).unwrap_or("");
-        if fname == "lib.rs" || fname == "mod.rs" {
-            continue;
-        }
-        let content = std::fs::read_to_string(rs_path).expect("读取合并后 .rs 文件失败");
-        common::assert_valid_hicc_format(&content, rs_path.to_str().unwrap_or("?"));
-    }
-
-    // ── cargo check：验证生成的 Rust 项目可编译 ────────────────────
-    match std::process::Command::new("cargo")
-        .args(["check", "--quiet"])
-        .current_dir(&rust_dir)
-        .output()
-    {
-        Ok(output) if !output.status.success() => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            panic!(
-                "fmtlib_merge_phase: cargo check 失败（生成的 Rust 项目不可编译）:\n{}",
-                stderr
-            );
-        }
-        Ok(_) => println!(
-            "fmtlib_merge_phase: cargo check 通过 ({} 个 unit)",
-            unit_paths.len()
-        ),
-        Err(e) => eprintln!(
-            "fmtlib_merge_phase: cargo check 跳过（cargo 不可用: {}）",
-            e
-        ),
-    }
-
-    // ── cargo test：验证生成的冒烟测试可通过 ───────────────────────
-    let smoke_test_path = rust_dir.join("tests/smoke.rs");
-    if smoke_test_path.exists() {
-        match std::process::Command::new("cargo")
-            .args(["test", "--quiet"])
-            .current_dir(&rust_dir)
-            .output()
-        {
-            Ok(output) if !output.status.success() => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                panic!(
-                    "fmtlib_merge_phase: cargo test 失败（生成的冒烟测试未通过）:\n{}",
-                    stderr
-                );
-            }
-            Ok(_) => println!(
-                "fmtlib_merge_phase: cargo test 通过（生成的冒烟测试全部通过）"
-            ),
-            Err(e) => eprintln!(
-                "fmtlib_merge_phase: cargo test 跳过（cargo 不可用: {}）",
-                e
-            ),
-        }
-    } else {
-        println!("fmtlib_merge_phase: cargo test 跳过（未生成 tests/smoke.rs）");
-    }
+    common::run_merge_phase_e2e("fmtlib", PROJECT_ROOT, SOURCES, &[FMT_INCLUDE, FMT_SRC]);
 }

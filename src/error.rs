@@ -13,7 +13,7 @@ pub enum Cpp2RustError {
     /// C++ 预处理失败（g++/clang++ 调用失败或源文件语法错误）
     PreprocessFailed(String),
     /// I/O 错误（文件读写、目录创建等）
-    IoError(String),
+    IoError(std::io::Error),
 }
 
 impl std::fmt::Display for Cpp2RustError {
@@ -22,7 +22,7 @@ impl std::fmt::Display for Cpp2RustError {
             Cpp2RustError::LibclangInit(msg) => write!(f, "libclang 初始化失败: {}", msg),
             Cpp2RustError::ParseFailed(msg) => write!(f, "AST 解析失败: {}", msg),
             Cpp2RustError::PreprocessFailed(msg) => write!(f, "C++ 预处理失败: {}", msg),
-            Cpp2RustError::IoError(msg) => write!(f, "I/O 错误: {}", msg),
+            Cpp2RustError::IoError(e) => write!(f, "I/O 错误: {}", e),
         }
     }
 }
@@ -31,7 +31,7 @@ impl std::error::Error for Cpp2RustError {}
 
 impl From<std::io::Error> for Cpp2RustError {
     fn from(e: std::io::Error) -> Self {
-        Cpp2RustError::IoError(e.to_string())
+        Cpp2RustError::IoError(e)
     }
 }
 
@@ -59,13 +59,20 @@ mod tests {
 
     #[test]
     fn display_io_error() {
-        let e = Cpp2RustError::IoError("file not found".to_string());
-        assert_eq!(e.to_string(), "I/O 错误: file not found");
+        let e = Cpp2RustError::IoError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "file not found",
+        ));
+        assert!(e.to_string().contains("I/O 错误"));
+        assert!(e.to_string().contains("file not found"));
     }
 
     #[test]
     fn implements_std_error() {
-        let e: Box<dyn std::error::Error> = Box::new(Cpp2RustError::IoError("test".to_string()));
+        let e: Box<dyn std::error::Error> = Box::new(Cpp2RustError::IoError(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "test",
+        )));
         assert!(!e.to_string().is_empty());
     }
 

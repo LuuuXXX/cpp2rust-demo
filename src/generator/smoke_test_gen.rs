@@ -92,12 +92,6 @@ fn find_zero_param_factory<'a>(
     None
 }
 
-/// 判断返回类型是否为指针。
-#[allow(dead_code)]
-fn is_ptr_type(ty: &str) -> bool {
-    ty.starts_with("*mut ") || ty.starts_with("*const ")
-}
-
 // ─────────────────────────────────────────────────────────────────
 //  生成主函数
 // ─────────────────────────────────────────────────────────────────
@@ -172,7 +166,6 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
     }
 
     // ── C. 类方法测试（有零参构造函数的类）──────────────────────
-    let mut _method_count: usize = 0;
 
     for spec in specs {
         for cs in &spec.class_specs {
@@ -226,7 +219,6 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
                     }
                 }
                 out.push_str("}\n\n");
-                _method_count += 1;
             }
         }
     }

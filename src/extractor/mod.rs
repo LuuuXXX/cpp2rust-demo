@@ -42,7 +42,17 @@ pub fn extract(
     system_includes: &[String],
     project_header: Option<&str>,
 ) -> FfiSpec {
-    let source_bytes = fs::read(&ast.file).unwrap_or_default();
+    let source_bytes = match fs::read(&ast.file) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!(
+                "warning: cpp2rust: failed to read source file '{}': {}",
+                ast.file.display(),
+                e
+            );
+            Vec::new()
+        }
+    };
     // has_any_classes：是否存在任何类（含命名空间类），用于 namespace_class_mode 检测
     let has_any_classes = !ast.classes.is_empty();
     // has_classes：是否存在非命名空间的物理类，用于决定 cpp! 块模式（project header vs inline class）
@@ -199,12 +209,47 @@ fn compute_used_classes(
     };
     for fi in &candidate_fns {
         for cn in &all_cn {
-            if fi.return_type.contains(cn) || fi.params.iter().any(|p| p.type_name.contains(cn)) {
+            if type_references_class(&fi.return_type, cn)
+                || fi
+                    .params
+                    .iter()
+                    .any(|p| type_references_class(&p.type_name, cn))
+            {
                 set.insert(cn.to_string());
             }
         }
     }
     set
+}
+
+/// 判断类型字符串是否引用了指定类名（词边界匹配，避免 "Foo" 误匹配 "FooBar"）。
+///
+/// 匹配规则：类名后必须紧跟 `*`、`&`、` `、`>` 或字符串末尾，
+/// 且前面必须是非标识符字符（空格、`*`、`<` 或字符串开头）。
+fn type_references_class(ty: &str, class_name: &str) -> bool {
+    let cn_bytes = class_name.as_bytes();
+    let ty_bytes = ty.as_bytes();
+    let cn_len = cn_bytes.len();
+    let mut i = 0;
+    while i + cn_len <= ty_bytes.len() {
+        if ty_bytes[i..].starts_with(cn_bytes) {
+            let prefix_ok = i == 0
+                || {
+                    let prev = ty_bytes[i - 1];
+                    !prev.is_ascii_alphanumeric() && prev != b'_'
+                };
+            let suffix_ok = i + cn_len == ty_bytes.len()
+                || {
+                    let next = ty_bytes[i + cn_len];
+                    next == b'*' || next == b'&' || next == b' ' || next == b'>'
+                };
+            if prefix_ok && suffix_ok {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 /// 检测命名空间/opaque 类模式。
@@ -319,23 +364,17 @@ fn classify_functions<'a>(
 fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
     let name_lower = fi.name.to_lowercase();
 
-    let ret_is_class_ptr = class_names.iter().any(|cn| {
-        let r = &fi.return_type;
-        r.contains(&format!("{} *", cn))
-            || r.contains(&format!("{}*", cn))
-            || r.contains(&format!("{} &", cn))
-    });
+    let ret_is_class_ptr = class_names
+        .iter()
+        .any(|cn| type_references_class(&fi.return_type, cn));
 
     let first_param_is_class_ptr = fi
         .params
         .first()
         .map(|p| {
-            class_names.iter().any(|cn| {
-                let ty = &p.type_name;
-                ty.contains(&format!("{} *", cn))
-                    || ty.contains(&format!("{}*", cn))
-                    || ty.contains(&format!("{} &", cn))
-            })
+            class_names
+                .iter()
+                .any(|cn| type_references_class(&p.type_name, cn))
         })
         .unwrap_or(false);
 
@@ -624,7 +663,17 @@ fn strip_volatile(ty: &str) -> &str {
 /// 头文件扩展名按 `.h` → `.hpp` → `.hxx` 顺序探测，取第一个存在的文件，
 /// 以便兼容同时使用 `.hpp`（如 rapidjson、Eigen）的项目。
 pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<String>) {
-    let cpp_content = fs::read_to_string(cpp_path).unwrap_or_default();
+    let cpp_content = match fs::read_to_string(cpp_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "warning: cpp2rust: failed to read source file '{}': {}",
+                cpp_path.display(),
+                e
+            );
+            String::new()
+        }
+    };
 
     // 按优先级探测对应头文件（.h → .hpp → .hxx）
     let h_content = ["h", "hpp", "hxx"]
@@ -1528,6 +1577,100 @@ mod tests {
     }
 
     // ── T1: collect_namespace 三方库函数渗透回归测试 ──────────────────────────
+
+    /// type_references_class 词边界匹配测试
+    #[test]
+    fn type_references_class_exact_match() {
+        assert!(type_references_class("Foo *", "Foo"));
+        assert!(type_references_class("Foo*", "Foo"));
+        assert!(type_references_class("Foo &", "Foo"));
+        assert!(type_references_class("Foo", "Foo"));
+        assert!(type_references_class("const Foo *", "Foo"));
+        assert!(type_references_class("Foo*", "Foo"));
+    }
+
+    #[test]
+    fn type_references_class_no_false_positive() {
+        assert!(!type_references_class("FooBar *", "Foo"));
+        assert!(!type_references_class("Foo2 *", "Foo"));
+        assert!(!type_references_class("MyFooBar *", "Foo"));
+        assert!(!type_references_class("aFoo *", "Foo"));
+    }
+
+    #[test]
+    fn type_references_class_template_context() {
+        assert!(type_references_class("Stack<Foo>", "Foo"));
+        assert!(type_references_class("Stack<Foo*>", "Foo"));
+        assert!(!type_references_class("Stack<FooBar>", "Foo"));
+    }
+
+    /// compute_used_classes 不再被子串误匹配（FooBar 不被 Foo 误匹配）
+    #[test]
+    fn compute_used_classes_no_substring_false_positive() {
+        let classes = vec![ClassInfo {
+            name: "Foo".to_string(),
+            is_struct: false,
+            is_abstract: false,
+            template_args: vec![],
+            bases: vec![],
+            methods: vec![],
+            fields: vec![],
+            is_in_namespace: false,
+            is_from_current_file: true,
+        }];
+        let fi = FunctionInfo {
+            name: "get_bar".to_string(),
+            return_type: "FooBar *".to_string(),
+            params: vec![],
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+        };
+        let result = compute_used_classes(&classes, &[fi]);
+        assert!(
+            result.is_empty(),
+            "FooBar* 不应被类名 'Foo' 子串匹配到，但结果为 {:?}",
+            result
+        );
+    }
+
+    /// compute_used_classes 正确匹配 "Foo *"
+    #[test]
+    fn compute_used_classes_correct_match() {
+        let classes = vec![ClassInfo {
+            name: "Foo".to_string(),
+            is_struct: false,
+            is_abstract: false,
+            template_args: vec![],
+            bases: vec![],
+            methods: vec![],
+            fields: vec![],
+            is_in_namespace: false,
+            is_from_current_file: true,
+        }];
+        let fi = FunctionInfo {
+            name: "foo_new".to_string(),
+            return_type: "Foo *".to_string(),
+            params: vec![],
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+        };
+        let result = compute_used_classes(&classes, &[fi]);
+        assert!(
+            result.contains("Foo"),
+            "Foo* 应被类名 'Foo' 匹配到，但结果为 {:?}",
+            result
+        );
+    }
+
+    // ── T1: collect_namespace 三方库函数渗透回归测试（续）──────────────────────
 
     /// 模拟三方库命名空间函数场景：
     /// is_from_current_file=false 且 is_extern_c=false 的函数不应出现在 fn_bindings 中。

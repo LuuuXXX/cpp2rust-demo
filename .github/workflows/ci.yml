@@ -34,11 +34,46 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build
         run: cargo build --all-targets
+
+  # ── Lint: cargo fmt + cargo clippy ────────────────────────────────
+  lint:
+    name: Lint (fmt + clippy)
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --check --all
+
+      - name: Check clippy
+        run: cargo clippy --all-targets -- -D warnings
 
   # ── 单元测试 ─────────────────────────────────────────────────────
   unit-tests:
@@ -64,7 +99,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run unit tests (lib)
@@ -111,7 +146,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-mingw-cargo-
 
       - name: Run unit tests (lib)
@@ -148,7 +183,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       # L1 测试须单线程运行（clang 全局状态竞争）
@@ -196,7 +231,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-mingw-cargo-
 
       # L1 测试须单线程运行（clang 全局状态竞争）
@@ -235,7 +270,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
       # L1 测试须单线程运行（clang 全局状态竞争）
@@ -271,7 +306,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run L2 compile tests
@@ -315,7 +350,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-mingw-cargo-
 
       - name: Run L2 compile tests
@@ -348,7 +383,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-l3-
             ${{ runner.os }}-cargo-
@@ -417,7 +452,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-mingw-cargo-l3-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-mingw-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-mingw-cargo-l3-
             ${{ runner.os }}-mingw-cargo-
@@ -494,7 +529,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-cargo-smoke-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-smoke-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-smoke-
             ${{ runner.os }}-cargo-
@@ -562,7 +597,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-gen-verify-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-gen-verify-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-gen-verify-
             ${{ runner.os }}-cargo-
@@ -613,7 +648,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-gen-verify-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mingw-cargo-gen-verify-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-mingw-cargo-gen-verify-
             ${{ runner.os }}-mingw-cargo-
@@ -653,7 +688,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-gen-verify-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-gen-verify-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-msvc-cargo-gen-verify-
             ${{ runner.os }}-msvc-cargo-
@@ -692,7 +727,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-gen-verify-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-gen-verify-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-gen-verify-
             ${{ runner.os }}-cargo-
@@ -729,7 +764,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       # 单线程运行：clang 全局状态 + rapidjson 文件数量多
@@ -778,7 +813,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-mingw-cargo-
 
       # 单线程运行：clang 全局状态 + rapidjson 文件数量多
@@ -814,7 +849,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build cpp2rust-demo binary
@@ -881,7 +916,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-mingw-cargo-
 
       - name: Build cpp2rust-demo binary (GNU ABI)
@@ -947,7 +982,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
       - name: Build cpp2rust-demo binary (MSVC ABI)
@@ -1002,7 +1037,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-cargo-l5-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-l5-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-l5-
             ${{ runner.os }}-cargo-
@@ -1060,7 +1095,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
       - name: Build
@@ -1095,7 +1130,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
       - name: Run unit tests (lib)
@@ -1135,7 +1170,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
       - name: Run L2 compile tests
@@ -1172,7 +1207,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-msvc-cargo-l3-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-msvc-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-msvc-cargo-l3-
             ${{ runner.os }}-msvc-cargo-
@@ -1239,7 +1274,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
       # 单线程运行：clang 全局状态 + rapidjson 文件数量多
@@ -1281,7 +1316,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-msvc-cargo-l5-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-msvc-cargo-l5-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-msvc-cargo-l5-
             ${{ runner.os }}-msvc-cargo-
@@ -1364,7 +1399,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-mingw-cargo-l5-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-mingw-cargo-l5-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-mingw-cargo-l5-
             ${{ runner.os }}-mingw-cargo-
@@ -1437,7 +1472,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build
@@ -1469,7 +1504,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run unit tests (lib)
@@ -1504,7 +1539,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       # L1 测试须单线程运行（clang 全局状态竞争）
@@ -1540,7 +1575,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run L2 compile tests
@@ -1573,7 +1608,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-l3-
             ${{ runner.os }}-cargo-
@@ -1633,7 +1668,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       # 单线程运行：clang 全局状态 + rapidjson 文件数量多
@@ -1671,7 +1706,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build cpp2rust-demo binary
@@ -1719,7 +1754,7 @@ jobs:
             ~/.cargo/git
             target
             examples-target
-          key: ${{ runner.os }}-cargo-l5-${{ hashFiles('**/Cargo.lock', 'examples/*/rust_hicc/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-l5-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-l5-
             ${{ runner.os }}-cargo-
@@ -1779,7 +1814,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run tinyxml2 E2E
@@ -1836,7 +1871,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run tinyxml2 E2E
@@ -1903,7 +1938,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mingw-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-mingw-cargo-
 
       - name: Run tinyxml2 E2E
@@ -1969,7 +2004,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
       - name: Run tinyxml2 E2E
@@ -2024,7 +2059,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       # 单线程运行：clang 全局状态竞争 + 项目内文件数量多
@@ -2059,7 +2094,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run multi-feature & output-dir E2E tests
@@ -2105,7 +2140,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-mingw-cargo-
 
       - name: Run multi-feature & output-dir E2E tests
@@ -2142,7 +2177,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
       - name: Run multi-feature & output-dir E2E tests

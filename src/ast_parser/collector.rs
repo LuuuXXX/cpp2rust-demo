@@ -214,30 +214,10 @@ fn template_arg_display(arg: &TemplateArgument<'_>) -> String {
     }
 }
 
-pub(super) fn extract_class(
-    entity: &clang::Entity<'_>,
-    cpp_ranges: &[std::ops::Range<u32>],
-) -> Option<ClassInfo> {
-    let name = entity.get_name()?;
-    let is_struct = entity.get_kind() == EntityKind::StructDecl;
-    let is_abstract = entity.is_abstract_record();
-
-    // 判断该类是否定义在当前编译单元（shim cpp 文件）中，而非被 include 的头文件。
-    //
-    // libclang 解析预处理文件（`.cpp2rust`）时，所有实体的 `get_location()` 都返回
-    // 物理文件（`.cpp2rust`）的字节偏移量，而非跟随行号标记的逻辑来源文件。
-    // 因此不能用文件路径比较，而必须用字节偏移量与 `cpp_byte_ranges` 扫描结果对比：
-    // 只有落在 shim cpp 内容区间（即 `.cpp` 行号标记之后、`.h` 标记之前的区域）
-    // 的实体才认为来自当前文件。
-    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
-
-    let mut template_args = Vec::new();
-    if let Some(args) = entity.get_template_arguments() {
-        for arg in &args {
-            template_args.push(template_arg_display(arg));
-        }
-    }
-
+/// 从类/模板类的子实体中提取基类、方法和字段信息。
+///
+/// 被 `extract_class` 和 `extract_template_class` 共用，消除重复的子实体遍历逻辑。
+fn extract_class_members(entity: &clang::Entity<'_>) -> (Vec<BaseInfo>, Vec<MethodInfo>, Vec<FieldInfo>) {
     let mut bases = Vec::new();
     let mut methods = Vec::new();
     let mut fields = Vec::new();
@@ -267,7 +247,6 @@ pub(super) fn extract_class(
                     .map(|t| t.get_display_name())
                     .unwrap_or_default();
                 let accessibility = access_str(child.get_accessibility());
-                // 判断字段是否有内联默认值（如 int value = 0）
                 let field_offset = child.get_range().map(|r| {
                     let start = r.get_start().get_file_location().offset;
                     let end = r.get_end().get_file_location().offset;
@@ -288,6 +267,35 @@ pub(super) fn extract_class(
             _ => {}
         }
     }
+
+    (bases, methods, fields)
+}
+
+pub(super) fn extract_class(
+    entity: &clang::Entity<'_>,
+    cpp_ranges: &[std::ops::Range<u32>],
+) -> Option<ClassInfo> {
+    let name = entity.get_name()?;
+    let is_struct = entity.get_kind() == EntityKind::StructDecl;
+    let is_abstract = entity.is_abstract_record();
+
+    // 判断该类是否定义在当前编译单元（shim cpp 文件）中，而非被 include 的头文件。
+    //
+    // libclang 解析预处理文件（`.cpp2rust`）时，所有实体的 `get_location()` 都返回
+    // 物理文件（`.cpp2rust`）的字节偏移量，而非跟随行号标记的逻辑来源文件。
+    // 因此不能用文件路径比较，而必须用字节偏移量与 `cpp_byte_ranges` 扫描结果对比：
+    // 只有落在 shim cpp 内容区间（即 `.cpp` 行号标记之后、`.h` 标记之前的区域）
+    // 的实体才认为来自当前文件。
+    let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
+
+    let mut template_args = Vec::new();
+    if let Some(args) = entity.get_template_arguments() {
+        for arg in &args {
+            template_args.push(template_arg_display(arg));
+        }
+    }
+
+    let (bases, methods, fields) = extract_class_members(entity);
 
     Some(ClassInfo {
         name,
@@ -336,52 +344,7 @@ pub(super) fn extract_template_class(
     let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
     let type_params = collect_template_params(entity);
 
-    let mut bases = Vec::new();
-    let mut methods = Vec::new();
-    let mut fields = Vec::new();
-
-    for child in entity.get_children() {
-        match child.get_kind() {
-            EntityKind::BaseSpecifier => {
-                let base_name = child
-                    .get_type()
-                    .map(|t| t.get_display_name())
-                    .unwrap_or_default();
-                bases.push(BaseInfo {
-                    name: base_name,
-                    is_virtual: child.is_virtual_base(),
-                });
-            }
-            EntityKind::Method | EntityKind::Constructor | EntityKind::Destructor => {
-                if let Some(mi) = extract_method(&child) {
-                    methods.push(mi);
-                }
-            }
-            EntityKind::FieldDecl | EntityKind::VarDecl => {
-                let is_static = child.get_kind() == EntityKind::VarDecl;
-                let field_name = child.get_name().unwrap_or_default();
-                let type_name = child
-                    .get_type()
-                    .map(|t| t.get_display_name())
-                    .unwrap_or_default();
-                let accessibility = access_str(child.get_accessibility());
-                let field_offset = child.get_range().map(|r| {
-                    let start = r.get_start().get_file_location().offset;
-                    let end = r.get_end().get_file_location().offset;
-                    (start, end)
-                });
-                fields.push(FieldInfo {
-                    name: field_name,
-                    type_name,
-                    is_mutable: !is_static && child.is_mutable(),
-                    is_static,
-                    accessibility,
-                    field_offset,
-                });
-            }
-            _ => {}
-        }
-    }
+    let (bases, methods, fields) = extract_class_members(entity);
 
     Some(TemplateClassInfo {
         name,

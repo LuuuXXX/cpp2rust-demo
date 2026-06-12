@@ -203,7 +203,10 @@ fn ensure_hook_data_dir() -> Result<PathBuf> {
     let hook_dir = base.join("cpp2rust-demo").join("hook");
 
     std::fs::create_dir_all(&hook_dir).map_err(|e| {
-        Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display()))
+        Cpp2RustError::IoError(std::io::Error::new(
+            e.kind(),
+            format!("create_dir_all {}: {e}", hook_dir.display()),
+        ))
     })?;
 
     // 若 hook.cpp 不存在或内容有变化，则写入（二进制更新时自动升级）。
@@ -224,8 +227,12 @@ fn write_if_changed(path: &Path, content: &str) -> Result<bool> {
         Err(_) => true,
     };
     if needs_write {
-        std::fs::write(path, content)
-            .map_err(|e| Cpp2RustError::IoError(format!("write {}: {e}", path.display())))?;
+        std::fs::write(path, content).map_err(|e| {
+            Cpp2RustError::IoError(std::io::Error::new(
+                e.kind(),
+                format!("write {}: {e}", path.display()),
+            ))
+        })?;
     }
     Ok(needs_write)
 }
@@ -247,7 +254,10 @@ fn build_hook_windows() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
     let hook_dir = base.join("cpp2rust-demo").join("hook");
     std::fs::create_dir_all(&hook_dir).map_err(|e| {
-        Cpp2RustError::IoError(format!("create_dir_all {}: {e}", hook_dir.display()))
+        Cpp2RustError::IoError(std::io::Error::new(
+            e.kind(),
+            format!("create_dir_all {}: {e}", hook_dir.display()),
+        ))
     })?;
 
     let shim_rs = hook_dir.join("hook_shim.rs");
