@@ -17,8 +17,14 @@ fn smoke_derived_value() {
 }
 
 #[test]
+fn smoke_derived_base2_value() {
+    let derived = derived_new(10, 20, 30);
+    assert_eq!(derived.get_value2(), 20, "Base2 值应为 20");
+}
+
+#[test]
 fn smoke_derived_compute() {
     let derived = derived_new(5, 10, 15);
-    // compute() prints to stdout; just verify it doesn't panic
+    // compute() 仅输出到 stdout（打印 5+10+15=30），验证调用不 panic
     derived.compute();
 }
