@@ -568,7 +568,7 @@ pub fn process_cpp_source(
 pub fn ensure_cpp_lib(example: &str) {
     let cpp_dir = format!("examples/{}/cpp", example);
     // 去掉形如 "013_" 的数字前缀，得到库的短名称
-    let short_name = example.splitn(2, '_').nth(1).unwrap_or(example);
+    let short_name = example.split_once('_').map(|(_, s)| s).unwrap_or(example);
 
     let lib_name = if cfg!(target_os = "macos") {
         format!("lib{}.dylib", short_name)
@@ -671,9 +671,7 @@ pub fn run_merge_phase_e2e(
     // ── Init 阶段：生成所有 unit .rs 文件 ──────────────────────────
     for src_rel in sources {
         let src_path = std::path::Path::new(project_root).join(src_rel);
-        if let Some((unit_name, code)) =
-            process_cpp_source(&src_path, includes, &preprocess_dir)
-        {
+        if let Some((unit_name, code)) = process_cpp_source(&src_path, includes, &preprocess_dir) {
             project_generator::write_unit_rs(&rust_dir, &unit_name, &code)
                 .expect("write_unit_rs 失败");
             unit_paths.push(unit_name);
@@ -687,8 +685,7 @@ pub fn run_merge_phase_e2e(
     );
 
     // 生成 Cargo.toml 与 lib.rs（merge 前必须存在 src/）
-    project_generator::write_cargo_toml(&rust_dir, project_name)
-        .expect("write_cargo_toml 失败");
+    project_generator::write_cargo_toml(&rust_dir, project_name).expect("write_cargo_toml 失败");
     project_generator::write_lib_rs(&rust_dir, &unit_paths).expect("write_lib_rs 失败");
 
     // ── Merge 阶段 ─────────────────────────────────────────────────

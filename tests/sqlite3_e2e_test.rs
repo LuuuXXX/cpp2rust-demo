@@ -162,9 +162,7 @@ fn sqlite3_merge_phase() {
                     stderr
                 );
             }
-            Ok(_) => println!(
-                "sqlite3_merge_phase: cargo test 通过（生成的冒烟测试全部通过）"
-            ),
+            Ok(_) => println!("sqlite3_merge_phase: cargo test 通过（生成的冒烟测试全部通过）"),
             Err(e) => eprintln!(
                 "sqlite3_merge_phase: cargo test 跳过（cargo 不可用: {}）",
                 e

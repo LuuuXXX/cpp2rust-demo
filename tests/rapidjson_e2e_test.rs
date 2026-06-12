@@ -329,10 +329,7 @@ fn rapidjson_merge_phase() {
             Ok(output) => {
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    panic!(
-                        "cargo test 失败（init 生成的冒烟测试未通过）:\n{}",
-                        stderr
-                    );
+                    panic!("cargo test 失败（init 生成的冒烟测试未通过）:\n{}", stderr);
                 } else {
                     println!("cargo test 通过（生成的冒烟测试全部通过）");
                 }

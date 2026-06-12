@@ -233,16 +233,14 @@ fn type_references_class(ty: &str, class_name: &str) -> bool {
     let mut i = 0;
     while i + cn_len <= ty_bytes.len() {
         if ty_bytes[i..].starts_with(cn_bytes) {
-            let prefix_ok = i == 0
-                || {
-                    let prev = ty_bytes[i - 1];
-                    !prev.is_ascii_alphanumeric() && prev != b'_'
-                };
-            let suffix_ok = i + cn_len == ty_bytes.len()
-                || {
-                    let next = ty_bytes[i + cn_len];
-                    next == b'*' || next == b'&' || next == b' ' || next == b'>'
-                };
+            let prefix_ok = i == 0 || {
+                let prev = ty_bytes[i - 1];
+                !prev.is_ascii_alphanumeric() && prev != b'_'
+            };
+            let suffix_ok = i + cn_len == ty_bytes.len() || {
+                let next = ty_bytes[i + cn_len];
+                next == b'*' || next == b'&' || next == b' ' || next == b'>'
+            };
             if prefix_ok && suffix_ok {
                 return true;
             }
@@ -385,10 +383,10 @@ fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
     let name_has_new = fi.name == "new"
         || fi.name.ends_with("_new")
         || fi.name.contains("_new_")
-        || fi.name.find("_new").map_or(false, |p| {
+        || fi.name.find("_new").is_some_and(|p| {
             fi.name
                 .get(p + 4..)
-                .map_or(false, |rest| rest.starts_with(|c: char| c.is_uppercase()))
+                .is_some_and(|rest| rest.starts_with(|c: char| c.is_uppercase()))
         });
 
     if ret_is_class_ptr && name_has_new {

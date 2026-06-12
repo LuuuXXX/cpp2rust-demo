@@ -291,11 +291,16 @@ fn collect_class_map(all_units: &[UnitData]) -> HashMap<String, String> {
 ///
 /// 返回 `(unit_paths, sorted_tags)`，其中 `sorted_tags` 是按 tag 字典序排列的
 /// `(tag, Vec<(unit_path, count)>)` 列表，供打印摘要和写入报告使用。
+/// 每个降级 tag 对应的出现位置列表：`(unit_path, count)`。
+type DegradedTagEntries = Vec<(String, usize)>;
+/// 所有降级 tag 的汇总：`(tag, entries)`。
+type DegradedTags = Vec<(String, DegradedTagEntries)>;
+
 fn second_pass_generate(
     all_units: &[UnitData],
     class_to_module: &HashMap<String, String>,
     rust_dir: &std::path::Path,
-) -> Result<(Vec<String>, Vec<(String, Vec<(String, usize)>)>)> {
+) -> Result<(Vec<String>, DegradedTags)> {
     let mut unit_paths: Vec<String> = Vec::new();
     let mut degraded_tags: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
 

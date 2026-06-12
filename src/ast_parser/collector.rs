@@ -217,7 +217,9 @@ fn template_arg_display(arg: &TemplateArgument<'_>) -> String {
 /// 从类/模板类的子实体中提取基类、方法和字段信息。
 ///
 /// 被 `extract_class` 和 `extract_template_class` 共用，消除重复的子实体遍历逻辑。
-fn extract_class_members(entity: &clang::Entity<'_>) -> (Vec<BaseInfo>, Vec<MethodInfo>, Vec<FieldInfo>) {
+fn extract_class_members(
+    entity: &clang::Entity<'_>,
+) -> (Vec<BaseInfo>, Vec<MethodInfo>, Vec<FieldInfo>) {
     let mut bases = Vec::new();
     let mut methods = Vec::new();
     let mut fields = Vec::new();

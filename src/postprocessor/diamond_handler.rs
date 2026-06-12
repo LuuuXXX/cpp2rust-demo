@@ -304,13 +304,14 @@ mod tests {
         let cn_lower = to_snake_case(class_name);
         FfiSpec {
             unit_name: "test".to_string(),
-            cpp_block_lines: vec![
-                format!("{}* {}_new() {{ return new {}(); }}", class_name, cn_lower, class_name),
-            ],
+            cpp_block_lines: vec![format!(
+                "{}* {}_new() {{ return new {}(); }}",
+                class_name, cn_lower, class_name
+            )],
             class_specs: vec![ClassSpec {
                 name: class_name.to_string(),
                 methods: vec![MethodBinding {
-                    cpp_sig: format!("int get_value() const"),
+                    cpp_sig: "int get_value() const".to_string(),
                     rust_name: "get_value".to_string(),
                     self_kind: SelfKind::Ref,
                     params: vec![],
@@ -365,10 +366,7 @@ mod tests {
         let derived = make_class_with_bases("Derived", vec![("MidA", false), ("MidB", false)]);
 
         let ast = make_ast(vec![base, mid_a, mid_b, derived]);
-        let diamonds = find_diamond_bases(
-            ast.classes.last().unwrap(),
-            &ast.classes,
-        );
+        let diamonds = find_diamond_bases(ast.classes.last().unwrap(), &ast.classes);
         assert!(
             diamonds.contains("Base"),
             "Base 应被识别为菱形基类，结果为 {:?}",
@@ -385,15 +383,11 @@ mod tests {
         let derived = make_class_with_bases("Derived", vec![("MidA", false), ("MidB", false)]);
 
         // 提供 accessor 函数
-        let accessor = make_fi(
-            "derived_get_value",
-            "int",
-            &[("self", "Derived *")],
-        );
+        let accessor = make_fi("derived_get_value", "int", &[("self", "Derived *")]);
 
         let ast = make_ast(vec![base, mid_a, mid_b, derived]);
         let mut spec = make_spec_with_ctor("Derived");
-        let fns = vec![accessor];
+        let fns = [accessor];
         let fn_refs: Vec<&FunctionInfo> = fns.iter().collect();
 
         apply(&mut spec, &ast, &fn_refs);
@@ -429,10 +423,7 @@ mod tests {
         let derived = make_class_with_bases("Derived", vec![("BaseA", false), ("BaseB", false)]);
 
         let ast = make_ast(vec![base_a, base_b, derived]);
-        let diamonds = find_diamond_bases(
-            ast.classes.last().unwrap(),
-            &ast.classes,
-        );
+        let diamonds = find_diamond_bases(ast.classes.last().unwrap(), &ast.classes);
         assert!(
             diamonds.is_empty(),
             "不相关的基类不应产生菱形，结果为 {:?}",
