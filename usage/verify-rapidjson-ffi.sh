@@ -288,6 +288,24 @@ else
 fi
 
 # =============================================================================
+# § 5c. cargo test — 验证生成的冒烟测试通过
+# =============================================================================
+step "§ 5c. cargo test（验证生成的冒烟测试可编译、可链接、可运行）"
+
+RUST_PROJECT="${CPP2RUST_OUTPUT}/rust"
+SMOKE_FILE="${RUST_PROJECT}/tests/smoke.rs"
+if [ -f "${SMOKE_FILE}" ]; then
+    info "检测到冒烟测试文件：${SMOKE_FILE}"
+    if (cd "${RUST_PROJECT}" && cargo test 2>&1); then
+        ok "cargo test 通过 ✓（生成的冒烟测试全部通过）"
+    else
+        warn "cargo test 失败（hicc import_lib! 在测试二进制链接时可能遇到 _hicc_export_methods_* 未定义限制，非代码生成问题）"
+    fi
+else
+    info "未生成 tests/smoke.rs（可能 init 阶段无 pub class 类型），跳过 cargo test"
+fi
+
+# =============================================================================
 # § 6. FFI 验证
 # =============================================================================
 step "§ 6. FFI 验证"

@@ -1,8 +1,7 @@
 mod common;
 
 // Phase E 升级示例（lib.rs + main.rs 结构）：从 lib.rs 读取黄金内容。
-// lib.rs 中函数使用 `pub unsafe fn` 以支持集成测试访问，而工具生成器暂输出
-// `unsafe fn`（无 pub），因此比较前通过 strip_pub_visibility 规范化可见性修饰符。
+// 工具生成器输出 `pub fn`（含 pub），与 lib.rs 黄金文件中的可见性修饰符一致。
 macro_rules! golden_test_lib {
     ($name:ident, $example:literal) => {
         golden_test_lib!($name, $example, "rust_hicc/src/lib.rs");
@@ -23,7 +22,7 @@ macro_rules! golden_test_lib {
             let golden = common::extract_hicc_blocks(&golden_raw);
             assert_eq!(
                 common::normalize(&generated),
-                common::normalize(&common::strip_pub_visibility(&golden)),
+                common::normalize(&golden),
                 "FFI scaffold mismatch for {}",
                 $example
             );
@@ -51,7 +50,7 @@ macro_rules! golden_test_lib_unix_only {
             let golden = common::extract_hicc_blocks(&golden_raw);
             assert_eq!(
                 common::normalize(&generated),
-                common::normalize(&common::strip_pub_visibility(&golden)),
+                common::normalize(&golden),
                 "FFI scaffold mismatch for {}",
                 $example
             );
@@ -60,9 +59,8 @@ macro_rules! golden_test_lib_unix_only {
 }
 
 // v7：当工具默认输出含生成器自带 `pub` 修饰的骨架（如模板函数 `pub unsafe fn do_swap`、
-// 模板构造工厂、代理工厂、dynamic_cast 等）时，不能用 `strip_pub_visibility` 规范化
-// （否则会把生成器输出的 `pub` 也一并剥除导致不匹配）。本宏直接与独立维护的支架黄金
-// 文件（`lib_scaffold.rs`）做精确比对（不剥除 `pub`），用于校验工具默认产物。
+// 模板构造工厂、代理工厂、dynamic_cast 等）时，使用独立维护的支架黄金文件
+// （`lib_scaffold.rs`）做精确比对，用于校验工具默认产物。
 macro_rules! golden_test_scaffold {
     ($name:ident, $example:literal) => {
         golden_test_scaffold!($name, $example, "rust_hicc/src/lib_scaffold.rs");

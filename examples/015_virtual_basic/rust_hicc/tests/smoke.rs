@@ -27,9 +27,9 @@ fn smoke_circle_get_name() {
 
 #[test]
 fn smoke_shape_new() {
-    // 测试 shape_new() 返回 Shape 基类实例可以正常调用虚函数
+    // Shape 基类 area() 返回 0.0
     let shape = shape_new();
-    let _ = shape.area();
+    assert!((shape.area() - 0.0).abs() < 1e-10, "Shape::area() 应返回 0.0");
     let name = unsafe { std::ffi::CStr::from_ptr(shape.get_name()) };
     assert!(!name.to_bytes().is_empty(), "Shape::getName() 不应返回空字符串");
 }

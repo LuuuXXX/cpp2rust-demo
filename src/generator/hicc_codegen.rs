@@ -49,7 +49,7 @@ fn emit_fn_binding(out: &mut String, fb: &FnBinding, ret_override: Option<&str>)
         );
     }
     out.push_str(&format!("    #[cpp(func = \"{}\")]\n", fb.cpp_sig));
-    let unsafe_kw = if fb.is_unsafe { "unsafe " } else { "" };
+    let unsafe_kw = if fb.is_unsafe { " unsafe" } else { "" };
     let params_str = fb
         .params
         .iter()
@@ -64,7 +64,7 @@ fn emit_fn_binding(out: &mut String, fb: &FnBinding, ret_override: Option<&str>)
         },
     };
     out.push_str(&format!(
-        "    {}fn {}({}){};\n",
+        "    pub{} fn {}({}){};\n",
         unsafe_kw, fb.rust_name, params_str, ret_str
     ));
 }
@@ -133,7 +133,7 @@ pub fn generate(spec: &FfiSpec) -> String {
                     None => String::new(),
                 };
                 out.push_str(&format!(
-                    "        fn {}({}{}){};",
+                    "        pub fn {}({}{}){};",
                     mb.rust_name, self_ref, params_str, ret_str
                 ));
                 out.push('\n');
@@ -407,7 +407,7 @@ fn emit_proxy_factory(out: &mut String, pf: &ProxyFactorySpec) {
     let mut all_params: Vec<String> = vec![format!("intf: hicc::Interface<{}>", pf.concrete_class)];
     all_params.extend(pf.params.iter().map(|(n, t)| format!("{}: {}", n, t)));
     out.push_str(&format!(
-        "    fn {}({}) -> {};\n",
+        "    pub fn {}({}) -> {};\n",
         pf.rust_name,
         all_params.join(", "),
         pf.concrete_class

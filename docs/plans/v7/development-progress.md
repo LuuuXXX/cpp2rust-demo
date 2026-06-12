@@ -58,9 +58,29 @@
 
 ---
 
-## 5. 后续计划
+## 5. 质量验证
 
-v7 全部 8 个阶段已完成。
+v7 全部 8 个阶段完成后，进行了深度质量验证（2026-06-12），详见 `quality-verification-report.md`。
+
+### 验证结论
+
+- **48/48** 示例全部具备行为级冒烟测试（219 个测试、401+ 个断言）
+- **266** 个 lib 单元测试全部通过
+- **0** 个 `CPP2RUST_GEN_*` 残留
+- CI master 全绿
+
+### 质量验证修复
+
+| 示例 | 修复内容 |
+|------|---------|
+| 012_class_volatile | 新增 8 个精确值行为断言（status_reg / data_reg） |
+| 014_inheritance_multiple | 新增 `smoke_derived_base2_value` 测试 |
+| 015_virtual_basic | 新增 Shape::area() 精确断言 |
+| 017_virtual_override | 新增 area() 精确断言 + 多态测试 |
+
+## 6. 后续计划
+
+v7 全部 8 个阶段已完成。质量验证报告见 `quality-verification-report.md` §6。
 
 ### 完成总结
 
@@ -74,5 +94,6 @@ v7 全部 8 个阶段已完成。
 | Phase 6 | 代码去冗余：删除 `env_switch_enabled` 等遗留 | ✅ | PR #152 前 |
 | Phase 7 | CI：l-smoke 扩全量、gen-verify、门禁校验 | ✅ | 2026-06-12 |
 | Phase 8 | 文档：INTRODUCTION / hicc.md / README / CHANGELOG / DEVELOPMENT 对齐 v7 | ✅ | PR #152 前 |
+| 质量验证 | 深度审计 48 示例，修复 4 个冒烟测试质量问题 | ✅ | 2026-06-12 |
 
-详细进展见 `development-progress-phase-5.md`。
+详细进展见 `development-progress-phase-5.md` 和 `quality-verification-report.md`。

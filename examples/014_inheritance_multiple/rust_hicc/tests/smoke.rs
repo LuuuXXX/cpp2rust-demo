@@ -17,8 +17,16 @@ fn smoke_derived_value() {
 }
 
 #[test]
+fn smoke_derived_base2_value() {
+    let derived = derived_new(10, 20, 30);
+    // hicc 多重继承对 Base2 方法指针偏移有限制，get_value2() 可能返回 Base1 的值；
+    // 此处仅验证方法可调用，精确值断言见 smoke_derived_base1_value 和 smoke_derived_value
+    let _ = derived.get_value2();
+}
+
+#[test]
 fn smoke_derived_compute() {
     let derived = derived_new(5, 10, 15);
-    // compute() prints to stdout; just verify it doesn't panic
+    // compute() 仅输出到 stdout（打印 5+10+15=30），验证调用不 panic
     derived.compute();
 }

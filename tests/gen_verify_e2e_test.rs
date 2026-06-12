@@ -60,9 +60,431 @@ fn gen_verify_virtual_basic() {
     );
 }
 
+/// L6-4：006_class_basic — 基础类（getter/setter/静态方法）
+///
+/// 验证工具对普通类方法的生成代码可被 Rust 编译器接受。
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_class_basic() {
+    gen_verify_example(
+        "examples/006_class_basic",
+        "class_basic",
+        "class_basic",
+    );
+}
+
+/// L6-5：013_inheritance_single — 单继承
+///
+/// 验证工具对单继承（基类方法提升进子类）的生成代码可被 Rust 编译器接受。
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_inheritance_single() {
+    gen_verify_example(
+        "examples/013_inheritance_single",
+        "inheritance_single",
+        "inheritance_single",
+    );
+}
+
+/// L6-6：042_exception_basic — 异常处理（try/catch → 错误码）
+///
+/// 验证工具对含异常处理的 C++ 代码生成的 FFI 绑定可被 Rust 编译器接受。
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_exception_basic() {
+    gen_verify_example(
+        "examples/042_exception_basic",
+        "exception_basic",
+        "exception_basic",
+    );
+}
+
+/// L6-7：029_unique_ptr — 智能指针
+///
+/// 验证工具对使用 unique_ptr 的 C++ 类生成的 FFI 绑定可被 Rust 编译器接受。
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_unique_ptr() {
+    gen_verify_example(
+        "examples/029_unique_ptr",
+        "unique_ptr",
+        "unique_ptr",
+    );
+}
+
+/// L6-8：034_vector_basic — STL 容器（vector）
+///
+/// 验证工具对使用 std::vector 的 C++ 代码生成的 FFI 绑定可被 Rust 编译器接受。
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_vector_basic() {
+    gen_verify_example(
+        "examples/034_vector_basic",
+        "vector_basic",
+        "vector_basic",
+    );
+}
+
+/// L6-9：001_hello_world — 基础函数
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_hello_world() {
+    gen_verify_example("examples/001_hello_world", "hello_world", "hello_world");
+}
+
+/// L6-10：002_function_overload — 函数重载
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_function_overload() {
+    gen_verify_example(
+        "examples/002_function_overload",
+        "function_overload",
+        "function_overload",
+    );
+}
+
+/// L6-11：003_default_args — 默认参数
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_default_args() {
+    gen_verify_example("examples/003_default_args", "default_args", "default_args");
+}
+
+/// L6-12：004_inline_functions — 内联函数
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_inline_functions() {
+    gen_verify_example(
+        "examples/004_inline_functions",
+        "inline_functions",
+        "inline_functions",
+    );
+}
+
+/// L6-13：005_variadic_functions — 可变参数函数
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_variadic_functions() {
+    gen_verify_example(
+        "examples/005_variadic_functions",
+        "variadic_functions",
+        "variadic_functions",
+    );
+}
+
+/// L6-14：007_class_constructor — 类构造函数
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_class_constructor() {
+    gen_verify_example(
+        "examples/007_class_constructor",
+        "class_constructor",
+        "class_constructor",
+    );
+}
+
+/// L6-15：008_class_copy — 拷贝构造
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_class_copy() {
+    gen_verify_example("examples/008_class_copy", "class_copy", "class_copy");
+}
+
+/// L6-16：009_class_move — 移动构造
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_class_move() {
+    gen_verify_example("examples/009_class_move", "class_move", "class_move");
+}
+
+/// L6-17：010_class_static — 静态成员
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_class_static() {
+    gen_verify_example("examples/010_class_static", "class_static", "class_static");
+}
+
+/// L6-18：011_class_const — const 成员
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_class_const() {
+    gen_verify_example("examples/011_class_const", "class_const", "class_const");
+}
+
+/// L6-19：012_class_volatile — volatile 成员
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_class_volatile() {
+    gen_verify_example(
+        "examples/012_class_volatile",
+        "class_volatile",
+        "class_volatile",
+    );
+}
+
+/// L6-20：014_inheritance_multiple — 多重继承
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_inheritance_multiple() {
+    gen_verify_example(
+        "examples/014_inheritance_multiple",
+        "inheritance_multiple",
+        "inheritance_multiple",
+    );
+}
+
+/// L6-21：016_virtual_pure — 纯虚函数
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_virtual_pure() {
+    gen_verify_example("examples/016_virtual_pure", "virtual_pure", "virtual_pure");
+}
+
+/// L6-22：017_virtual_override — 虚函数重写
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_virtual_override() {
+    gen_verify_example(
+        "examples/017_virtual_override",
+        "virtual_override",
+        "virtual_override",
+    );
+}
+
+/// L6-23：018_virtual_diamond — 菱形继承
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_virtual_diamond() {
+    gen_verify_example(
+        "examples/018_virtual_diamond",
+        "virtual_diamond",
+        "virtual_diamond",
+    );
+}
+
+/// L6-24：019_operator_overload — 运算符重载
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_operator_overload() {
+    gen_verify_example(
+        "examples/019_operator_overload",
+        "operator_overload",
+        "operator_overload",
+    );
+}
+
+/// L6-25：020_friend_function — 友元函数
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_friend_function() {
+    gen_verify_example(
+        "examples/020_friend_function",
+        "friend_function",
+        "friend_function",
+    );
+}
+
+/// L6-26：021_explicit_ctor — explicit 构造函数
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_explicit_ctor() {
+    gen_verify_example("examples/021_explicit_ctor", "explicit_ctor", "explicit_ctor");
+}
+
+/// L6-27：022_mutable_member — mutable 成员
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_mutable_member() {
+    gen_verify_example(
+        "examples/022_mutable_member",
+        "mutable_member",
+        "mutable_member",
+    );
+}
+
+/// L6-28：023_typeid_rtti — RTTI typeid
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_typeid_rtti() {
+    gen_verify_example("examples/023_typeid_rtti", "typeid_rtti", "typeid_rtti");
+}
+
+/// L6-29：026_template_specialization — 模板特化
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_template_specialization() {
+    gen_verify_example(
+        "examples/026_template_specialization",
+        "template_specialization",
+        "template_specialization",
+    );
+}
+
+/// L6-30：027_template_instantiation — 模板实例化
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_template_instantiation() {
+    gen_verify_example(
+        "examples/027_template_instantiation",
+        "template_instantiation",
+        "template_instantiation",
+    );
+}
+
+/// L6-31：028_variadic_template — 可变参数模板
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_variadic_template() {
+    gen_verify_example(
+        "examples/028_variadic_template",
+        "variadic_template",
+        "variadic_template",
+    );
+}
+
+/// L6-32：030_shared_ptr — shared_ptr 智能指针
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_shared_ptr() {
+    gen_verify_example("examples/030_shared_ptr", "shared_ptr", "shared_ptr");
+}
+
+/// L6-33：031_custom_deleter — 自定义删除器
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_custom_deleter() {
+    gen_verify_example("examples/031_custom_deleter", "custom_deleter", "custom_deleter");
+}
+
+/// L6-34：032_placement_new — 定位 new
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_placement_new() {
+    gen_verify_example("examples/032_placement_new", "placement_new", "placement_new");
+}
+
+/// L6-35：033_raii_pattern — RAII 模式
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_raii_pattern() {
+    gen_verify_example("examples/033_raii_pattern", "raii_pattern", "raii_pattern");
+}
+
+/// L6-36：035_map_basic — STL 容器（map）
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_map_basic() {
+    gen_verify_example("examples/035_map_basic", "map_basic", "map_basic");
+}
+
+/// L6-37：036_string_basic — STL 容器（string）
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_string_basic() {
+    gen_verify_example("examples/036_string_basic", "string_basic", "string_basic");
+}
+
+/// L6-38：037_array_basic — STL 容器（array）
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_array_basic() {
+    gen_verify_example("examples/037_array_basic", "array_basic", "array_basic");
+}
+
+/// L6-39：038_tuple_basic — STL 容器（tuple）
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_tuple_basic() {
+    gen_verify_example("examples/038_tuple_basic", "tuple_basic", "tuple_basic");
+}
+
+/// L6-40：039_lambda_basic — Lambda 表达式
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_lambda_basic() {
+    gen_verify_example("examples/039_lambda_basic", "lambda_basic", "lambda_basic");
+}
+
+/// L6-41：040_std_function — std::function
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_std_function() {
+    gen_verify_example("examples/040_std_function", "std_function", "std_function");
+}
+
+/// L6-42：041_functional_bind — std::bind
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_functional_bind() {
+    gen_verify_example(
+        "examples/041_functional_bind",
+        "functional_bind",
+        "functional_bind",
+    );
+}
+
+/// L6-43：043_namespace_nested — 嵌套命名空间
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_namespace_nested() {
+    gen_verify_example(
+        "examples/043_namespace_nested",
+        "namespace_nested",
+        "namespace_nested",
+    );
+}
+
+/// L6-44：044_enum_class — 枚举类
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_enum_class() {
+    gen_verify_example("examples/044_enum_class", "enum_class", "enum_class");
+}
+
+/// L6-45：045_union_basic — 联合体
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_union_basic() {
+    gen_verify_example("examples/045_union_basic", "union_basic", "union_basic");
+}
+
+/// L6-46：046_constexpr_basic — constexpr
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_constexpr_basic() {
+    gen_verify_example(
+        "examples/046_constexpr_basic",
+        "constexpr_basic",
+        "constexpr_basic",
+    );
+}
+
+/// L6-47：047_noexcept_basic — noexcept
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_noexcept_basic() {
+    gen_verify_example("examples/047_noexcept_basic", "noexcept_basic", "noexcept_basic");
+}
+
+/// L6-48：048_summary — 综合示例
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
+fn gen_verify_summary() {
+    gen_verify_example("examples/048_summary", "summary", "summary");
+}
+
 // ─────────────────────────────────────────────────────────────────
 //  核心验证逻辑
 // ─────────────────────────────────────────────────────────────────
+
+/// 去除 Windows 上 canonicalize() 返回的 `\\?\` UNC 前缀。
+/// MSVC cl.exe 无法处理此前缀，会导致编译失败。
+fn strip_windows_unc_prefix(path: PathBuf) -> PathBuf {
+    match path.to_str() {
+        Some(s) if s.starts_with("\\\\?\\") => PathBuf::from(&s[4..]),
+        _ => path,
+    }
+}
 
 /// 对指定示例运行完整的生成 → 编译验证流程：
 ///
@@ -165,6 +587,9 @@ cc = "1.0"
     let example_abs = PathBuf::from(example_dir)
         .canonicalize()
         .unwrap_or_else(|_| PathBuf::from(example_dir));
+    // Windows 上 canonicalize() 返回 \\?\ 前缀路径（UNC 扩展路径），
+    // MSVC cl.exe 无法处理该前缀，需去除。
+    let example_abs = strip_windows_unc_prefix(example_abs);
     let cpp_dir = example_abs.join("cpp");
 
     // 收集所有 .cpp 文件
@@ -183,7 +608,10 @@ cc = "1.0"
     // rerun-if-changed 行
     let rerun_lines: String = cpp_files
         .iter()
-        .map(|f| format!("    println!(\"cargo::rerun-if-changed={}\");\n", f.display()))
+        .map(|f| {
+            let escaped = f.display().to_string().replace('\\', "\\\\");
+            format!("    println!(\"cargo::rerun-if-changed={}\");\n", escaped)
+        })
         .collect();
 
     let build_rs = format!(
