@@ -1523,12 +1523,9 @@ mod tests {
             .collect();
         assert_ne!(names[0], names[1], "重载函数的 rust_name 应不同");
         // 后缀形如 get_value_1
+        assert!(names.contains(&"get_value"), "应有 get_value（第一个）");
         assert!(
-            names.iter().any(|&n| n == "get_value"),
-            "应有 get_value（第一个）"
-        );
-        assert!(
-            names.iter().any(|&n| n == "get_value_1"),
+            names.contains(&"get_value_1"),
             "应有 get_value_1（第二个重载）"
         );
     }
@@ -1699,7 +1696,7 @@ mod tests {
 
         // 通过 dedup_functions 直接检验 eligible_functions 逻辑：
         // 模拟 extract() 中的过滤器
-        let all_fns = vec![third_party_fn.clone(), current_fn.clone()];
+        let all_fns = [third_party_fn.clone(), current_fn.clone()];
         let eligible: Vec<&FunctionInfo> = all_fns
             .iter()
             .filter(|f| {
