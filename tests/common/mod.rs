@@ -205,26 +205,6 @@ fn collapse_spaces(s: &str) -> String {
     result
 }
 
-/// Phase E 升级示例辅助：移除 hicc 块中的 `pub ` 可见性修饰符，
-/// 以便将使用 `pub unsafe fn` / `pub fn` 的 lib.rs 黄金内容与工具生成的
-/// 无 pub 修饰输出进行结构对比（工具生成器暂不输出 pub，由 lib.rs 手动补充）。
-pub fn strip_pub_visibility(src: &str) -> String {
-    src.lines()
-        .map(|line| {
-            let trimmed = line.trim_start();
-            // 仅处理缩进行中的 `pub unsafe fn` / `pub fn` 声明
-            if trimmed.starts_with("pub unsafe fn ") {
-                line.replacen("pub unsafe fn ", "unsafe fn ", 1)
-            } else if trimmed.starts_with("pub fn ") {
-                line.replacen("pub fn ", "fn ", 1)
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// Read the golden file content from an example's rust_hicc/src/main.rs
 pub fn read_golden(example_dir: &str, relative: &str) -> String {
     let path = format!("{}/{}", example_dir, relative);
