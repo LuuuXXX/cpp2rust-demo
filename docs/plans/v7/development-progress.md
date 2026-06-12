@@ -31,9 +31,9 @@
 | Phase 2 | 移除 `CPP2RUST_GEN_DYNAMIC_CAST`；`@dynamic_cast` 默认输出 | ✅ 已完成 | 活动绑定；无示例触发，默认产物不变 |
 | Phase 3 | 移除 `CPP2RUST_GEN_PROXY`；`@make_proxy` 默认输出 | ✅ 已完成 | 活动绑定；无示例触发，默认产物不变 |
 | Phase 4 | 移除 `CPP2RUST_GEN_TEMPLATES`；模板骨架/别名/工厂默认输出 + 重做黄金 | ✅ 已完成 | 模板骨架改**注释形式**（保证可编译，过 L6 gen-verify）；024 黄金 `lib_scaffold.rs` 更新 |
-| Phase 5 | 冒烟全特性覆盖：48/48 示例具备行为级 `tests/smoke.rs` | ⬜ 待开始 | 大工作量，拆分为后续独立 PR |
+| Phase 5 | 冒烟全特性覆盖：48/48 示例具备行为级 `tests/smoke.rs` | ✅ 已完成 | 34 个示例迁移为 lib.rs+main.rs+smoke.rs 结构；详见 `development-progress-phase-5.md` |
 | Phase 6 | 代码去冗余：删除 `env_switch_enabled` 等遗留、emit_* 去 `enabled` 形参、清理注释 | ✅ 已完成 | 生成路径收敛为「IR 非空即输出」单路径 |
-| Phase 7 | CI：l-smoke 扩全量、gen-verify 覆盖三类高级能力、门禁校验无 `CPP2RUST_GEN_*` | ⬜ 待开始 | 后续独立 PR；gen-verify 已覆盖 024/025/015 |
+| Phase 7 | CI：l-smoke 扩全量、gen-verify 覆盖三类高级能力、门禁校验无 `CPP2RUST_GEN_*` | ✅ 已完成 | l-smoke 自动发现全部 smoke.rs；添加 CPP2RUST_GEN_* 门禁 |
 | Phase 8 | 文档：INTRODUCTION / hicc.md / README / CHANGELOG / DEVELOPMENT 对齐 v7 | ✅ 已完成 | 全部移除开关表述，改「默认生成」 |
 
 状态图例：⬜ 待开始　🚧 进行中　✅ 已完成
@@ -60,6 +60,19 @@
 
 ## 5. 后续计划
 
-- 按 §3 阶段顺序推进，优先完成风险最低、可独立验证的 Phase 1。
-- 移除开关的 Phase 2/3/4 各自为「删开关 → 默认输出 → 重做该特性黄金 → 更新 gen 测试」垂直切片，独立 PR。
-- 每完成一个阶段，更新本表状态并追加对应 `development-progress-phase-*.md`。
+v7 全部 8 个阶段已完成。
+
+### 完成总结
+
+| 阶段 | 内容 | 状态 | 完成日期 |
+|------|------|------|---------|
+| Phase 1 | 移除 `CPP2RUST_GEN_SMOKE`；冒烟默认幂等生成 | ✅ | PR #152 前 |
+| Phase 2 | 移除 `CPP2RUST_GEN_DYNAMIC_CAST`；`@dynamic_cast` 默认输出 | ✅ | PR #152 前 |
+| Phase 3 | 移除 `CPP2RUST_GEN_PROXY`；`@make_proxy` 默认输出 | ✅ | PR #152 前 |
+| Phase 4 | 移除 `CPP2RUST_GEN_TEMPLATES`；模板骨架默认输出 | ✅ | PR #152 前 |
+| Phase 5 | 冒烟全特性覆盖：48/48 示例具备行为级 `tests/smoke.rs` | ✅ | 2026-06-12 |
+| Phase 6 | 代码去冗余：删除 `env_switch_enabled` 等遗留 | ✅ | PR #152 前 |
+| Phase 7 | CI：l-smoke 扩全量、gen-verify、门禁校验 | ✅ | 2026-06-12 |
+| Phase 8 | 文档：INTRODUCTION / hicc.md / README / CHANGELOG / DEVELOPMENT 对齐 v7 | ✅ | PR #152 前 |
+
+详细进展见 `development-progress-phase-5.md`。

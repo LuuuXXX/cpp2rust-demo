@@ -3,6 +3,14 @@ name = "inline_functions"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "inline_functions"
+path = "src/lib.rs"
+
+[[bin]]
+name = "inline_functions"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

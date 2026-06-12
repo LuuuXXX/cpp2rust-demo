@@ -1,31 +1,4 @@
-hicc::cpp! {
-    #include <iostream>
-
-    #include "class_basic.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Counter", destroy = "counter_delete")]
-    pub class Counter {
-        #[cpp(method = "int get() const")]
-        fn get(&self) -> i32;
-
-        #[cpp(method = "void increment()")]
-        fn increment(&mut self);
-
-        #[cpp(method = "void decrement()")]
-        fn decrement(&mut self);
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "class_basic"]
-
-    class Counter;
-
-    #[cpp(func = "Counter* counter_new()")]
-    fn counter_new() -> Counter;
-}
+use class_basic::*;
 
 fn main() {
     let mut counter = counter_new();
@@ -41,4 +14,3 @@ fn main() {
 
     println!("\nRust FFI: Basic class operations completed!");
 }
-

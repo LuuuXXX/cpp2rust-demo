@@ -3,6 +3,14 @@ name = "class_constructor"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "class_constructor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "class_constructor"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

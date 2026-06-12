@@ -3,6 +3,14 @@ name = "variadic_template"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "variadic_template"
+path = "src/lib.rs"
+
+[[bin]]
+name = "variadic_template"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

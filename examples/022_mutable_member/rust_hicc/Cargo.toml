@@ -3,6 +3,14 @@ name = "mutable_member"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "mutable_member"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mutable_member"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

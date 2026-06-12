@@ -3,6 +3,14 @@ name = "raii_pattern"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "raii_pattern"
+path = "src/lib.rs"
+
+[[bin]]
+name = "raii_pattern"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

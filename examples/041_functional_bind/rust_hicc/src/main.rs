@@ -1,71 +1,7 @@
-hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <functional>
-    #include <string>
-
-    #include "functional_bind.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Adder", destroy = "adder_delete")]
-    pub class Adder {
-        #[cpp(method = "int add(int value)")]
-        fn add(&mut self, value: i32) -> i32;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "Multiplier", destroy = "multiplier_delete")]
-    pub class Multiplier {
-        #[cpp(method = "int multiply(int value)")]
-        fn multiply(&mut self, value: i32) -> i32;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "StringProcessor", destroy = "string_processor_delete")]
-    pub class StringProcessor {
-        #[cpp(method = "void set_target(const char* t)")]
-        fn set_target(&mut self, t: *const i8);
-
-        #[cpp(method = "int count_char(char ch)")]
-        fn count_char(&mut self, ch: i8) -> i32;
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "functional_bind"]
-
-    class Adder;
-    class Multiplier;
-    class StringProcessor;
-
-    #[cpp(func = "Adder* adder_new(int)")]
-    fn adder_new(base_value: i32) -> Adder;
-
-    #[cpp(func = "Multiplier* multiplier_new(int)")]
-    fn multiplier_new(factor: i32) -> Multiplier;
-
-    #[cpp(func = "StringProcessor* string_processor_new()")]
-    fn string_processor_new() -> StringProcessor;
-
-    #[cpp(func = "int add_five_impl(int, int)")]
-    fn add_five_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int add_ten_impl(int, int)")]
-    fn add_ten_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int add_five(int)")]
-    fn add_five(a: i32) -> i32;
-
-    #[cpp(func = "int add_ten(int)")]
-    fn add_ten(a: i32) -> i32;
-}
+use functional_bind::*;
+use std::ffi::CString;
 
 fn main() {
-    use std::ffi::CString;
-
     println!("=== 041_functional_bind - std::bind 绑定 ===\n");
 
     // Adder example - bound base value
@@ -95,4 +31,3 @@ fn main() {
     println!("3. 通过 opaque pointer 在 FFI 间传递绑定后的函数");
     println!("4. _1, _2 等占位符表示未绑定的参数位置");
 }
-

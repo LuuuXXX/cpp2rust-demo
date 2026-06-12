@@ -12,11 +12,9 @@ use crate::ffi_model::{
     TemplateFactorySpec, TemplateFnSpec, TemplateInstanceSpec,
 };
 
-// v7：模板类 / 模板函数 / `@make_proxy` / `@dynamic_cast` 骨架由 v6 的环境变量开关
-// （`CPP2RUST_GEN_TEMPLATES` / `CPP2RUST_GEN_PROXY` / `CPP2RUST_GEN_DYNAMIC_CAST`）
-// 控制、默认关闭，现已全部**默认生成**：只要对应 IR（`template_classes` /
-// `template_functions` / `proxy_factories` / `dynamic_casts` 等）非空即输出，不再依赖
-// 任何环境变量开关。生成路径由「开/关双路径」收敛为单路径。
+// v7：模板类 / 模板函数 / `@make_proxy` / `@dynamic_cast` 骨架全部**默认生成**：
+// 只要对应 IR（`template_classes` / `template_functions` / `proxy_factories` /
+// `dynamic_casts` 等）非空即输出。生成路径为单路径。
 //
 // 其中：`@make_proxy` / `@dynamic_cast` 使用 hicc 内建指令、对接具体类型，默认输出为
 // **可编译的活动绑定**；而模板类/模板函数/实例化别名因「未实例化的模板无可链接符号、

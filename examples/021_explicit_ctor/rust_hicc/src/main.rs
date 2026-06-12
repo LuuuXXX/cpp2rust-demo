@@ -1,31 +1,4 @@
-hicc::cpp! {
-    #include <iostream>
-
-    #include "explicit_ctor.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Widget", destroy = "widget_delete")]
-    pub class Widget {
-        #[cpp(method = "int getValue() const")]
-        fn get_value(&self) -> i32;
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "explicit_ctor"]
-
-    class Widget;
-
-    #[cpp(func = "Widget* widget_new(int)")]
-    fn widget_new(value: i32) -> Widget;
-
-    #[cpp(func = "Widget* widget_fromInt(int)")]
-    fn widget_from_int(value: i32) -> Widget;
-
-    #[cpp(func = "Widget* widget_fromDouble(double)")]
-    fn widget_from_double(value: f64) -> Widget;
-}
+use explicit_ctor::*;
 
 fn main() {
     println!("=== 021_explicit_ctor - explicit 构造函数 ===\n");
@@ -47,4 +20,3 @@ fn main() {
     println!("\nRust FFI: explicit 不影响 FFI - 只是禁止隐式转换");
     println!("在 FFI 中，所有构造函数都是显式调用的");
 }
-
