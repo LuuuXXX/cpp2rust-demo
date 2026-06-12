@@ -596,7 +596,10 @@ cc = "1.0"
     // rerun-if-changed 行
     let rerun_lines: String = cpp_files
         .iter()
-        .map(|f| format!("    println!(\"cargo::rerun-if-changed={}\");\n", f.display()))
+        .map(|f| {
+            let escaped = f.display().to_string().replace('\\', "\\\\");
+            format!("    println!(\"cargo::rerun-if-changed={}\");\n", escaped)
+        })
         .collect();
 
     let build_rs = format!(
