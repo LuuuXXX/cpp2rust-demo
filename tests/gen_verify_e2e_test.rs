@@ -477,6 +477,15 @@ fn gen_verify_summary() {
 //  核心验证逻辑
 // ─────────────────────────────────────────────────────────────────
 
+/// 去除 Windows 上 canonicalize() 返回的 `\\?\` UNC 前缀。
+/// MSVC cl.exe 无法处理此前缀，会导致编译失败。
+fn strip_windows_unc_prefix(path: PathBuf) -> PathBuf {
+    match path.to_str() {
+        Some(s) if s.starts_with("\\\\?\\") => PathBuf::from(&s[4..]),
+        _ => path,
+    }
+}
+
 /// 对指定示例运行完整的生成 → 编译验证流程：
 ///
 /// 1. 调用 `common::run_tool_on` 生成 FFI 代码（hicc 三段式 Rust 块）
@@ -578,6 +587,9 @@ cc = "1.0"
     let example_abs = PathBuf::from(example_dir)
         .canonicalize()
         .unwrap_or_else(|_| PathBuf::from(example_dir));
+    // Windows 上 canonicalize() 返回 \\?\ 前缀路径（UNC 扩展路径），
+    // MSVC cl.exe 无法处理该前缀，需去除。
+    let example_abs = strip_windows_unc_prefix(example_abs);
     let cpp_dir = example_abs.join("cpp");
 
     // 收集所有 .cpp 文件
