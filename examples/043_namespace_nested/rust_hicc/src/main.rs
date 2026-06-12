@@ -1,40 +1,4 @@
-hicc::cpp! {
-    #include "namespace_nested.h"
-}
-
-hicc::import_lib! {
-    #![link_name = "namespace_nested"]
-
-    #[cpp(func = "void* config_manager_new()")]
-    fn config_manager_new() -> *mut u8;
-
-    #[cpp(func = "void config_manager_delete(void*)")]
-    unsafe fn config_manager_delete(self_: *mut u8);
-
-    #[cpp(func = "void config_manager_set_value(void*, const char*, int)")]
-    unsafe fn config_manager_set_value(self_: *mut u8, key: *const i8, value: i32);
-
-    #[cpp(func = "int config_manager_get_value(void*, const char*)")]
-    unsafe fn config_manager_get_value(self_: *mut u8, key: *const i8) -> i32;
-
-    #[cpp(func = "int string_length(const char*)")]
-    unsafe fn string_length(str: *const i8) -> i32;
-
-    #[cpp(func = "void* data_processor_new()")]
-    fn data_processor_new() -> *mut u8;
-
-    #[cpp(func = "void data_processor_delete(void*)")]
-    unsafe fn data_processor_delete(self_: *mut u8);
-
-    #[cpp(func = "int data_processor_process(void*, int)")]
-    unsafe fn data_processor_process(self_: *mut u8, input: i32) -> i32;
-
-    #[cpp(func = "const char* get_version()")]
-    unsafe fn get_version() -> *const i8;
-
-    #[cpp(func = "int get_build_number()")]
-    fn get_build_number() -> i32;
-}
+use namespace_nested::*;
 
 fn main() {
     println!("=== 043_namespace_nested - 嵌套命名空间 ===\n");
@@ -72,4 +36,3 @@ fn main() {
     println!("4. Rust 端使用 opaque pointer 模式");
     println!("5. hicc import_class! 不支持嵌套命名空间，使用 raw extern \"C\"");
 }
-

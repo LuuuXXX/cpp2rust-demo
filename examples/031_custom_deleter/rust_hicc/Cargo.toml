@@ -3,6 +3,14 @@ name = "custom_deleter"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "custom_deleter"
+path = "src/lib.rs"
+
+[[bin]]
+name = "custom_deleter"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

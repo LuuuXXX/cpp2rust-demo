@@ -1,22 +1,4 @@
-hicc::cpp! {
-    #include "function_overload.h"
-}
-
-hicc::import_lib! {
-    #![link_name = "function_overload"]
-
-    #[cpp(func = "int add_int(int, int)")]
-    fn add_int(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "double add_double(double, double)")]
-    fn add_double(a: f64, b: f64) -> f64;
-
-    #[cpp(func = "const char* add_strings(const char*, const char*)")]
-    unsafe fn add_strings(a: *const i8, b: *const i8) -> *const i8;
-
-    #[cpp(func = "int sum3(int, int, int)")]
-    fn sum3(a: i32, b: i32, c: i32) -> i32;
-}
+use function_overload::*;
 
 fn main() {
     use std::ffi::CStr;
@@ -39,6 +21,3 @@ fn main() {
 
     println!("\nRust FFI: All overloads called successfully!");
 }
-
-
-

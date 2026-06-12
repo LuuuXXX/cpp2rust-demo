@@ -9,14 +9,14 @@ fn main() {
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("explicit_ctor.cpp"));
 
-    build.rust_file("src/main.rs").compile("explicit_ctor");
+    build.rust_file("src/lib.rs").compile("explicit_ctor");
 
     println!("cargo::rustc-link-lib=explicit_ctor");
     #[cfg(target_os = "macos")]
     println!("cargo::rustc-link-lib=c++");
     #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
-    println!("cargo::rerun-if-changed=src/main.rs");
+    println!("cargo::rerun-if-changed=src/lib.rs");
     println!("cargo::rerun-if-changed=../cpp/explicit_ctor.cpp");
     println!("cargo::rerun-if-changed=../cpp/explicit_ctor.h");
 }

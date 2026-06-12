@@ -3,6 +3,14 @@ name = "friend_function"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "friend_function"
+path = "src/lib.rs"
+
+[[bin]]
+name = "friend_function"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

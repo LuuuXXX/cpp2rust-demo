@@ -1,36 +1,5 @@
+use class_static::*;
 use hicc::AbiClass;
-
-hicc::cpp! {
-    #include <iostream>
-
-    #include "class_static.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Counter", destroy = "counter_delete")]
-    pub class Counter {
-        #[cpp(method = "int getValue() const")]
-        fn get_value(&self) -> i32;
-
-        #[cpp(method = "void increment()")]
-        fn increment(&mut self);
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "class_static"]
-
-    class Counter;
-
-    #[cpp(func = "Counter* counter_new()")]
-    fn counter_new() -> Counter;
-
-    #[cpp(func = "int counter_getInstanceCount()")]
-    fn counter_get_instance_count() -> i32;
-
-    #[cpp(func = "void counter_resetInstanceCount()")]
-    fn counter_reset_instance_count();
-}
 
 fn main() {
     println!("Initial instance count: {}", counter_get_instance_count());
@@ -61,4 +30,3 @@ fn main() {
 
     println!("\nRust FFI: Static members work!");
 }
-

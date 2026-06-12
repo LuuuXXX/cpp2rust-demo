@@ -1,42 +1,7 @@
-hicc::cpp! {
-    #include <iostream>
-    #include <cstring>
-
-    #include "class_copy.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Buffer", destroy = "buffer_delete")]
-    pub class Buffer {
-        #[cpp(method = "void set(int index, int value)")]
-        fn set(&mut self, index: i32, value: i32);
-
-        #[cpp(method = "int get(int index) const")]
-        fn get(&self, index: i32) -> i32;
-
-        #[cpp(method = "int getSize() const")]
-        fn get_size(&self) -> i32;
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "class_copy"]
-
-    class Buffer;
-
-    #[cpp(func = "Buffer* buffer_new()")]
-    fn buffer_new() -> Buffer;
-
-    #[cpp(func = "Buffer* buffer_newWithSize(int)")]
-    fn buffer_new_with_size(size: i32) -> Buffer;
-
-    #[cpp(func = "Buffer* buffer_newCopy(const Buffer* other)")]
-    fn buffer_new_copy(other: *const Buffer) -> Buffer;
-}
+use class_copy::*;
+use hicc::AbiClass;
 
 fn main() {
-    use hicc::AbiClass;
-
     // Create buffer
     let mut buf1 = buffer_new_with_size(5);
     println!("buf1 size: {}", buf1.get_size());
@@ -72,4 +37,3 @@ fn main() {
 
     println!("\nRust FFI: Copy constructor pattern works!");
 }
-

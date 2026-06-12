@@ -9,14 +9,14 @@ fn main() {
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("namespace_nested.cpp"));
 
-    build.rust_file("src/main.rs").compile("namespace_nested");
+    build.rust_file("src/lib.rs").compile("namespace_nested");
 
     println!("cargo::rustc-link-lib=namespace_nested");
     #[cfg(target_os = "macos")]
     println!("cargo::rustc-link-lib=c++");
     #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
-    println!("cargo::rerun-if-changed=src/main.rs");
+    println!("cargo::rerun-if-changed=src/lib.rs");
     println!("cargo::rerun-if-changed=../cpp/namespace_nested.cpp");
     println!("cargo::rerun-if-changed=../cpp/namespace_nested.h");
 }

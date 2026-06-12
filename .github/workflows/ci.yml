@@ -499,43 +499,44 @@ jobs:
             ${{ runner.os }}-cargo-smoke-
             ${{ runner.os }}-cargo-
 
-      # 对包含 tests/smoke.rs 的示例运行 cargo test（编译 C++ 在 build.rs 中处理）
-      - name: Run smoke tests for migrated examples
+      # v7: 自动发现所有含 tests/smoke.rs 的示例，运行 cargo test --test smoke
+      - name: Run smoke tests for all examples (48/48 coverage)
         run: |
-          SMOKE_EXAMPLES=(
-            015_virtual_basic
-            016_virtual_pure
-            017_virtual_override
-            018_virtual_diamond
-            023_typeid_rtti
-            024_template_function
-            025_template_class
-            026_template_specialization
-            027_template_instantiation
-            034_vector_basic
-            035_map_basic
-            036_string_basic
-            037_array_basic
-            038_tuple_basic
-          )
           FAILED=()
-          for example in "${SMOKE_EXAMPLES[@]}"; do
+          passed=0
+          total=0
+          for smoke_file in examples/*/rust_hicc/tests/smoke.rs; do
+            example=$(basename $(dirname $(dirname "$smoke_file")))
             dir="examples/${example}/rust_hicc"
+            total=$((total + 1))
             echo "=== Running smoke tests for ${example} ==="
             if cargo test --manifest-path "${dir}/Cargo.toml" \
                 --target-dir "${{ github.workspace }}/examples-target" \
                 --test smoke 2>&1; then
               echo "✅ ${example}: smoke tests passed"
+              passed=$((passed + 1))
             else
               echo "❌ ${example}: smoke tests FAILED"
               FAILED+=("${example}")
             fi
           done
+          echo ""
+          echo "Smoke test summary: ${passed}/${total} passed"
           if [ ${#FAILED[@]} -ne 0 ]; then
-            echo ""
             echo "Failed smoke tests: ${FAILED[*]}"
             exit 1
           fi
+
+      # v7 门禁：确保代码库中不存在 CPP2RUST_GEN_* 环境变量引用
+      - name: Gate check - no CPP2RUST_GEN_* references
+        run: |
+          matches=$(grep -r "CPP2RUST_GEN_" --include="*.rs" --include="*.toml" --include="*.yml" --include="*.md" src/ tests/ examples/ || true)
+          if [ -n "$matches" ]; then
+            echo "❌ Found CPP2RUST_GEN_* references (should be removed in v7):"
+            echo "$matches"
+            exit 1
+          fi
+          echo "✅ No CPP2RUST_GEN_* references found"
 
   # ── L6: gen-verify 端到端生成验证 ────────────────────────────────
   gen-verify:

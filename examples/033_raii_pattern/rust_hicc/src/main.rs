@@ -1,72 +1,5 @@
-hicc::cpp! {
-    #include <stddef.h>
-    #include <string>
-    #include <iostream>
-    #include <thread>
-    #include <mutex>
-    #include <fstream>
-    #include <cstring>
-
-    #include "raii_pattern.h"
-}
-
+use raii_pattern::*;
 use hicc::AbiClass;
-
-hicc::import_class! {
-    #[cpp(class = "Mutex", destroy = "mutex_delete")]
-    pub class Mutex {
-        #[cpp(method = "void lock()")]
-        fn lock(&mut self);
-
-        #[cpp(method = "void unlock()")]
-        fn unlock(&mut self);
-
-        #[cpp(method = "bool try_lock()")]
-        fn try_lock(&mut self) -> bool;
-
-        #[cpp(method = "const char* name() const")]
-        fn name(&self) -> *const i8;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "ScopedLock", destroy = "scoped_lock_delete")]
-    pub class ScopedLock {
-        #[cpp(method = "bool owns_lock() const")]
-        fn owns_lock(&self) -> bool;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "FileLock", destroy = "file_lock_delete")]
-    pub class FileLock {
-        #[cpp(method = "void lock()")]
-        fn lock(&mut self);
-
-        #[cpp(method = "void unlock()")]
-        fn unlock(&mut self);
-
-        #[cpp(method = "const char* filename() const")]
-        fn filename(&self) -> *const i8;
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "raii_pattern"]
-
-    class Mutex;
-    class ScopedLock;
-    class FileLock;
-
-    #[cpp(func = "Mutex* mutex_new()")]
-    fn mutex_new() -> Mutex;
-
-    #[cpp(func = "ScopedLock* scoped_lock_new(Mutex* mutex)")]
-    unsafe fn scoped_lock_new(mutex: *mut Mutex) -> ScopedLock;
-
-    #[cpp(func = "FileLock* file_lock_new(const char*)")]
-    unsafe fn file_lock_new(filename: *const i8) -> FileLock;
-}
 
 fn main() {
     println!("=== 033_raii_pattern - RAII 模式 ===\n");
@@ -107,4 +40,3 @@ fn main() {
     println!("3. FFI 边界: ScopedLock 对象在 Rust 析构时自动释放");
     println!("4. 推荐模式: Rust 封装 RAII guard 类型");
 }
-

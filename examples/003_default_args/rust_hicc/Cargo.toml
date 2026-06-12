@@ -3,6 +3,14 @@ name = "default_args"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "default_args"
+path = "src/lib.rs"
+
+[[bin]]
+name = "default_args"
+path = "src/main.rs"
+
 [dependencies]
 hicc = { version = "0.2" }
 

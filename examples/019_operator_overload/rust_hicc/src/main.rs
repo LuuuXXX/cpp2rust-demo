@@ -1,108 +1,38 @@
-hicc::cpp! {
-    #include <iostream>
-
-    #include "operator_overload.h"
-
-    int number_get_value(const Number* self) {
-        return self->getValue();
-    }
-
-    Number* number_add(const Number* a, const Number* b) {
-        return new Number(*a + *b);
-    }
-
-    Number* number_sub(const Number* a, const Number* b) {
-        return new Number(*a - *b);
-    }
-
-    Number* number_mul(const Number* a, const Number* b) {
-        return new Number(*a * *b);
-    }
-
-    Number* number_div(const Number* a, const Number* b) {
-        return new Number(*a / *b);
-    }
-
-    Number* number_negate(const Number* a) {
-        return new Number(-*a);
-    }
-
-    int number_compare(const Number* a, const Number* b) {
-        return a->compare(*b);
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "Number", destroy = "number_delete")]
-    pub class Number {
-        #[cpp(method = "int getValue() const")]
-        fn get_value(&self) -> i32;
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "operator_overload"]
-
-    class Number;
-
-    #[cpp(func = "Number* number_new(int)")]
-    fn number_new(value: i32) -> Number;
-
-    #[cpp(func = "int number_get_value(const Number*)")]
-    fn number_getValue(self_: *const Number) -> i32;
-
-    #[cpp(func = "Number* number_add(const Number*, const Number*)")]
-    fn number_add(a: *const Number, b: *const Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_sub(const Number*, const Number*)")]
-    fn number_sub(a: *const Number, b: *const Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_mul(const Number*, const Number*)")]
-    fn number_mul(a: *const Number, b: *const Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_div(const Number*, const Number*)")]
-    fn number_div(a: *const Number, b: *const Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_negate(const Number*)")]
-    fn number_negate(a: *const Number) -> *mut Number;
-
-    #[cpp(func = "int number_compare(const Number*, const Number*)")]
-    fn number_compare(a: *const Number, b: *const Number) -> i32;
-}
+use operator_overload::*;
+use hicc::AbiClass;
 
 fn main() {
-    use hicc::AbiClass;
     println!("=== Operator Overload FFI ===\n");
     println!("C++ operator overloading becomes named method calls in FFI\n");
 
     let a = number_new(10);
     let b = number_new(3);
 
-    println!("Created numbers: a = {}, b = {}", number_getValue(&a.as_ptr()), number_getValue(&b.as_ptr()));
+    println!("Created numbers: a = {}, b = {}", number_get_value(&a.as_ptr()), number_get_value(&b.as_ptr()));
     println!();
 
     // Addition: a + b
     let sum = number_add(&a.as_ptr(), &b.as_ptr());
-    println!("Result of a + b = {}", number_getValue(&sum.as_ptr()));
+    println!("Result of a + b = {}", number_get_value(&sum.as_ptr()));
 
     // Subtraction: a - b
     let diff = number_sub(&a.as_ptr(), &b.as_ptr());
-    println!("Result of a - b = {}", number_getValue(&diff.as_ptr()));
+    println!("Result of a - b = {}", number_get_value(&diff.as_ptr()));
 
     // Multiplication: a * b
     let prod = number_mul(&a.as_ptr(), &b.as_ptr());
-    println!("Result of a * b = {}", number_getValue(&prod.as_ptr()));
+    println!("Result of a * b = {}", number_get_value(&prod.as_ptr()));
 
     // Division: a / b
     let quot = number_div(&a.as_ptr(), &b.as_ptr());
-    println!("Result of a / b = {}", number_getValue(&quot.as_ptr()));
+    println!("Result of a / b = {}", number_get_value(&quot.as_ptr()));
 
     println!();
 
     // Unary operators
     println!("Unary operators:");
     let neg = number_negate(&a.as_ptr());
-    println!("Negation of a = {}", number_getValue(&neg.as_ptr()));
+    println!("Negation of a = {}", number_get_value(&neg.as_ptr()));
 
     // Comparison
     let cmp = number_compare(&a.as_ptr(), &b.as_ptr());
@@ -115,4 +45,3 @@ fn main() {
     println!("a * b -> number_mul(a, b)");
 
 }
-
