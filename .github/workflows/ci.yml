@@ -702,6 +702,15 @@ jobs:
           cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
           cargo check --quiet
 
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            cargo test --quiet
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+
   usage-verify-rapidjson-ffi-windows:
     name: Usage verify-rapidjson-ffi (Windows MinGW)
     runs-on: windows-latest
@@ -757,6 +766,18 @@ jobs:
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
+      - name: Verify generated project passes cargo test (smoke tests)
+        shell: msys2 {0}
+        run: |
+          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/rapidjson_shim/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            cargo test --quiet
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
   usage-verify-rapidjson-ffi-msvc:
     name: Usage verify-rapidjson-ffi (Windows MSVC)
     runs-on: windows-latest
@@ -806,6 +827,18 @@ jobs:
         run: |
           export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
           SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        shell: msys2 {0}
+        run: |
+          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/rapidjson_shim/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            cargo test --quiet
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
@@ -1513,6 +1546,15 @@ jobs:
         run: |
           export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
           SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            cargo test --quiet
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
 
   # ── L5 nm symbol validation (macOS) ──────────────────────────────
   l5-nm-symbols-macos:

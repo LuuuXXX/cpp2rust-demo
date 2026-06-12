@@ -317,6 +317,33 @@ fn rapidjson_merge_phase() {
             println!("cargo check 跳过（cargo 不可用: {}）", e);
         }
     }
+
+    // ── cargo test：验证生成的冒烟测试可通过 ───────────────────────
+    let smoke_test_path = rust_dir.join("tests/smoke.rs");
+    if smoke_test_path.exists() {
+        let cargo_test_output = std::process::Command::new("cargo")
+            .args(["test", "--quiet"])
+            .current_dir(&rust_dir)
+            .output();
+        match cargo_test_output {
+            Ok(output) => {
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    panic!(
+                        "cargo test 失败（init 生成的冒烟测试未通过）:\n{}",
+                        stderr
+                    );
+                } else {
+                    println!("cargo test 通过（生成的冒烟测试全部通过）");
+                }
+            }
+            Err(e) => {
+                println!("cargo test 跳过（cargo 不可用: {}）", e);
+            }
+        }
+    } else {
+        println!("cargo test 跳过（未生成 tests/smoke.rs）");
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────
