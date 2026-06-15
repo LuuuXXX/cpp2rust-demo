@@ -123,12 +123,15 @@ pub fn extract(
     // 只为 extern-C 函数签名中明确引用的类生成 import_class!
     // 若 used_classes 为空（无类被引用），则不生成任何 import_class!
     //
+    // R5: enum_names 用于 is_mappable_rust_type 识别 C++ 枚举类型（如 Whitespace）
+    let enum_names: Vec<&str> = ast.enums.iter().map(|e| e.name.as_str()).collect();
+
     // **P1 Direct 模式**：跳过 used_classes 过滤，对所有可导出类构建方法绑定
     // （因为 direct 模式不依赖 extern-C shim 函数，每个 C++ 类都直接通过方法暴露）。
     // 命名空间类通过 `using` 别名映射为扁平名称。
     let (class_specs, using_aliases): (Vec<ClassSpec>, Vec<String>) =
         if binding_mode == crate::ffi_model::BindingMode::Direct {
-            direct_binding::build_direct_class_specs(&ast.classes)
+            direct_binding::build_direct_class_specs(&ast.classes, &enum_names)
         } else if namespace_class_mode || used_classes.is_empty() {
             (Vec::new(), Vec::new())
         } else {
@@ -174,12 +177,30 @@ pub fn extract(
     // （如 pugi_xml_node）。build_direct_lib_spec 需要同时使用两者：
     // - `class_specs[].name` = 扁平名称（用于 Rust 函数名和 #[cpp(func)] 中的别名引用）
     // - `ast.classes` 的 ClassInfo = 原始信息（用于构造函数参数和工厂生成）
-    let lib_spec = if binding_mode == crate::ffi_model::BindingMode::Direct {
-        direct_binding::build_direct_lib_spec(&class_specs, &ast.classes, &functions, unit_name)
+    // R5: enum_names 传入以便 is_mappable_rust_type 能识别 C++ 枚举类型（如 Whitespace）
+    let (lib_spec, factory_shim_lines) = if binding_mode == crate::ffi_model::BindingMode::Direct {
+        direct_binding::build_direct_lib_spec(
+            &class_specs,
+            &ast.classes,
+            &functions,
+            unit_name,
+            &enum_names,
+        )
     } else {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        lib_spec::build_lib_spec(&functions, unit_name, &class_names)
+        (
+            lib_spec::build_lib_spec(&functions, unit_name, &class_names),
+            Vec::new(),
+        )
     };
+
+    // R4: 将 parameterized constructor 的 C++ shim wrapper 行追加到 cpp! 块
+    if !factory_shim_lines.is_empty() {
+        cpp_block_lines.push(String::new());
+        for shim_line in &factory_shim_lines {
+            cpp_block_lines.push(shim_line.clone());
+        }
+    }
 
     let mut spec = FfiSpec {
         unit_name: unit_name.to_string(),

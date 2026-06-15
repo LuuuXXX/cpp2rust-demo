@@ -4,6 +4,9 @@ hicc::cpp! {
     #include <string>
 
     #include "inheritance_single.h"
+
+    std::unique_ptr<Animal> _cpp2rust_make_unique_animal_with_n(const char* n) { return std::make_unique<Animal>(n); }
+    std::unique_ptr<Dog> _cpp2rust_make_unique_dog_with_n(const char* n) { return std::make_unique<Dog>(n); }
 }
 
 hicc::import_class! {
@@ -37,9 +40,9 @@ hicc::import_lib! {
     class Animal;
     class Dog;
 
-    #[cpp(func = "std::unique_ptr<Animal> std::make_unique<Animal>(const char*)")]
+    #[cpp(func = "std::unique_ptr<Animal> _cpp2rust_make_unique_animal_with_n(const char*)")]
     pub unsafe fn animal_new_with_n(n: *const i8) -> Animal;
 
-    #[cpp(func = "std::unique_ptr<Dog> std::make_unique<Dog>(const char*)")]
+    #[cpp(func = "std::unique_ptr<Dog> _cpp2rust_make_unique_dog_with_n(const char*)")]
     pub unsafe fn dog_new_with_n(n: *const i8) -> Dog;
 }

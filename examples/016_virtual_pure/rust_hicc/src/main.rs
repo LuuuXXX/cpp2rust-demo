@@ -1,7 +1,6 @@
-use hicc::AbiClass;
 use virtual_pure::*;
 
-fn decode_cstr(ptr: *const i8) -> String {
+fn decode_cstr(ptr: *const i8) -> std::string::String {
     unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
@@ -28,11 +27,8 @@ fn main() {
     println!("Area: {:.4}", area);
 
     println!("\n--- Polymorphic behavior demonstrated ---");
-    // into_value() extracts the inner T (with no_destroy_methods), into_unique() switches
-    // to destroy_methods so the subsequent drop triggers abstract_shape_delete, which in
-    // turn calls delete and the C++ destructor — producing the two "Deleting X" lines each.
-    unsafe { circle.into_value().into_unique() };
-    unsafe { rectangle.into_value().into_unique() };
+    drop(circle);
+    drop(rectangle);
 
     println!("\nRust FFI: Pure virtual functions work through hicc!");
 }

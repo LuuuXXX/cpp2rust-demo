@@ -3,6 +3,8 @@ hicc::cpp! {
     #include <cmath>
 
     #include "class_constructor.h"
+
+    std::unique_ptr<Point> _cpp2rust_make_unique_point_2(int x, int y) { return std::make_unique<Point>(x, y); }
 }
 
 hicc::import_class! {
@@ -27,6 +29,6 @@ hicc::import_lib! {
 
     class Point;
 
-    #[cpp(func = "std::unique_ptr<Point> std::make_unique<Point>(int, int)")]
+    #[cpp(func = "std::unique_ptr<Point> _cpp2rust_make_unique_point_2(int, int)")]
     pub fn point_new_2(x: i32, y: i32) -> Point;
 }

@@ -7,11 +7,9 @@ hicc::cpp! {
 
     #include "string_basic.h"
 
-    extern "C" {
-        String* hicc_string_new() { return new String(); }
-        String* hicc_string_new_from(const char* str) { return new String(str); }
-        String* hicc_string_new_from_len(const char* str, size_t len) { return new String(str, len); }
-    }
+    std::unique_ptr<String> _cpp2rust_make_unique_string_0() { return std::make_unique<String>(); }
+    std::unique_ptr<String> _cpp2rust_make_unique_string_with_str(const char* str) { return std::make_unique<String>(str); }
+    std::unique_ptr<String> _cpp2rust_make_unique_string_2(const char* str, size_t len) { return std::make_unique<String>(str, len); }
 }
 
 hicc::import_class! {
@@ -51,12 +49,12 @@ hicc::import_lib! {
 
     class String;
 
-    #[cpp(func = "String* hicc_string_new()")]
+    #[cpp(func = "std::unique_ptr<String> _cpp2rust_make_unique_string_0()")]
     pub fn string_new() -> String;
 
-    #[cpp(func = "String* hicc_string_new_from(const char*)")]
+    #[cpp(func = "std::unique_ptr<String> _cpp2rust_make_unique_string_with_str(const char*)")]
     pub unsafe fn string_new_from(str: *const i8) -> String;
 
-    #[cpp(func = "String* hicc_string_new_from_len(const char*, size_t)")]
+    #[cpp(func = "std::unique_ptr<String> _cpp2rust_make_unique_string_2(const char*, size_t)")]
     pub unsafe fn string_new_from_len(str: *const i8, len: usize) -> String;
 }

@@ -183,7 +183,10 @@ fn build_using_alias(ci: &ClassInfo) -> (String, Option<String>) {
 /// - 过滤内部实现类（`detail_*`、`internal_*` 等）
 /// - 所有类的 `destroy_fn` 为 `None`（hicc `make_unique` 默认调用 `delete`）
 /// - 所有类的方法直接通过 `#[cpp(method = "...")]` 暴露
-pub(crate) fn build_direct_class_specs(classes: &[ClassInfo]) -> (Vec<ClassSpec>, Vec<String>) {
+pub(crate) fn build_direct_class_specs(
+    classes: &[ClassInfo],
+    enum_names: &[&str],
+) -> (Vec<ClassSpec>, Vec<String>) {
     let eligible_classes: Vec<&ClassInfo> = classes
         .iter()
         .filter(|c| !c.name.is_empty() && !c.is_abstract && !is_internal_class(&c.name))
@@ -195,8 +198,15 @@ pub(crate) fn build_direct_class_specs(classes: &[ClassInfo]) -> (Vec<ClassSpec>
         })
         .collect();
 
+    // R2+R5: mappable names = exported class names + enum names
+    // Only these types have Rust-side definitions (import_class! or enum mapping)
     let exported_class_names: Vec<&str> =
         eligible_classes.iter().map(|c| c.name.as_str()).collect();
+    let mappable_names: Vec<&str> = {
+        let mut names = exported_class_names.clone();
+        names.extend(enum_names);
+        names
+    };
 
     let using_aliases: Vec<String> = eligible_classes
         .iter()
@@ -207,7 +217,7 @@ pub(crate) fn build_direct_class_specs(classes: &[ClassInfo]) -> (Vec<ClassSpec>
         .iter()
         .map(|ci| {
             let (flat_name, _) = build_using_alias(ci);
-            let mut spec = class_spec::build_class_spec(ci, classes, &exported_class_names)
+            let mut spec = class_spec::build_class_spec(ci, classes, &mappable_names)
                 .unwrap_or_else(|| ClassSpec {
                     name: flat_name.clone(),
                     methods: Vec::new(),
@@ -244,15 +254,33 @@ pub(crate) fn build_direct_lib_spec(
     all_classes: &[ClassInfo],
     functions: &[&FunctionInfo],
     unit_name: &str,
-) -> LibSpec {
+    enum_names: &[&str],
+) -> (LibSpec, Vec<String>) {
     let link_name = std::path::Path::new(unit_name)
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(unit_name)
         .to_string();
 
-    // 类名用于 classify_fn 判定（识别哪些函数是某个类的 accessor/ctor/dtor）
+    // R2: exported_class_names — only classes that actually get import_class! blocks
+    // should be considered mappable. Abstract/internal classes have no Rust type definition.
+    let exported_class_names: Vec<&str> = class_specs
+        .iter()
+        .filter(|cs| !cs.is_empty())
+        .map(|cs| cs.name.as_str())
+        .collect();
+
+    // class_names 用于 classify_fn 判定（识别哪些函数是某个类的 accessor/ctor/dtor）
+    // 仍使用 all_classes，因为 classify_fn 需要知道所有类名以识别 shim 模式命名约定
     let class_names: Vec<&str> = all_classes.iter().map(|c| c.name.as_str()).collect();
+
+    // R5: mappable_names = exported classes + enum names + primitive types
+    // 用于 is_mappable_rust_type 过滤：只有这些类型在 Rust 侧有定义或可映射
+    let mappable_names: Vec<&str> = {
+        let mut names: Vec<&str> = exported_class_names.clone();
+        names.extend(enum_names);
+        names
+    };
 
     // 收集 standalone 自由函数（不属于任何类的 MethodAccessor / Dtor）。
     // Direct 模式下「Ctor」由 make_unique 工厂替代，「MethodAccessor」由 #[cpp(method)] 替代，
@@ -276,14 +304,14 @@ pub(crate) fn build_direct_lib_spec(
             fi.params.iter().all(|p| {
                 super::is_mappable_rust_type(
                     &super::type_mapper::cpp_to_rust(&p.type_name),
-                    &class_names,
+                    &mappable_names,
                 )
             }) && super::is_mappable_rust_type(
                 &super::type_mapper::cpp_to_rust(&fi.return_type),
-                &class_names,
+                &mappable_names,
             )
         })
-        .map(|(fi, _)| super::lib_spec::build_fn_binding(fi, &class_names))
+        .map(|(fi, _)| super::lib_spec::build_fn_binding(fi, &mappable_names))
         .collect();
 
     // make_unique 工厂：为每个有非静态方法的类生成。
@@ -351,12 +379,19 @@ pub(crate) fn build_direct_lib_spec(
     let is_deleted_ctor = |ctor: &MethodInfo| -> bool {
         ctor.is_copy_ctor && !ctor.is_default && ctor.body_offset.is_none()
     };
-    let mut factory_fns: Vec<FnBinding> = class_specs
+    let factory_results: Vec<(FnBinding, Option<String>)> = class_specs
         .iter()
+        .filter(|cs| !cs.is_empty())
         .flat_map(|cs| {
             let ci = match lookup_class_info(&cs.name) {
                 Some(ci) => ci,
-                None => return vec![build_make_unique_factory(&cs.name, &empty_ctor)],
+                None => {
+                    return vec![build_make_unique_factory(
+                        &cs.name,
+                        &empty_ctor,
+                        &mappable_names,
+                    )]
+                }
             };
             let has_only_static_methods = ci.methods.iter().all(|m| {
                 m.is_static || m.is_constructor || m.is_destructor || m.accessibility != "public"
@@ -373,16 +408,32 @@ pub(crate) fn build_direct_lib_spec(
                         && !is_move_ctor(m)
                         && !is_deleted_ctor(m)
                 })
+                .filter(|m| {
+                    m.params.iter().all(|p| {
+                        super::is_mappable_rust_type(&cpp_to_rust(&p.type_name), &mappable_names)
+                    })
+                })
                 .collect();
             if ctors.is_empty() {
-                vec![build_make_unique_factory(&cs.name, &empty_ctor)]
+                vec![build_make_unique_factory(
+                    &cs.name,
+                    &empty_ctor,
+                    &mappable_names,
+                )]
             } else {
                 ctors
                     .iter()
-                    .map(|ctor| build_make_unique_factory(&cs.name, ctor))
+                    .map(|ctor| build_make_unique_factory(&cs.name, ctor, &mappable_names))
                     .collect()
             }
         })
+        .collect();
+
+    let mut factory_fns: Vec<FnBinding> =
+        factory_results.iter().map(|(fb, _)| fb.clone()).collect();
+    let factory_shim_lines: Vec<String> = factory_results
+        .iter()
+        .filter_map(|(_, shim)| shim.clone())
         .collect();
 
     // 解析工厂函数命名冲突：当多个构造函数产生相同 Rust 名称时，
@@ -395,6 +446,7 @@ pub(crate) fn build_direct_lib_spec(
     //       pub fn class_name_method_name(params) -> RetType;
     let static_fns: Vec<FnBinding> = class_specs
         .iter()
+        .filter(|cs| !cs.is_empty())
         .flat_map(|cs| {
             let ci = match lookup_class_info(&cs.name) {
                 Some(ci) => ci,
@@ -410,12 +462,15 @@ pub(crate) fn build_direct_lib_spec(
                 })
                 .filter(|m| {
                     let rust_ret = cpp_to_rust(&m.return_type);
-                    super::is_mappable_rust_type(&rust_ret, &class_names)
+                    super::is_mappable_rust_type(&rust_ret, &mappable_names)
                         && m.params.iter().all(|p| {
-                            super::is_mappable_rust_type(&cpp_to_rust(&p.type_name), &class_names)
+                            super::is_mappable_rust_type(
+                                &cpp_to_rust(&p.type_name),
+                                &mappable_names,
+                            )
                         })
                 })
-                .map(|m| build_static_method_binding(&cs.name, m, &class_names))
+                .map(|m| build_static_method_binding(&cs.name, m, &mappable_names))
                 .collect()
         })
         .collect();
@@ -424,6 +479,33 @@ pub(crate) fn build_direct_lib_spec(
     let mut fn_bindings: Vec<FnBinding> = standalone_fns;
     fn_bindings.extend(static_fns);
     fn_bindings.extend(factory_fns);
+
+    // R1: 按 cpp_sig 去重（与 lib_spec.rs:44-47 一致）
+    // 同一 C++ 签名可能因重载或命名差异在多个分类中出现，保留首次版本
+    {
+        let mut seen_sigs: std::collections::HashSet<String> = std::collections::HashSet::new();
+        fn_bindings.retain(|fb| seen_sigs.insert(fb.cpp_sig.clone()));
+    }
+
+    // R1: 对 rust_name 相同的函数添加数字后缀 _1, _2, ...（与 lib_spec.rs:51-70 一致）
+    {
+        let mut name_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for fb in &fn_bindings {
+            *name_counts.entry(fb.rust_name.clone()).or_insert(0) += 1;
+        }
+        let mut seen_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for fb in &mut fn_bindings {
+            if name_counts.get(&fb.rust_name).copied().unwrap_or(0) > 1 {
+                let idx = seen_counts.entry(fb.rust_name.clone()).or_insert(0);
+                if *idx > 0 {
+                    fb.rust_name = format!("{}_{}", fb.rust_name, *idx);
+                }
+                *idx += 1;
+            }
+        }
+    }
 
     // 前向声明：保留 lib_spec 函数引用的类。
     // 使用扁平名称（如 ConfigManager）而非命名空间前缀名（如 config_ConfigManager），
@@ -450,11 +532,14 @@ pub(crate) fn build_direct_lib_spec(
         .map(|n| format!("class {};", n))
         .collect();
 
-    LibSpec {
-        link_name,
-        fwd_decls,
-        fn_bindings,
-    }
+    (
+        LibSpec {
+            link_name,
+            fwd_decls,
+            fn_bindings,
+        },
+        factory_shim_lines,
+    )
 }
 
 /// 检查构造函数参数类型是否为类名自身（裸类名或类引用，不含指针），
@@ -482,11 +567,16 @@ fn class_name_from_ctor_param<'a>(type_str: &str, all_classes: &'a [ClassInfo]) 
 ///   当参数为 1 时，用 `<class_snake>_new_with_<param_name>`（如 `buffer_new_with_sz`）
 ///
 /// C++ 签名：
-/// - 默认构造函数：`std::unique_ptr<T> hicc::make_unique<T>()`（hicc 版本）
-/// - 带参数构造函数：`std::unique_ptr<T> std::make_unique<T>(arg_types)`（标准 C++ 版本）
+/// - 默认构造函数：`std::unique_ptr<T> hicc::make_unique<T>()`（hicc 版本，可被解析为函数指针）
+/// - 带参数构造函数：使用 C++ shim wrapper `_cpp2rust_make_unique_<ClassSnake>_<N>(args)`
+///   因为 `std::make_unique<T>(args)` 是模板函数，无法被 hicc 解析为函数指针
 ///
-/// `ctor`：构造函数的 MethodInfo。`&[]` 表示默认构造函数（无参数）。
-fn build_make_unique_factory(class_name: &str, ctor: &MethodInfo) -> FnBinding {
+/// 返回 `(FnBinding, Option<String>)`：绑定 + 可能的 C++ shim wrapper 行
+fn build_make_unique_factory(
+    class_name: &str,
+    ctor: &MethodInfo,
+    _mappable_names: &[&str],
+) -> (FnBinding, Option<String>) {
     let class_snake = to_snake_case(class_name);
     let param_types: Vec<String> = ctor
         .params
@@ -522,23 +612,81 @@ fn build_make_unique_factory(class_name: &str, ctor: &MethodInfo) -> FnBinding {
     } else {
         param_types.join(", ")
     };
-    let make_unique_ns = if is_default { "hicc" } else { "std" };
-    let cpp_sig = format!(
-        "std::unique_ptr<{cls}> {ns}::make_unique<{cls}>({args})",
-        cls = class_name,
-        ns = make_unique_ns,
-        args = cpp_args
-    );
 
     let is_unsafe = should_mark_unsafe(&rust_params, class_name);
 
-    FnBinding {
-        cpp_sig,
-        rust_name,
-        params: rust_params,
-        ret_type: Some(class_name.to_string()),
-        is_unsafe,
-        has_fn_ptr_param: false,
+    if is_default {
+        (
+            FnBinding {
+                cpp_sig: format!(
+                    "std::unique_ptr<{cls}> hicc::make_unique<{cls}>()",
+                    cls = class_name
+                ),
+                rust_name,
+                params: rust_params,
+                ret_type: Some(class_name.to_string()),
+                is_unsafe,
+                has_fn_ptr_param: false,
+            },
+            None,
+        )
+    } else {
+        let shim_fn_name = format!(
+            "_cpp2rust_make_unique_{}{}",
+            class_snake,
+            if ctor.params.len() == 1 {
+                format!("_{}", rust_params[0].0)
+            } else {
+                format!("_{}", ctor.params.len())
+            }
+        );
+        let param_names: Vec<String> = ctor
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if p.name.is_empty() || p.name == "_" {
+                    format!("arg{}", i)
+                } else {
+                    p.name.clone()
+                }
+            })
+            .collect();
+        let shim_params: Vec<String> = param_types
+            .iter()
+            .zip(param_names.iter())
+            .map(|(ty, name)| format!("{} {}", ty, name))
+            .collect();
+        let shim_params_str = if shim_params.is_empty() {
+            String::new()
+        } else {
+            shim_params.join(", ")
+        };
+        let call_args = param_names.join(", ");
+        let shim_line = format!(
+            "std::unique_ptr<{cls}> {shim}({params}) {{ return std::make_unique<{cls}>({call_args}); }}",
+            cls = class_name,
+            shim = shim_fn_name,
+            params = shim_params_str,
+            call_args = call_args
+        );
+        let cpp_sig = format!(
+            "std::unique_ptr<{cls}> {shim}({args})",
+            cls = class_name,
+            shim = shim_fn_name,
+            args = cpp_args
+        );
+        (
+            FnBinding {
+                cpp_sig,
+                rust_name,
+                params: rust_params,
+                ret_type: Some(class_name.to_string()),
+                is_unsafe,
+                has_fn_ptr_param: false,
+            },
+            Some(shim_line),
+        )
     }
 }
 

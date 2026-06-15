@@ -35,7 +35,7 @@ fn main() {
     // IntArray5 from values
     println!("--- IntArray5 from values Demo ---");
     let values = [1, 2, 3, 4, 5];
-    let arr = int_array5_new_from(values.as_ptr());
+    let arr = unsafe { int_array5_new_from(values.as_ptr()) };
 
     println!("Size: {}", arr.size());
     println!("Elements:");

@@ -3,6 +3,8 @@ hicc::cpp! {
     #include <cstring>
 
     #include "class_move.h"
+
+    std::unique_ptr<UniqueVector> _cpp2rust_make_unique_unique_vector_2(int* data, int size) { return std::make_unique<UniqueVector>(data, size); }
 }
 
 hicc::import_class! {
@@ -30,6 +32,6 @@ hicc::import_lib! {
     #[cpp(func = "std::unique_ptr<UniqueVector> hicc::make_unique<UniqueVector>()")]
     pub fn unique_vector_new() -> UniqueVector;
 
-    #[cpp(func = "std::unique_ptr<UniqueVector> std::make_unique<UniqueVector>(int*, int)")]
+    #[cpp(func = "std::unique_ptr<UniqueVector> _cpp2rust_make_unique_unique_vector_2(int*, int)")]
     pub unsafe fn unique_vector_new_2(data: *mut i32, size: i32) -> UniqueVector;
 }

@@ -6,6 +6,8 @@ hicc::cpp! {
     #include <unordered_map>
 
     #include "shared_ptr.h"
+
+    std::unique_ptr<SharedData> _cpp2rust_make_unique_shared_data_with_n(const char* n) { return std::make_unique<SharedData>(n); }
 }
 
 hicc::import_class! {
@@ -39,7 +41,7 @@ hicc::import_lib! {
     class SharedData;
     class Cache;
 
-    #[cpp(func = "std::unique_ptr<SharedData> std::make_unique<SharedData>(const char*)")]
+    #[cpp(func = "std::unique_ptr<SharedData> _cpp2rust_make_unique_shared_data_with_n(const char*)")]
     pub unsafe fn shared_data_new_with_n(n: *const i8) -> SharedData;
 
     #[cpp(func = "std::unique_ptr<Cache> hicc::make_unique<Cache>()")]

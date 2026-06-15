@@ -5,6 +5,8 @@ hicc::cpp! {
     #include <cstring>
 
     #include "unique_ptr.h"
+
+    std::unique_ptr<UniqueBuffer> _cpp2rust_make_unique_unique_buffer_with_sz(int sz) { return std::make_unique<UniqueBuffer>(sz); }
 }
 
 hicc::import_class! {
@@ -35,7 +37,7 @@ hicc::import_lib! {
     class UniqueBuffer;
     class Processor;
 
-    #[cpp(func = "std::unique_ptr<UniqueBuffer> std::make_unique<UniqueBuffer>(int)")]
+    #[cpp(func = "std::unique_ptr<UniqueBuffer> _cpp2rust_make_unique_unique_buffer_with_sz(int)")]
     pub fn unique_buffer_new_with_sz(sz: i32) -> UniqueBuffer;
 
     #[cpp(func = "std::unique_ptr<Processor> hicc::make_unique<Processor>()")]

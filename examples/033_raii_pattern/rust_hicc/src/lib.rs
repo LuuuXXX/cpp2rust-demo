@@ -8,12 +8,10 @@ hicc::cpp! {
 
     #include "raii_pattern.h"
 
-    extern "C" {
-        Mutex* hicc_mutex_new() { return new Mutex(); }
-        Mutex* hicc_mutex_new_with_name(const char* name) { return new Mutex(name); }
-        ScopedLock* hicc_scoped_lock_new(Mutex* m) { return new ScopedLock(m); }
-        FileLock* hicc_file_lock_new(const char* fname) { return new FileLock(fname); }
-    }
+    std::unique_ptr<Mutex> _cpp2rust_make_unique_mutex_0() { return std::make_unique<Mutex>(); }
+    std::unique_ptr<Mutex> _cpp2rust_make_unique_mutex_with_name(const char* name) { return std::make_unique<Mutex>(name); }
+    std::unique_ptr<ScopedLock> _cpp2rust_make_unique_scoped_lock_with_m(Mutex* m) { return std::make_unique<ScopedLock>(m); }
+    std::unique_ptr<FileLock> _cpp2rust_make_unique_file_lock_with_fname(const char* fname) { return std::make_unique<FileLock>(fname); }
 }
 
 hicc::import_class! {
@@ -62,15 +60,15 @@ hicc::import_lib! {
     class ScopedLock;
     class FileLock;
 
-    #[cpp(func = "Mutex* hicc_mutex_new()")]
+    #[cpp(func = "std::unique_ptr<Mutex> _cpp2rust_make_unique_mutex_0()")]
     pub fn mutex_new() -> Mutex;
 
-    #[cpp(func = "Mutex* hicc_mutex_new_with_name(const char*)")]
+    #[cpp(func = "std::unique_ptr<Mutex> _cpp2rust_make_unique_mutex_with_name(const char*)")]
     pub unsafe fn mutex_new_with_name(name: *const i8) -> Mutex;
 
-    #[cpp(func = "ScopedLock* hicc_scoped_lock_new(Mutex*)")]
+    #[cpp(func = "std::unique_ptr<ScopedLock> _cpp2rust_make_unique_scoped_lock_with_m(Mutex*)")]
     pub unsafe fn scoped_lock_new(mutex: *mut Mutex) -> ScopedLock;
 
-    #[cpp(func = "FileLock* hicc_file_lock_new(const char*)")]
+    #[cpp(func = "std::unique_ptr<FileLock> _cpp2rust_make_unique_file_lock_with_fname(const char*)")]
     pub unsafe fn file_lock_new(filename: *const i8) -> FileLock;
 }

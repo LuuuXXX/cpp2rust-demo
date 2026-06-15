@@ -1,5 +1,9 @@
 use inheritance_single::*;
 
+fn decode_cstr(ptr: *const i8) -> std::string::String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
+}
+
 fn main() {
     // Create Animal
     let animal_name = "Generic Animal\0";

@@ -1,6 +1,6 @@
 use string_basic::*;
 
-fn decode_cstr(ptr: *const i8) -> String {
+fn decode_cstr(ptr: *const i8) -> std::string::String {
     unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 

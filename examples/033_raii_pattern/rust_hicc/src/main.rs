@@ -17,7 +17,7 @@ fn main() {
     // ScopedLock 示例（模拟 RAII 自动解锁）
     println!("--- ScopedLock Demo ---");
     let mut mutex2 = mutex_new();
-    let lock = unsafe { scoped_lock_new(mutex2.as_mut_ptr()) };
+    let lock = unsafe { scoped_lock_new(&mutex2.as_mut_ptr()) };
     println!("Inside scoped lock region");
     println!("ScopedLock will auto-unlock on drop");
     drop(lock);

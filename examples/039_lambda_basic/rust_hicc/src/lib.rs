@@ -8,16 +8,16 @@ hicc::cpp! {
     int add_impl(int, int);
     int multiply_impl(int, int);
     int max_impl(int, int);
+    int apply_operation(int, int, int (*)(int, int));
+    int apply_twice(int, int (*)(int, int));
 
-    extern "C" {
-        LambdaWrapper* hicc_lambda_wrapper_new(int (*fn)(int, int)) { return new LambdaWrapper(fn); }
-        StateLambda* hicc_state_lambda_new(int initial_value) { return new StateLambda(initial_value); }
-        Comparator* hicc_comparator_new(int (*cmp)(int, int)) { return new Comparator(cmp); }
-        Comparator* hicc_comparator_new_add() { return new Comparator(add_impl); }
-        LambdaWrapper* hicc_make_add_lambda() { return new LambdaWrapper(add_impl); }
-        LambdaWrapper* hicc_make_multiply_lambda() { return new LambdaWrapper(multiply_impl); }
-        LambdaWrapper* hicc_make_max_lambda() { return new LambdaWrapper(max_impl); }
-    }
+    std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_with_fn(int (*fn)(int, int)) { return std::make_unique<LambdaWrapper>(fn); }
+    std::unique_ptr<StateLambda> _cpp2rust_make_unique_state_lambda_with_initial_value(int initial_value) { return std::make_unique<StateLambda>(initial_value); }
+    std::unique_ptr<Comparator> _cpp2rust_make_unique_comparator_with_cmp(int (*cmp)(int, int)) { return std::make_unique<Comparator>(cmp); }
+    std::unique_ptr<Comparator> _cpp2rust_make_unique_comparator_new_add() { return std::make_unique<Comparator>(add_impl); }
+    std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_new_add() { return std::make_unique<LambdaWrapper>(add_impl); }
+    std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_new_multiply() { return std::make_unique<LambdaWrapper>(multiply_impl); }
+    std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_new_max() { return std::make_unique<LambdaWrapper>(max_impl); }
 }
 
 hicc::import_class! {
@@ -55,26 +55,26 @@ hicc::import_lib! {
     class Comparator;
 
     // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "LambdaWrapper* hicc_lambda_wrapper_new(int (*)(int, int))")]
+    #[cpp(func = "std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_with_fn(int (*)(int, int))")]
     pub unsafe fn lambda_wrapper_new(fn_: unsafe extern "C" fn(i32, i32) -> i32) -> LambdaWrapper;
 
-    #[cpp(func = "StateLambda* hicc_state_lambda_new(int)")]
+    #[cpp(func = "std::unique_ptr<StateLambda> _cpp2rust_make_unique_state_lambda_with_initial_value(int)")]
     pub fn state_lambda_new(initial_value: i32) -> StateLambda;
 
     // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "Comparator* hicc_comparator_new(int (*)(int, int))")]
+    #[cpp(func = "std::unique_ptr<Comparator> _cpp2rust_make_unique_comparator_with_cmp(int (*)(int, int))")]
     pub unsafe fn comparator_new(cmp: unsafe extern "C" fn(i32, i32) -> i32) -> Comparator;
 
-    #[cpp(func = "Comparator* hicc_comparator_new_add()")]
+    #[cpp(func = "std::unique_ptr<Comparator> _cpp2rust_make_unique_comparator_new_add()")]
     pub fn comparator_new_add() -> Comparator;
 
-    #[cpp(func = "LambdaWrapper* hicc_make_add_lambda()")]
+    #[cpp(func = "std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_new_add()")]
     pub fn make_add_lambda() -> LambdaWrapper;
 
-    #[cpp(func = "LambdaWrapper* hicc_make_multiply_lambda()")]
+    #[cpp(func = "std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_new_multiply()")]
     pub fn make_multiply_lambda() -> LambdaWrapper;
 
-    #[cpp(func = "LambdaWrapper* hicc_make_max_lambda()")]
+    #[cpp(func = "std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_new_max()")]
     pub fn make_max_lambda() -> LambdaWrapper;
 
     // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定

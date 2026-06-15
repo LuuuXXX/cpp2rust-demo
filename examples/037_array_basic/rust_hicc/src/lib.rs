@@ -6,13 +6,11 @@ hicc::cpp! {
 
     #include "array_basic.h"
 
-    extern "C" {
-        IntArray5* hicc_int_array5_new() { return new IntArray5(); }
-        IntArray5* hicc_int_array5_new_from(const int* values) { return new IntArray5(values); }
-        DoubleArray3* hicc_double_array3_new() { return new DoubleArray3(); }
-        DoubleArray3* hicc_double_array3_new_from(const double* values) { return new DoubleArray3(values); }
-        StringArray4* hicc_string_array4_new() { return new StringArray4(); }
-    }
+    std::unique_ptr<IntArray5> _cpp2rust_make_unique_int_array5_0() { return std::make_unique<IntArray5>(); }
+    std::unique_ptr<IntArray5> _cpp2rust_make_unique_int_array5_with_values(const int* values) { return std::make_unique<IntArray5>(values); }
+    std::unique_ptr<DoubleArray3> _cpp2rust_make_unique_double_array3_0() { return std::make_unique<DoubleArray3>(); }
+    std::unique_ptr<DoubleArray3> _cpp2rust_make_unique_double_array3_with_values(const double* values) { return std::make_unique<DoubleArray3>(values); }
+    std::unique_ptr<StringArray4> _cpp2rust_make_unique_string_array4_0() { return std::make_unique<StringArray4>(); }
 }
 
 hicc::import_class! {
@@ -61,18 +59,18 @@ hicc::import_lib! {
     class DoubleArray3;
     class StringArray4;
 
-    #[cpp(func = "IntArray5* hicc_int_array5_new()")]
+    #[cpp(func = "std::unique_ptr<IntArray5> _cpp2rust_make_unique_int_array5_0()")]
     pub fn int_array5_new() -> IntArray5;
 
-    #[cpp(func = "IntArray5* hicc_int_array5_new_from(const int*)")]
+    #[cpp(func = "std::unique_ptr<IntArray5> _cpp2rust_make_unique_int_array5_with_values(const int*)")]
     pub unsafe fn int_array5_new_from(values: *const i32) -> IntArray5;
 
-    #[cpp(func = "DoubleArray3* hicc_double_array3_new()")]
+    #[cpp(func = "std::unique_ptr<DoubleArray3> _cpp2rust_make_unique_double_array3_0()")]
     pub fn double_array3_new() -> DoubleArray3;
 
-    #[cpp(func = "DoubleArray3* hicc_double_array3_new_from(const double*)")]
+    #[cpp(func = "std::unique_ptr<DoubleArray3> _cpp2rust_make_unique_double_array3_with_values(const double*)")]
     pub unsafe fn double_array3_new_from(values: *const f64) -> DoubleArray3;
 
-    #[cpp(func = "StringArray4* hicc_string_array4_new()")]
+    #[cpp(func = "std::unique_ptr<StringArray4> _cpp2rust_make_unique_string_array4_0()")]
     pub fn string_array4_new() -> StringArray4;
 }
