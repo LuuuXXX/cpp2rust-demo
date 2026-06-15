@@ -916,7 +916,7 @@ cpp2rust-demo/
 
 > **子模块初始化**：按需拉取，例如
 > `git submodule update --init references/hicc-usages references/hicc references/c2rust-demo`。
-> E2E 测试库子模块见 `make submodules`。
+> E2E 测试库子模块见 `make submodules`（等价于 `git submodule update --init references/tinyxml2 references/pugixml references/nlohmann-json references/fmtlib`；无 `make` 时可直接运行该 git 命令）。
 
 ---
 
