@@ -1,9 +1,8 @@
-//! 009_class_move: 移动语义（命名空间类 + make_unique 工厂）。
-//!
-//! hicc 模式：默认 / `int` 构造各派生一个 make_unique 工厂；移动构造/移动赋值
-//! 是 C++ 内部 O(1) 资源转移语义，经成员方法 `move_from` 暴露（窃取 src 资源、
-//! 将 src 置空）。析构由 hicc 的 `Drop` 自动负责。本示例 `lib.rs` 与工具默认
-//! 支架 `lib_scaffold.rs` 一致（无需手写补全）。
+// 009_class_move 工具默认产物支架（hicc 直出，去 shim）。
+//
+// 用于 L1 黄金比对：校验 `init` 对「只移动命名空间类」默认生成的 hicc 骨架。
+// 默认构造与 `int` 构造派生 make_unique 工厂（`new`/`new_2`）；移动构造/移动赋值
+// 为 C++ 内部资源转移语义，由 hicc `Drop` 与成员方法 `move_from` 体现，无需额外工厂。
 
 hicc::cpp! {
     #include "class_move.h"

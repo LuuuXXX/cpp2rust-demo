@@ -1,147 +1,93 @@
-# 009_class_move - 移动语义
+# 009_class_move - 移动语义（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 移动语义，通过 FFI 实现资源所有权的转移。
+本示例展示带**移动构造 / 移动赋值**的地道 C++ 命名空间类，用 hicc 直出方式绑定：
+默认构造与 `int` 构造各派生一条 `hicc::make_unique` 工厂；移动是 O(1) 资源转移
+（窃取源对象指针并置空），经成员方法 `move_from` 暴露；析构交给 hicc 的 `Drop`，
+**无 opaque 指针、无 `extern "C"` 桥接**。
 
-## C++ 代码
-
-### class_move.h
-
-```cpp
-// 移动语义：将 src 的资源转移给 dest
-void unique_vector_move(struct UniqueVector* dest, struct UniqueVector* src);
-```
-
-### class_move.cpp
+## C++ 代码（节选）
 
 ```cpp
-void unique_vector_move(struct UniqueVector* dest, struct UniqueVector* src) {
-    // 先清空 dest 的原有资源
-    delete[] dest->data;
+namespace class_move_ns {
 
-    // 转移所有权
-    dest->data = src->data;
-    dest->size = src->size;
-
-    // src 清空
-    src->data = nullptr;
-    src->size = 0;
-}
-```
-
-## 移动语义与 FFI
-
-### 什么是移动语义
-
-移动语义避免不必要的内存拷贝：
-1. 将资源（如堆内存）从一个对象转移到另一个对象
-2. 源对象被"掏空"，变为有效但空的状态
-3. 避免深拷贝的性能开销
-
-### C++ 右值引用
-
-C++11 引入右值引用支持移动语义：
-
-```cpp
-class Widget {
+class UniqueVector {
 public:
-    Widget(Widget&& other) noexcept;  // 移动构造函数
+    UniqueVector();                                  // 默认构造
+    explicit UniqueVector(int size);                 // 指定大小构造
+    UniqueVector(UniqueVector&& other) noexcept;     // 移动构造（窃取资源）
+    UniqueVector& operator=(UniqueVector&& other) noexcept; // 移动赋值
+    ~UniqueVector();                                 // 释放内存
+
+    void set(int index, int value);
+    int get(int index) const;
+    int size() const;
+    void move_from(UniqueVector& src);               // 从 src 移动资源
 };
+
+} // namespace class_move_ns
 ```
 
-### FFI 中的移动
+配套 `standalone.sh` / `Makefile` 两种纯 C++ 构建方式。
 
-由于 Rust 不能直接使用 C++ 的移动构造函数，通过显式函数实现：
-
-```cpp
-void move(Widget* dest, Widget* src);  // dest = std::move(src)
-```
-
-## Rust FFI 代码
+## Rust FFI 代码（hicc 直出）
 
 ```rust
-hicc::cpp! {
-    #include <iostream>
-    #include <cstring>
-
-    #include "class_move.h"
-}
-
 hicc::import_class! {
-    #[cpp(class = "UniqueVector", destroy = "unique_vector_delete")]
+    #[cpp(class = "class_move_ns::UniqueVector")]
     pub class UniqueVector {
-        #[cpp(method = "int get(int index) const")]
-        fn get(&self, index: i32) -> i32;
-
         #[cpp(method = "void set(int index, int value)")]
-        fn set(&mut self, index: i32, value: i32);
+        pub fn set(&mut self, index: i32, value: i32);
 
-        #[cpp(method = "int getSize() const")]
-        fn get_size(&self) -> i32;
+        #[cpp(method = "int get(int index) const")]
+        pub fn get(&self, index: i32) -> i32;
 
-        #[cpp(method = "void moveFrom(UniqueVector & src)")]
-        fn move_from(&mut self, src: &mut UniqueVector);
+        #[cpp(method = "int size() const")]
+        pub fn size(&self) -> i32;
+
+        // 类引用参数补全命名空间限定，hicc 才能在 cpp! 展开处解析类型。
+        #[cpp(method = "void move_from(class_move_ns::UniqueVector & src)")]
+        pub fn move_from(&mut self, src: &mut UniqueVector);
+
+        pub fn new() -> Self { unique_vector_new() }
+        pub fn new_2(size: i32) -> Self { unique_vector_new_2(size) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "class_move"]
 
-    class UniqueVector;
+    #[cpp(func = "std::unique_ptr<class_move_ns::UniqueVector> hicc::make_unique<class_move_ns::UniqueVector>()")]
+    pub fn unique_vector_new() -> UniqueVector;
 
-    #[cpp(func = "UniqueVector* unique_vector_new()")]
-    fn unique_vector_new() -> UniqueVector;
-
-    #[cpp(func = "UniqueVector* unique_vector_newWithData(int*, int)")]
-    unsafe fn unique_vector_new_with_data(data: *mut i32, size: i32) -> UniqueVector;
-
-    #[cpp(func = "void unique_vector_move(UniqueVector* dest, UniqueVector* src)")]
-    unsafe fn unique_vector_move(dest: *mut UniqueVector, src: *mut UniqueVector);
+    #[cpp(func = "std::unique_ptr<class_move_ns::UniqueVector> hicc::make_unique<class_move_ns::UniqueVector, int>(int&&)")]
+    pub fn unique_vector_new_2(size: i32) -> UniqueVector;
 }
 ```
+
 ## 关键点
 
-### 移动前后的状态
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| 默认 / `int` 构造 | 各派生一条 `hicc::make_unique<T, Args...>` 工厂（`new`/`new_2`） |
+| 移动构造 / 移动赋值 | C++ 内部 O(1) 资源转移语义，经成员方法 `move_from` 暴露 |
+| 类引用参数 | 方法签名中裸类名补全命名空间限定（`class_move_ns::UniqueVector &`） |
+| 析构函数 | 由 hicc `Drop` 自动负责，无需 `*_delete` |
 
-| 对象 | 移动前 | 移动后 |
-|------|--------|--------|
-| dest | 原资源 | 获得新资源 |
-| src | 原资源 | 被清空（nullptr, size=0） |
+> 工具默认产物（`lib_scaffold.rs`）与本示例 `lib.rs` 一致：移动语义经 `move_from`
+> 成员方法直出，无需手写补全。
 
-### 移动后原对象仍需销毁
+## 构建方法
 
-移动后源对象仍然存在，只是内部资源被转移：
-
-```rust
-unique_vector_delete(src);  // 仍然需要调用，但此时是空操作
-```
-
-### 与 Rust 移动语义的对比
-
-| Rust | C++ FFI |
-|------|----------|
-| `let b = a;` 移动 | `move(dest, src)` |
-| `a` 不再可用 | `src->data = nullptr` |
-| 编译器检查 | 运行时检查 |
-
-## 运行结果
-
-```
-src_with_data size: 5
-src_with_data[0]: 10
-dest size before move: 0
-Moving UniqueVector: 5 -> 0
-dest size after move: 5
-dest[0]: 10
-src_with_data size after move: 0
-
-Rust FFI: Move semantics work!
+```bash
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
 ## 总结
 
-1. **移动避免拷贝**：资源直接转移，不复制数据
-2. **源对象被清空**：移动后源对象状态变为有效但空
-3. **仍需销毁**：源对象虽然空了，但仍需调用析构函数
-4. **Rust 移动 vs C++ 移动**：Rust 编译器检查，C++ FFI 运行时检查
+1. **多工厂**：默认 / `int` 构造 → `make_unique` 工厂，替代 `unique_vector_new` / `unique_vector_newWithData` shim。
+2. **移动转移**：`move_from` 把源资源移入自身并置空源，smoke 断言验证 size 转移与源置空。
+3. **Drop 析构**：hicc 自动析构，替代 `unique_vector_delete` shim。
+4. **命名空间限定**：类引用参数自动补全限定，确保 hicc 编译通过。

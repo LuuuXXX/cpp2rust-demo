@@ -85,19 +85,68 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
         .filter(|c| c.is_in_namespace && has_public_ctor(c))
         .map(|c| c.simple_name.as_str())
         .collect();
+    // 简单名 → 命名空间限定名映射，供方法签名中的类引用补全限定
+    let qual_map: Vec<(&str, String)> = ast
+        .classes
+        .iter()
+        .filter(|c| c.is_in_namespace && has_public_ctor(c))
+        .map(|c| (c.simple_name.as_str(), c.qualified_name()))
+        .collect();
 
     for ci in ast.classes.iter() {
         if !ci.is_in_namespace || !has_public_ctor(ci) {
             continue;
         }
-        if let Some(cs) = build_one(ci, &exported) {
+        if let Some(cs) = build_one(ci, &exported, &qual_map) {
             specs.push(cs);
         }
     }
     specs
 }
 
-fn build_one(ci: &ClassInfo, exported: &[&str]) -> Option<ClassSpec> {
+/// 把 C++ 方法签名字符串中「裸的已导出类简单名」补全为命名空间限定名。
+///
+/// 以标识符 token 为单位匹配（避免误伤含该名子串的其它标识符），且当 token
+/// 紧跟在 `::` 之后（即已限定）时跳过，避免重复限定。
+fn qualify_class_types(sig: &str, qual_map: &[(&str, String)]) -> String {
+    if qual_map.is_empty() {
+        return sig.to_string();
+    }
+    let bytes = sig.as_bytes();
+    let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut out = String::with_capacity(sig.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if is_ident(b) {
+            let start = i;
+            while i < bytes.len() && is_ident(bytes[i]) {
+                i += 1;
+            }
+            let token = &sig[start..i];
+            // 已限定（前缀为 `::`）则不再替换
+            let already_qualified = start >= 2 && &sig[start - 2..start] == "::";
+            let replacement = if already_qualified {
+                None
+            } else {
+                qual_map
+                    .iter()
+                    .find(|(simple, _)| *simple == token)
+                    .map(|(_, qual)| qual.as_str())
+            };
+            match replacement {
+                Some(q) => out.push_str(q),
+                None => out.push_str(token),
+            }
+        } else {
+            out.push(b as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> Option<ClassSpec> {
     let qualified = ci.qualified_name();
 
     // ── 成员方法（复用通用 MethodBinding 构建）──
@@ -119,6 +168,13 @@ fn build_one(ci: &ClassInfo, exported: &[&str]) -> Option<ClassSpec> {
     // 方法名去重（hicc import_class! 不支持同名方法）
     let mut seen = std::collections::HashSet::new();
     methods.retain(|mb| seen.insert(mb.rust_name.clone()));
+
+    // 方法 C++ 签名中对「其它已导出命名空间类」的裸引用需补全命名空间限定，
+    // 否则 hicc 在 `cpp!` 展开处按全局作用域解析类型名会编译失败
+    // （如 `void move_from(UniqueVector & src)` 应为 `class_move_ns::UniqueVector &`）。
+    for mb in methods.iter_mut() {
+        mb.cpp_sig = qualify_class_types(&mb.cpp_sig, qual_map);
+    }
 
     // ── 构造工厂（每个可用公有构造一条 make_unique）──
     let snake = to_snake_case(&ci.simple_name);
@@ -233,4 +289,38 @@ fn method_types_simple(mb: &crate::ffi_model::MethodBinding, exported: &[&str]) 
             .as_deref()
             .map(|t| super::is_mappable_rust_type(t, exported))
             .unwrap_or(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::qualify_class_types;
+
+    #[test]
+    fn qualifies_bare_exported_class_param() {
+        let map = vec![("UniqueVector", "class_move_ns::UniqueVector".to_string())];
+        let got = qualify_class_types("void move_from(UniqueVector & src)", &map);
+        assert_eq!(got, "void move_from(class_move_ns::UniqueVector & src)");
+    }
+
+    #[test]
+    fn does_not_double_qualify() {
+        let map = vec![("UniqueVector", "class_move_ns::UniqueVector".to_string())];
+        let sig = "void move_from(class_move_ns::UniqueVector & src)";
+        assert_eq!(qualify_class_types(sig, &map), sig);
+    }
+
+    #[test]
+    fn does_not_touch_substring_identifiers() {
+        let map = vec![("Vec", "ns::Vec".to_string())];
+        // `Vector` 含子串 `Vec`，但作为独立 token 不应被替换
+        let got = qualify_class_types("int Vectorize(int Vec)", &map);
+        assert_eq!(got, "int Vectorize(int ns::Vec)");
+    }
+
+    #[test]
+    fn leaves_primitive_types_untouched() {
+        let map = vec![("Buffer", "ns::Buffer".to_string())];
+        let sig = "int get(int index) const";
+        assert_eq!(qualify_class_types(sig, &map), sig);
+    }
 }
