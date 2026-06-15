@@ -1,74 +1,26 @@
 #include "virtual_diamond.h"
-#include <iostream>
 
-// A class implementations
-A::A(int v) : a_value(v) {}
+namespace virtual_diamond_ns {
 
-A::~A() {}
+A::A(int v) : a_value_(v) {}
+A::~A() = default;
+int A::a_value() const { return a_value_; }
 
-int A::getAValue() const {
-    return a_value;
-}
+B::B(int a, int b) : A(a), b_value_(b) {}
+B::~B() = default;
+int B::b_value() const { return b_value_; }
 
-// B class implementations
-B::B(int a, int b) : A(a), b_value(b) {}
+C::C(int a, int c) : A(a), c_value_(c) {}
+C::~C() = default;
+int C::c_value() const { return c_value_; }
 
-B::~B() {}
+// 虚继承：D 直接初始化唯一的 A 子对象
+D::D(int a, int b, int c, int d)
+    : A(a), B(a, b), C(a, c), d_value_(d) {}
+D::~D() = default;
+int D::d_value() const { return d_value_; }
+int D::compute() const { return a_value_ + b_value_ + c_value_ + d_value_; }
 
-int B::getBValue() const {
-    return b_value;
-}
+int virtual_diamond_anchor() { return 0; }
 
-// C class implementations
-C::C(int a, int c) : A(a), c_value(c) {}
-
-C::~C() {}
-
-int C::getCValue() const {
-    return c_value;
-}
-
-// D class implementations
-D::D(int a, int b, int c, int d) : A(a), B(a, b), C(a, c), d_value(d) {}
-
-D::~D() {}
-
-int D::getDValue() const {
-    return d_value;
-}
-
-void D::compute() const {
-    std::cout << "D::compute: a=" << a_value << " b=" << b_value
-              << " c=" << c_value << " d=" << d_value << std::endl;
-    std::cout << "Sum: " << (a_value + b_value + c_value + d_value) << std::endl;
-}
-
-// FFI wrapper functions
-struct D* d_new(int a, int b, int c, int d) {
-    return new D(a, b, c, d);
-}
-
-void d_delete(struct D* self) {
-    delete self;
-}
-
-int d_getAValue(struct D* self) {
-    std::cout << "Getting A value (virtual base - single instance)" << std::endl;
-    return self->getAValue();
-}
-
-int d_getBValue(struct D* self) {
-    return self->getBValue();
-}
-
-int d_getCValue(struct D* self) {
-    return self->getCValue();
-}
-
-int d_getDValue(struct D* self) {
-    return self->getDValue();
-}
-
-void d_compute(struct D* self) {
-    self->compute();
-}
+} // namespace virtual_diamond_ns

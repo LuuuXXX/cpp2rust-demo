@@ -1,59 +1,49 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace virtual_diamond_ns {
 
-struct D;
-
-struct D* d_new(int a, int b, int c, int d);
-void d_delete(struct D* self);
-
-int d_getAValue(struct D* self);
-int d_getBValue(struct D* self);
-int d_getCValue(struct D* self);
-int d_getDValue(struct D* self);
-void d_compute(struct D* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 顶点基类 A
 class A {
-protected:
-    int a_value;
 public:
-    A(int v);
+    explicit A(int v);
     virtual ~A();
-    int getAValue() const;
+    int a_value() const;
+protected:
+    int a_value_;
 };
 
+// B 虚继承 A
 class B : virtual public A {
-protected:
-    int b_value;
 public:
     B(int a, int b);
-    virtual ~B();
-    int getBValue() const;
+    ~B() override;
+    int b_value() const;
+protected:
+    int b_value_;
 };
 
+// C 虚继承 A
 class C : virtual public A {
-protected:
-    int c_value;
 public:
     C(int a, int c);
-    virtual ~C();
-    int getCValue() const;
+    ~C() override;
+    int c_value() const;
+protected:
+    int c_value_;
 };
 
+// D 多继承 B、C：菱形继承，A 子对象唯一（虚继承）
 class D : public B, public C {
-private:
-    int d_value;
 public:
     D(int a, int b, int c, int d);
-    ~D();
-    int getDValue() const;
-    void compute() const;
+    ~D() override;
+    int d_value() const;
+    int compute() const;   // a_value_ + b_value_ + c_value_ + d_value_
+private:
+    int d_value_;
 };
 
-#endif
+// 锚点：让 detect_idiomatic_mode 走直出路径。
+int virtual_diamond_anchor();
+
+} // namespace virtual_diamond_ns

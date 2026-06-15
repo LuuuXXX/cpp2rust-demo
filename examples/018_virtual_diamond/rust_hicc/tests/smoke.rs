@@ -1,22 +1,21 @@
-//! 018_virtual_diamond 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 018_virtual_diamond 冒烟测试：菱形虚继承的数据汇聚。
 
-use hicc::AbiClass;
 use virtual_diamond::*;
 
 #[test]
-fn smoke_d_values() {
-    let mut d = d_new(1, 2, 3, 4);
-    assert_eq!(d_get_a_value(&d.as_mut_ptr()), 1, "getAValue() 应返回 a=1");
-    assert_eq!(d.get_b_value(), 2, "getBValue() 应返回 b=2");
-    assert_eq!(d.get_c_value(), 3, "getCValue() 应返回 c=3");
-    assert_eq!(d.get_d_value(), 4, "getDValue() 应返回 d=4");
+fn base_and_middle_classes() {
+    let a = A::new(1);
+    let b = B::new(1, 2);
+    let c = C::new(1, 3);
+    assert_eq!(a.a_value(), 1);
+    assert_eq!(b.b_value(), 2);
+    assert_eq!(c.c_value(), 3);
 }
 
 #[test]
-fn smoke_d_compute() {
-    let d = d_new(1, 2, 3, 4);
-    // compute() 只输出信息，不做断言，仅验证调用不崩溃
-    d.compute();
+fn diamond_compute_sums_unique_a() {
+    // D 汇聚 B、C，A 子对象唯一：compute = a(1) + b(2) + c(3) + d(4) = 10
+    let d = D::new(1, 2, 3, 4);
+    assert_eq!(d.d_value(), 4);
+    assert_eq!(d.compute(), 10);
 }
