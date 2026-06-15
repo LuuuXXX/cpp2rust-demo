@@ -621,6 +621,7 @@ mod tests {
                 associated_fns: vec![],
                 destroy_fn: None,
                 is_interface: false,
+                ..Default::default()
             }],
             lib_spec: LibSpec {
                 link_name: "test".to_string(),

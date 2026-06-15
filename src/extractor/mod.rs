@@ -7,6 +7,7 @@ pub mod type_mapper;
 mod class_spec;
 mod cpp_block;
 mod dynamic_cast_spec;
+mod hicc_direct;
 mod lib_spec;
 mod proxy_spec;
 mod template_spec;
@@ -81,6 +82,35 @@ pub fn extract(
     let used_classes = compute_used_classes(&ast.classes, &eligible_functions);
     let namespace_class_mode =
         detect_namespace_mode(has_any_classes, &used_classes, &eligible_functions);
+
+    // ── hicc 直出（idiomatic 命名空间类）模式 ──────────────
+    // 去 shim 核心：真实命名空间类 + make_unique 工厂直出，替代 extern-C opaque 桥接。
+    // 仅当不存在任何 extern "C" 函数、且存在带公有构造的命名空间类时启用；
+    // 现有 extern-C 示例不受影响，仍走下方旧路径。
+    if hicc_direct::detect_idiomatic_mode(ast) {
+        let cpp_block_lines = if let Some(hdr) = project_header {
+            vec![format!("#include \"{}\"", hdr)]
+        } else {
+            Vec::new()
+        };
+        let class_specs = hicc_direct::build_hicc_direct_specs(ast);
+        // 绑定命名空间自由函数（排除仅用于产生链接符号的 `<unit>_anchor` 锚点函数）
+        let free_fns: Vec<&FunctionInfo> = functions
+            .iter()
+            .copied()
+            .filter(|f| !f.name.ends_with("_anchor"))
+            .collect();
+        let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
+        let mut lib_spec = lib_spec::build_lib_spec(&free_fns, unit_name, &class_names);
+        lib_spec.link_name = unit_name.to_string();
+        return FfiSpec {
+            unit_name: unit_name.to_string(),
+            cpp_block_lines,
+            class_specs,
+            lib_spec,
+            ..Default::default()
+        };
+    }
 
     // ── hicc::cpp! 块内容 ──────────────────────
     let cpp_block_lines = if namespace_class_mode {
@@ -1225,6 +1255,7 @@ mod tests {
     fn make_class(name: &str, methods: Vec<MethodInfo>) -> ClassInfo {
         ClassInfo {
             name: name.to_string(),
+            simple_name: name.to_string(),
             is_struct: false,
             is_abstract: false,
             template_args: vec![],
@@ -1604,6 +1635,7 @@ mod tests {
     #[test]
     fn compute_used_classes_no_substring_false_positive() {
         let classes = vec![ClassInfo {
+            simple_name: "Foo".to_string(),
             name: "Foo".to_string(),
             is_struct: false,
             is_abstract: false,
@@ -1638,6 +1670,7 @@ mod tests {
     #[test]
     fn compute_used_classes_correct_match() {
         let classes = vec![ClassInfo {
+            simple_name: "Foo".to_string(),
             name: "Foo".to_string(),
             is_struct: false,
             is_abstract: false,

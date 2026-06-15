@@ -101,6 +101,7 @@ pub(super) fn build_class_spec(
         associated_fns: Vec::new(),
         destroy_fn: None,
         is_interface,
+        ..Default::default()
     })
 }
 

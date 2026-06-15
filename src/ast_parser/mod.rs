@@ -105,6 +105,11 @@ pub struct ClassInfo {
     pub fields: Vec<FieldInfo>,
     /// 是否来自命名空间（collect_namespace 收集的类）
     pub is_in_namespace: bool,
+    /// 类的简单名（未做命名空间扁平化，如 `Counter`）。顶层类与 `name` 相同。
+    /// 命名空间类的 `name` 仍保留旧式扁平化前缀（如 `class_basic_ns_Counter`）以兼容
+    /// 旧路径的「被 extern-C 桥接引用的类」匹配逻辑；hicc 直出路径用本字段与 `namespace`
+    /// 还原真实命名空间类名（`#[cpp(class = "ns::T")]`）。
+    pub simple_name: String,
     /// 所属命名空间的 `::` 限定路径（如 `class_basic_ns` 或 `foo::bar`）。
     /// 顶层类为 `None`。用于 hicc 直出时绑定真实命名空间类（`#[cpp(class = "ns::T")]`）。
     pub namespace: Option<String>,
@@ -117,8 +122,8 @@ impl ClassInfo {
     /// 顶层类返回简单名本身。
     pub fn qualified_name(&self) -> String {
         match &self.namespace {
-            Some(ns) if !ns.is_empty() => format!("{}::{}", ns, self.name),
-            _ => self.name.clone(),
+            Some(ns) if !ns.is_empty() => format!("{}::{}", ns, self.simple_name),
+            _ => self.simple_name.clone(),
         }
     }
 }

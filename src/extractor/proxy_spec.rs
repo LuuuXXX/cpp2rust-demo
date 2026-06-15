@@ -194,6 +194,7 @@ mod tests {
     ) -> ClassInfo {
         ClassInfo {
             name: name.to_string(),
+            simple_name: name.to_string(),
             is_struct: false,
             is_abstract,
             template_args: vec![],

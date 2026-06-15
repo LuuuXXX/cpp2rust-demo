@@ -148,6 +148,7 @@ mod tests {
     fn class(name: &str, bases: Vec<&str>, methods: Vec<MethodInfo>) -> ClassInfo {
         ClassInfo {
             name: name.to_string(),
+            simple_name: name.to_string(),
             is_struct: false,
             is_abstract: false,
             template_args: vec![],

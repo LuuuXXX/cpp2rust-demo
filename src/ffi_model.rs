@@ -159,7 +159,7 @@ pub struct TemplateFnSpec {
 /// 单个类的绑定规格
 #[derive(Debug, Default, Clone)]
 pub struct ClassSpec {
-    /// C++ 类名
+    /// C++ 类名（Rust 侧类型名，简单名如 `Counter`）
     pub name: String,
     /// 非 ctor/dtor 方法绑定列表（有 self 的成员方法）
     pub methods: Vec<MethodBinding>,
@@ -169,13 +169,45 @@ pub struct ClassSpec {
     pub destroy_fn: Option<String>,
     /// 是否为纯虚接口类（所有 public 方法均为纯虚）；true 时生成 #[interface]
     pub is_interface: bool,
+    /// hicc 直出模式：true 时生成 `#[cpp(class = cpp_class)]` 直接绑定真实命名空间类，
+    /// 构造由 `ctor_factories`（make_unique 工厂）负责、析构交给 hicc 的 `Drop`，
+    /// 不再生成 `destroy =`/opaque 指针 shim。
+    pub hicc_direct: bool,
+    /// hicc 直出时的 C++ `::` 限定类名（如 `class_basic_ns::Counter`）；
+    /// 用于 `#[cpp(class = "...")]`。`None` 时回退到 `name`。
+    pub cpp_class: Option<String>,
+    /// hicc 直出时的构造工厂（每个公有构造函数一条 make_unique 工厂）。
+    pub ctor_factories: Vec<CtorFactory>,
+}
+
+/// hicc 直出构造工厂（替代旧的 `*_new` C ABI 桥接）。
+///
+/// 在 `import_class!` body 内生成关联函数 `pub fn <ctor_fn>(...) -> Self { <factory_rust_name>(...) }`，
+/// 并在 `import_lib!` 输出对应的 `hicc::make_unique<T, Args...>` 工厂。
+#[derive(Debug, Default, Clone)]
+pub struct CtorFactory {
+    /// `import_class!` body 内关联函数名（如 `new`、`with_name`）
+    pub ctor_fn: String,
+    /// `import_lib!` 工厂函数名（如 `counter_new`）
+    pub factory_rust_name: String,
+    /// 关联函数参数列表 (rust_name, rust_type)，用于 in-class `fn` 签名与转发实参
+    pub params: Vec<(String, String)>,
+    /// `import_lib!` 工厂的 C++ make_unique 签名（用于 `#[cpp(func = "...")]`）
+    pub make_unique_sig: String,
+    /// Rust 返回类型名（如 `Counter`）
+    pub ret_class: String,
+    /// 工厂名是否需要 `#[allow(non_snake_case)]`
+    pub non_snake_case: bool,
 }
 
 impl ClassSpec {
     /// 若 methods、associated_fns 均为空且没有 destroy_fn，则返回 `true`。
     /// 与 `hicc_codegen::generate` 的跳过条件一致：空 `ClassSpec` 不生成 `import_class!` 块。
     pub fn is_empty(&self) -> bool {
-        self.methods.is_empty() && self.associated_fns.is_empty() && self.destroy_fn.is_none()
+        self.methods.is_empty()
+            && self.associated_fns.is_empty()
+            && self.destroy_fn.is_none()
+            && self.ctor_factories.is_empty()
     }
 }
 

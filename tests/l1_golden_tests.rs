@@ -91,7 +91,7 @@ golden_test_lib!(test_002_function_overload, "002_function_overload");
 golden_test_lib!(test_003_default_args, "003_default_args");
 golden_test_lib_unix_only!(test_004_inline_functions, "004_inline_functions");
 golden_test_lib!(test_005_variadic_functions, "005_variadic_functions");
-golden_test_lib!(test_006_class_basic, "006_class_basic");
+golden_test_scaffold!(test_006_class_basic, "006_class_basic");
 golden_test_lib!(test_007_class_constructor, "007_class_constructor");
 golden_test_lib!(test_008_class_copy, "008_class_copy");
 golden_test_lib!(test_009_class_move, "009_class_move");

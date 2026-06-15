@@ -90,7 +90,12 @@ fn collect_namespace_inner(
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
-                    // 记录 `::` 限定命名空间路径，保留简单类名（hicc 直出绑定真实类）
+                    // 旧路径兼容：命名空间前缀（仅直接父命名空间名）扁平化进 `name`，
+                    // 以维持「被 extern-C 桥接引用的类」匹配等历史行为不变。
+                    if !ns_name.is_empty() {
+                        ci.name = format!("{}_{}", ns_name, ci.name);
+                    }
+                    // hicc 直出路径用 simple_name + namespace 还原真实命名空间类名。
                     ci.namespace = path_opt.clone();
                     ci.is_in_namespace = true;
                     ast.classes.push(ci);
@@ -98,6 +103,9 @@ fn collect_namespace_inner(
             }
             EntityKind::ClassTemplatePartialSpecialization => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
+                    if !ns_name.is_empty() {
+                        ci.name = format!("{}_{}", ns_name, ci.name);
+                    }
                     ci.namespace = path_opt.clone();
                     ci.is_in_namespace = true;
                     ast.classes.push(ci);
@@ -320,7 +328,8 @@ pub(super) fn extract_class(
     let (bases, methods, fields) = extract_class_members(entity);
 
     Some(ClassInfo {
-        name,
+        name: name.clone(),
+        simple_name: name,
         is_struct,
         is_abstract,
         template_args,
