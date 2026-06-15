@@ -718,6 +718,8 @@ hicc::import_lib! {
 | **L4** E2E 测试 | `rapidjson_e2e_test.rs` 等 | 对真实开源项目执行完整 init + merge 转换：①rapidjson（10 子系统 shim）验证 `import_lib!` FFI 绑定；②五大库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）验证工具在不同类型项目上的覆盖率与鲁棒性 | ✅ 通过 |
 | **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
+> **每个实际项目独立 CI**：L4 各真实项目（rapidjson / tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）在 Linux 上各有一个独立 workflow（`.github/workflows/e2e-<project>.yml`），互不阻塞、便于定位；跨平台（Windows/MSVC/macOS）覆盖仍集中在 `ci.yml`。
+
 ### 测试命令
 
 ```bash

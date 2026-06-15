@@ -738,41 +738,6 @@ jobs:
             --include-ignored \
             --test-threads=1
 
-  # ── L4: rapidjson 端到端门禁（init + merge 全流程）──────────────
-  l4-rapidjson-e2e:
-    name: L4 rapidjson E2E
-    runs-on: ubuntu-latest
-    needs: [build]
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-14-dev libgtest-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      # 单线程运行：clang 全局状态 + rapidjson 文件数量多
-      - name: Run L4 rapidjson E2E tests
-        run: |
-          cargo test --test rapidjson_e2e_test -- \
-            --test-threads=1
-
   # ── L4 Windows（MinGW）: 在 windows-latest 上验证 E2E 捕获流程 ──
   l4-rapidjson-e2e-windows:
     name: L4 rapidjson E2E (Windows MinGW)
@@ -1777,60 +1742,6 @@ jobs:
             --test-threads=4
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-  # ── L4: 五个新项目 E2E 端到端验证（tinyxml2/pugixml/sqlite3/nlohmann/fmtlib）─
-  l4-e2e-libraries:
-    name: L4 E2E Libraries
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false  # 手动初始化需要的子模块
-
-      - name: Init E2E submodules
-        run: |
-          git submodule update --init \
-            references/tinyxml2 \
-            references/pugixml \
-            references/nlohmann-json \
-            references/fmtlib
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-14-dev libsqlite3-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run tinyxml2 E2E
-        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
-
-      - name: Run pugixml E2E
-        run: cargo test --test pugixml_e2e_test -- --test-threads=1
-
-      - name: Run sqlite3 E2E
-        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
-
-      - name: Run nlohmann/json E2E
-        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
-
-      - name: Run fmtlib E2E
-        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
 
   # ── L4 E2E Libraries (macOS) ──────────────────────────────────────
   l4-e2e-libraries-macos:

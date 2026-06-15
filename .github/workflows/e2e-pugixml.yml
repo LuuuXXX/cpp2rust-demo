@@ -1,0 +1,53 @@
+name: E2E pugixml
+
+# 实际项目独立 CI：pugixml
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "src/**"
+      - "tests/pugixml_e2e_test.rs"
+      - ".github/workflows/e2e-pugixml.yml"
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  pugixml:
+    name: pugixml init+merge+check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/pugixml
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-pugixml-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run pugixml E2E
+        run: cargo test --test pugixml_e2e_test -- --test-threads=1
