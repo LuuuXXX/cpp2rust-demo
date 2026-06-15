@@ -718,6 +718,8 @@ hicc::import_lib! {
 | **L4** E2E 测试 | `rapidjson_e2e_test.rs` 等 | 对真实开源项目执行完整 init + merge 转换：①rapidjson（10 子系统 shim）验证 `import_lib!` FFI 绑定；②五大库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）验证工具在不同类型项目上的覆盖率与鲁棒性 | ✅ 通过 |
 | **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
+> **每个实际项目独立 CI**：L4 各真实项目（rapidjson / tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）在 Linux 上各有一个独立 workflow（`.github/workflows/e2e-<project>.yml`），互不阻塞、便于定位；跨平台（Windows/MSVC/macOS）覆盖仍集中在 `ci.yml`。
+
 ### 测试命令
 
 ```bash
@@ -902,11 +904,19 @@ cpp2rust-demo/
 ├── examples/          # 48 个示例，每个含 cpp/ 和 rust_hicc/ 子目录
 ├── tests/             # 五层测试体系（L1–L5）
 ├── docs/
-│   ├── plans/v5/      # 完整方案文档（automated-cpp2rust-ffi-v5.md）
+│   ├── plans/v7/      # 精炼设计说明（automated-cpp2rust-ffi-v7.md）
 │   └── references/    # hicc、c2rust-demo 等参考文档
-└── references/
-    └── c2rust-demo/   # C 语言版参考实现（同架构）
+└── references/        # 参考项目（git 子模块）
+    ├── hicc/                  # 子模块：hicc FFI 库
+    ├── hicc-usages/           # 子模块：hicc 原生表达示例集
+    ├── c2rust-demo/           # 子模块：C 语言版参考实现（同架构）
+    ├── rapidjson-refactoring/ # rapidjson shim 参考实现（vendored）
+    └── tinyxml2 / pugixml / sqlite / nlohmann-json / fmtlib  # 子模块：E2E 测试库
 ```
+
+> **子模块初始化**：按需拉取，例如
+> `git submodule update --init references/hicc-usages references/hicc references/c2rust-demo`。
+> E2E 测试库子模块见 `make submodules`（等价于 `git submodule update --init references/tinyxml2 references/pugixml references/nlohmann-json references/fmtlib`；无 `make` 时可直接运行该 git 命令）。
 
 ---
 

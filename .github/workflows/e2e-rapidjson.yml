@@ -1,0 +1,50 @@
+name: E2E rapidjson
+
+# 实际项目独立 CI：rapidjson（vendored shim 参考实现，无需子模块）
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "src/**"
+      - "tests/rapidjson_e2e_test.rs"
+      - "references/rapidjson-refactoring/**"
+      - ".github/workflows/e2e-rapidjson.yml"
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rapidjson:
+    name: rapidjson init+merge+check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev libgtest-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-rapidjson-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # 单线程：clang 全局状态 + rapidjson 文件数量多
+      - name: Run rapidjson E2E
+        run: cargo test --test rapidjson_e2e_test -- --test-threads=1

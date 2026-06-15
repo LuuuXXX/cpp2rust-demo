@@ -228,7 +228,7 @@ cpp2rust-demo merge --feature <name>
 
 **模板实例化**：`swap<int>` → `swap_int()`，`swap<double>` → `swap_double()`（模板声明本身不导出）
 
-> **模板泛型骨架（v6 引入，v7 起默认生成）**：工具会把模板**声明**也映射为 hicc 骨架——模板类 → 泛型 `import_class!`（`pub class Stack<T>`）、模板函数 → 泛型 `import_lib!`、被具体类型实例化的模板 → 类型别名（`pub type StackI32 = Stack<hicc::Pod<i32>>;`）及构造工厂骨架（`stack_i32_new`）。**v7 起默认生成、无需任何环境变量开关**；由于未实例化的模板没有可链接符号、泛型 `<T>` 不可直接编译，这些骨架默认以**注释**形式输出（带 `cpp2rust-todo[TMPL]` 占位提示），保证工具默认产物始终可编译，用户按实际实例化类型补全后取消注释即可。详见 [docs/references/hicc.md](references/hicc.md) 的「cpp2rust-demo 的模板映射」一节与 `docs/plans/v6/`、`docs/plans/v7/`。
+> **模板泛型骨架（默认生成）**：工具会把模板**声明**也映射为 hicc 骨架——模板类 → 泛型 `import_class!`（`pub class Stack<T>`）、模板函数 → 泛型 `import_lib!`、被具体类型实例化的模板 → 类型别名（`pub type StackI32 = Stack<hicc::Pod<i32>>;`）及构造工厂骨架（`stack_i32_new`）。**默认生成、无需任何环境变量开关**；由于未实例化的模板没有可链接符号、泛型 `<T>` 不可直接编译，这些骨架默认以**注释**形式输出（带 `cpp2rust-todo[TMPL]` 占位提示），保证工具默认产物始终可编译，用户按实际实例化类型补全后取消注释即可。详见 [docs/references/hicc.md](references/hicc.md) 的「cpp2rust-demo 的模板映射」一节。
 
 **运算符重载**：`operator+` → `number_add()`（C ABI 没有运算符符号，降级为命名函数）
 

@@ -1,8 +1,0 @@
-/target/
-/hook/libhook.so
-Cargo.lock
-
-# Test fixture build artifacts
-tests/fixtures/**/*.o
-tests/fixtures/**/*.a
-tests/fixtures/**/libsimple.so
