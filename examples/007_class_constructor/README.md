@@ -1,179 +1,93 @@
-# 007_class_constructor - 构造函数重载
+# 007_class_constructor - 多构造函数（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 类的构造函数重载，通过不同的工厂函数实现。
+本示例展示带**多个构造函数 + 析构函数**的地道 C++ 命名空间类，
+用 hicc 直出方式绑定：每个公有构造派生一条 `hicc::make_unique` 工厂，
+析构交给 hicc 的 `Drop`，**无 opaque 指针、无 `extern "C"` 桥接**。
 
-## C++ 代码
-
-### class_constructor.h
-
-```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-struct Point;
-
-// 构造函数变体
-struct Point* point_new_xy(int x, int y);
-struct Point* point_newPolar(double r, double theta);
-void point_delete(struct Point* self);
-
-int point_getX(struct Point* self);
-int point_getY(struct Point* self);
-double point_getMagnitude(struct Point* self);
-double point_getAngle(struct Point* self);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### class_constructor.cpp
+## C++ 代码（节选）
 
 ```cpp
-#include "class_constructor.h"
-#include <cmath>
+namespace class_ctor_ns {
 
-struct Point {
-    int x;
-    int y;
-};
-
-struct Point* point_new_xy(int x, int y) {
-    std::cout << "Point created: xy(" << x << ", " << y << ")" << std::endl;
-    return new Point{x, y};
-}
-
-struct Point* point_newPolar(double r, double theta) {
-    int x = static_cast<int>(r * cos(theta));
-    int y = static_cast<int>(r * sin(theta));
-    std::cout << "Point created: polar(" << r << ", " << theta << ")" << std::endl;
-    return new Point{x, y};
-}
-```
-
-## 构造函数重载与 FFI
-
-### C++ 构造函数重载
-
-C++ 允许同名构造函数，根据参数类型和个数选择：
-
-```cpp
-class Point {
+class Widget {
 public:
-    Point(int x, int y);           // 构造函数 #1
-    Point(double r, double theta); // 构造函数 #2
+    Widget();                              // 默认构造
+    explicit Widget(int v);                // int 构造
+    Widget(std::string n, int v);          // string + int 构造
+    ~Widget();                             // 析构
+
+    const std::string& name() const;
+    int value() const;
 };
+
+} // namespace class_ctor_ns
 ```
 
-### FFI 映射策略
+配套 `standalone.sh` / `Makefile` / `CMakeLists.txt` 三种纯 C++ 构建方式。
 
-由于 C 没有函数重载，需要通过不同的函数名实现：
-
-| C++ 构造函数 | FFI 函数 |
-|--------------|----------|
-| `Point(int x, int y)` | `point_new_xy(int x, int y)` |
-| `Point(double r, double theta)` | `point_newPolar(double r, double theta)` |
-
-## Rust FFI 代码
+## Rust FFI 代码（hicc 直出）
 
 ```rust
 hicc::cpp! {
-    #include <iostream>
-    #include <cmath>
-
     #include "class_constructor.h"
+    #include <hicc/std/string.hpp>
 }
 
 hicc::import_class! {
-    #[cpp(class = "Point", destroy = "point_delete")]
-    pub class Point {
-        #[cpp(method = "int getX() const")]
-        fn get_x(&self) -> i32;
+    class string = hicc_std::string;
 
-        #[cpp(method = "int getY() const")]
-        fn get_y(&self) -> i32;
+    #[cpp(class = "class_ctor_ns::Widget")]
+    pub class Widget {
+        #[cpp(method = "const std::string& name() const")]
+        pub fn name(&self) -> &string;
 
-        #[cpp(method = "double getMagnitude() const")]
-        fn get_magnitude(&self) -> f64;
+        #[cpp(method = "int value() const")]
+        pub fn value(&self) -> i32;
 
-        #[cpp(method = "double getAngle() const")]
-        fn get_angle(&self) -> f64;
+        pub fn new() -> Self { widget_default() }
+        pub fn from_int(v: i32) -> Self { widget_from_int(v) }
+        pub fn from_named(name: string, v: i32) -> Self { widget_from_named(name, v) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "class_constructor"]
 
-    class Point;
+    #[cpp(func = "std::unique_ptr<class_ctor_ns::Widget> hicc::make_unique<class_ctor_ns::Widget>()")]
+    pub fn widget_default() -> Widget;
 
-    #[cpp(func = "Point* point_new_xy(int, int)")]
-    fn point_new_xy(x: i32, y: i32) -> Point;
+    #[cpp(func = "std::unique_ptr<class_ctor_ns::Widget> hicc::make_unique<class_ctor_ns::Widget, int>(int&&)")]
+    pub fn widget_from_int(v: i32) -> Widget;
 
-    #[cpp(func = "Point* point_newPolar(double, double)")]
-    fn point_new_polar(r: f64, theta: f64) -> Point;
+    #[cpp(func = "std::unique_ptr<class_ctor_ns::Widget> hicc::make_unique<class_ctor_ns::Widget, std::string, int>(std::string&&, int&&)")]
+    pub fn widget_from_named(name: hicc_std::string, v: i32) -> Widget;
 }
 ```
+
 ## 关键点
 
-### 构造函数重载的 FFI 策略
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| 多个公有构造 | 每个构造一条 `hicc::make_unique<T, Args...>` 工厂 + `import_class!` body 内关联函数转发 |
+| 模板/调用实参 | 模板实参用衰减类型（`int`、`std::string`），调用实参用转发类型（`int&&`、`std::string&&`） |
+| 析构函数 | 由 hicc `Drop` 自动负责，无需 `*_delete` |
+| `const std::string&` 返回 | `&string`（`ClassRef`，配 `class string = hicc_std::string;`） |
 
-1. **工厂函数命名**：使用有意义的名称（如 `point_new_xy`）区分不同构造方式
-2. **参数类型明确**：每个重载的参数类型必须不同
-3. **Rust 端无重载**：Rust 端通过不同的函数名调用
-
-### 构造函数初始化顺序
-
-C++ 构造函数体内，初始化列表先于构造函数体执行。在 FFI 中：
-
-```rust
-// C++: Point(x, y) { }  等价于
-fn point_new_xy(x: i32, y: i32) -> *mut Point {
-    // 1. 分配内存
-    // 2. 初始化成员
-    // 3. 返回指针
-}
-```
+> 工具默认产物（`lib_scaffold.rs`）只默认生成参数可直出映射的构造（`new`/`new_2`）与基本类型方法；
+> 含 `std::string` 的构造与返回引用方法由手写 `lib.rs` 用 `hicc_std::string` 补全。
 
 ## 构建方法
 
-### C++ 编译
-
 ```bash
-cd cpp
-g++ -c class_constructor.cpp -o class_constructor.o
-g++ -shared -fPIC class_constructor.cpp -o libclass_constructor.so
-```
-
-### Rust 编译
-
-```bash
-cd rust_hicc
-cargo build
-cargo run
-```
-
-## 运行结果
-
-```
-Point 1: (3, 4)
-  Magnitude: 5
-  Angle: 0.9272952180016122
-
-Point created: polar(5, 0) -> xy(5, 0)
-Point 2: (5, 0)
-  Magnitude: 5
-  Angle: 0
-
-Rust FFI: Multiple constructors work!
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run / cmake）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
 ## 总结
 
-1. **构造函数重载不能直接映射**：C 没有重载
-2. **使用工厂函数**：每个构造函数对应一个工厂函数
-3. **命名体现语义**：`point_new_xy` vs `point_newPolar`
-4. **Rust 端无重载**：通过不同函数名区分
+1. **多工厂**：N 个公有构造 → N 条 `make_unique` 工厂，替代多套 `*_new` shim。
+2. **Drop 析构**：hicc 自动析构，替代 `*_delete` shim。
+3. **转发语义**：模板实参衰减、调用实参 `T&&`，与 hicc 蓝本一致。
+4. **零 unsafe 调用**：安全 Rust API。

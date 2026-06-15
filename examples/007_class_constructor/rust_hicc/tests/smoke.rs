@@ -1,26 +1,28 @@
-//! 007_class_constructor 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
-
 use class_constructor::*;
 
-#[test]
-fn smoke_point_xy_constructor() {
-    let p = point_new_xy(3, 4);
-    assert_eq!(p.get_x(), 3, "x 坐标应为 3");
-    assert_eq!(p.get_y(), 4, "y 坐标应为 4");
+fn show(s: &hicc_std::string) -> String {
+    let cs = unsafe { std::ffi::CStr::from_ptr(s.c_str()) };
+    cs.to_str().unwrap().to_string()
 }
 
 #[test]
-fn smoke_point_magnitude() {
-    let p = point_new_xy(3, 4);
-    let mag = p.get_magnitude();
-    assert!((mag - 5.0f64).abs() < 1e-6, "3-4-5 三角形幅度应为 5.0");
+fn default_ctor() {
+    let w = Widget::new();
+    assert_eq!(w.value(), 0);
+    assert_eq!(show(&w.name()), "default");
 }
 
 #[test]
-fn smoke_point_polar_constructor() {
-    let p = point_new_polar(5.0, 0.0);
-    assert_eq!(p.get_x(), 5, "极坐标 (5, 0) 的 x 应为 5");
-    assert_eq!(p.get_y(), 0, "极坐标 (5, 0) 的 y 应为 0");
+fn int_ctor() {
+    let w = Widget::from_int(99);
+    assert_eq!(w.value(), 99);
+    assert_eq!(show(&w.name()), "int");
+}
+
+#[test]
+fn named_ctor() {
+    let n = hicc_std::string::from(c"foo");
+    let w = Widget::from_named(n, 42);
+    assert_eq!(w.value(), 42);
+    assert_eq!(show(&w.name()), "foo");
 }

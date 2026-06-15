@@ -1,36 +1,30 @@
 #pragma once
+#include <string>
+#include <iostream>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace class_ctor_ns {
 
-struct Point;
-
-// 构造函数变体
-struct Point* point_new_xy(int x, int y);
-struct Point* point_newPolar(double r, double theta);
-void point_delete(struct Point* self);
-
-// 成员函数
-int point_getX(struct Point* self);
-int point_getY(struct Point* self);
-double point_getMagnitude(struct Point* self);
-double point_getAngle(struct Point* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
-class Point {
-    int x;
-    int y;
+class Widget {
 public:
-    Point(int x, int y);
-    ~Point();
-    int getX() const;
-    int getY() const;
-    double getMagnitude() const;
-    double getAngle() const;
+    Widget() : name_("default"), value_(0) {
+        std::cout << "Widget() ctor" << std::endl;
+    }
+    explicit Widget(int v) : name_("int"), value_(v) {
+        std::cout << "Widget(int) ctor, v=" << v << std::endl;
+    }
+    Widget(std::string n, int v) : name_(std::move(n)), value_(v) {
+        std::cout << "Widget(string,int) ctor, n=" << name_ << " v=" << v << std::endl;
+    }
+    ~Widget() {
+        std::cout << "~Widget() dtor, name=" << name_ << std::endl;
+    }
+
+    const std::string& name() const { return name_; }
+    int value() const { return value_; }
+
+private:
+    std::string name_;
+    int value_;
 };
 
-#endif
+} // namespace class_ctor_ns

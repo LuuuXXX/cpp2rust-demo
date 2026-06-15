@@ -153,22 +153,29 @@ fn build_one(ci: &ClassInfo, exported: &[&str]) -> Option<ClassSpec> {
         } else {
             format!("{}_new_{}", snake, idx + 1)
         };
-        // make_unique C++ 签名：参数按值用 `T&&`，引用/指针原样保留
-        let arg_types: Vec<String> = m
+        // make_unique 模板实参用「衰减类型」（按值 T、引用/指针原样），
+        // 调用实参用「转发类型」（按值 T&&、引用/指针原样），与 hicc 蓝本一致：
+        // `make_unique<Widget, int>(int&&)`。
+        let tmpl_types: Vec<String> = m
+            .params
+            .iter()
+            .map(|p| make_unique_template_type(&p.type_name))
+            .collect();
+        let call_types: Vec<String> = m
             .params
             .iter()
             .map(|p| make_unique_arg_type(&p.type_name))
             .collect();
-        let targs = if arg_types.is_empty() {
+        let targs = if tmpl_types.is_empty() {
             qualified.clone()
         } else {
-            format!("{}, {}", qualified, arg_types.join(", "))
+            format!("{}, {}", qualified, tmpl_types.join(", "))
         };
         let make_unique_sig = format!(
             "std::unique_ptr<{q}> hicc::make_unique<{targs}>({sig})",
             q = qualified,
             targs = targs,
-            sig = arg_types.join(", ")
+            sig = call_types.join(", ")
         );
         ctor_factories.push(CtorFactory {
             ctor_fn,
@@ -197,7 +204,7 @@ fn build_one(ci: &ClassInfo, exported: &[&str]) -> Option<ClassSpec> {
     })
 }
 
-/// make_unique 模板实参/调用实参的 C++ 类型：标量按值参用 `T&&`，引用/指针原样。
+/// make_unique 调用实参的 C++ 类型：标量按值参用 `T&&`，引用/指针原样。
 fn make_unique_arg_type(cpp_ty: &str) -> String {
     let t = super::normalize_ptr_spacing(super::strip_volatile(super::type_mapper::clean_type(
         cpp_ty,
@@ -207,6 +214,13 @@ fn make_unique_arg_type(cpp_ty: &str) -> String {
     } else {
         format!("{}&&", t)
     }
+}
+
+/// make_unique 模板实参的 C++ 类型：标量用衰减类型 `T`（不带 `&&`），引用/指针原样。
+fn make_unique_template_type(cpp_ty: &str) -> String {
+    super::normalize_ptr_spacing(super::strip_volatile(super::type_mapper::clean_type(
+        cpp_ty,
+    )))
 }
 
 /// 方法的参数与返回类型是否均为可直出映射的简单类型。
