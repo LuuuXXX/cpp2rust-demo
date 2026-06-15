@@ -1,120 +1,92 @@
-# 008_class_copy - 拷贝构造函数
+# 008_class_copy - 深拷贝构造（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 拷贝构造函数的 FFI 模式，通过工厂函数实现深拷贝。
+本示例展示带**深拷贝构造函数**的地道 C++ 命名空间类，用 hicc 直出方式绑定：
+默认构造与 `int` 构造各派生一条 `hicc::make_unique` 工厂，拷贝构造
+`Buffer(const Buffer&)` 由手写 `lib.rs` 补全；析构交给 hicc 的 `Drop`，
+**无 opaque 指针、无 `extern "C"` 桥接**。
 
-## C++ 代码
-
-### class_copy.h
-
-```cpp
-struct Buffer* buffer_newCopy(const struct Buffer* other);
-```
-
-### class_copy.cpp
+## C++ 代码（节选）
 
 ```cpp
-struct Buffer* buffer_newCopy(const struct Buffer* other) {
-    int* new_data = new int[other->size];
-    if (other->data) {
-        memcpy(new_data, other->data, other->size * sizeof(int));
-    }
-    return new Buffer{new_data, other->size};
-}
+namespace class_copy_ns {
+
+class Buffer {
+public:
+    Buffer();                       // 默认构造（空缓冲区）
+    explicit Buffer(int sz);        // 指定大小构造
+    Buffer(const Buffer& other);    // 深拷贝构造（独立内存）
+    Buffer& operator=(const Buffer& other); // 深拷贝赋值（rule of three）
+    ~Buffer();                      // 释放内存
+
+    void set(int index, int value);
+    int get(int index) const;
+    int size() const;
+};
+
+} // namespace class_copy_ns
 ```
 
-## 拷贝构造函数与 FFI
+配套 `standalone.sh` / `Makefile` 两种纯 C++ 构建方式。
 
-### 深拷贝 vs 浅拷贝
-
-| 类型 | 行为 |
-|------|------|
-| 浅拷贝 | 复制指针，不复制数据 |
-| 深拷贝 | 复制指针，分配新内存，复制数据 |
-
-本例实现深拷贝：修改原对象不影响拷贝对象。
-
-### FFI 映射
-
-| C++ 概念 | FFI 函数 |
-|----------|----------|
-| 拷贝构造函数 | `Class* class_copy(const Class*)` |
-| const 引用参数 | `const Class*` |
-
-## Rust FFI 代码
+## Rust FFI 代码（hicc 直出）
 
 ```rust
-hicc::cpp! {
-    #include <iostream>
-    #include <cstring>
-
-    #include "class_copy.h"
-}
-
 hicc::import_class! {
-    #[cpp(class = "Buffer", destroy = "buffer_delete")]
+    #[cpp(class = "class_copy_ns::Buffer")]
     pub class Buffer {
         #[cpp(method = "void set(int index, int value)")]
-        fn set(&mut self, index: i32, value: i32);
+        pub fn set(&mut self, index: i32, value: i32);
 
         #[cpp(method = "int get(int index) const")]
-        fn get(&self, index: i32) -> i32;
+        pub fn get(&self, index: i32) -> i32;
 
-        #[cpp(method = "int getSize() const")]
-        fn get_size(&self) -> i32;
+        #[cpp(method = "int size() const")]
+        pub fn size(&self) -> i32;
+
+        pub fn new() -> Self { buffer_new() }
+        pub fn new_2(sz: i32) -> Self { buffer_new_2(sz) }
+        pub fn from_copy(other: &Buffer) -> Self { buffer_from_copy(other) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "class_copy"]
 
-    class Buffer;
+    #[cpp(func = "std::unique_ptr<class_copy_ns::Buffer> hicc::make_unique<class_copy_ns::Buffer>()")]
+    pub fn buffer_new() -> Buffer;
 
-    #[cpp(func = "Buffer* buffer_new()")]
-    fn buffer_new() -> Buffer;
+    #[cpp(func = "std::unique_ptr<class_copy_ns::Buffer> hicc::make_unique<class_copy_ns::Buffer, int>(int&&)")]
+    pub fn buffer_new_2(sz: i32) -> Buffer;
 
-    #[cpp(func = "Buffer* buffer_newWithSize(int)")]
-    fn buffer_new_with_size(size: i32) -> Buffer;
-
-    #[cpp(func = "Buffer* buffer_newCopy(const Buffer* other)")]
-    fn buffer_new_copy(other: *const Buffer) -> Buffer;
+    #[cpp(func = "std::unique_ptr<class_copy_ns::Buffer> hicc::make_unique<class_copy_ns::Buffer, const class_copy_ns::Buffer&>(const class_copy_ns::Buffer&)")]
+    pub fn buffer_from_copy(other: &Buffer) -> Buffer;
 }
 ```
+
 ## 关键点
 
-### const 在 FFI 的意义
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| 默认 / `int` 构造 | 各派生一条 `hicc::make_unique<T, Args...>` 工厂（`new`/`new_2`） |
+| 拷贝构造 `Buffer(const Buffer&)` | 默认支架排除拷贝/移动构造；手写 `make_unique<Buffer, const Buffer&>` 工厂（`from_copy`） |
+| 深拷贝独立性 | 拷贝体与原对象内存独立，修改原对象不影响拷贝 |
+| 析构函数 | 由 hicc `Drop` 自动负责，无需 `*_delete` |
 
-1. **承诺不修改**：调用者保证不修改数据
-2. **编译器检查**：编译器帮助检测意外修改
-3. **Rust 映射**：`const` 映射为 `*const T`
+> 工具默认产物（`lib_scaffold.rs`）只默认生成参数可直出映射的构造（`new`/`new_2`）与
+> 基本类型方法；拷贝构造由手写 `lib.rs` 用 `const class_copy_ns::Buffer&` 补全。
 
-### 内存管理
+## 构建方法
 
-拷贝构造后，两个 Buffer 独立存在：
-```rust
-let buf2 = buffer_newCopy(buf1);  // 新的独立内存
-buffer_delete(buf1);               // buf1 释放，不影响 buf2
-buffer_delete(buf2);              // buf2 独立释放
-```
-
-## 运行结果
-
-```
-buf1 size: 5
-buf1 values: 10 20 30 40 50
-buf2 created by copy
-buf2 size: 5
-buf2 values: 10 20 30 40 50
-After modifying buf1[0] = 999:
-buf1[0] = 999
-buf2[0] = 10 (unchanged)
-
-Rust FFI: Copy constructor pattern works!
+```bash
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
 ## 总结
 
-1. **拷贝构造需要深拷贝**：分配新内存，复制数据
-2. **const 参数**：表示只读，不修改原对象
-3. **独立生命周期**：拷贝对象与原对象独立
+1. **多工厂**：默认 / `int` 构造 → `make_unique` 工厂，替代 `buffer_new` / `buffer_newWithSize` shim。
+2. **拷贝工厂**：手写 `make_unique<Buffer, const Buffer&>`，替代 `buffer_newCopy` shim。
+3. **Drop 析构**：hicc 自动析构，替代 `buffer_delete` shim。
+4. **深拷贝独立**：smoke 断言验证修改原对象后拷贝保持不变。

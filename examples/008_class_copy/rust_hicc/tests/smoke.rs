@@ -1,41 +1,39 @@
-//! 008_class_copy 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 008_class_copy 冒烟测试：深拷贝构造的独立性。
 
 use class_copy::*;
-use hicc::AbiClass;
 
 #[test]
-fn smoke_buffer_new_with_size() {
-    let buf = buffer_new_with_size(5);
-    assert_eq!(buf.get_size(), 5, "缓冲区大小应为 5");
+fn default_ctor_size_zero() {
+    let b = Buffer::new();
+    assert_eq!(b.size(), 0);
 }
 
 #[test]
-fn smoke_buffer_set_get() {
-    let mut buf = buffer_new_with_size(3);
-    buf.set(0, 10);
-    buf.set(1, 20);
-    buf.set(2, 30);
-    assert_eq!(buf.get(0), 10);
-    assert_eq!(buf.get(1), 20);
-    assert_eq!(buf.get(2), 30);
+fn sized_ctor_set_get() {
+    let mut b = Buffer::new_2(3);
+    assert_eq!(b.size(), 3);
+    b.set(0, 10);
+    b.set(1, 20);
+    b.set(2, 30);
+    assert_eq!(b.get(0), 10);
+    assert_eq!(b.get(1), 20);
+    assert_eq!(b.get(2), 30);
 }
 
 #[test]
-fn smoke_buffer_copy_independence() {
-    let mut buf1 = buffer_new_with_size(3);
-    buf1.set(0, 100);
-    buf1.set(1, 200);
-    buf1.set(2, 300);
+fn copy_is_independent() {
+    let mut b1 = Buffer::new_2(3);
+    b1.set(0, 100);
+    b1.set(1, 200);
+    b1.set(2, 300);
 
-    let buf2 = buffer_new_copy(&buf1.as_ptr());
-    // Verify copy matches original
-    assert_eq!(buf2.get(0), 100);
-    assert_eq!(buf2.get(1), 200);
-    assert_eq!(buf2.get(2), 300);
+    let b2 = Buffer::from_copy(&b1);
+    assert_eq!(b2.get(0), 100);
+    assert_eq!(b2.get(1), 200);
+    assert_eq!(b2.get(2), 300);
 
-    // Modify original — copy should be unchanged
-    buf1.set(0, 999);
-    assert_eq!(buf2.get(0), 100, "拷贝应独立于原始缓冲区");
+    // 修改原对象，拷贝应保持不变。
+    b1.set(0, 999);
+    assert_eq!(b1.get(0), 999);
+    assert_eq!(b2.get(0), 100, "深拷贝应独立于原始缓冲区");
 }

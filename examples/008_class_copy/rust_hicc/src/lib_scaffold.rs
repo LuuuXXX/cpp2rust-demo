@@ -1,8 +1,9 @@
-//! 008_class_copy: 深拷贝构造（命名空间类 + make_unique 工厂）。
-//!
-//! hicc 模式：默认 / `int` 构造与拷贝构造各派生一个 make_unique 工厂，
-//! Rust 侧以关联函数包装。拷贝构造 `Buffer(const Buffer&)` 由手写补全
-//! （工具默认支架排除拷贝/移动构造，见 `lib_scaffold.rs`）。
+// 008_class_copy 工具默认产物支架（hicc 直出，去 shim）。
+//
+// 用于 L1 黄金比对：校验 `init` 对「含深拷贝构造的命名空间类」默认生成的 hicc 骨架。
+// 默认构造与 `int` 构造派生 make_unique 工厂（`new`/`new_2`）；拷贝构造
+// `Buffer(const Buffer&)` 被默认排除（不派生工厂），需手写 `lib.rs` 用
+// `hicc::make_unique<Buffer, const Buffer&>` 补全，故不在默认支架内。
 
 hicc::cpp! {
     #include "class_copy.h"
@@ -23,9 +24,6 @@ hicc::import_class! {
         pub fn new() -> Self { buffer_new() }
 
         pub fn new_2(sz: i32) -> Self { buffer_new_2(sz) }
-
-        // 深拷贝：借用 other 构造独立副本。
-        pub fn from_copy(other: &Buffer) -> Self { buffer_from_copy(other) }
     }
 }
 
@@ -37,7 +35,4 @@ hicc::import_lib! {
 
     #[cpp(func = "std::unique_ptr<class_copy_ns::Buffer> hicc::make_unique<class_copy_ns::Buffer, int>(int&&)")]
     pub fn buffer_new_2(sz: i32) -> Buffer;
-
-    #[cpp(func = "std::unique_ptr<class_copy_ns::Buffer> hicc::make_unique<class_copy_ns::Buffer, const class_copy_ns::Buffer&>(const class_copy_ns::Buffer&)")]
-    pub fn buffer_from_copy(other: &Buffer) -> Buffer;
 }
