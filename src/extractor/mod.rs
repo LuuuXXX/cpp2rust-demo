@@ -87,8 +87,8 @@ pub fn extract(
     // 在 cpp! 块构建之前判定：Direct 模式不包含 shim 函数体
     let binding_mode = direct_binding::classify(&ast.classes, &eligible_functions);
 
-    // ── hicc::cpp! 块内容 ──────────────────────
-    let cpp_block_lines = if namespace_class_mode {
+    // ── hicc::cpp! 块内容（不含 using 别名，后续追加）──────────────────────
+    let mut cpp_block_lines = if namespace_class_mode {
         // 命名空间类模式：只生成项目头文件 include，不内联类体
         if let Some(hdr) = project_header {
             vec![format!("#include \"{}\"", hdr)]
@@ -123,34 +123,46 @@ pub fn extract(
     // 只为 extern-C 函数签名中明确引用的类生成 import_class!
     // 若 used_classes 为空（无类被引用），则不生成任何 import_class!
     //
-    // **P1 Direct 模式**：跳过 used_classes 过滤，对所有非命名空间类构建方法绑定
+    // **P1 Direct 模式**：跳过 used_classes 过滤，对所有可导出类构建方法绑定
     // （因为 direct 模式不依赖 extern-C shim 函数，每个 C++ 类都直接通过方法暴露）。
-    let class_specs: Vec<ClassSpec> = if binding_mode == crate::ffi_model::BindingMode::Direct {
-        direct_binding::build_direct_class_specs(&ast.classes)
-    } else if namespace_class_mode || used_classes.is_empty() {
-        Vec::new()
-    } else {
-        // 导出类名列表：只有在 used_classes 中的类才会真正生成 import_class! 块，
-        // 因此只有这些名称才能在方法绑定的类型映射中被视为合法的 FFI 类型。
-        let exported_class_names: Vec<&str> = ast
-            .classes
-            .iter()
-            .filter(|c| !c.name.is_empty() && used_classes.contains(&c.name))
-            .map(|c| c.name.as_str())
-            .collect();
-        ast.classes
-            .iter()
-            .filter(|c| !c.name.is_empty())
-            .filter(|c| used_classes.contains(&c.name))
-            .map(|ci| {
-                class_spec::build_class_spec(ci, &ast.classes, &exported_class_names)
-                    .unwrap_or_else(|| ClassSpec {
-                        name: ci.name.clone(),
-                        ..Default::default()
-                    })
-            })
-            .collect()
-    };
+    // 命名空间类通过 `using` 别名映射为扁平名称。
+    let (class_specs, using_aliases): (Vec<ClassSpec>, Vec<String>) =
+        if binding_mode == crate::ffi_model::BindingMode::Direct {
+            direct_binding::build_direct_class_specs(&ast.classes)
+        } else if namespace_class_mode || used_classes.is_empty() {
+            (Vec::new(), Vec::new())
+        } else {
+            // 导出类名列表：只有在 used_classes 中的类才会真正生成 import_class! 块，
+            // 因此只有这些名称才能在方法绑定的类型映射中被视为合法的 FFI 类型。
+            let exported_class_names: Vec<&str> = ast
+                .classes
+                .iter()
+                .filter(|c| !c.name.is_empty() && used_classes.contains(&c.name))
+                .map(|c| c.name.as_str())
+                .collect();
+            let specs: Vec<ClassSpec> = ast
+                .classes
+                .iter()
+                .filter(|c| !c.name.is_empty())
+                .filter(|c| used_classes.contains(&c.name))
+                .map(|ci| {
+                    class_spec::build_class_spec(ci, &ast.classes, &exported_class_names)
+                        .unwrap_or_else(|| ClassSpec {
+                            name: ci.name.clone(),
+                            ..Default::default()
+                        })
+                })
+                .collect();
+            (specs, Vec::new())
+        };
+
+    // 将 using 别名追加到 cpp! 块（Direct 模式下的命名空间类需要别名映射）
+    if !using_aliases.is_empty() {
+        cpp_block_lines.push(String::new());
+        for alias in &using_aliases {
+            cpp_block_lines.push(alias.clone());
+        }
+    }
 
     // ── import_lib! 块 ────────────────────────
     // 始终调用 build_lib_spec：其内部的 is_mappable_rust_type 过滤器会自动排除
@@ -158,6 +170,10 @@ pub fn extract(
     // 而 void* → *mut u8 等可映射类型则正常生成绑定。
     //
     // **P1 Direct 模式**：lib_spec 只含每个类的 `make_unique<T>` 工厂，不含其他 shim 绑定。
+    // 注意：`class_specs` 使用扁平名称（如 xml_node），而 `ast.classes` 使用命名空间前缀名称
+    // （如 pugi_xml_node）。build_direct_lib_spec 需要同时使用两者：
+    // - `class_specs[].name` = 扁平名称（用于 Rust 函数名和 #[cpp(func)] 中的别名引用）
+    // - `ast.classes` 的 ClassInfo = 原始信息（用于构造函数参数和工厂生成）
     let lib_spec = if binding_mode == crate::ffi_model::BindingMode::Direct {
         direct_binding::build_direct_lib_spec(&class_specs, &ast.classes, &functions, unit_name)
     } else {
@@ -1263,6 +1279,7 @@ mod tests {
             methods,
             fields: vec![],
             is_in_namespace: false,
+            namespace_prefix: String::new(),
             is_from_current_file: true,
         }
     }
@@ -1642,6 +1659,7 @@ mod tests {
             methods: vec![],
             fields: vec![],
             is_in_namespace: false,
+            namespace_prefix: String::new(),
             is_from_current_file: true,
         }];
         let fi = FunctionInfo {
@@ -1675,6 +1693,7 @@ mod tests {
             methods: vec![],
             fields: vec![],
             is_in_namespace: false,
+            namespace_prefix: String::new(),
             is_from_current_file: true,
         }];
         let fi = FunctionInfo {

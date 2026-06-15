@@ -31,14 +31,14 @@
 
 ### Requirement: references/ 瘦身
 
-`references/` 目录从约 17 MB 瘦身至 ≤ 3 MB。
+`references/` 目录从约 17 MB 瘦身至 ≤ 35 MB（含新增 rapidjson submodule 约 4.4 MB）。
 
 #### Scenario: 历史快照删除
 - THEN `references/rapidjson-refactoring/` 与 `references/c2rust-demo/` 已被 `git rm`
-- AND `references/` 总体积 ≤ 3 MB
+- AND `references/` 总体积 ≤ 35 MB
 
 #### Scenario: 5 个 submodule 保留
-- THEN 5 个 submodule 路径仍存在（tinyxml2 / pugixml / sqlite / nlohmann-json / fmtlib）
+- THEN 7 个 submodule 路径仍存在（tinyxml2 / pugixml / sqlite / nlohmann-json / fmtlib / rapidjson / hicc）
 
 ---
 

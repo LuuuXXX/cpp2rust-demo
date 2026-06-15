@@ -209,6 +209,7 @@ mod tests {
             methods,
             fields: vec![],
             is_in_namespace: false,
+            namespace_prefix: String::new(),
             is_from_current_file: true,
         }
     }

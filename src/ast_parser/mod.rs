@@ -107,6 +107,9 @@ pub struct ClassInfo {
     pub fields: Vec<FieldInfo>,
     /// 是否来自命名空间（collect_namespace 收集的类）
     pub is_in_namespace: bool,
+    /// 命名空间前缀（如 `pugi::`、`rapidjson::`）；仅 `is_in_namespace=true` 时有值。
+    /// 用于生成 `using` 别名：`using FlatName = NamespacePath::OriginalName;`
+    pub namespace_prefix: String,
     /// 是否定义在当前被解析的 `.cpp2rust` 文件中（false 表示来自被 include 的头文件）
     pub is_from_current_file: bool,
 }
@@ -320,7 +323,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, &mut ast, &cpp_ranges, &user_ranges);
+                collect_namespace(&entity, &mut ast, &cpp_ranges, &user_ranges, "");
             }
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, &mut ast, &user_ranges);

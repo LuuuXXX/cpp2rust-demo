@@ -59,6 +59,9 @@
 | [047_noexcept_basic](../examples/047_noexcept_basic) | 高级特性 | noexcept | ✅ | 全平台 | 对 FFI 透明 |
 | [048_summary](../examples/048_summary) | 高级特性 | 综合 FFI | ✅ | 全平台 | 所有策略组合 |
 | [049_direct_class_basic](../examples/049_direct_class_basic) | Direct Binding | 直接绑定类 | ✅ | 全平台 | `import_class!` + `import_lib!` |
+| [050_rapidjson_direct](../examples/050_rapidjson_direct) | Direct Binding | 第三方库（rapidjson）命名空间类 | ✅ | 全平台 | `using` 别名 + `import_class!` + `import_lib!` |
+| [051_pugixml_direct](../examples/051_pugixml_direct) | Direct Binding | 第三方库（pugixml）命名空间类 | ✅ | 全平台 | `using` 别名 + `import_class!` + `import_lib!` |
+| [052_nlohmann_json_direct](../examples/052_nlohmann_json_direct) | Direct Binding | 第三方库（nlohmann-json）模板类 | ⚠️ `[TM]` | 全平台 | extern "C" wrapper + `import_lib!` |
 
 ---
 
@@ -73,6 +76,7 @@
 | `[CV]` | 005 | C 可变参数函数 | `...` 参数在运行时按 `va_list` 访问 | 含 `...` 函数整体跳过 | 补充固定参数 wrapper |
 | `[FP]` | 039, 040 | 函数指针参数 | C++ 成员函数指针无法映射为 Rust FFI 类型 | C 函数指针 → `unsafe extern "C" fn(...)` + `[FP]` 注释 | 确认 `extern "C"` 调用约定 |
 | `[VM]` | 012 | volatile 成员函数 | `volatile this` 在 Rust 无对应语义 | volatile 方法从 `import_class!` 移除 | 检查 `import_lib!` 中 volatile shim |
+| `[TM]` | 052 | 模板类（nlohmann-json） | `basic_json<9+模板参数>` 无法直接绑定 | extern "C" wrapper 函数 + `import_lib!` | 手动编写 C++ wrapper 函数 |
 | `[LONG_DOUBLE]` | — | `long double` | x86-64 80 位扩展浮点，Rust 无原生对应 | 降级映射为 `f64`（精度损失）+ `[LONG_DOUBLE]` 注释 | 引入 `f128`/`rug` crate 或手动桥接 |
 
 ---

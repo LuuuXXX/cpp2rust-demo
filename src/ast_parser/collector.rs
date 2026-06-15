@@ -53,8 +53,19 @@ pub(super) fn collect_namespace(
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
     user_ranges: &[std::ops::Range<u32>],
+    parent_ns_path: &str,
 ) {
     let ns_name = ns.get_name().unwrap_or_default();
+    let ns_path = if parent_ns_path.is_empty() {
+        ns_name.clone()
+    } else {
+        format!("{}::{}", parent_ns_path, ns_name)
+    };
+    let ns_prefix = if ns_path.is_empty() {
+        String::new()
+    } else {
+        format!("{}::", ns_path)
+    };
     for entity in ns.get_children() {
         if entity
             .get_location()
@@ -66,11 +77,11 @@ pub(super) fn collect_namespace(
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
-                    // 命名空间前缀扁平化到类名
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
                     ci.is_in_namespace = true;
+                    ci.namespace_prefix = ns_prefix.clone();
                     ast.classes.push(ci);
                 }
             }
@@ -80,6 +91,7 @@ pub(super) fn collect_namespace(
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
                     ci.is_in_namespace = true;
+                    ci.namespace_prefix = ns_prefix.clone();
                     ast.classes.push(ci);
                 }
             }
@@ -99,7 +111,7 @@ pub(super) fn collect_namespace(
                 collect_typedef(&entity, ast, user_ranges);
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, ast, cpp_ranges, user_ranges);
+                collect_namespace(&entity, ast, cpp_ranges, user_ranges, &ns_path);
             }
             _ => {}
         }
@@ -167,6 +179,7 @@ pub(super) fn collect_linkage_spec(
             EntityKind::StructDecl if entity.is_definition() => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
                     ci.is_in_namespace = false;
+                    ci.namespace_prefix = String::new();
                     ast.classes.push(ci);
                 }
             }
@@ -308,6 +321,7 @@ pub(super) fn extract_class(
         methods,
         fields,
         is_in_namespace: false,
+        namespace_prefix: String::new(),
         is_from_current_file,
     })
 }

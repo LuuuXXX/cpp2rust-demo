@@ -13,3 +13,6 @@
 [submodule "references/fmtlib"]
 	path = references/fmtlib
 	url = https://github.com/fmtlib/fmt.git
+[submodule "references/rapidjson"]
+	path = references/rapidjson
+	url = https://github.com/Tencent/rapidjson.git

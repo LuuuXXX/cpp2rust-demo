@@ -360,8 +360,12 @@ fn parse_class_content(inner_lines: &[String]) -> Option<ParsedClassBlock> {
                 continue;
             }
 
-            // 方法签名行（以 `fn ` 开头）
-            if trimmed.starts_with("fn ") {
+            // 方法签名行（以 `fn `、`pub fn `、`unsafe fn `、`pub unsafe fn ` 开头）
+            if trimmed.starts_with("fn ")
+                || trimmed.starts_with("pub fn ")
+                || trimmed.starts_with("unsafe fn ")
+                || trimmed.starts_with("pub unsafe fn ")
+            {
                 if let Some(attr) = pending_attr.take() {
                     methods.push(BlockMethod {
                         attr,
@@ -445,8 +449,12 @@ fn parse_lib_content(inner_lines: &[String]) -> Option<ParsedLibBlock> {
             continue;
         }
 
-        // 函数签名行（以 `fn ` 或 `unsafe fn ` 开头）
-        if trimmed.starts_with("fn ") || trimmed.starts_with("unsafe fn ") {
+        // 函数签名行（以 `fn `、`pub fn `、`unsafe fn `、`pub unsafe fn ` 开头）
+        if trimmed.starts_with("fn ")
+            || trimmed.starts_with("pub fn ")
+            || trimmed.starts_with("unsafe fn ")
+            || trimmed.starts_with("pub unsafe fn ")
+        {
             if let Some(attr) = pending_attr.take() {
                 fn_bindings.push(ParsedFnBinding {
                     attr,

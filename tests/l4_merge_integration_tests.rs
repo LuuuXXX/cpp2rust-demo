@@ -20,17 +20,25 @@ use tempfile::TempDir;
 fn collect_golden_rs_files(examples: &[&str], tmp_dir: &std::path::Path) -> Vec<PathBuf> {
     let mut result = Vec::new();
     for name in examples {
-        let golden = format!("examples/{}/rust_hicc/src/main.rs", name);
-        let path = std::path::Path::new(&golden);
-        if !path.exists() {
-            continue;
-        }
-        // 为每个 example 写入独立文件，文件名取 example 名
-        let dest = tmp_dir.join(format!("{}.rs", name));
-        std::fs::copy(path, &dest)
-            .unwrap_or_else(|e| panic!("复制黄金文件 {} 失败: {}", path.display(), e));
-        if dest.exists() {
-            result.push(dest);
+        for file_name in &["lib.rs", "lib_scaffold.rs", "main.rs"] {
+            let golden = format!("examples/{}/rust_hicc/src/{}", name, file_name);
+            let path = std::path::Path::new(&golden);
+            if !path.exists() {
+                continue;
+            }
+            let content = std::fs::read_to_string(path).unwrap_or_default();
+            if !content.contains("import_lib!")
+                && !content.contains("import_class!")
+                && !content.contains("hicc::cpp!")
+            {
+                continue;
+            }
+            let dest = tmp_dir.join(format!("{}_{}", name, file_name));
+            std::fs::copy(path, &dest)
+                .unwrap_or_else(|e| panic!("复制黄金文件 {} 失败: {}", path.display(), e));
+            if dest.exists() {
+                result.push(dest);
+            }
         }
     }
     result

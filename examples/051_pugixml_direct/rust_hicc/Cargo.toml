@@ -1,0 +1,19 @@
+[package]
+name = "pugixml_direct"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "pugixml_direct"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pugixml_direct"
+path = "src/main.rs"
+
+[dependencies]
+hicc = { version = "0.2" }
+
+[build-dependencies]
+cc = "1.0"
+hicc-build = { version = "0.2" }
