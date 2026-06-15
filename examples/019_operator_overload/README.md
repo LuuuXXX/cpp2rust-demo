@@ -1,217 +1,86 @@
-# 019_operator_overload - 运算符重载
+# 019_operator_overload - 运算符重载（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 运算符重载的 FFI 映射。
+本示例展示**运算符重载**的地道 C++ 命名空间类 `Number`：算术（`+ - * /`）、一元负号、
+前置自增/自减（`++`/`--`）、复合赋值（`+= -=`）以及普通比较方法 `compare()`。用 hicc
+直出绑定，**无 opaque 指针、无 `extern "C"` 桥接**。
 
-## C++ 代码
-
-### operator_overload.h
+## C++ 代码（节选）
 
 ```cpp
-class Number {
-    int value;
-public:
-    Number(int v) : value(v) {}
+namespace operator_overload_ns {
 
-    // 运算符重载
-    Number operator+(const Number& other) const;
+class Number {
+public:
+    explicit Number(int v);
+    int value() const;
+    Number operator+(const Number& other) const;   // 算术
     Number operator-(const Number& other) const;
     Number operator*(const Number& other) const;
     Number operator/(const Number& other) const;
-
-    // 比较运算符
-    int operator<=>(const Number& other) const;  // C++20 spaceship
-
-    // 一元运算符
-    Number operator-() const;
-    Number& operator++();    // 前置++
-    Number& operator--();    // 前置--
-
-    // 复合赋值
-    Number& operator+=(const Number& other);
+    int compare(const Number& other) const;          // 普通方法
+    Number operator-() const;                         // 一元
+    Number& operator++();                             // 前置 ++
+    Number& operator--();
+    Number& operator+=(const Number& other);          // 复合赋值
     Number& operator-=(const Number& other);
+private:
+    int value_;
 };
+
+} // namespace operator_overload_ns
 ```
 
-## 运算符重载与 FFI
+配套 `standalone.sh` / `Makefile` 两种纯 C++ 构建方式。
 
-### C++ 运算符语法
+## Rust FFI 代码（hicc 直出 + 运算符命名包装）
 
-```cpp
-Number a(10), b(3);
-Number c = a + b;        // 运算符
-Number d = a.operator+(b);  // 成员函数语法
-```
-
-### FFI 映射：运算符到命名方法
-
-| C++ 运算符 | C++ 函数语法 | FFI 函数 |
-|------------|--------------|----------|
-| `a + b` | `a.operator+(b)` | `number_add(a, b)` |
-| `a - b` | `a.operator-(b)` | `number_sub(a, b)` |
-| `a * b` | `a.operator*(b)` | `number_mul(a, b)` |
-| `a / b` | `a.operator/(b)` | `number_div(a, b)` |
-| `-a` | `a.operator-()` | `number_negate(a)` |
-| `++a` | `a.operator++()` | `number_increment(a)` |
-| `a += b` | `a.operator+=(b)` | `number_add_assign(a, b)` |
-
-### 运算符重载规则
-
-1. **不能改变优先级**：`*` 仍然比 `+` 高
-2. **不能改变结合性**：`a + b + c` 仍然是 `(a + b) + c`
-3. **不能发明新运算符**：只能重载已有的
-4. **不能重载内建类型**：`int + int` 不能改变
-
-### C++ 运算符表
-
-| 类别 | 运算符 |
-|------|--------|
-| 算术 | `+`, `-`, `*`, `/`, `%` |
-| 位 | `&`, `\|`, `^`, `~`, `<<`, `>>` |
-| 比较 | `==`, `!=`, `<`, `>`, `<=`, `>=` |
-| 逻辑 | `&&`, `\|\|`, `!` |
-| 赋值 | `=`, `+=`, `-=`, `*=`, `/=` |
-| 递增递减 | `++`, `--` |
-| 其他 | `[]`, `()`, `->`, `->*`, `,` |
-
-## Rust FFI 代码
+hicc 直出**跳过 `operator` 重载**：默认支架（`lib_scaffold.rs`）仅含普通方法
+`value()`/`compare()` 与构造工厂。运算符在手写 `lib.rs` 中以 `hicc::cpp!` 命名包装
+函数补全——每个运算符包成一个具名 C++ 函数（返回 `std::unique_ptr<Number>` 或就地
+修改 `*self`），再用 `#[cpp(func = ...)]` 绑定为 `Number` 的关联方法：
 
 ```rust
 hicc::cpp! {
-    #include <iostream>
-
     #include "operator_overload.h"
-
-    int number_get_value(const Number* self) {
-        return self->getValue();
+    #include <memory>
+    using operator_overload_ns::Number;
+    std::unique_ptr<Number> number_op_add(const Number* self, const Number& other) {
+        return std::make_unique<Number>(*self + other);
     }
-
-    Number* number_add(const Number* a, const Number* b) {
-        return new Number(*a + *b);
-    }
-
-    Number* number_sub(const Number* a, const Number* b) {
-        return new Number(*a - *b);
-    }
-
-    Number* number_mul(const Number* a, const Number* b) {
-        return new Number(*a * *b);
-    }
-
-    Number* number_div(const Number* a, const Number* b) {
-        return new Number(*a / *b);
-    }
-
-    Number* number_negate(const Number* a) {
-        return new Number(-*a);
-    }
-
-    int number_compare(const Number* a, const Number* b) {
-        return a->compare(*b);
-    }
+    void number_op_inc(Number* self) { ++(*self); }
+    // ... sub/mul/div/neg/dec/+=/-= 同理
 }
 
-hicc::import_class! {
-    #[cpp(class = "Number", destroy = "number_delete")]
-    pub class Number {
-        #[cpp(method = "int getValue() const")]
-        fn get_value(&self) -> i32;
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "operator_overload"]
-
-    class Number;
-
-    #[cpp(func = "Number* number_new(int)")]
-    fn number_new(value: i32) -> Number;
-
-    #[cpp(func = "int number_get_value(const Number*)")]
-    fn number_getValue(self_: *const Number) -> i32;
-
-    #[cpp(func = "Number* number_add(const Number*, const Number*)")]
-    fn number_add(a: *const Number, b: *const Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_sub(const Number*, const Number*)")]
-    fn number_sub(a: *const Number, b: *const Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_mul(const Number*, const Number*)")]
-    fn number_mul(a: *const Number, b: *const Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_div(const Number*, const Number*)")]
-    fn number_div(a: *const Number, b: *const Number) -> *mut Number;
-
-    #[cpp(func = "Number* number_negate(const Number*)")]
-    fn number_negate(a: *const Number) -> *mut Number;
-
-    #[cpp(func = "int number_compare(const Number*, const Number*)")]
-    fn number_compare(a: *const Number, b: *const Number) -> i32;
-}
+// import_class! 内：
+#[cpp(func = "std::unique_ptr<operator_overload_ns::Number> number_op_add(const operator_overload_ns::Number*, const operator_overload_ns::Number&)")]
+pub fn op_add(&self, other: &Number) -> Number;
+#[cpp(func = "void number_op_inc(operator_overload_ns::Number*)")]
+pub fn increment(&mut self);
 ```
+
 ## 关键点
 
-### 运算符重载的 FFI 策略
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| `operator+ - * /` | 跳过自动绑定 → `hicc::cpp!` 命名包装 + `#[cpp(func)]` 关联方法 `op_add` 等 |
+| 一元 `operator-` | 包装 `number_op_neg` → `op_neg(&self) -> Number` |
+| `++`/`--` | 就地修改 `*self` → `increment`/`decrement`（`&mut self`） |
+| `+=`/`-=` | 就地修改 → `add_assign`/`sub_assign`（`&mut self`） |
+| 普通方法 `compare` | 直接绑定（`const Number&` → `&Number`） |
+| 返回新对象 | 包装函数返回 `std::unique_ptr<Number>`，hicc 映射为按值 `Number` |
 
-1. **命名方法**：每个运算符对应一个命名方法
-2. **函数签名**：运算符变成普通函数
-3. **返回新对象**：大多数运算符返回新对象
+## 构建方法
 
-### 示例
-
-```cpp
-// C++
-Number c = a + b * d;
-
-// FFI 等价
-Number* temp = number_mul(b, d);
-Number* c = number_add(a, temp);
-number_delete(temp);
-```
-
-### Rust 中的运算符
-
-Rust 也有运算符重载，通过 `std::ops` trait：
-
-```rust
-use std::ops::Add;
-
-impl Add for Number {
-    type Output = Number;
-    fn add(self, other: Number) -> Number {
-        Number(self.value + other.value)
-    }
-}
-```
-
-## 运行结果
-
-```
-=== Operator Overload FFI ===
-
-C++ operator overloading becomes named method calls in FFI
-
-Created numbers: a = 10, b = 3
-
-Result of a + b = 13
-Result of a - b = 7
-Result of a * b = 30
-Result of a / b = 3
-
-Unary operators:
-Negation of a = -10
-a compared to b = 7
-
-Rust FFI: Operators become named methods
-a + b -> number_add(a, b)
-a - b -> number_sub(a, b)
-a * b -> number_mul(a, b)
+```bash
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
 ## 总结
 
-1. **运算符重载**：让类支持运算符操作
-2. **FFI 映射**：运算符变成命名方法调用
-3. **命名约定**：`operator+` -> `add`, `operator*` -> `mul`
-4. **Rust 替代**：使用 trait 实现运算符重载
+1. **运算符跳过**：hicc 直出不自动绑定 `operator` 重载。
+2. **命名包装**：以 `hicc::cpp!` 具名函数补全运算符，绑定为关联方法。
+3. **返回新对象**：包装函数返回 `unique_ptr<Number>`，映射为按值 `Number`。
+4. **就地修改**：`++`/`--`/`+=`/`-=` 以 `&mut self` 包装实现。
