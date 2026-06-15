@@ -902,11 +902,30 @@ cpp2rust-demo/
 ├── examples/          # 48 个示例，每个含 cpp/ 和 rust_hicc/ 子目录
 ├── tests/             # 五层测试体系（L1–L5）
 ├── docs/
-│   ├── plans/v5/      # 完整方案文档（automated-cpp2rust-ffi-v5.md）
-│   └── references/    # hicc、c2rust-demo 等参考文档
-└── references/
-    └── c2rust-demo/   # C 语言版参考实现（同架构）
+│   ├── INTRODUCTION.md   # 三阶段流水线 + 直接绑定映射规则
+│   └── references/       # hicc、c2rust-demo、rapidjson 等参考文档
+└── references/        # 参考实现与真实项目（部分以 git 子模块管理，见下）
 ```
+
+### references 参考仓库
+
+`references/` 下既有真实第三方库子模块（用于 L4 E2E），也包含 hicc 生态参考实现：
+
+| 路径 | 来源 | 管理方式 |
+|------|------|---------|
+| `references/hicc-usages` | https://github.com/LuuuXXX/hicc-usages | git 子模块（去 shim 直接绑定的 hicc 用法范例） |
+| `references/hicc` | https://github.com/LuuuXXX/hicc | git 子模块；上游 gitcode 源受网络限制时回退为 vendored 副本 |
+| `references/c2rust-demo` | https://github.com/LuuuXXX/c2rust-demo | git 子模块（C 语言版同架构参考） |
+| `references/tinyxml2`·`pugixml`·`sqlite`·`nlohmann-json`·`fmtlib` | 各上游仓库 | git 子模块（L4 真实项目 E2E） |
+
+按需初始化（CI 各 job 仅拉取所需路径，避免全量下载）：
+
+```bash
+git submodule update --init references/hicc-usages
+git submodule update --init references/tinyxml2 references/pugixml references/nlohmann-json references/fmtlib
+```
+
+> **网络受限兜底**：当某子模块上游源（如 hicc 的 gitcode 源）被网络屏蔽导致 `submodule update` 失败时，仓库保留对应 vendored 副本，并在 `.gitmodules` 注释中说明，CI 不因此阻塞。
 
 ---
 

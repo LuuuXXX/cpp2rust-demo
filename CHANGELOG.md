@@ -15,7 +15,7 @@
 
 - 重写 `tests/{template,proxy,dynamic_cast}_gen_tests.rs`，去掉环境变量串行化（`set_var`/`remove_var`），改为断言默认产物；新增「模板骨架须为注释行」契约断言。
 - `tests/l1_golden_tests.rs` 新增 `golden_test_scaffold!` 宏；024 模板函数示例黄金 `lib_scaffold.rs` 更新为注释骨架形式。
-- README / INTRODUCTION / hicc.md / DEVELOPMENT 全面对齐「默认生成、无开关」；新增 `docs/plans/v7/`。
+- README / INTRODUCTION / hicc.md / DEVELOPMENT 全面对齐「默认生成、无开关」。
 
 ### 移除
 

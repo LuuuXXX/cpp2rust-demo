@@ -13,3 +13,21 @@
 [submodule "references/fmtlib"]
 	path = references/fmtlib
 	url = https://github.com/fmtlib/fmt.git
+
+# ── hicc 生态参考仓库（方案需求三：references 子模块化）────────────────────
+# 以下三个仓库为 hicc 生态参考实现，目标以 git 子模块管理：
+#   references/hicc-usages → https://github.com/LuuuXXX/hicc-usages
+#       （去 shim 直接绑定的 hicc 用法范例，001~048 与本仓库 examples 对齐）
+#   references/hicc        → https://github.com/LuuuXXX/hicc
+#       （hicc 本体；上游 gitcode 镜像受网络限制时回退为 vendored 副本）
+#   references/c2rust-demo → https://github.com/LuuuXXX/c2rust-demo
+#       （C 语言版同架构参考）
+#
+# 网络受限兜底（方案 一.3）：当上述任一上游源被网络屏蔽、`git submodule
+# add/update` 无法拉取时，仓库保留对应 vendored 副本（references/hicc、
+# references/c2rust-demo 当前即为 vendored），CI 不因子模块拉取失败而阻塞。
+# 网络可达环境下应执行：
+#   git submodule add https://github.com/LuuuXXX/hicc-usages.git references/hicc-usages
+#   git submodule add https://github.com/LuuuXXX/c2rust-demo.git  references/c2rust-demo
+#   git submodule add https://github.com/LuuuXXX/hicc.git         references/hicc
+# 并将本注释替换为对应 [submodule "..."] 段。

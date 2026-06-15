@@ -136,4 +136,4 @@ hicc::import_class! { /* ... */ }
 hicc::import_lib! { /* ... */ }
 ```
 
-详细说明参见仓库 README 或 `docs/plans/v5/`。
+详细说明参见仓库 README 与 `docs/INTRODUCTION.md`。
