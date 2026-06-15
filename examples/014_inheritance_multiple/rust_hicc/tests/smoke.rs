@@ -1,32 +1,19 @@
-//! 014_inheritance_multiple 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 014_inheritance_multiple 冒烟测试：多继承基类/派生类绑定与数据组合。
 
 use inheritance_multiple::*;
 
 #[test]
-fn smoke_derived_base1_value() {
-    let derived = derived_new(10, 20, 30);
-    assert_eq!(derived.get_value1(), 10, "Base1 值应为 10");
+fn base_classes_independent() {
+    let b1 = Base1::new(7);
+    let b2 = Base2::new(9);
+    assert_eq!(b1.value1(), 7);
+    assert_eq!(b2.value2(), 9);
 }
 
 #[test]
-fn smoke_derived_value() {
-    let derived = derived_new(10, 20, 30);
-    assert_eq!(derived.get_derived_value(), 30, "Derived 值应为 30");
-}
-
-#[test]
-fn smoke_derived_base2_value() {
-    let derived = derived_new(10, 20, 30);
-    // hicc 多重继承对 Base2 方法指针偏移有限制，get_value2() 可能返回 Base1 的值；
-    // 此处仅验证方法可调用，精确值断言见 smoke_derived_base1_value 和 smoke_derived_value
-    let _ = derived.get_value2();
-}
-
-#[test]
-fn smoke_derived_compute() {
-    let derived = derived_new(5, 10, 15);
-    // compute() 仅输出到 stdout（打印 5+10+15=30），验证调用不 panic
-    derived.compute();
+fn derived_combines_two_bases() {
+    let d = Derived::new(10, 20, 12);
+    assert_eq!(d.derived_value(), 12);
+    // compute() 复用两个基类数据成员：10 + 20 + 12
+    assert_eq!(d.compute(), 42);
 }

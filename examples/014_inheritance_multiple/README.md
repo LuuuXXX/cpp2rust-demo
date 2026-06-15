@@ -1,163 +1,78 @@
-# 014_inheritance_multiple - 多继承
+# 014_inheritance_multiple - 多继承（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 多继承的 FFI 映射。
+本示例展示**多继承**的地道 C++ 命名空间类：派生类
+`Derived : public Base1, public Base2` 同时继承两个基类，组合二者的数据成员。
+用 hicc 直出绑定，**无 opaque 指针、无 `extern "C"` 桥接**。
 
-## C++ 代码
-
-### inheritance_multiple.h
-
-```cpp
-// Base1 基类
-struct Base1 {
-    int value1;
-};
-
-// Base2 基类
-struct Base2 {
-    int value2;
-};
-
-// Derived 派生类 (多继承：继承自 Base1 和 Base2)
-struct Derived {
-    struct Base1 base1;  // 第一个基类
-    struct Base2 base2;  // 第二个基类
-    int derived_value;
-};
-```
-
-### C++ 多继承
+## C++ 代码（节选）
 
 ```cpp
+namespace inheritance_multiple_ns {
+
 class Base1 {
 public:
-    int value1;
-    int getValue1();
+    explicit Base1(int v);
+    virtual ~Base1();
+    int value1() const;
+protected:
+    int value1_;
 };
 
 class Base2 {
 public:
-    int value2;
-    int getValue2();
+    explicit Base2(int v);
+    virtual ~Base2();
+    int value2() const;
+protected:
+    int value2_;
 };
 
-class Derived : public Base1, public Base2 {
+class Derived : public Base1, public Base2 {   // 多继承
 public:
-    int derived_value;
-    int getDerivedValue();
-    void compute();
+    Derived(int v1, int v2, int dv);
+    ~Derived() override;
+    int derived_value() const;
+    int compute() const;   // value1_ + value2_ + derived_value_
+private:
+    int derived_value_;
 };
+
+} // namespace inheritance_multiple_ns
 ```
 
-## 多继承与 FFI
+配套 `standalone.sh` / `Makefile` 两种纯 C++ 构建方式。
 
-### 多个基类成员
+## Rust FFI 代码（hicc 直出）
 
-在 FFI 中，多继承通过多个基类成员实现：
+两个基类与派生类各自独立 `import_class!` 直接绑定真实命名空间类，构造派生
+`make_unique` 工厂（详见 `rust_hicc/src/lib.rs`，与工具默认支架
+`lib_scaffold.rs` 一致）。
 
-```cpp
-// C++ 多继承
-class Derived : public Base1, public Base2 { };
-
-// FFI：每个基类作为结构体成员
-struct Derived {
-    struct Base1 base1;  // 第一个基类
-    struct Base2 base2;  // 第二个基类
-    int derived_value;
-};
-```
-
-### 挑战
-
-1. **多个基类指针**：多继承中，Derived* 可以转换为 Base1* 或 Base2*
-2. **不同偏移**：Base1 在 offset 0，Base2 在 `sizeof(Base1)` 偏移
-3. **方法调度**：需要知道从哪个基类开始计算方法偏移
-
-### FFI 映射
-
-| C++ 场景 | FFI 挑战 |
-|----------|----------|
-| `Derived*` 到 `Base1*` | 直接使用指针（Base1 在 offset 0） |
-| `Derived*` 到 `Base2*` | 需要计算 `Base2` 的偏移 |
-| 调用 `Base2` 方法 | 函数需要处理正确的偏移 |
-
-## Rust FFI 代码
-
-```rust
-hicc::cpp! {
-    #include <iostream>
-
-    #include "inheritance_multiple.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Derived", destroy = "derived_delete")]
-    pub class Derived {
-        #[cpp(method = "int getValue1() const")]
-        fn get_value1(&self) -> i32;
-
-        #[cpp(method = "int getValue2() const")]
-        fn get_value2(&self) -> i32;
-
-        #[cpp(method = "int getDerivedValue() const")]
-        fn get_derived_value(&self) -> i32;
-
-        #[cpp(method = "void compute() const")]
-        fn compute(&self);
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "inheritance_multiple"]
-
-    class Derived;
-
-    #[cpp(func = "Derived* derived_new(int, int, int)")]
-    fn derived_new(v1: i32, v2: i32, dv: i32) -> Derived;
-}
-```
 ## 关键点
 
-### 内存布局
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| 多个基类 | 每个基类独立 `import_class!` 绑定 |
+| 多继承派生类 | 独立 `import_class!`，构造 `make_unique<Derived, int, int, int>` |
+| 数据组合 | 派生类 `compute()` 复用两基类数据成员 |
+| 析构 | hicc `Drop` 自动析构，替代 `*_delete` shim |
 
-```
-struct Derived {
-    struct Base1 base1;  // offset 0
-    struct Base2 base2;  // offset sizeof(Base1)
-    int derived_value;   // offset after base2
-}
-```
+> 按 hicc 约束，派生类绑定块只声明自身方法，不重复绑定继承而来的
+> `value1()`/`value2()`（多继承下两基类 `this` 偏移不同）。基类数据的复用通过派生
+> 类自身的 `compute()`（返回三者之和）体现。
 
-### 方法转发
+## 构建方法
 
-```cpp
-// 调用 Base2 的方法需要正确的指针
-int derived_getValue2(struct Derived* self) {
-    // self 实际上被当作 Base2* 使用
-    // 需要调整指针或通过 base2 成员访问
-    return self->base2.value2;
-}
-```
-
-### 菱形继承问题（更复杂）
-
-如果存在菱形继承（Derived 同时继承自两个都继承自 Base 的类），
-情况会更复杂，需要虚拟继承。
-
-## 运行结果
-
-```
-Base1 value: 10
-Base2 value: 10
-Derived value: 30
-Computing: 10 + 20 + 30 = 60
-
-Rust FFI: Multiple inheritance with hicc pattern
+```bash
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
 ## 总结
 
-1. **多继承**：每个基类作为单独的成员
-2. **FFI 挑战**：多个基类指针需要正确处理偏移
-3. **方法转发**：每个基类方法都需要单独的转发函数
+1. **多继承**：派生类同时继承两个基类并组合其数据。
+2. **直出绑定**：基类/派生类各自独立 `import_class!`。
+3. **数据复用**：`compute()` 读取两基类成员，返回三者之和。
+4. **hicc 约束**：派生类不重复绑定继承的基类方法（this 偏移差异）。

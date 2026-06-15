@@ -1,13 +1,8 @@
-//! 014_inheritance_multiple: 多继承（命名空间类 + make_unique 工厂）。
-//!
-//! hicc 直出：两个基类 `Base1`/`Base2` 与派生类
-//! `Derived : public Base1, public Base2` 各自以 `import_class!` 直接绑定真实
-//! 命名空间类。所有成员/构造均为 `int`，可直出映射，故本示例 `lib.rs` 与工具默认
-//! 支架（`lib_scaffold.rs`）一致（无需手写补全）。
-//!
-//! 派生类 `compute()` 复用两个基类的数据成员（`value1_ + value2_ + derived_value_`），
-//! 体现多继承的数据组合；按 hicc 约束，派生类绑定块只声明自身方法，不重复绑定继承
-//! 而来的 `value1()`/`value2()`（多继承下基类 `this` 偏移不同）。
+// 014_inheritance_multiple 工具默认产物支架（hicc 直出，去 shim）。
+//
+// 用于 L1 黄金比对：校验 `init` 对「多继承命名空间类」默认生成的 hicc 骨架。
+// 两个基类 Base1/Base2 与派生类 Derived 各自独立 `import_class!` 直接绑定真实
+// 命名空间类，int 成员/构造均可直出映射；本示例 `lib.rs` 与支架一致（无需手写补全）。
 
 hicc::cpp! {
     #include "inheritance_multiple.h"
