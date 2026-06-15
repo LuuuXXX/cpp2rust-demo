@@ -161,6 +161,7 @@ mod tests {
             methods,
             fields: vec![],
             is_in_namespace: false,
+            namespace: None,
             is_from_current_file: true,
         }
     }

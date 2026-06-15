@@ -54,7 +54,31 @@ pub(super) fn collect_namespace(
     cpp_ranges: &[std::ops::Range<u32>],
     user_ranges: &[std::ops::Range<u32>],
 ) {
+    collect_namespace_inner(ns, ast, cpp_ranges, user_ranges, "");
+}
+
+/// 递归收集命名空间成员；`ns_path` 为已累积的 `::` 限定父路径（如 `foo::bar`）。
+fn collect_namespace_inner(
+    ns: &clang::Entity<'_>,
+    ast: &mut CppAst,
+    cpp_ranges: &[std::ops::Range<u32>],
+    user_ranges: &[std::ops::Range<u32>],
+    parent_path: &str,
+) {
     let ns_name = ns.get_name().unwrap_or_default();
+    // 当前命名空间的 `::` 限定路径
+    let cur_path = if ns_name.is_empty() {
+        parent_path.to_string()
+    } else if parent_path.is_empty() {
+        ns_name.clone()
+    } else {
+        format!("{}::{}", parent_path, ns_name)
+    };
+    let path_opt = if cur_path.is_empty() {
+        None
+    } else {
+        Some(cur_path.clone())
+    };
     for entity in ns.get_children() {
         if entity
             .get_location()
@@ -66,19 +90,15 @@ pub(super) fn collect_namespace(
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
-                    // 命名空间前缀扁平化到类名
-                    if !ns_name.is_empty() {
-                        ci.name = format!("{}_{}", ns_name, ci.name);
-                    }
+                    // 记录 `::` 限定命名空间路径，保留简单类名（hicc 直出绑定真实类）
+                    ci.namespace = path_opt.clone();
                     ci.is_in_namespace = true;
                     ast.classes.push(ci);
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
-                    if !ns_name.is_empty() {
-                        ci.name = format!("{}_{}", ns_name, ci.name);
-                    }
+                    ci.namespace = path_opt.clone();
                     ci.is_in_namespace = true;
                     ast.classes.push(ci);
                 }
@@ -99,7 +119,7 @@ pub(super) fn collect_namespace(
                 collect_typedef(&entity, ast, user_ranges);
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, ast, cpp_ranges, user_ranges);
+                collect_namespace_inner(&entity, ast, cpp_ranges, user_ranges, &cur_path);
             }
             _ => {}
         }
@@ -308,6 +328,7 @@ pub(super) fn extract_class(
         methods,
         fields,
         is_in_namespace: false,
+        namespace: None,
         is_from_current_file,
     })
 }
