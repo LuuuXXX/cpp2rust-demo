@@ -1,38 +1,30 @@
-//! 013_inheritance_single 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 013_inheritance_single 冒烟测试：单继承基类/派生类绑定与行为。
 
 use inheritance_single::*;
 
-#[test]
-fn smoke_animal_create_and_get_name() {
-    let name = "Generic Animal\0";
-    let animal = unsafe { animal_new(name.as_ptr() as *const i8) };
-    let got = decode_cstr(animal.get_name());
-    assert_eq!(got, "Generic Animal", "Animal 名称应为 'Generic Animal'");
+fn show(s: &hicc_std::string) -> String {
+    let cs = unsafe { std::ffi::CStr::from_ptr(s.c_str()) };
+    cs.to_str().unwrap().to_string()
 }
 
 #[test]
-fn smoke_dog_create_and_get_name() {
-    let name = "Buddy\0";
-    let dog = unsafe { dog_new(name.as_ptr() as *const i8) };
-    let got = decode_cstr(dog.get_name());
-    assert_eq!(got, "Buddy", "Dog 名称应为 'Buddy'");
+fn animal_name_and_speak() {
+    let a = Animal::new(hicc_std::string::from(c"Generic"));
+    assert_eq!(show(&a.name()), "Generic");
+    assert_eq!(show(&a.speak()), "Generic makes a sound");
 }
 
 #[test]
-fn smoke_dog_inherits_animal_behavior() {
-    let animal_name = "Cat\0";
-    let animal = unsafe { animal_new(animal_name.as_ptr() as *const i8) };
-    let dog_name = "Rex\0";
-    let dog = unsafe { dog_new(dog_name.as_ptr() as *const i8) };
+fn dog_inherits_base_name_field() {
+    // Dog 继承基类 name_ 字段：其 speak()/bark() 输出包含构造时传入的名字，
+    // 证明派生类复用了基类数据成员。
+    let d = Dog::new(hicc_std::string::from(c"Buddy"));
+    assert!(show(&d.bark()).starts_with("Buddy"));
+}
 
-    // Both should have the getName method (inherited for Dog)
-    let animal_got = decode_cstr(animal.get_name());
-    let dog_got = decode_cstr(dog.get_name());
-    assert_eq!(animal_got, "Cat", "Animal 名称应为 'Cat'");
-    assert_eq!(dog_got, "Rex", "Dog 名称应为 'Rex'");
-
-    // Dog also has its own bark method
-    dog.bark(); // should not panic
+#[test]
+fn dog_overrides_speak_and_has_bark() {
+    let d = Dog::new(hicc_std::string::from(c"Rex"));
+    assert_eq!(show(&d.speak()), "Rex barks: Woof! Woof!");
+    assert_eq!(show(&d.bark()), "Rex barks: Woof! Woof!");
 }
