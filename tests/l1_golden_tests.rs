@@ -95,7 +95,7 @@ golden_test_scaffold!(test_006_class_basic, "006_class_basic");
 golden_test_scaffold!(test_007_class_constructor, "007_class_constructor");
 golden_test_scaffold!(test_008_class_copy, "008_class_copy");
 golden_test_scaffold!(test_009_class_move, "009_class_move");
-golden_test_lib!(test_010_class_static, "010_class_static");
+golden_test_scaffold!(test_010_class_static, "010_class_static");
 golden_test_lib!(test_011_class_const, "011_class_const");
 golden_test_lib!(test_012_class_volatile, "012_class_volatile");
 golden_test_lib!(test_013_inheritance_single, "013_inheritance_single");

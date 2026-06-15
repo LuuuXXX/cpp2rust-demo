@@ -7,12 +7,9 @@ edition = "2021"
 name = "class_static"
 path = "src/lib.rs"
 
-[[bin]]
-name = "class_static"
-path = "src/main.rs"
-
 [dependencies]
 hicc = { version = "0.2" }
+hicc-std = { version = "0.2" }
 
 [build-dependencies]
 cc = "1.0"

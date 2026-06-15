@@ -1,35 +1,30 @@
 #pragma once
+#include <iostream>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace class_static_ns {
 
-struct Counter;
-
-// 实例方法
-struct Counter* counter_new(void);
-void counter_delete(struct Counter* self);
-int counter_getValue(struct Counter* self);
-void counter_increment(struct Counter* self);
-
-// 静态方法
-int counter_getInstanceCount(void);
-void counter_resetInstanceCount(void);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 演示静态成员：每个实例构造/析构维护一个跨实例共享的静态计数器。
+// 静态方法以「自由函数式全限定调用」绑定，实例方法走 import_class! 直出。
 class Counter {
-    int value;
-    static int instance_count;
 public:
-    Counter();
-    ~Counter();
-    int getValue() const;
-    void increment();
-    static int getInstanceCount();
-    static void resetInstanceCount();
+    Counter() : value_(0) {
+        ++instance_count_;
+        std::cout << "Counter() ctor, live=" << instance_count_ << std::endl;
+    }
+    ~Counter() {
+        --instance_count_;
+        std::cout << "~Counter() dtor, live=" << instance_count_ << std::endl;
+    }
+
+    int value() const { return value_; }
+    void increment() { ++value_; }
+
+    static int instance_count() { return instance_count_; }
+    static void reset_instance_count() { instance_count_ = 0; }
+
+private:
+    int value_;
+    static int instance_count_;
 };
 
-#endif
+} // namespace class_static_ns
