@@ -13,3 +13,15 @@
 [submodule "references/fmtlib"]
 	path = references/fmtlib
 	url = https://github.com/fmtlib/fmt.git
+[submodule "references/c2rust-demo"]
+	path = references/c2rust-demo
+	url = https://github.com/LuuuXXX/c2rust-demo
+[submodule "references/hicc-usages"]
+	path = references/hicc-usages
+	url = https://github.com/LuuuXXX/hicc-usages
+# references/hicc 计划由 gitcode 源（https://gitcode.com/xuanwu/hicc）以子模块方式接入，
+# 替代当前 vendored 副本；因 CI/沙箱网络对 gitcode.com 的可达性限制，暂保留 vendored 副本，
+# 待网络条件具备后改为：
+#   [submodule "references/hicc"]
+#       path = references/hicc
+#       url = https://gitcode.com/xuanwu/hicc

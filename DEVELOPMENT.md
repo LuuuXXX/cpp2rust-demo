@@ -93,6 +93,12 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 ## 3. 48 个示例的支持矩阵
 
 > 图例：✅ 完全自动生成可编译代码　⚠️ 降级生成 + 内联 TODO　❌ 尚未实现
+>
+> 📑 **标准答案对账集**：本仓库的 `examples/` 与子模块 [`references/hicc-usages`](references/hicc-usages)
+> 同构（48 个 `examples/{NNN_name}/`）。hicc-usages 是「**人工**从 AST 推导 hicc 表达」的标准答案集，
+> 其 README 的**表1（48 特性 × hicc 支持方式）**与**表2（手动方案 × 自动化可行性：高/中/低）**是本工具
+> 「**自动**生成 hicc 表达」的对齐基准与 shim 分级（L0 无 shim / L1 最小 shim）依据。完善 extractor 的
+> 特性处理时，应以对应 `hicc-usages/examples/{NNN_name}/rust_hicc/` 的人工产物为逐行比对目标。
 
 | 类别 | 编号范围 | 状态 |
 |------|---------|------|

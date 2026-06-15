@@ -606,12 +606,17 @@ hicc::import_lib! {
 }
 ```
 
-**最小 shim 策略**：成员方法直接通过 `import_class!` 绑定（由 hicc 处理虚表 dispatch），只有以下场景才生成 C shim 函数：
-- 构造函数 / 析构函数（C 无 `new`/`delete`）
-- 静态成员变量 getter/setter
-- 运算符重载（C ABI 无运算符符号）
-- placement new
-- STL 容器 wrapper 类的 ctor/dtor
+**shim 策略（L0 无 shim / L1 最小 shim）**：工具默认走「**无 shim / 最小 shim**」路径，与 [`references/hicc-usages`](references/hicc-usages)（hicc FFI 人工标准答案集）的映射结论一致：
+
+- **L0 — 无 shim（默认，约 34/48 特性）**：当目标符号已由被转换库导出（头文件 `extern "C"` 声明、或编译产物中存在可链接符号）时，`cpp!` 块**仅保留必要 `#include`**（解决 incomplete type），成员方法直接通过 `import_class!` 绑定（由 hicc 处理虚表 dispatch），全局/关联函数通过 `import_lib!` + `#![link_name]` 绑定到真实符号，**不重新内联类定义与方法体**。
+- **L1 — 最小 shim（约 14/48 特性）**：仅以下 hicc 无法直接表达的特性，才在 `cpp!` 块生成**最小命名空间级 inline 包装函数**：
+  - 构造函数 / 析构函数（C 无 `new`/`delete`）、静态成员变量 getter/setter
+  - 运算符重载（C ABI 无运算符符号）、placement new、自定义 deleter
+  - 多继承 / 菱形虚继承、`volatile` 方法、RTTI（`typeid`）
+  - 模板函数 / 模板类 / 变参模板具现、`tuple` / `enum class` / `union`
+  - STL 容器 wrapper 类的 ctor/dtor
+
+> 哪些特性零 shim、哪些必须最小 shim 及其原因，详见 hicc-usages 的**表1「48 特性 × hicc 支持方式」**与**表2「手动方案 × 自动化可行性（高/中/低）」**，以及其「踩坑总览」实战经验表。
 
 ---
 
@@ -620,6 +625,8 @@ hicc::import_lib! {
 > 图例：✅ 完全自动生成可编译代码　⚠️ 降级生成 + 内联 TODO（代码仍可 `cargo check`）
 > 平台列：Linux = Linux（GCC/Clang）；macOS = macOS（Apple Clang）；Win = Windows（MinGW/MSVC）
 > `¹` 标注的特性：生成项目在 Linux/Win 上自动引入 `hicc-std` 依赖，可直接使用 `hicc_std::` 类型别名；macOS 不引入，仅支持 wrapper 类方式（功能等价，但不支持 `hicc_std::` 直接类型）
+>
+> 📑 **对账参考**：本矩阵的每个特性都对应 [`references/hicc-usages`](references/hicc-usages) 中一个完整的人工标准答案 crate（`examples/{NNN_name}/rust_hicc/`）。其 README 的**表1/表2**给出了「48 特性 × hicc 支持方式」与「自动化可行性（高/中/低）」的权威对照，是本工具自动生成结果的对齐基准。
 
 | 示例 | 类别 | C++ 特性 | 状态 | 平台 | FFI 策略 |
 |------|------|---------|------|------|---------|
@@ -902,10 +909,13 @@ cpp2rust-demo/
 ├── examples/          # 48 个示例，每个含 cpp/ 和 rust_hicc/ 子目录
 ├── tests/             # 五层测试体系（L1–L5）
 ├── docs/
-│   ├── plans/v5/      # 完整方案文档（automated-cpp2rust-ffi-v5.md）
+│   ├── plans/         # 当前实现方案文档（v6/v7）
+│   ├── archive/       # 归档的历史方案文档（v5）
 │   └── references/    # hicc、c2rust-demo 等参考文档
-└── references/
-    └── c2rust-demo/   # C 语言版参考实现（同架构）
+└── references/        # 参考项目（均为 git 子模块，按需 `git submodule update --init`）
+    ├── hicc-usages/   # hicc FFI 标准答案集（48 特性 × hicc 映射矩阵）
+    ├── c2rust-demo/   # C 语言版参考实现（同架构）
+    └── hicc/          # hicc 框架（计划接入 gitcode 子模块，详见 .gitmodules）
 ```
 
 ---
