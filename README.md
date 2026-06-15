@@ -55,6 +55,8 @@ cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 
 各阶段技术细节（LD_PRELOAD 原理、libclang AST 解析策略、FfiSpec IR 结构、类型映射规则等）见 [docs/INTRODUCTION.md](docs/INTRODUCTION.md)。
 
+仓库结构性优化的分阶段方案与进展见 [docs/plans/optimization/optimization-plan.md](docs/plans/optimization/optimization-plan.md)。
+
 ---
 
 ## 命令参考
