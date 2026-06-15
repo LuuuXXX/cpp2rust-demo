@@ -1,7 +1,0 @@
-[package]
-name = "example-group_a"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-hicc-rs = { path = "../.." }

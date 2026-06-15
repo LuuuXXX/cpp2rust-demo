@@ -13,3 +13,12 @@
 [submodule "references/fmtlib"]
 	path = references/fmtlib
 	url = https://github.com/fmtlib/fmt.git
+[submodule "references/hicc-usages"]
+	path = references/hicc-usages
+	url = https://github.com/LuuuXXX/hicc-usages
+[submodule "references/hicc"]
+	path = references/hicc
+	url = https://github.com/LuuuXXX/hicc
+[submodule "references/c2rust-demo"]
+	path = references/c2rust-demo
+	url = https://github.com/LuuuXXX/c2rust-demo
