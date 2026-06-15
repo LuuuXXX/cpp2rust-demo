@@ -4,7 +4,6 @@ hicc::cpp! {
 
     #include "class_copy.h"
 
-    std::unique_ptr<Buffer> _cpp2rust_make_unique_buffer_0() { return std::make_unique<Buffer>(); }
     std::unique_ptr<Buffer> _cpp2rust_make_unique_buffer_with_sz(int sz) { return std::make_unique<Buffer>(sz); }
 }
 
@@ -27,7 +26,7 @@ hicc::import_lib! {
 
     class Buffer;
 
-    #[cpp(func = "std::unique_ptr<Buffer> _cpp2rust_make_unique_buffer_0()")]
+    #[cpp(func = "std::unique_ptr<Buffer> hicc::make_unique<Buffer>()")]
     pub fn buffer_new() -> Buffer;
 
     #[cpp(func = "std::unique_ptr<Buffer> _cpp2rust_make_unique_buffer_with_sz(int)")]

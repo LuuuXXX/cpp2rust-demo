@@ -2,12 +2,8 @@ hicc::cpp! {
     #include <string>
 
     #include "virtual_override.h"
-    std::unique_ptr<Base> base_new(const char* n) {
-        return std::make_unique<Base>(n);
-    }
-    std::unique_ptr<Derived> derived_new(double v) {
-        return std::make_unique<Derived>(v);
-    }
+    std::unique_ptr<Base> _cpp2rust_make_unique_base_with_n(const char* n) { return std::make_unique<Base>(n); }
+    std::unique_ptr<Derived> _cpp2rust_make_unique_derived_with_v(double v) { return std::make_unique<Derived>(v); }
 }
 
 hicc::import_class! {
@@ -41,9 +37,9 @@ hicc::import_lib! {
     class Base;
     class Derived;
 
-    #[cpp(func = "std::unique_ptr<Base> base_new(const char*)")]
+    #[cpp(func = "std::unique_ptr<Base> _cpp2rust_make_unique_base_with_n(const char*)")]
     pub unsafe fn base_new_with_n(n: *const i8) -> Base;
 
-    #[cpp(func = "std::unique_ptr<Derived> derived_new(double)")]
+    #[cpp(func = "std::unique_ptr<Derived> _cpp2rust_make_unique_derived_with_v(double)")]
     pub fn derived_new_with_v(v: f64) -> Derived;
 }

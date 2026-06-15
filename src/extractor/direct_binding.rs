@@ -379,6 +379,7 @@ pub(crate) fn build_direct_lib_spec(
     let is_deleted_ctor = |ctor: &MethodInfo| -> bool {
         ctor.is_copy_ctor && !ctor.is_default && ctor.body_offset.is_none()
     };
+    let is_copy_ctor_skip = |ctor: &MethodInfo| -> bool { ctor.is_copy_ctor };
     let factory_results: Vec<(FnBinding, Option<String>)> = class_specs
         .iter()
         .filter(|cs| !cs.is_empty())
@@ -407,6 +408,7 @@ pub(crate) fn build_direct_lib_spec(
                         && m.accessibility == "public"
                         && !is_move_ctor(m)
                         && !is_deleted_ctor(m)
+                        && !is_copy_ctor_skip(m)
                 })
                 .filter(|m| {
                     m.params.iter().all(|p| {
@@ -568,7 +570,9 @@ fn class_name_from_ctor_param<'a>(type_str: &str, all_classes: &'a [ClassInfo]) 
 ///
 /// C++ 签名：
 /// - 默认构造函数：`std::unique_ptr<T> hicc::make_unique<T>()`（hicc 版本，可被解析为函数指针）
-/// - 带参数构造函数：使用 C++ shim wrapper `_cpp2rust_make_unique_<ClassSnake>_<N>(args)`
+/// - 带参数构造函数：使用 C++ shim wrapper：
+///   单参数 → `_cpp2rust_make_unique_<ClassSnake>_with_<param>(arg)`
+///   多参数 → `_cpp2rust_make_unique_<ClassSnake>_<N>(args)`
 ///   因为 `std::make_unique<T>(args)` 是模板函数，无法被 hicc 解析为函数指针
 ///
 /// 返回 `(FnBinding, Option<String>)`：绑定 + 可能的 C++ shim wrapper 行
@@ -635,7 +639,7 @@ fn build_make_unique_factory(
             "_cpp2rust_make_unique_{}{}",
             class_snake,
             if ctor.params.len() == 1 {
-                format!("_{}", rust_params[0].0)
+                format!("_with_{}", rust_params[0].0)
             } else {
                 format!("_{}", ctor.params.len())
             }

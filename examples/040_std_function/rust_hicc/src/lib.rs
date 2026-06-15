@@ -10,11 +10,8 @@ hicc::cpp! {
     static int hicc_double_fn(int v) { return v * 2; }
     static int hicc_triple_fn(int v) { return v * 3; }
 
-    std::unique_ptr<CallbackWrapper> _cpp2rust_make_unique_callback_wrapper_with_fn(int (*fn)(int)) { return std::make_unique<CallbackWrapper>(fn); }
+    std::unique_ptr<CallbackWrapper> _cpp2rust_make_unique_callback_wrapper_with_fn_(int (*)(int) fn) { return std::make_unique<CallbackWrapper>(fn); }
     std::unique_ptr<CallbackWrapper> _cpp2rust_make_unique_callback_wrapper_new_double() { return std::make_unique<CallbackWrapper>(hicc_double_fn); }
-    std::unique_ptr<Processor> _cpp2rust_make_unique_processor_0() { return std::make_unique<Processor>(); }
-    std::unique_ptr<MultiCallback> _cpp2rust_make_unique_multi_callback_0() { return std::make_unique<MultiCallback>(); }
-    std::unique_ptr<AsyncProcessor> _cpp2rust_make_unique_async_processor_0() { return std::make_unique<AsyncProcessor>(); }
 
     extern "C" {
         void hicc_processor_set_double(Processor* p) { p->impl->set_callback(hicc_double_fn); }
@@ -67,19 +64,19 @@ hicc::import_lib! {
     class AsyncProcessor;
 
     // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "std::unique_ptr<CallbackWrapper> _cpp2rust_make_unique_callback_wrapper_with_fn(int (*)(int))")]
+    #[cpp(func = "std::unique_ptr<CallbackWrapper> _cpp2rust_make_unique_callback_wrapper_with_fn_(int (*)(int))")]
     pub unsafe fn callback_wrapper_new(fn_: unsafe extern "C" fn(i32) -> i32) -> CallbackWrapper;
 
     #[cpp(func = "std::unique_ptr<CallbackWrapper> _cpp2rust_make_unique_callback_wrapper_new_double()")]
     pub fn callback_wrapper_new_double() -> CallbackWrapper;
 
-    #[cpp(func = "std::unique_ptr<Processor> _cpp2rust_make_unique_processor_0()")]
+    #[cpp(func = "std::unique_ptr<Processor> hicc::make_unique<Processor>()")]
     pub fn processor_new() -> Processor;
 
-    #[cpp(func = "std::unique_ptr<MultiCallback> _cpp2rust_make_unique_multi_callback_0()")]
+    #[cpp(func = "std::unique_ptr<MultiCallback> hicc::make_unique<MultiCallback>()")]
     pub fn multi_callback_new() -> MultiCallback;
 
-    #[cpp(func = "std::unique_ptr<AsyncProcessor> _cpp2rust_make_unique_async_processor_0()")]
+    #[cpp(func = "std::unique_ptr<AsyncProcessor> hicc::make_unique<AsyncProcessor>()")]
     pub fn async_processor_new() -> AsyncProcessor;
 
     #[cpp(func = "void hicc_processor_set_double(Processor*)")]

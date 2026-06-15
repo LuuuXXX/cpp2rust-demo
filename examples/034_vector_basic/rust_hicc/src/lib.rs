@@ -5,11 +5,6 @@ hicc::cpp! {
     #include <cstring>
 
     #include "vector_basic.h"
-
-    extern "C" {
-        IntVector* hicc_int_vector_new() { return new IntVector(); }
-        StringVector* hicc_string_vector_new() { return new StringVector(); }
-    }
 }
 
 hicc::import_class! {
@@ -58,9 +53,9 @@ hicc::import_lib! {
     class IntVector;
     class StringVector;
 
-    #[cpp(func = "IntVector* hicc_int_vector_new()")]
+    #[cpp(func = "std::unique_ptr<IntVector> hicc::make_unique<IntVector>()")]
     pub fn int_vector_new() -> IntVector;
 
-    #[cpp(func = "StringVector* hicc_string_vector_new()")]
+    #[cpp(func = "std::unique_ptr<StringVector> hicc::make_unique<StringVector>()")]
     pub fn string_vector_new() -> StringVector;
 }

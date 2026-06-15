@@ -1,6 +1,3 @@
-// 此文件为 cpp2rust-demo 工具对 032_placement_new 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试（test_032_placement_new）校验工具默认产物的生成准确性。
-
 hicc::cpp! {
     #include <stddef.h>
     #include <iostream>
@@ -8,6 +5,9 @@ hicc::cpp! {
     #include <new>
 
     #include "placement_new.h"
+
+    std::unique_ptr<Buffer> _cpp2rust_make_unique_buffer_with_capacity(size_t capacity) { return std::make_unique<Buffer>(capacity); }
+    std::unique_ptr<VectorBuffer> _cpp2rust_make_unique_vector_buffer_2(size_t capacity, size_t elem_size) { return std::make_unique<VectorBuffer>(capacity, elem_size); }
 }
 
 hicc::import_class! {
@@ -47,9 +47,9 @@ hicc::import_lib! {
     class Buffer;
     class VectorBuffer;
 
-    #[cpp(func = "std::unique_ptr<Buffer> std::make_unique<Buffer>(size_t)")]
+    #[cpp(func = "std::unique_ptr<Buffer> _cpp2rust_make_unique_buffer_with_capacity(size_t)")]
     pub fn buffer_new_with_capacity(capacity: usize) -> Buffer;
 
-    #[cpp(func = "std::unique_ptr<VectorBuffer> std::make_unique<VectorBuffer>(size_t, size_t)")]
+    #[cpp(func = "std::unique_ptr<VectorBuffer> _cpp2rust_make_unique_vector_buffer_2(size_t, size_t)")]
     pub fn vector_buffer_new_2(capacity: usize, elem_size: usize) -> VectorBuffer;
 }

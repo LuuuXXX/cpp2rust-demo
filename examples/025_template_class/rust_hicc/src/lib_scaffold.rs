@@ -1,6 +1,3 @@
-// 此文件为 cpp2rust-demo 工具对 025_template_class 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试（test_025_template_class）校验工具默认产物的生成准确性。
-
 hicc::cpp! {
     #include <iostream>
     #include <stack>

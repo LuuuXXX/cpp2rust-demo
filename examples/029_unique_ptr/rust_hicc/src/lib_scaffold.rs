@@ -1,6 +1,3 @@
-// 此文件为 cpp2rust-demo 工具对 029_unique_ptr 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试（test_029_unique_ptr）校验工具默认产物的生成准确性。
-
 hicc::cpp! {
     #include <string>
     #include <iostream>
@@ -8,6 +5,8 @@ hicc::cpp! {
     #include <cstring>
 
     #include "unique_ptr.h"
+
+    std::unique_ptr<UniqueBuffer> _cpp2rust_make_unique_unique_buffer_with_sz(int sz) { return std::make_unique<UniqueBuffer>(sz); }
 }
 
 hicc::import_class! {
@@ -38,7 +37,7 @@ hicc::import_lib! {
     class UniqueBuffer;
     class Processor;
 
-    #[cpp(func = "std::unique_ptr<UniqueBuffer> std::make_unique<UniqueBuffer>(int)")]
+    #[cpp(func = "std::unique_ptr<UniqueBuffer> _cpp2rust_make_unique_unique_buffer_with_sz(int)")]
     pub fn unique_buffer_new_with_sz(sz: i32) -> UniqueBuffer;
 
     #[cpp(func = "std::unique_ptr<Processor> hicc::make_unique<Processor>()")]

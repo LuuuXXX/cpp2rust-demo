@@ -84,6 +84,7 @@ Reason: 历史快照已删除，references/ 从 17 MB 瘦身至 1.6 MB。
 
 `.github/workflows/ci.yml` 总 job 数从约 30 降至 ≤ 15。
 
-#### Scenario: macOS / MSVC 改为手动触发
-- THEN macOS 与 MSVC job 改为 `workflow_dispatch`
-- AND 默认 push/PR 不触发这些 job
+#### Scenario: macOS / MSVC 自动触发
+- THEN macOS 与 MSVC job 在 push/PR 时自动触发（不再仅限 `workflow_dispatch`）
+- AND `workflow_dispatch` 仍作为手动触发备选保留
+- AND `.github/workflows/ci.yml` 总 job 数仍 ≤ 15

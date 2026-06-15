@@ -1,8 +1,6 @@
 hicc::cpp! {
     #include "operator_overload.h"
-    std::unique_ptr<Number> number_new(int v) {
-        return std::make_unique<Number>(v);
-    }
+    std::unique_ptr<Number> _cpp2rust_make_unique_number_with_v(int v) { return std::make_unique<Number>(v); }
 }
 
 hicc::import_class! {
@@ -21,6 +19,6 @@ hicc::import_lib! {
 
     class Number;
 
-    #[cpp(func = "std::unique_ptr<Number> number_new(int)")]
+    #[cpp(func = "std::unique_ptr<Number> _cpp2rust_make_unique_number_with_v(int)")]
     pub fn number_new_with_v(v: i32) -> Number;
 }

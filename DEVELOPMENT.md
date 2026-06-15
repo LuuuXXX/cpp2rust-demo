@@ -116,6 +116,13 @@ cargo test --test l2_compile_tests
 cargo test --test l5_nm_symbol_tests -- --ignored
 ```
 
+### 本地 CI 回归验证
+
+```sh
+bash scripts/ci_local.sh           # 全量验证（build + lint + unit + L1 + L2 + E2E）
+bash scripts/ci_local.sh --quick   # 快速验证（仅 build + lint + unit）
+```
+
 ---
 
 ## 4. 代码质量

@@ -2,10 +2,10 @@ hicc::cpp! {
     #include <iostream>
 
     #include "virtual_diamond.h"
-    std::unique_ptr<A> a_new(int v) { return std::make_unique<A>(v); }
-    std::unique_ptr<B> b_new(int a, int b) { return std::make_unique<B>(a, b); }
-    std::unique_ptr<C> c_new(int a, int c) { return std::make_unique<C>(a, c); }
-    std::unique_ptr<D> d_new(int a, int b, int c, int d) { return std::make_unique<D>(a, b, c, d); }
+    std::unique_ptr<A> _cpp2rust_make_unique_a_with_v(int v) { return std::make_unique<A>(v); }
+    std::unique_ptr<B> _cpp2rust_make_unique_b_2(int a, int b) { return std::make_unique<B>(a, b); }
+    std::unique_ptr<C> _cpp2rust_make_unique_c_2(int a, int c) { return std::make_unique<C>(a, c); }
+    std::unique_ptr<D> _cpp2rust_make_unique_d_4(int a, int b, int c, int d) { return std::make_unique<D>(a, b, c, d); }
     int d_get_a_value(D* self) { return self->getAValue(); }
 }
 
@@ -58,16 +58,16 @@ hicc::import_lib! {
     class C;
     class D;
 
-    #[cpp(func = "std::unique_ptr<A> a_new(int)")]
+    #[cpp(func = "std::unique_ptr<A> _cpp2rust_make_unique_a_with_v(int)")]
     pub fn a_new_with_v(v: i32) -> A;
 
-    #[cpp(func = "std::unique_ptr<B> b_new(int, int)")]
+    #[cpp(func = "std::unique_ptr<B> _cpp2rust_make_unique_b_2(int, int)")]
     pub fn b_new_2(a: i32, b: i32) -> B;
 
-    #[cpp(func = "std::unique_ptr<C> c_new(int, int)")]
+    #[cpp(func = "std::unique_ptr<C> _cpp2rust_make_unique_c_2(int, int)")]
     pub fn c_new_2(a: i32, c: i32) -> C;
 
-    #[cpp(func = "std::unique_ptr<D> d_new(int, int, int, int)")]
+    #[cpp(func = "std::unique_ptr<D> _cpp2rust_make_unique_d_4(int, int, int, int)")]
     pub fn d_new_4(a: i32, b: i32, c: i32, d: i32) -> D;
 
     #[cpp(func = "int d_get_a_value(D*)")]

@@ -5,6 +5,8 @@ hicc::cpp! {
     #include <utility>
 
     #include "noexcept_basic.h"
+
+    std::unique_ptr<NoexceptMover> _cpp2rust_make_unique_noexcept_mover_with_value(int value) { return std::make_unique<NoexceptMover>(value); }
 }
 
 hicc::import_class! {
@@ -20,6 +22,6 @@ hicc::import_lib! {
 
     class NoexceptMover;
 
-    #[cpp(func = "std::unique_ptr<NoexceptMover> std::make_unique<NoexceptMover>(int)")]
+    #[cpp(func = "std::unique_ptr<NoexceptMover> _cpp2rust_make_unique_noexcept_mover_with_value(int)")]
     pub fn noexcept_mover_new_with_value(value: i32) -> NoexceptMover;
 }

@@ -1,12 +1,12 @@
-// 此文件为 cpp2rust-demo 工具对 027_template_instantiation 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试（test_027_template_instantiation）校验工具默认产物的生成准确性。
-
 hicc::cpp! {
     #include <iostream>
     #include <vector>
     #include <iomanip>
 
     #include "template_instantiation.h"
+
+    std::unique_ptr<IntMatrix> _cpp2rust_make_unique_int_matrix_2(int rows, int cols) { return std::make_unique<IntMatrix>(rows, cols); }
+    std::unique_ptr<DoubleMatrix> _cpp2rust_make_unique_double_matrix_2(int rows, int cols) { return std::make_unique<DoubleMatrix>(rows, cols); }
 }
 
 hicc::import_class! {
@@ -55,9 +55,9 @@ hicc::import_lib! {
     class IntMatrix;
     class DoubleMatrix;
 
-    #[cpp(func = "std::unique_ptr<IntMatrix> std::make_unique<IntMatrix>(int, int)")]
+    #[cpp(func = "std::unique_ptr<IntMatrix> _cpp2rust_make_unique_int_matrix_2(int, int)")]
     pub fn int_matrix_new_2(rows: i32, cols: i32) -> IntMatrix;
 
-    #[cpp(func = "std::unique_ptr<DoubleMatrix> std::make_unique<DoubleMatrix>(int, int)")]
+    #[cpp(func = "std::unique_ptr<DoubleMatrix> _cpp2rust_make_unique_double_matrix_2(int, int)")]
     pub fn double_matrix_new_2(rows: i32, cols: i32) -> DoubleMatrix;
 }

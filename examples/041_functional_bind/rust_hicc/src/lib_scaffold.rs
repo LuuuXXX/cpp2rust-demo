@@ -4,6 +4,11 @@ hicc::cpp! {
     #include <string>
 
     #include "functional_bind.h"
+
+    std::unique_ptr<AdderImpl> _cpp2rust_make_unique_adder_impl_with_base(int base) { return std::make_unique<AdderImpl>(base); }
+    std::unique_ptr<MultiplierImpl> _cpp2rust_make_unique_multiplier_impl_with_f(int f) { return std::make_unique<MultiplierImpl>(f); }
+    std::unique_ptr<Adder> _cpp2rust_make_unique_adder_with_base_value(int base_value) { return std::make_unique<Adder>(base_value); }
+    std::unique_ptr<Multiplier> _cpp2rust_make_unique_multiplier_with_factor(int factor) { return std::make_unique<Multiplier>(factor); }
 }
 
 hicc::import_class! {
@@ -70,19 +75,19 @@ hicc::import_lib! {
     class Multiplier;
     class StringProcessor;
 
-    #[cpp(func = "std::unique_ptr<AdderImpl> std::make_unique<AdderImpl>(int)")]
+    #[cpp(func = "std::unique_ptr<AdderImpl> _cpp2rust_make_unique_adder_impl_with_base(int)")]
     pub fn adder_impl_new_with_base(base: i32) -> AdderImpl;
 
-    #[cpp(func = "std::unique_ptr<MultiplierImpl> std::make_unique<MultiplierImpl>(int)")]
+    #[cpp(func = "std::unique_ptr<MultiplierImpl> _cpp2rust_make_unique_multiplier_impl_with_f(int)")]
     pub fn multiplier_impl_new_with_f(f: i32) -> MultiplierImpl;
 
     #[cpp(func = "std::unique_ptr<StringProcessorImpl> hicc::make_unique<StringProcessorImpl>()")]
     pub fn string_processor_impl_new() -> StringProcessorImpl;
 
-    #[cpp(func = "std::unique_ptr<Adder> std::make_unique<Adder>(int)")]
+    #[cpp(func = "std::unique_ptr<Adder> _cpp2rust_make_unique_adder_with_base_value(int)")]
     pub fn adder_new_with_base_value(base_value: i32) -> Adder;
 
-    #[cpp(func = "std::unique_ptr<Multiplier> std::make_unique<Multiplier>(int)")]
+    #[cpp(func = "std::unique_ptr<Multiplier> _cpp2rust_make_unique_multiplier_with_factor(int)")]
     pub fn multiplier_new_with_factor(factor: i32) -> Multiplier;
 
     #[cpp(func = "std::unique_ptr<StringProcessor> hicc::make_unique<StringProcessor>()")]

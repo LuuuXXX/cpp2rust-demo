@@ -2,9 +2,7 @@ hicc::cpp! {
     #include <iostream>
 
     #include "friend_function.h"
-    std::unique_ptr<MyClass> myclass_new(int v) {
-        return std::make_unique<MyClass>(v);
-    }
+    std::unique_ptr<MyClass> _cpp2rust_make_unique_myclass_with_v(int v) { return std::make_unique<MyClass>(v); }
     int friend_function_getSum(const MyClass* a, const MyClass* b);
     int friend_function_getProduct(const MyClass* a, const MyClass* b);
     int friend_function_compare(const MyClass* a, const MyClass* b);
@@ -26,7 +24,7 @@ hicc::import_lib! {
 
     class MyClass;
 
-    #[cpp(func = "std::unique_ptr<MyClass> myclass_new(int)")]
+    #[cpp(func = "std::unique_ptr<MyClass> _cpp2rust_make_unique_myclass_with_v(int)")]
     pub fn myclass_new_with_v(v: i32) -> MyClass;
 
     #[cpp(func = "int friend_function_getSum(const MyClass* a, const MyClass* b)")]

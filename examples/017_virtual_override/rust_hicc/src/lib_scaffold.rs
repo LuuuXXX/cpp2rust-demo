@@ -1,12 +1,10 @@
-// 此文件为 cpp2rust-demo 工具对 017_virtual_override 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试进行生成准确性验证。
-//
-// Direct 模式下，工具为 Base/Derived 生成 import_class! + make_unique 工厂，
-// 使用 std::make_unique<T>(args) 模板函数绑定（无法直接通过 hicc 导出模板，
-// 实际 lib.rs 用手动 C++ 包装函数替代）。
 hicc::cpp! {
     #include <string>
+
     #include "virtual_override.h"
+
+    std::unique_ptr<Base> _cpp2rust_make_unique_base_with_n(const char* n) { return std::make_unique<Base>(n); }
+    std::unique_ptr<Derived> _cpp2rust_make_unique_derived_with_v(double v) { return std::make_unique<Derived>(v); }
 }
 
 hicc::import_class! {
@@ -40,9 +38,9 @@ hicc::import_lib! {
     class Base;
     class Derived;
 
-    #[cpp(func = "std::unique_ptr<Base> std::make_unique<Base>(const char*)")]
+    #[cpp(func = "std::unique_ptr<Base> _cpp2rust_make_unique_base_with_n(const char*)")]
     pub unsafe fn base_new_with_n(n: *const i8) -> Base;
 
-    #[cpp(func = "std::unique_ptr<Derived> std::make_unique<Derived>(double)")]
+    #[cpp(func = "std::unique_ptr<Derived> _cpp2rust_make_unique_derived_with_v(double)")]
     pub fn derived_new_with_v(v: f64) -> Derived;
 }

@@ -8,7 +8,6 @@ hicc::cpp! {
 
     #include "raii_pattern.h"
 
-    std::unique_ptr<Mutex> _cpp2rust_make_unique_mutex_0() { return std::make_unique<Mutex>(); }
     std::unique_ptr<Mutex> _cpp2rust_make_unique_mutex_with_name(const char* name) { return std::make_unique<Mutex>(name); }
     std::unique_ptr<ScopedLock> _cpp2rust_make_unique_scoped_lock_with_m(Mutex* m) { return std::make_unique<ScopedLock>(m); }
     std::unique_ptr<FileLock> _cpp2rust_make_unique_file_lock_with_fname(const char* fname) { return std::make_unique<FileLock>(fname); }
@@ -60,7 +59,7 @@ hicc::import_lib! {
     class ScopedLock;
     class FileLock;
 
-    #[cpp(func = "std::unique_ptr<Mutex> _cpp2rust_make_unique_mutex_0()")]
+    #[cpp(func = "std::unique_ptr<Mutex> hicc::make_unique<Mutex>()")]
     pub fn mutex_new() -> Mutex;
 
     #[cpp(func = "std::unique_ptr<Mutex> _cpp2rust_make_unique_mutex_with_name(const char*)")]

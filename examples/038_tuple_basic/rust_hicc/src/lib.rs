@@ -6,11 +6,9 @@ hicc::cpp! {
 
     #include "tuple_basic.h"
 
-    extern "C" {
-        Tuple2* hicc_tuple2_new(int first, const char* second) { return new Tuple2(first, second); }
-        Tuple3* hicc_tuple3_new(int first, double second, const char* third) { return new Tuple3(first, second, third); }
-        Tuple4* hicc_tuple4_new(int first, double second, const char* third, int fourth) { return new Tuple4(first, second, third, fourth); }
-    }
+    std::unique_ptr<Tuple2> _cpp2rust_make_unique_tuple2_2(int first, const char* second) { return std::make_unique<Tuple2>(first, second); }
+    std::unique_ptr<Tuple3> _cpp2rust_make_unique_tuple3_3(int first, double second, const char* third) { return std::make_unique<Tuple3>(first, second, third); }
+    std::unique_ptr<Tuple4> _cpp2rust_make_unique_tuple4_4(int first, double second, const char* third, int fourth) { return std::make_unique<Tuple4>(first, second, third, fourth); }
 }
 
 hicc::import_class! {
@@ -62,12 +60,12 @@ hicc::import_lib! {
     class Tuple3;
     class Tuple4;
 
-    #[cpp(func = "Tuple2* hicc_tuple2_new(int, const char*)")]
+    #[cpp(func = "std::unique_ptr<Tuple2> _cpp2rust_make_unique_tuple2_2(int, const char*)")]
     pub unsafe fn tuple2_new(first: i32, second: *const i8) -> Tuple2;
 
-    #[cpp(func = "Tuple3* hicc_tuple3_new(int, double, const char*)")]
+    #[cpp(func = "std::unique_ptr<Tuple3> _cpp2rust_make_unique_tuple3_3(int, double, const char*)")]
     pub unsafe fn tuple3_new(first: i32, second: f64, third: *const i8) -> Tuple3;
 
-    #[cpp(func = "Tuple4* hicc_tuple4_new(int, double, const char*, int)")]
+    #[cpp(func = "std::unique_ptr<Tuple4> _cpp2rust_make_unique_tuple4_4(int, double, const char*, int)")]
     pub unsafe fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> Tuple4;
 }

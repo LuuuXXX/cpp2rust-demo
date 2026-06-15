@@ -2,9 +2,7 @@ hicc::cpp! {
     #include <cstring>
 
     #include "mutable_member.h"
-    std::unique_ptr<DataFetcher> data_fetcher_new(const char* n) {
-        return std::make_unique<DataFetcher>(n);
-    }
+    std::unique_ptr<DataFetcher> _cpp2rust_make_unique_data_fetcher_with_n(const char* n) { return std::make_unique<DataFetcher>(n); }
 }
 
 hicc::import_class! {
@@ -26,6 +24,6 @@ hicc::import_lib! {
 
     class DataFetcher;
 
-    #[cpp(func = "std::unique_ptr<DataFetcher> data_fetcher_new(const char*)")]
+    #[cpp(func = "std::unique_ptr<DataFetcher> _cpp2rust_make_unique_data_fetcher_with_n(const char*)")]
     pub unsafe fn data_fetcher_new_with_n(n: *const i8) -> DataFetcher;
 }

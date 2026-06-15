@@ -7,12 +7,8 @@ hicc::cpp! {
 
     #include "functional_bind.h"
 
-    std::unique_ptr<Adder> adder_new(int base_value) {
-        return std::make_unique<Adder>(base_value);
-    }
-    std::unique_ptr<Multiplier> multiplier_new(int factor) {
-        return std::make_unique<Multiplier>(factor);
-    }
+    std::unique_ptr<Adder> _cpp2rust_make_unique_adder_with_base_value(int base_value) { return std::make_unique<Adder>(base_value); }
+    std::unique_ptr<Multiplier> _cpp2rust_make_unique_multiplier_with_factor(int factor) { return std::make_unique<Multiplier>(factor); }
 }
 
 hicc::import_class! {
@@ -49,10 +45,10 @@ hicc::import_lib! {
     class Multiplier;
     class StringProcessor;
 
-    #[cpp(func = "std::unique_ptr<Adder> adder_new(int)")]
+    #[cpp(func = "std::unique_ptr<Adder> _cpp2rust_make_unique_adder_with_base_value(int)")]
     pub fn adder_new(base_value: i32) -> Adder;
 
-    #[cpp(func = "std::unique_ptr<Multiplier> multiplier_new(int)")]
+    #[cpp(func = "std::unique_ptr<Multiplier> _cpp2rust_make_unique_multiplier_with_factor(int)")]
     pub fn multiplier_new(factor: i32) -> Multiplier;
 
     #[cpp(func = "std::unique_ptr<StringProcessor> hicc::make_unique<StringProcessor>()")]

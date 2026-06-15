@@ -1,11 +1,7 @@
 hicc::cpp! {
     #include "explicit_ctor.h"
-    std::unique_ptr<Widget> widget_new_int(int v) {
-        return std::make_unique<Widget>(v);
-    }
-    std::unique_ptr<Widget> widget_new_double(double v) {
-        return std::make_unique<Widget>(v);
-    }
+    std::unique_ptr<Widget> _cpp2rust_make_unique_widget_with_v(int v) { return std::make_unique<Widget>(v); }
+    std::unique_ptr<Widget> _cpp2rust_make_unique_widget_with_v(double v) { return std::make_unique<Widget>(v); }
 }
 
 hicc::import_class! {
@@ -21,9 +17,9 @@ hicc::import_lib! {
 
     class Widget;
 
-    #[cpp(func = "std::unique_ptr<Widget> widget_new_int(int)")]
+    #[cpp(func = "std::unique_ptr<Widget> _cpp2rust_make_unique_widget_with_v(int)")]
     pub fn widget_new_with_v_i32(v: i32) -> Widget;
 
-    #[cpp(func = "std::unique_ptr<Widget> widget_new_double(double)")]
+    #[cpp(func = "std::unique_ptr<Widget> _cpp2rust_make_unique_widget_with_v(double)")]
     pub fn widget_new_with_v_f64(v: f64) -> Widget;
 }

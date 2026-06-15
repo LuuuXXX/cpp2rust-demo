@@ -5,11 +5,6 @@ hicc::cpp! {
     #include <cstring>
 
     #include "map_basic.h"
-
-    extern "C" {
-        StringIntMap* hicc_string_int_map_new() { return new StringIntMap(); }
-        IntStringMap* hicc_int_string_map_new() { return new IntStringMap(); }
-    }
 }
 
 hicc::import_class! {
@@ -52,9 +47,9 @@ hicc::import_lib! {
     class StringIntMap;
     class IntStringMap;
 
-    #[cpp(func = "StringIntMap* hicc_string_int_map_new()")]
+    #[cpp(func = "std::unique_ptr<StringIntMap> hicc::make_unique<StringIntMap>()")]
     pub fn string_int_map_new() -> StringIntMap;
 
-    #[cpp(func = "IntStringMap* hicc_int_string_map_new()")]
+    #[cpp(func = "std::unique_ptr<IntStringMap> hicc::make_unique<IntStringMap>()")]
     pub fn int_string_map_new() -> IntStringMap;
 }

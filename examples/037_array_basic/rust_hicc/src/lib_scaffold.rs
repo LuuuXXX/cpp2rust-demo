@@ -5,6 +5,9 @@ hicc::cpp! {
     #include <cstring>
 
     #include "array_basic.h"
+
+    std::unique_ptr<IntArray5> _cpp2rust_make_unique_int_array5_with_values(const int* values) { return std::make_unique<IntArray5>(values); }
+    std::unique_ptr<DoubleArray3> _cpp2rust_make_unique_double_array3_with_values(const double* values) { return std::make_unique<DoubleArray3>(values); }
 }
 
 hicc::import_class! {
@@ -56,13 +59,13 @@ hicc::import_lib! {
     #[cpp(func = "std::unique_ptr<IntArray5> hicc::make_unique<IntArray5>()")]
     pub fn int_array5_new() -> IntArray5;
 
-    #[cpp(func = "std::unique_ptr<IntArray5> std::make_unique<IntArray5>(const int*)")]
+    #[cpp(func = "std::unique_ptr<IntArray5> _cpp2rust_make_unique_int_array5_with_values(const int*)")]
     pub fn int_array5_new_with_values(values: *const i32) -> IntArray5;
 
     #[cpp(func = "std::unique_ptr<DoubleArray3> hicc::make_unique<DoubleArray3>()")]
     pub fn double_array3_new() -> DoubleArray3;
 
-    #[cpp(func = "std::unique_ptr<DoubleArray3> std::make_unique<DoubleArray3>(const double*)")]
+    #[cpp(func = "std::unique_ptr<DoubleArray3> _cpp2rust_make_unique_double_array3_with_values(const double*)")]
     pub fn double_array3_new_with_values(values: *const f64) -> DoubleArray3;
 
     #[cpp(func = "std::unique_ptr<StringArray4> hicc::make_unique<StringArray4>()")]

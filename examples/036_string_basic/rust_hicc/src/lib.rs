@@ -7,7 +7,6 @@ hicc::cpp! {
 
     #include "string_basic.h"
 
-    std::unique_ptr<String> _cpp2rust_make_unique_string_0() { return std::make_unique<String>(); }
     std::unique_ptr<String> _cpp2rust_make_unique_string_with_str(const char* str) { return std::make_unique<String>(str); }
     std::unique_ptr<String> _cpp2rust_make_unique_string_2(const char* str, size_t len) { return std::make_unique<String>(str, len); }
 }
@@ -49,7 +48,7 @@ hicc::import_lib! {
 
     class String;
 
-    #[cpp(func = "std::unique_ptr<String> _cpp2rust_make_unique_string_0()")]
+    #[cpp(func = "std::unique_ptr<String> hicc::make_unique<String>()")]
     pub fn string_new() -> String;
 
     #[cpp(func = "std::unique_ptr<String> _cpp2rust_make_unique_string_with_str(const char*)")]

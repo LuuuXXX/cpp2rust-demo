@@ -4,6 +4,10 @@ hicc::cpp! {
     #include <algorithm>
 
     #include "lambda_basic.h"
+
+    std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_with_fn_(int (*)(int, int) fn) { return std::make_unique<LambdaWrapper>(fn); }
+    std::unique_ptr<StateLambda> _cpp2rust_make_unique_state_lambda_with_initial_value(int initial_value) { return std::make_unique<StateLambda>(initial_value); }
+    std::unique_ptr<Comparator> _cpp2rust_make_unique_comparator_with_cmp(int (*)(int, int) cmp) { return std::make_unique<Comparator>(cmp); }
 }
 
 hicc::import_class! {
@@ -57,12 +61,12 @@ hicc::import_lib! {
     #[cpp(func = "int apply_twice(int, int (*)(int, int))")]
     pub unsafe fn apply_twice(x: i32, op: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
 
-    #[cpp(func = "std::unique_ptr<LambdaWrapper> std::make_unique<LambdaWrapper>(int (*)(int, int))")]
+    #[cpp(func = "std::unique_ptr<LambdaWrapper> _cpp2rust_make_unique_lambda_wrapper_with_fn_(int (*)(int, int))")]
     pub unsafe fn lambda_wrapper_new_with_fn_(fn_: unsafe extern "C" fn(i32, i32) -> i32) -> LambdaWrapper;
 
-    #[cpp(func = "std::unique_ptr<StateLambda> std::make_unique<StateLambda>(int)")]
+    #[cpp(func = "std::unique_ptr<StateLambda> _cpp2rust_make_unique_state_lambda_with_initial_value(int)")]
     pub fn state_lambda_new_with_initial_value(initial_value: i32) -> StateLambda;
 
-    #[cpp(func = "std::unique_ptr<Comparator> std::make_unique<Comparator>(int (*)(int, int))")]
+    #[cpp(func = "std::unique_ptr<Comparator> _cpp2rust_make_unique_comparator_with_cmp(int (*)(int, int))")]
     pub unsafe fn comparator_new_with_cmp(cmp: unsafe extern "C" fn(i32, i32) -> i32) -> Comparator;
 }

@@ -1,11 +1,7 @@
-// 此文件为 cpp2rust-demo 工具对 019_operator_overload 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试进行生成准确性验证。
-//
-// Direct 模式下，工具为 Number 生成 import_class! + make_unique 工厂，
-// 使用 std::make_unique<T>(args) 模板函数绑定（无法直接通过 hicc 导出模板，
-// 实际 lib.rs 用手动 C++ 包装函数替代）。
 hicc::cpp! {
     #include "operator_overload.h"
+
+    std::unique_ptr<Number> _cpp2rust_make_unique_number_with_v(int v) { return std::make_unique<Number>(v); }
 }
 
 hicc::import_class! {
@@ -24,6 +20,6 @@ hicc::import_lib! {
 
     class Number;
 
-    #[cpp(func = "std::unique_ptr<Number> std::make_unique<Number>(int)")]
+    #[cpp(func = "std::unique_ptr<Number> _cpp2rust_make_unique_number_with_v(int)")]
     pub fn number_new_with_v(v: i32) -> Number;
 }

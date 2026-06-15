@@ -95,6 +95,9 @@ hicc::import_lib! {
     #[cpp(func = "std::unique_ptr<IntFloatUnion> union_new()")]
     pub fn union_new() -> IntFloatUnion;
 
+    #[cpp(func = "std::unique_ptr<Variant> hicc::make_unique<Variant>()")]
+    pub fn variant_new() -> Variant;
+
     #[cpp(func = "std::unique_ptr<Variant> variant_new_int(int)")]
     pub fn variant_new_int(value: i32) -> Variant;
 

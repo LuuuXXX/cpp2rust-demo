@@ -1,11 +1,8 @@
-// 此文件为 cpp2rust-demo 工具对 021_explicit_ctor 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试进行生成准确性验证。
-//
-// Direct 模式下，工具为 Widget 生成 import_class! + make_unique 工厂，
-// 使用 std::make_unique<T>(args) 模板函数绑定（无法直接通过 hicc 导出模板，
-// 实际 lib.rs 用手动 C++ 包装函数替代）。
 hicc::cpp! {
     #include "explicit_ctor.h"
+
+    std::unique_ptr<Widget> _cpp2rust_make_unique_widget_with_v(int v) { return std::make_unique<Widget>(v); }
+    std::unique_ptr<Widget> _cpp2rust_make_unique_widget_with_v(double v) { return std::make_unique<Widget>(v); }
 }
 
 hicc::import_class! {
@@ -21,9 +18,9 @@ hicc::import_lib! {
 
     class Widget;
 
-    #[cpp(func = "std::unique_ptr<Widget> std::make_unique<Widget>(int)")]
+    #[cpp(func = "std::unique_ptr<Widget> _cpp2rust_make_unique_widget_with_v(int)")]
     pub fn widget_new_with_v_i32(v: i32) -> Widget;
 
-    #[cpp(func = "std::unique_ptr<Widget> std::make_unique<Widget>(double)")]
+    #[cpp(func = "std::unique_ptr<Widget> _cpp2rust_make_unique_widget_with_v(double)")]
     pub fn widget_new_with_v_f64(v: f64) -> Widget;
 }

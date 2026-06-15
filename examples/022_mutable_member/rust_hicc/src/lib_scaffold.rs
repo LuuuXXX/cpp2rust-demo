@@ -1,12 +1,9 @@
-// 此文件为 cpp2rust-demo 工具对 022_mutable_member 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试进行生成准确性验证。
-//
-// Direct 模式下，工具为 DataFetcher 生成 import_class! + make_unique 工厂，
-// 使用 std::make_unique<T>(args) 模板函数绑定（无法直接通过 hicc 导出模板，
-// 实际 lib.rs 用手动 C++ 包装函数替代）。
 hicc::cpp! {
     #include <cstring>
+
     #include "mutable_member.h"
+
+    std::unique_ptr<DataFetcher> _cpp2rust_make_unique_data_fetcher_with_n(const char* n) { return std::make_unique<DataFetcher>(n); }
 }
 
 hicc::import_class! {
@@ -28,6 +25,6 @@ hicc::import_lib! {
 
     class DataFetcher;
 
-    #[cpp(func = "std::unique_ptr<DataFetcher> std::make_unique<DataFetcher>(const char*)")]
+    #[cpp(func = "std::unique_ptr<DataFetcher> _cpp2rust_make_unique_data_fetcher_with_n(const char*)")]
     pub unsafe fn data_fetcher_new_with_n(n: *const i8) -> DataFetcher;
 }

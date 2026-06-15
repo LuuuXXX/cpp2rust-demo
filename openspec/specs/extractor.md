@@ -108,21 +108,35 @@ pub struct FfiSpec {
 
 ### Requirement: Direct 模式工厂函数生成规则
 
-- 默认构造函数 → `hicc::make_unique<T>()`
-- 带参数构造函数 → `std::make_unique<T>(arg_types)`
+- 默认构造函数 → `hicc::make_unique<T>()`（rust_name `<class_snake>_new`，无 C++ shim wrapper）
+- 单参数构造函数 → C++ shim `_cpp2rust_make_unique_<class_snake>_with_<param>(arg)`（rust_name `<class_snake>_new_with_<param>`）
+- 多参数构造函数 → C++ shim `_cpp2rust_make_unique_<class_snake>_<N>(args)`（rust_name `<class_snake>_new_<N>`）
 - 移动构造函数（含 `&&`） → 跳过
-- 复制构造函数（`= delete`） → 通过 `is_deleted_ctor` 过滤
+- 复制构造函数 → 通过 `is_copy_ctor_skip` 过滤（所有 copy ctor 均不生成工厂，含 `= delete` 和非 `= delete`）
 - 纯静态方法类 → 无工厂函数
 
-#### Scenario: 复制构造函数 = delete 过滤
-- GIVEN `Buffer(const Buffer&) = delete`（`is_copy_ctor=true, is_default=false, body_offset=None`）
+#### Scenario: 复制构造函数过滤
+- GIVEN `Buffer(const Buffer&) = delete` 或 `Buffer(const Buffer& other)`
 - WHEN `build_direct_lib_spec` 生成工厂
-- THEN 不生成 `std::make_unique<Buffer>(const Buffer&)` 工厂
+- THEN 不生成 `buffer_new_with_other` 或任何 copy ctor 工厂
 
 #### Scenario: 纯静态方法类无工厂
 - GIVEN `SumCalculator` 类仅含静态方法（`has_only_static_methods=true`）
 - WHEN `build_direct_lib_spec` 生成工厂
 - THEN 不生成 `SumCalculator` 工厂，仅生成 `import_lib!` 静态方法函数
+
+#### Scenario: 单参数 ctor shim 命名
+- GIVEN `Buffer` 类含构造函数 `Buffer(int sz)`
+- WHEN `build_make_unique_factory` 生成 shim
+- THEN shim 名为 `_cpp2rust_make_unique_buffer_with_sz`
+- AND `#[cpp(func)]` 引用为 `std::unique_ptr<Buffer> _cpp2rust_make_unique_buffer_with_sz(int)`
+- AND rust_name 为 `buffer_new_with_sz`
+
+#### Scenario: 默认 ctor 不生成 shim wrapper
+- GIVEN `Buffer` 类含默认构造函数 `Buffer()`
+- WHEN `build_make_unique_factory` 生成绑定
+- THEN cpp_sig 为 `std::unique_ptr<Buffer> hicc::make_unique<Buffer>()`
+- AND 无 C++ shim wrapper 行返回
 
 ---
 

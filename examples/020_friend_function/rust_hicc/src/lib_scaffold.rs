@@ -1,10 +1,6 @@
-// 此文件为 cpp2rust-demo 工具对 020_friend_function 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试进行生成准确性验证。
-//
-// Direct 模式下，工具为 MyClass 生成 import_class! 及 friend 函数的 import_lib! 绑定。
-// 实际 lib.rs 添加了手动 C++ 包装函数（myclass_new）用于构造 MyClass 对象。
 hicc::cpp! {
     #include <iostream>
+
     #include "friend_function.h"
 }
 

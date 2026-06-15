@@ -6,6 +6,9 @@ hicc::cpp! {
     #include <chrono>
 
     #include "std_function.h"
+
+    std::unique_ptr<CallbackWrapperImpl> _cpp2rust_make_unique_callback_wrapper_impl_with_fn_(int (*)(int) fn) { return std::make_unique<CallbackWrapperImpl>(fn); }
+    std::unique_ptr<CallbackWrapper> _cpp2rust_make_unique_callback_wrapper_with_fn_(int (*)(int) fn) { return std::make_unique<CallbackWrapper>(fn); }
 }
 
 hicc::import_class! {
@@ -110,7 +113,7 @@ hicc::import_lib! {
     class MultiCallback;
     class AsyncProcessor;
 
-    #[cpp(func = "std::unique_ptr<CallbackWrapperImpl> std::make_unique<CallbackWrapperImpl>(int (*)(int))")]
+    #[cpp(func = "std::unique_ptr<CallbackWrapperImpl> _cpp2rust_make_unique_callback_wrapper_impl_with_fn_(int (*)(int))")]
     pub unsafe fn callback_wrapper_impl_new_with_fn_(fn_: unsafe extern "C" fn(i32) -> i32) -> CallbackWrapperImpl;
 
     #[cpp(func = "std::unique_ptr<ProcessorImpl> hicc::make_unique<ProcessorImpl>()")]
@@ -122,7 +125,7 @@ hicc::import_lib! {
     #[cpp(func = "std::unique_ptr<AsyncProcessorImpl> hicc::make_unique<AsyncProcessorImpl>()")]
     pub fn async_processor_impl_new() -> AsyncProcessorImpl;
 
-    #[cpp(func = "std::unique_ptr<CallbackWrapper> std::make_unique<CallbackWrapper>(int (*)(int))")]
+    #[cpp(func = "std::unique_ptr<CallbackWrapper> _cpp2rust_make_unique_callback_wrapper_with_fn_(int (*)(int))")]
     pub unsafe fn callback_wrapper_new_with_fn_(fn_: unsafe extern "C" fn(i32) -> i32) -> CallbackWrapper;
 
     #[cpp(func = "std::unique_ptr<Processor> hicc::make_unique<Processor>()")]

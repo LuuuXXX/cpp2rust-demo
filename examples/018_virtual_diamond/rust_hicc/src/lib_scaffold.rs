@@ -1,16 +1,16 @@
-// 此文件为 cpp2rust-demo 工具对 018_virtual_diamond 自动生成的支架黄金文件，
-// 仅供 L1 golden 测试（test_018_virtual_diamond）进行生成准确性验证。
-//
-// Direct 模式下，工具为所有 4 个类（A/B/C/D）生成 import_class! + make_unique 工厂。
-// d_get_a_value(D* self) 是工具生成的 C++ 包装函数（虚继承中 getAValue 的
-// this 调整量问题需要辅助函数），同时作为 import_lib! 中的 StaticAccessor 绑定。
 hicc::cpp! {
     #include <iostream>
 
     #include "virtual_diamond.h"
+
+    std::unique_ptr<A> _cpp2rust_make_unique_a_with_v(int v) { return std::make_unique<A>(v); }
+    std::unique_ptr<B> _cpp2rust_make_unique_b_2(int a, int b) { return std::make_unique<B>(a, b); }
+    std::unique_ptr<C> _cpp2rust_make_unique_c_2(int a, int c) { return std::make_unique<C>(a, c); }
+    std::unique_ptr<D> _cpp2rust_make_unique_d_4(int a, int b, int c, int d) { return std::make_unique<D>(a, b, c, d); }
     int d_get_a_value(D* self) {
-    return self->getAValue();
+        return self->getAValue();
     }
+
 }
 
 hicc::import_class! {
@@ -68,16 +68,16 @@ hicc::import_lib! {
     class C;
     class D;
 
-    #[cpp(func = "std::unique_ptr<A> std::make_unique<A>(int)")]
+    #[cpp(func = "std::unique_ptr<A> _cpp2rust_make_unique_a_with_v(int)")]
     pub fn a_new_with_v(v: i32) -> A;
 
-    #[cpp(func = "std::unique_ptr<B> std::make_unique<B>(int, int)")]
+    #[cpp(func = "std::unique_ptr<B> _cpp2rust_make_unique_b_2(int, int)")]
     pub fn b_new_2(a: i32, b: i32) -> B;
 
-    #[cpp(func = "std::unique_ptr<C> std::make_unique<C>(int, int)")]
+    #[cpp(func = "std::unique_ptr<C> _cpp2rust_make_unique_c_2(int, int)")]
     pub fn c_new_2(a: i32, c: i32) -> C;
 
-    #[cpp(func = "std::unique_ptr<D> std::make_unique<D>(int, int, int, int)")]
+    #[cpp(func = "std::unique_ptr<D> _cpp2rust_make_unique_d_4(int, int, int, int)")]
     pub fn d_new_4(a: i32, b: i32, c: i32, d: i32) -> D;
 
     #[cpp(func = "int d_get_a_value(D*)")]
