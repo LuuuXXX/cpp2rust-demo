@@ -91,13 +91,18 @@ pub fn generate_from_source(unit_name: &str, cpp_source: &str) -> Option<String>
 
 fn find_cpp_file(dir: &str) -> Option<std::path::PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("cpp") {
-            return Some(path);
-        }
-    }
-    None
+    // 收集全部 .cpp，按文件名排序以保证确定性；排除示例驱动 `main.cpp`
+    // （它仅是独立运行的 demo，不是待绑定的实现单元）。
+    let mut cpps: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("cpp"))
+        .collect();
+    cpps.sort();
+    cpps.iter()
+        .find(|p| p.file_name().and_then(|s| s.to_str()) != Some("main.cpp"))
+        .or_else(|| cpps.first())
+        .cloned()
 }
 
 /// 对 C++ 源文件运行预处理器（-E -C），输出到 `out`。

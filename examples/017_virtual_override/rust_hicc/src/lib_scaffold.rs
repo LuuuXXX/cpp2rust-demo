@@ -1,9 +1,8 @@
-//! 017_virtual_override: 显式 override 覆写虚函数（命名空间类 + make_unique 工厂）。
-//!
-//! hicc 直出：基类 `Base` 声明虚函数 `area()`（默认 0），派生类
-//! `Derived : public Base` 用 `override` 关键字显式覆写 `area()`（`value_ * value_`）。
-//! 两类各自以 `import_class!` 直接绑定真实命名空间类；所有成员/构造均为 `double`/无参，
-//! 可直出映射，故本示例 `lib.rs` 与工具默认支架（`lib_scaffold.rs`）一致。
+// 017_virtual_override 工具默认产物支架（hicc 直出，去 shim）。
+//
+// 用于 L1 黄金比对：校验 `init` 对「显式 override 覆写虚函数」默认生成的 hicc 骨架。
+// 基类 Base 的虚函数 area() 与派生类 Derived 的 override 覆写各自绑定；double 成员/构造
+// 均可直出映射，本示例 `lib.rs` 与支架一致（无需手写补全）。
 
 hicc::cpp! {
     #include "virtual_override.h"

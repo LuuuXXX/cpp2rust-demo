@@ -1,44 +1,27 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace virtual_override_ns {
 
-struct Base;
-struct Derived;
-
-struct Base* base_create(int type);
-void base_delete(struct Base* self);
-
-double base_area(struct Base* self);
-const char* base_getName(struct Base* self);
-
-struct Derived* derived_new(double value);
-void derived_delete(struct Derived* self);
-double derived_getValue(struct Derived* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
-#include <string>
+// 基类：虚函数 area() 默认 0
 class Base {
-protected:
-    std::string name;
 public:
-    Base(const char* n);
+    Base();
     virtual ~Base();
     virtual double area() const;
-    const char* getName() const;
 };
 
+// 派生类：以 override 关键字显式覆写 area()
 class Derived : public Base {
-    double value;
 public:
-    Derived(double v);
+    explicit Derived(double v);
     ~Derived() override;
-    double area() const override;
-    double getValue() const;
+    double area() const override;   // value_ * value_
+    double value() const;
+private:
+    double value_;
 };
 
-#endif
+// 锚点：让 detect_idiomatic_mode 走直出路径。
+int virtual_override_anchor();
+
+} // namespace virtual_override_ns
