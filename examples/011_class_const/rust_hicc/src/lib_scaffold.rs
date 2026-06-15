@@ -1,8 +1,8 @@
-//! 011_class_const: const 成员函数（命名空间类 + make_unique 工厂）。
-//!
-//! hicc 模式：const 方法（`value`/`history_count`）映射为 `&self`，非 const 方法
-//! （`add`/`subtract`/`clear`）映射为 `&mut self`；默认构造派生 make_unique 工厂，
-//! 析构由 hicc `Drop` 负责。本示例 `lib.rs` 与工具默认支架一致（无需手写补全）。
+// 011_class_const 工具默认产物支架（hicc 直出，去 shim）。
+//
+// 用于 L1 黄金比对：校验 `init` 对「含 const/非 const 成员函数的命名空间类」默认
+// 生成的 hicc 骨架。const 方法映射为 `&self`，非 const 方法映射为 `&mut self`，
+// 默认构造派生 make_unique 工厂；本示例无需手写补全（`lib.rs` 与支架一致）。
 
 hicc::cpp! {
     #include "class_const.h"
