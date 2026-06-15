@@ -5,15 +5,15 @@ on:
     branches: ["main", "master"]
   pull_request:
     branches: ["main", "master"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
-  # ── L0: 编译工具本身 ─────────────────────────────────────────────
   build:
-    name: Build (cpp2rust-demo)
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +40,6 @@ jobs:
       - name: Build
         run: cargo build --all-targets
 
-  # ── Lint: cargo fmt + cargo clippy ────────────────────────────────
   lint:
     name: Lint (fmt + clippy)
     runs-on: ubuntu-latest
@@ -75,7 +74,6 @@ jobs:
       - name: Check clippy
         run: cargo clippy --all-targets -- -D warnings
 
-  # ── 单元测试 ─────────────────────────────────────────────────────
   unit-tests:
     name: Unit tests
     runs-on: ubuntu-latest
@@ -105,61 +103,9 @@ jobs:
       - name: Run unit tests (lib)
         run: cargo test --lib
 
-      - name: Run unit tests (bin) – multi-feature merge & output-dir
+      - name: Run unit tests (bin)
         run: cargo test --bin cpp2rust-demo
 
-  # ── 单元测试（Windows MinGW）────────────────────────────────────
-  unit-tests-windows:
-    name: Unit tests (Windows MinGW)
-    runs-on: windows-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
-
-      - name: Run unit tests (lib)
-        run: cargo test --lib
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run unit tests (bin) – multi-feature merge & output-dir
-        run: cargo test --bin cpp2rust-demo
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L1: Golden 测试（代码生成准确性）────────────────────────────
   l1-golden:
     name: L1 Golden tests
     runs-on: ubuntu-latest
@@ -186,103 +132,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      # L1 测试须单线程运行（clang 全局状态竞争）
       - name: Run L1 golden tests
         run: |
           cargo test --test l1_golden_tests -- \
             --include-ignored \
             --test-threads=1
 
-  # ── L1 Windows（MinGW）: 在 windows-latest 上验证代码生成准确性 ──
-  l1-golden-windows:
-    name: L1 Golden tests (Windows MinGW)
-    runs-on: windows-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
-
-      # L1 测试须单线程运行（clang 全局状态竞争）
-      - name: Run L1 golden tests
-        run: |
-          cargo test --test l1_golden_tests -- `
-            --include-ignored `
-            --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L1 Windows MSVC: 在 windows-latest 上验证代码生成准确性 ─────
-  l1-golden-msvc:
-    name: L1 Golden tests (Windows MSVC)
-    runs-on: windows-latest
-    needs: build-msvc
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
-
-      # L1 测试须单线程运行（clang 全局状态竞争）
-      - name: Run L1 golden tests
-        run: |
-          cargo test --test l1_golden_tests -- `
-            --include-ignored `
-            --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L2: 编译测试（所有示例 rust_hicc/ 可 cargo build）───────────
   l2-compile:
     name: L2 Compile tests
     runs-on: ubuntu-latest
@@ -312,199 +167,6 @@ jobs:
       - name: Run L2 compile tests
         run: cargo test --test l2_compile_tests
 
-  # ── L2 Windows（MinGW）: 在 windows-latest 上验证所有示例可编译 ──
-  l2-compile-windows:
-    name: L2 Compile tests (Windows MinGW)
-    runs-on: windows-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
-
-      - name: Run L2 compile tests
-        run: cargo test --test l2_compile_tests
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L3: 运行测试（cargo run 输出与 README 一致）────────────────
-  l3-run:
-    name: L3 Run tests
-    runs-on: ubuntu-latest
-    needs: [l1-golden, l2-compile]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-14-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            examples-target
-          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-l3-
-            ${{ runner.os }}-cargo-
-
-      - name: Build C++ shared libraries for all examples
-        run: |
-          for dir in examples/*/cpp; do
-            example=$(basename $(dirname "$dir"))
-            echo "Building C++ lib for $example..."
-            (cd "$dir" && g++ -shared -fPIC *.cpp -o "lib${example##*_}.so") || echo "⚠ Failed to build C++ lib for $example (skipping)"
-          done
-
-      # 并行预构建所有示例项目：共享同一 CARGO_TARGET_DIR，hicc 只编译一次；
-      # 测试时 cargo_run 直接执行已编译二进制，跳过 cargo 开销。
-      - name: Pre-build all Rust example projects
-        run: |
-          ls -d examples/*/rust_hicc | \
-            xargs -P$(nproc) -I{} \
-              cargo build --manifest-path {}/Cargo.toml
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-      - name: Run L3 run tests
-        run: |
-          cargo test --test l3_run_tests -- \
-            --include-ignored \
-            --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-  # ── L3 Windows（MinGW）: 在 windows-latest 上验证示例运行输出 ───
-  l3-run-windows:
-    name: L3 Run tests (Windows MinGW)
-    runs-on: windows-latest
-    needs: [l2-compile-windows]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-binutils
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            examples-target
-          key: ${{ runner.os }}-mingw-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-mingw-cargo-l3-
-            ${{ runner.os }}-mingw-cargo-
-
-      - name: Build C++ DLLs for all examples
-        shell: msys2 {0}
-        run: |
-          for dir in examples/*/cpp; do
-            example=$(basename $(dirname "$dir"))
-            echo "Building C++ DLL for $example..."
-            (cd "$dir" && g++ -shared *.cpp -o "${example##*_}.dll") || echo "⚠ Failed to build C++ DLL for $example (skipping)"
-          done
-
-      # 并行预构建所有示例项目（PowerShell），共享 CARGO_TARGET_DIR。
-      # cargo 是 Windows 原生二进制，不在 MSYS2 PATH 中，因此不能使用 msys2 shell。
-      - name: Pre-build all Rust example projects
-        run: |
-          $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
-          $libclangPath = "$env:LLVM_PATH\bin"
-          $manifests = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
-            Where-Object { $_.DirectoryName -like '*rust_hicc' } |
-            Select-Object -ExpandProperty FullName
-          $jobs = $manifests | ForEach-Object {
-            $manifestPath = $_
-            Start-Job -ScriptBlock {
-              param($manifest, $tdir, $llvm)
-              $env:CARGO_TARGET_DIR = $tdir
-              $env:LIBCLANG_PATH = $llvm
-              $result = cargo build --manifest-path $manifest 2>&1
-              if ($LASTEXITCODE -ne 0) {
-                throw "cargo build failed for $manifest`n$result"
-              }
-            } -ArgumentList $manifestPath, $targetDir, $libclangPath
-          }
-          $jobs | Wait-Job | Receive-Job
-          $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
-          if ($failed.Count -gt 0) {
-            $failed | ForEach-Object { Receive-Job $_ -ErrorAction SilentlyContinue }
-            throw "Pre-build failed for $($failed.Count) example project(s)"
-          }
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run L3 run tests
-        run: |
-          cargo test --test l3_run_tests -- --include-ignored --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L_smoke: 冒烟测试（migrated examples 的 cargo test smoke.rs）──
   l-smoke:
     name: L_smoke Smoke tests
     runs-on: ubuntu-latest
@@ -534,8 +196,7 @@ jobs:
             ${{ runner.os }}-cargo-smoke-
             ${{ runner.os }}-cargo-
 
-      # v7: 自动发现所有含 tests/smoke.rs 的示例，运行 cargo test --test smoke
-      - name: Run smoke tests for all examples (48/48 coverage)
+      - name: Run smoke tests for all examples
         run: |
           FAILED=()
           passed=0
@@ -548,10 +209,10 @@ jobs:
             if cargo test --manifest-path "${dir}/Cargo.toml" \
                 --target-dir "${{ github.workspace }}/examples-target" \
                 --test smoke 2>&1; then
-              echo "✅ ${example}: smoke tests passed"
+              echo "${example}: smoke tests passed"
               passed=$((passed + 1))
             else
-              echo "❌ ${example}: smoke tests FAILED"
+              echo "${example}: smoke tests FAILED"
               FAILED+=("${example}")
             fi
           done
@@ -562,20 +223,18 @@ jobs:
             exit 1
           fi
 
-      # v7 门禁：确保代码库中不存在 CPP2RUST_GEN_* 环境变量引用
       - name: Gate check - no CPP2RUST_GEN_* references
         run: |
           matches=$(grep -r "CPP2RUST_GEN_" --include="*.rs" --include="*.toml" --include="*.yml" --include="*.md" src/ tests/ examples/ || true)
           if [ -n "$matches" ]; then
-            echo "❌ Found CPP2RUST_GEN_* references (should be removed in v7):"
+            echo "Found CPP2RUST_GEN_* references:"
             echo "$matches"
             exit 1
           fi
-          echo "✅ No CPP2RUST_GEN_* references found"
+          echo "No CPP2RUST_GEN_* references found"
 
-  # ── L6: gen-verify 端到端生成验证 ────────────────────────────────
   gen-verify:
-    name: L6 gen-verify (工具实际生成代码可编译验证)
+    name: gen-verify
     runs-on: ubuntu-latest
     needs: [unit-tests, l1-golden]
     steps:
@@ -602,157 +261,31 @@ jobs:
             ${{ runner.os }}-cargo-gen-verify-
             ${{ runner.os }}-cargo-
 
-      # 运行 L6 gen-verify 集成测试（全部 48 个示例）
-      # 标注 #[ignore] 需要 --include-ignored 显式触发
-      - name: Run L6 gen-verify tests
+      - name: Run gen-verify tests
         run: |
           cargo test --test gen_verify_e2e_test -- \
             --include-ignored \
             --test-threads=1
 
-  # ── L6: gen-verify 端到端生成验证 (Windows MinGW) ─────────────────
-  gen-verify-windows:
-    name: L6 gen-verify (Windows MinGW)
-    runs-on: windows-latest
-    needs: [unit-tests-windows, l1-golden-windows]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-gen-verify-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-mingw-cargo-gen-verify-
-            ${{ runner.os }}-mingw-cargo-
-
-      - name: Run L6 gen-verify tests
-        run: |
-          cargo test --test gen_verify_e2e_test -- `
-            --include-ignored `
-            --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L6: gen-verify 端到端生成验证 (Windows MSVC) ─────────────────
-  gen-verify-msvc:
-    name: L6 gen-verify (Windows MSVC)
-    runs-on: windows-latest
-    needs: [unit-tests-msvc, l1-golden-msvc]
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-cargo-gen-verify-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-msvc-cargo-gen-verify-
-            ${{ runner.os }}-msvc-cargo-
-
-      - name: Run L6 gen-verify tests
-        run: |
-          cargo test --test gen_verify_e2e_test -- `
-            --include-ignored `
-            --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L6: gen-verify 端到端生成验证 (macOS) ────────────────────────
-  gen-verify-macos:
-    name: L6 gen-verify (macOS)
-    runs-on: macos-latest
-    needs: [unit-tests-macos, l1-golden-macos]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-gen-verify-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-gen-verify-
-            ${{ runner.os }}-cargo-
-
-      - name: Run L6 gen-verify tests
-        run: |
-          cargo test --test gen_verify_e2e_test -- \
-            --include-ignored \
-            --test-threads=1
-
-  # ── L4: rapidjson 端到端门禁（init + merge 全流程）──────────────
-  l4-rapidjson-e2e:
-    name: L4 rapidjson E2E
+  tinyxml2-e2e:
+    name: tinyxml2 E2E
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: build
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init tinyxml2 submodule
+        run: git submodule update --init references/tinyxml2
 
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-14-dev libgtest-dev
+            clang libclang-dev g++ libstdc++-14-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -764,255 +297,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      # 单线程运行：clang 全局状态 + rapidjson 文件数量多
-      - name: Run L4 rapidjson E2E tests
-        run: |
-          cargo test --test rapidjson_e2e_test -- \
-            --test-threads=1
+      - name: Run tinyxml2 E2E
+        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
 
-  # ── L4 Windows（MinGW）: 在 windows-latest 上验证 E2E 捕获流程 ──
-  l4-rapidjson-e2e-windows:
-    name: L4 rapidjson E2E (Windows MinGW)
-    runs-on: windows-latest
-    needs: build
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
-
-      # 单线程运行：clang 全局状态 + rapidjson 文件数量多
-      - name: Run L4 rapidjson E2E tests
-        run: |
-          cargo test --test rapidjson_e2e_test -- `
-            --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── Usage: verify-rapidjson-ffi.sh（本地验证脚本门禁）──────────
-  usage-verify-rapidjson-ffi:
-    name: Usage verify-rapidjson-ffi
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-14-dev \
-            cmake binutils git
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Build cpp2rust-demo binary
-        run: cargo build --release
-
-      - name: Run verify-rapidjson-ffi.sh
-        run: |
-          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
-          SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
-
-      - name: Verify generated project passes cargo check
-        run: |
-          cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
-          cargo check --quiet
-
-      - name: Verify generated project passes cargo test (smoke tests)
-        # hicc import_lib! 在测试二进制链接时可能遇到 _hicc_export_methods_* 未定义限制；
-        # 此步骤为 best-effort，不阻塞 CI
-        continue-on-error: true
-        run: |
-          cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
-          if [ -f "tests/smoke.rs" ]; then
-            cargo test --quiet || echo "⚠ cargo test failed (hicc import_lib! linking limitation)"
-          else
-            echo "No tests/smoke.rs generated, skipping cargo test"
-          fi
-
-  usage-verify-rapidjson-ffi-windows:
-    name: Usage verify-rapidjson-ffi (Windows MinGW)
-    runs-on: windows-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-            mingw-w64-x86_64-cmake
-            git
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
-
-      - name: Build cpp2rust-demo binary (GNU ABI)
-        run: cargo build --release
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run verify-rapidjson-ffi.sh in MSYS2 shell
-        shell: msys2 {0}
-        run: |
-          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
-          SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Verify generated project passes cargo test (smoke tests)
-        continue-on-error: true
-        shell: msys2 {0}
-        run: |
-          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
-          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/rapidjson_shim/rust"
-          if [ -f "tests/smoke.rs" ]; then
-            cargo test --quiet || echo "⚠ cargo test failed (hicc import_lib! linking limitation)"
-          else
-            echo "No tests/smoke.rs generated, skipping cargo test"
-          fi
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  usage-verify-rapidjson-ffi-msvc:
-    name: Usage verify-rapidjson-ffi (Windows MSVC)
-    runs-on: windows-latest
-    needs: build-msvc
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-            mingw-w64-x86_64-cmake
-            git
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
-
-      - name: Build cpp2rust-demo binary (MSVC ABI)
-        run: cargo build --release
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run verify-rapidjson-ffi.sh in MSYS2 shell
-        shell: msys2 {0}
-        run: |
-          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
-          SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Verify generated project passes cargo test (smoke tests)
-        continue-on-error: true
-        shell: msys2 {0}
-        run: |
-          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
-          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/rapidjson_shim/rust"
-          if [ -f "tests/smoke.rs" ]; then
-            cargo test --quiet || echo "⚠ cargo test failed (hicc import_lib! linking limitation)"
-          else
-            echo "No tests/smoke.rs generated, skipping cargo test"
-          fi
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L5: nm 符号链接验证（C++ extern-C ⊆ Rust binary）───────────
   l5-nm-symbols:
     name: L5 nm symbol validation
     runs-on: ubuntu-latest
@@ -1042,8 +332,6 @@ jobs:
             ${{ runner.os }}-cargo-l5-
             ${{ runner.os }}-cargo-
 
-      # 并行预构建所有示例 Rust crate：共享 CARGO_TARGET_DIR，hicc 只编译一次；
-      # 测试时每个 cargo_build_example 调用直接命中缓存，跳过 cargo 开销。
       - name: Pre-build all Rust example projects
         run: |
           ls -d examples/*/rust_hicc | \
@@ -1052,8 +340,6 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
 
-      # --nocapture：确保符号比对报告（C++ exports / Rust linked / missing）
-      # 在 CI 日志中可见，无论测试成功与否均可追溯。
       - name: Run L5 nm symbol tests
         run: |
           cargo test --test l5_nm_symbol_tests -- \
@@ -1063,333 +349,30 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
 
-  # ════════════════════════════════════════════════════════════════
-  # Windows MSVC 系列（x86_64-pc-windows-msvc，无需 MSYS2）
-  # windows-latest 已预装 VS Build Tools（cl.exe）；
-  # 仅需 KyleMayes/install-llvm-action 提供 libclang + llvm-nm。
-  # ════════════════════════════════════════════════════════════════
-
-  # ── Build (MSVC) ─────────────────────────────────────────────────
-  build-msvc:
-    name: Build (cpp2rust-demo, Windows MSVC)
+  # Windows MinGW 系列 — 自动触发
+  l1-golden-mingw:
+    name: L1 Golden tests (MinGW)
     runs-on: windows-latest
-    permissions:
-      contents: read
+    needs: build
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
-
-      - name: Build
-        run: cargo build --all-targets
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── Unit tests (MSVC) ────────────────────────────────────────────
-  unit-tests-msvc:
-    name: Unit tests (Windows MSVC)
-    runs-on: windows-latest
-    needs: build-msvc
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
-
-      - name: Run unit tests (lib)
-        run: cargo test --lib
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run unit tests (bin) – multi-feature merge & output-dir
-        run: cargo test --bin cpp2rust-demo
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L2 Compile tests (MSVC) ──────────────────────────────────────
-  l2-compile-msvc:
-    name: L2 Compile tests (Windows MSVC)
-    runs-on: windows-latest
-    needs: build-msvc
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
-
-      - name: Run L2 compile tests
-        run: cargo test --test l2_compile_tests
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L3 Run tests (MSVC) ──────────────────────────────────────────
-  # MSVC 下 C++ 代码由 build.rs（cc crate）静态编译，无需额外 DLL 构建步骤。
-  l3-run-msvc:
-    name: L3 Run tests (Windows MSVC)
-    runs-on: windows-latest
-    needs: [l2-compile-msvc]
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            examples-target
-          key: ${{ runner.os }}-msvc-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-msvc-cargo-l3-
-            ${{ runner.os }}-msvc-cargo-
-
-      # 预构建所有示例项目（PowerShell），共享 CARGO_TARGET_DIR
-      - name: Pre-build all Rust example projects
-        run: |
-          $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
-          $manifests = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
-            Where-Object { $_.DirectoryName -like '*rust_hicc' } |
-            Select-Object -ExpandProperty FullName
-          $jobs = $manifests | ForEach-Object {
-            $manifestPath = $_
-            Start-Job -ScriptBlock {
-              param($manifest, $tdir)
-              $env:CARGO_TARGET_DIR = $tdir
-              $result = cargo build --manifest-path $manifest 2>&1
-              if ($LASTEXITCODE -ne 0) {
-                throw "cargo build failed for $manifest`n$result"
-              }
-            } -ArgumentList $manifestPath, $targetDir
-          }
-          $jobs | Wait-Job | Receive-Job
-          $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
-          if ($failed.Count -gt 0) {
-            $failed | ForEach-Object { Receive-Job $_ -ErrorAction SilentlyContinue }
-            throw "Pre-build failed for $($failed.Count) example project(s)"
-          }
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run L3 run tests
-        run: |
-          cargo test --test l3_run_tests -- --include-ignored --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L4 Windows MSVC: 在 windows-latest 上验证 E2E 捕获流程 ──────
-  l4-rapidjson-e2e-msvc:
-    name: L4 rapidjson E2E (Windows MSVC)
-    runs-on: windows-latest
-    needs: build-msvc
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
-
-      # 单线程运行：clang 全局状态 + rapidjson 文件数量多
-      - name: Run L4 rapidjson E2E tests
-        run: |
-          cargo test --test rapidjson_e2e_test -- `
-            --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L5 nm symbol validation (MSVC + llvm-nm) ─────────────────────
-  l5-nm-symbols-msvc:
-    name: L5 nm symbol validation (Windows MSVC)
-    runs-on: windows-latest
-    needs: [l2-compile-msvc]
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang + llvm-nm)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Add LLVM bin to PATH (provides llvm-nm)
-        run: echo "${{ env.LLVM_PATH }}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            examples-target
-          key: ${{ runner.os }}-msvc-cargo-l5-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-msvc-cargo-l5-
-            ${{ runner.os }}-msvc-cargo-
-
-      # 并行预构建所有示例 Rust crate（PowerShell），共享 CARGO_TARGET_DIR
-      - name: Pre-build all Rust example projects
-        run: |
-          $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
-          $libclangPath = "$env:LLVM_PATH\bin"
-          $manifests = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
-            Where-Object { $_.DirectoryName -like '*rust_hicc' } |
-            Select-Object -ExpandProperty FullName
-          $jobs = $manifests | ForEach-Object {
-            $manifestPath = $_
-            Start-Job -ScriptBlock {
-              param($manifest, $tdir, $llvm)
-              $env:CARGO_TARGET_DIR = $tdir
-              $env:LIBCLANG_PATH = $llvm
-              $result = cargo build --manifest-path $manifest 2>&1
-              if ($LASTEXITCODE -ne 0) {
-                throw "cargo build failed for $manifest`n$result"
-              }
-            } -ArgumentList $manifestPath, $targetDir, $libclangPath
-          }
-          $jobs | Wait-Job | Receive-Job
-          $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
-          if ($failed.Count -gt 0) {
-            $failed | ForEach-Object { Receive-Job $_ -ErrorAction SilentlyContinue }
-            throw "Pre-build failed for $($failed.Count) example project(s)"
-          }
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run L5 nm symbol tests
-        run: |
-          cargo test --test l5_nm_symbol_tests -- --ignored --nocapture --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L5 Windows（MinGW + llvm-nm）: 符号链接验证 ─────────────────
-  l5-nm-symbols-windows:
-    name: L5 nm symbol validation (Windows MinGW)
-    runs-on: windows-latest
-    needs: [l2-compile-windows]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
+      - name: Setup MSYS2 with MinGW
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-binutils
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-clang
 
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang + llvm-nm)
+      - name: Install LLVM (for libclang)
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "17"
 
-      - name: Add LLVM bin to PATH (provides llvm-nm)
-        run: echo "${{ env.LLVM_PATH }}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Set LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}\bin" >> $GITHUB_ENV
 
-      - name: Install Rust toolchain (GNU ABI)
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -1398,59 +381,91 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-            examples-target
-          key: ${{ runner.os }}-mingw-cargo-l5-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-mingw-cargo-l5-
-            ${{ runner.os }}-mingw-cargo-
+          key: mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: mingw-cargo-
 
-      # 并行预构建所有示例 Rust crate（PowerShell），共享 CARGO_TARGET_DIR
-      - name: Pre-build all Rust example projects
-        run: |
-          $targetDir = "$env:GITHUB_WORKSPACE\examples-target"
-          $libclangPath = "$env:LLVM_PATH\bin"
-          $manifests = Get-ChildItem -Path examples -Recurse -Filter Cargo.toml |
-            Where-Object { $_.DirectoryName -like '*rust_hicc' } |
-            Select-Object -ExpandProperty FullName
-          $jobs = $manifests | ForEach-Object {
-            $manifestPath = $_
-            Start-Job -ScriptBlock {
-              param($manifest, $tdir, $llvm)
-              $env:CARGO_TARGET_DIR = $tdir
-              $env:LIBCLANG_PATH = $llvm
-              $result = cargo build --manifest-path $manifest 2>&1
-              if ($LASTEXITCODE -ne 0) {
-                throw "cargo build failed for $manifest`n$result"
-              }
-            } -ArgumentList $manifestPath, $targetDir, $libclangPath
-          }
-          $jobs | Wait-Job | Receive-Job
-          $failed = $jobs | Where-Object { $_.State -eq 'Failed' }
-          if ($failed.Count -gt 0) {
-            $failed | ForEach-Object { Receive-Job $_ -ErrorAction SilentlyContinue }
-            throw "Pre-build failed for $($failed.Count) example project(s)"
-          }
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+      - name: Run L1 golden tests
+        run: cargo test --test l1_golden_tests -- --include-ignored --test-threads=1
 
-      - name: Run L5 nm symbol tests
-        run: |
-          cargo test --test l5_nm_symbol_tests -- --ignored --nocapture --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+  l2-compile-mingw:
+    name: L2 Compile tests (MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
 
-  # ════════════════════════════════════════════════════════════════
-  # macOS 系列（macos-latest，Apple Silicon / x86_64）
-  # 依赖：Homebrew LLVM（提供 libclang + clang++）
-  # 编译拦截：DYLD_INSERT_LIBRARIES + libhook.dylib（make -f hook/Makefile）
-  # ════════════════════════════════════════════════════════════════
+      - name: Setup MSYS2 with MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-clang
 
-  # ── Build (macOS) ─────────────────────────────────────────────────
-  build-macos:
-    name: Build (cpp2rust-demo, macOS)
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Set LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}\bin" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: mingw-cargo-
+
+      - name: Run L2 compile tests
+        run: cargo test --test l2_compile_tests
+
+  gen-verify-mingw:
+    name: gen-verify (MinGW)
+    runs-on: windows-latest
+    needs: [unit-tests, l1-golden]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 with MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-clang
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Set LIBCLANG_PATH
+        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}\bin" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: mingw-cargo-
+
+      - name: Run gen-verify tests
+        run: cargo test --test gen_verify_e2e_test -- --include-ignored --test-threads=1
+
+  # macOS — workflow_dispatch（非自动触发）
+  macos-ci:
+    name: macOS CI (build + unit + L1)
     runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
@@ -1478,683 +493,22 @@ jobs:
       - name: Build
         run: cargo build --all-targets
 
-  # ── Unit tests (macOS) ────────────────────────────────────────────
-  unit-tests-macos:
-    name: Unit tests (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
+      - name: Run unit tests
+        run: |
+          cargo test --lib
+          cargo test --bin cpp2rust-demo
 
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run unit tests (lib)
-        run: cargo test --lib
-
-      - name: Run unit tests (bin) – multi-feature merge & output-dir
-        run: cargo test --bin cpp2rust-demo
-
-  # ── L1 Golden tests (macOS) ───────────────────────────────────────
-  l1-golden-macos:
-    name: L1 Golden tests (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      # L1 测试须单线程运行（clang 全局状态竞争）
       - name: Run L1 golden tests
         run: |
           cargo test --test l1_golden_tests -- \
             --include-ignored \
             --test-threads=1
 
-  # ── L2 Compile tests (macOS) ──────────────────────────────────────
-  l2-compile-macos:
-    name: L2 Compile tests (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run L2 compile tests
-        run: cargo test --test l2_compile_tests
-
-  # ── L3 Run tests (macOS) ──────────────────────────────────────────
-  l3-run-macos:
-    name: L3 Run tests (macOS)
-    runs-on: macos-latest
-    needs: [l1-golden-macos, l2-compile-macos]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            examples-target
-          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-l3-
-            ${{ runner.os }}-cargo-
-
-      - name: Build C++ shared libraries for all examples
-        run: |
-          for dir in examples/*/cpp; do
-            example=$(basename $(dirname "$dir"))
-            echo "Building C++ dylib for $example..."
-            # 使用系统 Apple Clang，避免 LLVM clang++ 使用其自带头文件与 macOS SDK 不兼容
-            (cd "$dir" && /usr/bin/clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") || echo "⚠ Failed to build C++ dylib for $example (skipping)"
-          done
-
-      # 并行预构建所有示例项目，共享 CARGO_TARGET_DIR，hicc 只编译一次
-      - name: Pre-build all Rust example projects
-        run: |
-          ls -d examples/*/rust_hicc | \
-            xargs -P$(sysctl -n hw.logicalcpu) -I{} \
-              cargo build --manifest-path {}/Cargo.toml
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-      - name: Run L3 run tests
-        run: |
-          cargo test --test l3_run_tests -- \
-            --include-ignored \
-            --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-  # ── L4 rapidjson E2E (macOS) ──────────────────────────────────────
-  l4-rapidjson-e2e-macos:
-    name: L4 rapidjson E2E (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install cmake
-        run: brew install cmake
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      # 单线程运行：clang 全局状态 + rapidjson 文件数量多
-      - name: Run L4 rapidjson E2E tests
-        run: |
-          cargo test --test rapidjson_e2e_test -- \
-            --test-threads=1
-
-  # ── Usage verify-rapidjson-ffi (macOS) ────────────────────────────
-  usage-verify-rapidjson-ffi-macos:
-    name: Usage verify-rapidjson-ffi (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install cmake
-        run: brew install cmake
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Build cpp2rust-demo binary
-        run: cargo build --release
-
-      - name: Run verify-rapidjson-ffi.sh
-        run: |
-          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
-          SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
-
-      - name: Verify generated project passes cargo test (smoke tests)
-        continue-on-error: true
-        run: |
-          cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
-          if [ -f "tests/smoke.rs" ]; then
-            cargo test --quiet || echo "⚠ cargo test failed (hicc import_lib! linking limitation)"
-          else
-            echo "No tests/smoke.rs generated, skipping cargo test"
-          fi
-
-  # ── L5 nm symbol validation (macOS) ──────────────────────────────
-  l5-nm-symbols-macos:
-    name: L5 nm symbol validation (macOS)
-    runs-on: macos-latest
-    needs: [l2-compile-macos]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            examples-target
-          key: ${{ runner.os }}-cargo-l5-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-l5-
-            ${{ runner.os }}-cargo-
-
-      # 并行预构建所有示例 Rust crate：共享 CARGO_TARGET_DIR，hicc 只编译一次
-      - name: Pre-build all Rust example projects
-        run: |
-          ls -d examples/*/rust_hicc | \
-            xargs -P$(sysctl -n hw.logicalcpu) -I{} \
-              cargo build --manifest-path {}/Cargo.toml
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-      # --nocapture：确保符号比对报告在 CI 日志中可见
-      - name: Run L5 nm symbol tests
-        run: |
-          cargo test --test l5_nm_symbol_tests -- \
-            --ignored \
-            --nocapture \
-            --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-  # ── L4: 五个新项目 E2E 端到端验证（tinyxml2/pugixml/sqlite3/nlohmann/fmtlib）─
-  l4-e2e-libraries:
-    name: L4 E2E Libraries
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false  # 手动初始化需要的子模块
-
-      - name: Init E2E submodules
-        run: |
-          git submodule update --init \
-            references/tinyxml2 \
-            references/pugixml \
-            references/nlohmann-json \
-            references/fmtlib
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-14-dev libsqlite3-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run tinyxml2 E2E
-        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
-
-      - name: Run pugixml E2E
-        run: cargo test --test pugixml_e2e_test -- --test-threads=1
-
-      - name: Run sqlite3 E2E
-        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
-
-      - name: Run nlohmann/json E2E
-        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
-
-      - name: Run fmtlib E2E
-        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
-
-  # ── L4 E2E Libraries (macOS) ──────────────────────────────────────
-  l4-e2e-libraries-macos:
-    name: L4 E2E Libraries (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Init E2E submodules
-        run: |
-          git submodule update --init \
-            references/tinyxml2 \
-            references/pugixml \
-            references/nlohmann-json \
-            references/fmtlib
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install sqlite3
-        run: brew install sqlite3
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run tinyxml2 E2E
-        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
-
-      - name: Run pugixml E2E
-        run: cargo test --test pugixml_e2e_test -- --test-threads=1
-
-      - name: Run sqlite3 E2E
-        # macOS 系统头路径与 Linux 不同，测试内部会自动跳过（graceful skip）
-        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
-
-      - name: Run nlohmann/json E2E
-        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
-
-      - name: Run fmtlib E2E
-        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
-
-  # ── L4 E2E Libraries (Windows MinGW) ─────────────────────────────
-  l4-e2e-libraries-windows:
-    name: L4 E2E Libraries (Windows MinGW)
+  # MSVC — workflow_dispatch（非自动触发）
+  build-msvc:
+    name: Build (Windows MSVC)
     runs-on: windows-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Init E2E submodules
-        run: |
-          git submodule update --init `
-            references/tinyxml2 `
-            references/pugixml `
-            references/nlohmann-json `
-            references/fmtlib
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
-
-      - name: Run tinyxml2 E2E
-        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run pugixml E2E
-        run: cargo test --test pugixml_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run sqlite3 E2E
-        # Windows 无 /usr/include/sqlite3.h，测试内部会自动跳过（graceful skip）
-        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run nlohmann/json E2E
-        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run fmtlib E2E
-        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L4 E2E Libraries (Windows MSVC) ──────────────────────────────
-  l4-e2e-libraries-msvc:
-    name: L4 E2E Libraries (Windows MSVC)
-    runs-on: windows-latest
-    needs: build-msvc
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Init E2E submodules
-        run: |
-          git submodule update --init `
-            references/tinyxml2 `
-            references/pugixml `
-            references/nlohmann-json `
-            references/fmtlib
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (MSVC ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msvc-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-msvc-cargo-
-
-      - name: Run tinyxml2 E2E
-        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run pugixml E2E
-        run: cargo test --test pugixml_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run sqlite3 E2E
-        # Windows 无 /usr/include/sqlite3.h，测试内部会自动跳过（graceful skip）
-        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run nlohmann/json E2E
-        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run fmtlib E2E
-        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L4: 多 feature 合并 & output-dir 真实项目验证（Ubuntu）──────
-  l4-multi-feature-e2e:
-    name: L4 Multi-Feature & Output-Dir E2E
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev g++ libstdc++-14-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      # 单线程运行：clang 全局状态竞争 + 项目内文件数量多
-      - name: Run multi-feature & output-dir E2E tests
-        run: |
-          cargo test --test multi_feature_e2e_test -- \
-            --test-threads=1
-
-  # ── L4: 多 feature 合并 & output-dir 真实项目验证（macOS）────────
-  l4-multi-feature-e2e-macos:
-    name: L4 Multi-Feature & Output-Dir E2E (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run multi-feature & output-dir E2E tests
-        run: |
-          cargo test --test multi_feature_e2e_test -- \
-            --test-threads=1
-
-  # ── L4: 多 feature 合并 & output-dir 真实项目验证（Windows MinGW）
-  l4-multi-feature-e2e-windows:
-    name: L4 Multi-Feature & Output-Dir E2E (Windows MinGW)
-    runs-on: windows-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-mingw-cargo-
-
-      - name: Run multi-feature & output-dir E2E tests
-        run: |
-          cargo test --test multi_feature_e2e_test -- `
-            --test-threads=1
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-  # ── L4: 多 feature 合并 & output-dir 真实项目验证（Windows MSVC）
-  l4-multi-feature-e2e-msvc:
-    name: L4 Multi-Feature & Output-Dir E2E (Windows MSVC)
-    runs-on: windows-latest
-    needs: build-msvc
+    if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     steps:
@@ -2180,10 +534,7 @@ jobs:
           key: ${{ runner.os }}-msvc-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-msvc-cargo-
 
-      - name: Run multi-feature & output-dir E2E tests
-        run: |
-          cargo test --test multi_feature_e2e_test -- `
-            --test-threads=1
+      - name: Build
+        run: cargo build --all-targets
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-

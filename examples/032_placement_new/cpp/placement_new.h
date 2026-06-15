@@ -1,60 +1,11 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// Placement new 示例
-// 展示如何在预分配内存中构造对象
-
 #include <stddef.h>
 
-// 缓冲区结构
-class Buffer;
-
-// 创建预分配缓冲区
-Buffer* buffer_new(size_t capacity);
-
-// 销毁缓冲区（但不调用对象的析构函数）
-void buffer_delete(Buffer* self);
-
-// 获取缓冲区起始地址
-void* buffer_data(Buffer* self);
-
-// 获取缓冲区容量
-size_t buffer_capacity(Buffer* self);
-
-// 在缓冲区中构造对象
-// 返回构造的对象指针
-void* buffer_construct(Buffer* self, size_t offset);
-
-// 获取已构造对象的大小（模拟）
-size_t buffer_size(Buffer* self);
-
-// 模拟 std::vector 风格的内存管理
-class VectorBuffer;
-
-// 创建 vector 缓冲区
-VectorBuffer* vector_buffer_new(size_t capacity);
-
-// 销毁 vector 缓冲区（调用所有对象的析构函数）
-void vector_buffer_delete(VectorBuffer* self);
-
-// 获取数据指针
-void* vector_buffer_data(VectorBuffer* self);
-
-// 获取元素大小
-size_t vector_buffer_element_size(VectorBuffer* self);
-
-#ifdef __cplusplus
-}
-
-// SimpleValue type used for placement new examples
 struct SimpleValue {
     int value;
 };
 
-// Full class definition - for hicc code generation
 class Buffer {
     char* data_;
     size_t capacity_;
@@ -84,5 +35,3 @@ public:
     size_t element_size() const;
     void destroy_all();
 };
-
-#endif

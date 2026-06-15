@@ -1,11 +1,15 @@
 hicc::cpp! {
-    #include <iostream>
-
     #include "explicit_ctor.h"
+    std::unique_ptr<Widget> widget_new_int(int v) {
+        return std::make_unique<Widget>(v);
+    }
+    std::unique_ptr<Widget> widget_new_double(double v) {
+        return std::make_unique<Widget>(v);
+    }
 }
 
 hicc::import_class! {
-    #[cpp(class = "Widget", destroy = "widget_delete")]
+    #[cpp(class = "Widget")]
     pub class Widget {
         #[cpp(method = "int getValue() const")]
         pub fn get_value(&self) -> i32;
@@ -17,12 +21,9 @@ hicc::import_lib! {
 
     class Widget;
 
-    #[cpp(func = "Widget* widget_new(int)")]
-    pub fn widget_new(value: i32) -> Widget;
+    #[cpp(func = "std::unique_ptr<Widget> widget_new_int(int)")]
+    pub fn widget_new_with_v_i32(v: i32) -> Widget;
 
-    #[cpp(func = "Widget* widget_fromInt(int)")]
-    pub fn widget_from_int(value: i32) -> Widget;
-
-    #[cpp(func = "Widget* widget_fromDouble(double)")]
-    pub fn widget_from_double(value: f64) -> Widget;
+    #[cpp(func = "std::unique_ptr<Widget> widget_new_double(double)")]
+    pub fn widget_new_with_v_f64(v: f64) -> Widget;
 }

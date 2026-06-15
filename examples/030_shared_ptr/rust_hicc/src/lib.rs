@@ -9,7 +9,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "SharedData", destroy = "shareddata_delete")]
+    #[cpp(class = "SharedData")]
     pub class SharedData {
         #[cpp(method = "int useCount() const")]
         pub fn use_count(&self) -> i32;
@@ -26,7 +26,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Cache", destroy = "cache_delete")]
+    #[cpp(class = "Cache")]
     pub class Cache {
         #[cpp(method = "SharedData* get(const char* name)")]
         pub fn get(&mut self, name: *const i8) -> *mut SharedData;
@@ -39,12 +39,9 @@ hicc::import_lib! {
     class SharedData;
     class Cache;
 
-    #[cpp(func = "SharedData* shareddata_new(const char*)")]
-    pub unsafe fn shareddata_new(name: *const i8) -> SharedData;
+    #[cpp(func = "std::unique_ptr<SharedData> std::make_unique<SharedData>(const char*)")]
+    pub unsafe fn shared_data_new_with_n(n: *const i8) -> SharedData;
 
-    #[cpp(func = "Cache* cache_new()")]
+    #[cpp(func = "std::unique_ptr<Cache> hicc::make_unique<Cache>()")]
     pub fn cache_new() -> Cache;
-
-    #[cpp(func = "SharedData* cache_get(Cache* c, const char*)")]
-    pub unsafe fn cache_get(c: *mut Cache, name: *const i8) -> *mut SharedData;
 }

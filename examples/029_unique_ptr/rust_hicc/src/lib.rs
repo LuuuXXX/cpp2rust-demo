@@ -8,7 +8,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "UniqueBuffer", destroy = "uniquebuffer_delete")]
+    #[cpp(class = "UniqueBuffer")]
     pub class UniqueBuffer {
         #[cpp(method = "int getSize() const")]
         pub fn get_size(&self) -> i32;
@@ -22,7 +22,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Processor", destroy = "processor_delete")]
+    #[cpp(class = "Processor")]
     pub class Processor {
         #[cpp(method = "char* process(const char* input)")]
         pub fn process(&mut self, input: *const i8) -> *mut i8;
@@ -35,9 +35,9 @@ hicc::import_lib! {
     class UniqueBuffer;
     class Processor;
 
-    #[cpp(func = "UniqueBuffer* uniquebuffer_new(int)")]
-    pub fn uniquebuffer_new(size: i32) -> UniqueBuffer;
+    #[cpp(func = "std::unique_ptr<UniqueBuffer> std::make_unique<UniqueBuffer>(int)")]
+    pub fn unique_buffer_new_with_sz(sz: i32) -> UniqueBuffer;
 
-    #[cpp(func = "Processor* processor_new()")]
+    #[cpp(func = "std::unique_ptr<Processor> hicc::make_unique<Processor>()")]
     pub fn processor_new() -> Processor;
 }

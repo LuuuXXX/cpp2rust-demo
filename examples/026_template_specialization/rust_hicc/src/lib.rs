@@ -8,7 +8,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntHolder", destroy = "intholder_delete")]
+    #[cpp(class = "IntHolder")]
     pub class IntHolder {
         #[cpp(method = "int get() const")]
         pub fn get(&self) -> i32;
@@ -19,7 +19,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "DoubleHolder", destroy = "doubleholder_delete")]
+    #[cpp(class = "DoubleHolder")]
     pub class DoubleHolder {
         #[cpp(method = "double get() const")]
         pub fn get(&self) -> f64;
@@ -30,7 +30,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "StringHolder", destroy = "stringholder_delete")]
+    #[cpp(class = "StringHolder")]
     pub class StringHolder {
         #[cpp(method = "const char* get() const")]
         pub fn get(&self) -> *const i8;
@@ -47,12 +47,12 @@ hicc::import_lib! {
     class DoubleHolder;
     class StringHolder;
 
-    #[cpp(func = "IntHolder* intholder_new(int)")]
-    pub fn intholder_new(value: i32) -> IntHolder;
+    #[cpp(func = "std::unique_ptr<IntHolder> std::make_unique<IntHolder>(int)")]
+    pub fn int_holder_new_with_value(value: i32) -> IntHolder;
 
-    #[cpp(func = "DoubleHolder* doubleholder_new(double)")]
-    pub fn doubleholder_new(value: f64) -> DoubleHolder;
+    #[cpp(func = "std::unique_ptr<DoubleHolder> std::make_unique<DoubleHolder>(double)")]
+    pub fn double_holder_new_with_value(value: f64) -> DoubleHolder;
 
-    #[cpp(func = "StringHolder* stringholder_new(const char*)")]
-    pub unsafe fn stringholder_new(value: *const i8) -> StringHolder;
+    #[cpp(func = "std::unique_ptr<StringHolder> std::make_unique<StringHolder>(const char*)")]
+    pub unsafe fn string_holder_new_with_value(value: *const i8) -> StringHolder;
 }

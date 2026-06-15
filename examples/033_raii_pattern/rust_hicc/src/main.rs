@@ -6,21 +6,20 @@ fn main() {
 
     // 手动锁定/解锁示例
     println!("--- Manual Lock/Unlock ---");
-    let mut mutex = unsafe { mutex_new().into_unique() };
+    let mut mutex = mutex_new();
     mutex.lock();
     println!("Critical section started");
     println!("Critical section ended");
     mutex.unlock();
-    drop(mutex);
 
     println!();
 
     // ScopedLock 示例（模拟 RAII 自动解锁）
     println!("--- ScopedLock Demo ---");
-    let mut mutex2 = unsafe { mutex_new().into_unique() };
-    let lock = unsafe { scoped_lock_new(&mutex2.as_mut_ptr()).into_unique() };
+    let mut mutex2 = mutex_new();
+    let lock = unsafe { scoped_lock_new(mutex2.as_mut_ptr()) };
     println!("Inside scoped lock region");
-    println!("ScopedLock will auto-unlock on delete");
+    println!("ScopedLock will auto-unlock on drop");
     drop(lock);
     drop(mutex2);
 
@@ -29,7 +28,7 @@ fn main() {
     // FileLock 示例
     println!("--- FileLock Demo ---");
     let filename = std::ffi::CString::new("raii_test.txt").expect("CString::new failed");
-    let mut file_lock = unsafe { file_lock_new(filename.as_ptr()).into_unique() };
+    let mut file_lock = unsafe { file_lock_new(filename.as_ptr()) };
     file_lock.lock();
     println!("File is locked, performing I/O...");
     file_lock.unlock();

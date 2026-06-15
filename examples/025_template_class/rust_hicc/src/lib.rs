@@ -1,6 +1,3 @@
-// AbiClass is required by the `class!` macro expansion below.
-use hicc::AbiClass;
-
 hicc::cpp! {
     #include <iostream>
     #include <stack>
@@ -9,7 +6,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntStack", destroy = "intstack_delete")]
+    #[cpp(class = "IntStack")]
     pub class IntStack {
         #[cpp(method = "int size() const")]
         pub fn size(&self) -> i32;
@@ -29,7 +26,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "DoubleStack", destroy = "doublestack_delete")]
+    #[cpp(class = "DoubleStack")]
     pub class DoubleStack {
         #[cpp(method = "int size() const")]
         pub fn size(&self) -> i32;
@@ -54,9 +51,9 @@ hicc::import_lib! {
     class IntStack;
     class DoubleStack;
 
-    #[cpp(func = "IntStack* intstack_new()")]
-    pub fn intstack_new() -> IntStack;
+    #[cpp(func = "std::unique_ptr<IntStack> hicc::make_unique<IntStack>()")]
+    pub fn int_stack_new() -> IntStack;
 
-    #[cpp(func = "DoubleStack* doublestack_new()")]
-    pub fn doublestack_new() -> DoubleStack;
+    #[cpp(func = "std::unique_ptr<DoubleStack> hicc::make_unique<DoubleStack>()")]
+    pub fn double_stack_new() -> DoubleStack;
 }

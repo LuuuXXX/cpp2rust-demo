@@ -1,15 +1,19 @@
 hicc::cpp! {
-    #include <stddef.h>
     #include <iostream>
     #include <vector>
     #include <string>
     #include <cstring>
 
     #include "vector_basic.h"
+
+    extern "C" {
+        IntVector* hicc_int_vector_new() { return new IntVector(); }
+        StringVector* hicc_string_vector_new() { return new StringVector(); }
+    }
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntVector", destroy = "int_vector_delete")]
+    #[cpp(class = "IntVector")]
     pub class IntVector {
         #[cpp(method = "void push_back(int val)")]
         pub fn push_back(&mut self, val: i32);
@@ -41,7 +45,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "StringVector", destroy = "string_vector_delete")]
+    #[cpp(class = "StringVector")]
     pub class StringVector {
         #[cpp(method = "size_t size() const")]
         pub fn size(&self) -> usize;
@@ -54,9 +58,9 @@ hicc::import_lib! {
     class IntVector;
     class StringVector;
 
-    #[cpp(func = "IntVector* int_vector_new()")]
+    #[cpp(func = "IntVector* hicc_int_vector_new()")]
     pub fn int_vector_new() -> IntVector;
 
-    #[cpp(func = "StringVector* string_vector_new()")]
+    #[cpp(func = "StringVector* hicc_string_vector_new()")]
     pub fn string_vector_new() -> StringVector;
 }

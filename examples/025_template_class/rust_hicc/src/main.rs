@@ -4,7 +4,7 @@ fn main() {
     println!("=== 025_template_class - 类模板 ===\n");
 
     // IntStack
-    let mut int_stack = intstack_new();
+    let mut int_stack = int_stack_new();
     println!("IntStack empty: {}", int_stack.empty());
 
     int_stack.push(10);
@@ -19,7 +19,7 @@ fn main() {
     println!();
 
     // DoubleStack
-    let mut double_stack = doublestack_new();
+    let mut double_stack = double_stack_new();
     println!("DoubleStack empty: {}", double_stack.empty());
 
     double_stack.push(1.1);

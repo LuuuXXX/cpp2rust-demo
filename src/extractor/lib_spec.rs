@@ -107,7 +107,7 @@ pub(super) fn build_lib_spec(
     }
 }
 
-pub(super) fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
+pub(crate) fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
     let rust_name = sanitize_fn_name(&fi.name);
     let params: Vec<(String, String)> = fi
         .params

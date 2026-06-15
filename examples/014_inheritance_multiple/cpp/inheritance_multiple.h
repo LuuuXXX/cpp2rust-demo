@@ -1,25 +1,5 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-struct Base1;
-struct Base2;
-struct Derived;
-
-struct Derived* derived_new(int v1, int v2, int dv);
-void derived_delete(struct Derived* self);
-
-int derived_getValue1(struct Derived* self);
-int derived_getValue2(struct Derived* self);
-int derived_getDerivedValue(struct Derived* self);
-void derived_compute(struct Derived* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 class Base1 {
 protected:
     int value1;
@@ -47,5 +27,3 @@ public:
     int getDerivedValue() const;
     void compute() const;
 };
-
-#endif

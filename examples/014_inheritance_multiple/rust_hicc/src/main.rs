@@ -1,7 +1,7 @@
 use inheritance_multiple::*;
 
 fn main() {
-    let derived = derived_new(10, 20, 30);
+    let derived = derived_new_3(10, 20, 30);
 
     println!("Base1 value: {}", derived.get_value1());
     println!("Base2 value: {}", derived.get_value2());

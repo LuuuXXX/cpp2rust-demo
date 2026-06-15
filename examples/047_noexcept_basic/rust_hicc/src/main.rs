@@ -1,19 +1,17 @@
 use noexcept_basic::*;
+use hicc::AbiClass;
 
 fn main() {
     println!("=== 047_noexcept_basic - noexcept ===\n");
 
-    // noexcept functions
     println!("--- noexcept Functions ---");
     println!("noexcept_add(10, 20) = {}", noexcept_add(10, 20));
     println!("noexcept_multiply(6, 7) = {}", noexcept_multiply(6, 7));
     println!("conditional_abs(-42) = {}", conditional_abs(-42));
 
-    // noexcept move semantics
     println!("\n--- noexcept Move Semantics ---");
     let mut mover1 = noexcept_mover_new(100);
     println!("Original mover created, value = {}", mover1.get_value());
-    use hicc::AbiClass;
     let mover2 = unsafe { noexcept_mover_move(&mover1.as_mut_ptr()) };
     println!("Mover moved (noexcept), new value = {}", mover2.get_value());
 

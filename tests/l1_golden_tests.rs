@@ -58,6 +58,34 @@ macro_rules! golden_test_lib_unix_only {
     };
 }
 
+// Unix-only 版本的 golden_test_scaffold：Windows libclang 对某些构造（inline 函数、
+// typedef、union class 等）有不同的 AST 处理，仅在非 Windows 平台运行。
+macro_rules! golden_test_scaffold_unix_only {
+    ($name:ident, $example:literal) => {
+        golden_test_scaffold_unix_only!($name, $example, "rust_hicc/src/lib_scaffold.rs");
+    };
+    ($name:ident, $example:literal, $golden_file:literal) => {
+        #[test]
+        #[cfg(not(windows))]
+        #[cfg_attr(
+            not(feature = "full-test"),
+            ignore = "requires libclang; run with --features full-test --test-threads=1"
+        )]
+        fn $name() {
+            let example_dir = concat!("examples/", $example);
+            let generated = common::run_tool_on(example_dir);
+            let golden_raw = common::read_golden(example_dir, $golden_file);
+            let golden = common::extract_hicc_blocks(&golden_raw);
+            assert_eq!(
+                common::normalize(&generated),
+                common::normalize(&golden),
+                "FFI scaffold mismatch for {}",
+                $example
+            );
+        }
+    };
+}
+
 // v7：当工具默认输出含生成器自带 `pub` 修饰的骨架（如模板函数 `pub unsafe fn do_swap`、
 // 模板构造工厂、代理工厂、dynamic_cast 等）时，使用独立维护的支架黄金文件
 // （`lib_scaffold.rs`）做精确比对，用于校验工具默认产物。
@@ -102,7 +130,13 @@ golden_test_lib!(test_013_inheritance_single, "013_inheritance_single");
 golden_test_lib!(test_014_inheritance_multiple, "014_inheritance_multiple");
 golden_test_lib!(test_015_virtual_basic, "015_virtual_basic");
 golden_test_lib!(test_016_virtual_pure, "016_virtual_pure");
-golden_test_lib!(test_017_virtual_override, "017_virtual_override");
+// lib.rs 含有手动 C++ 包装函数（替代 std::make_unique 模板绑定），
+// 使用独立的 lib_scaffold.rs 作为工具自动生成部分的黄金比对文件。
+golden_test_lib!(
+    test_017_virtual_override,
+    "017_virtual_override",
+    "rust_hicc/src/lib_scaffold.rs"
+);
 // lib.rs 含有针对 hicc member_addr 截断 this 偏移量问题的手动包装函数修复，
 // 使用独立的 lib_scaffold.rs 作为工具自动生成部分的黄金比对文件。
 golden_test_lib!(
@@ -110,42 +144,69 @@ golden_test_lib!(
     "018_virtual_diamond",
     "rust_hicc/src/lib_scaffold.rs"
 );
-golden_test_lib!(test_019_operator_overload, "019_operator_overload");
-golden_test_lib!(test_020_friend_function, "020_friend_function");
-golden_test_lib!(test_021_explicit_ctor, "021_explicit_ctor");
-golden_test_lib!(test_022_mutable_member, "022_mutable_member");
-golden_test_lib!(test_023_typeid_rtti, "023_typeid_rtti");
-golden_test_scaffold!(test_024_template_function, "024_template_function");
-golden_test_lib!(test_025_template_class, "025_template_class");
 golden_test_lib!(
+    test_019_operator_overload,
+    "019_operator_overload",
+    "rust_hicc/src/lib_scaffold.rs"
+);
+golden_test_lib!(
+    test_020_friend_function,
+    "020_friend_function",
+    "rust_hicc/src/lib_scaffold.rs"
+);
+golden_test_lib!(
+    test_021_explicit_ctor,
+    "021_explicit_ctor",
+    "rust_hicc/src/lib_scaffold.rs"
+);
+golden_test_lib!(
+    test_022_mutable_member,
+    "022_mutable_member",
+    "rust_hicc/src/lib_scaffold.rs"
+);
+golden_test_lib!(
+    test_023_typeid_rtti,
+    "023_typeid_rtti",
+    "rust_hicc/src/lib_scaffold.rs"
+);
+golden_test_scaffold!(test_024_template_function, "024_template_function");
+golden_test_scaffold!(test_025_template_class, "025_template_class");
+golden_test_scaffold!(
     test_026_template_specialization,
     "026_template_specialization"
 );
-golden_test_lib!(
+golden_test_scaffold!(
     test_027_template_instantiation,
     "027_template_instantiation"
 );
-golden_test_lib!(test_028_variadic_template, "028_variadic_template");
-golden_test_lib!(test_029_unique_ptr, "029_unique_ptr");
-golden_test_lib!(test_030_shared_ptr, "030_shared_ptr");
-golden_test_lib_unix_only!(test_031_custom_deleter, "031_custom_deleter");
-golden_test_lib!(test_032_placement_new, "032_placement_new");
-golden_test_lib!(test_033_raii_pattern, "033_raii_pattern");
-golden_test_lib!(test_034_vector_basic, "034_vector_basic");
-golden_test_lib!(test_035_map_basic, "035_map_basic");
-golden_test_lib!(test_036_string_basic, "036_string_basic");
-golden_test_lib!(test_037_array_basic, "037_array_basic");
-golden_test_lib!(test_038_tuple_basic, "038_tuple_basic");
-golden_test_lib_unix_only!(test_039_lambda_basic, "039_lambda_basic");
-golden_test_lib!(test_040_std_function, "040_std_function");
-golden_test_lib!(test_041_functional_bind, "041_functional_bind");
-golden_test_lib!(test_042_exception_basic, "042_exception_basic");
-golden_test_lib_unix_only!(test_043_namespace_nested, "043_namespace_nested");
-golden_test_lib!(test_044_enum_class, "044_enum_class");
-golden_test_lib_unix_only!(test_045_union_basic, "045_union_basic");
-golden_test_lib!(test_046_constexpr_basic, "046_constexpr_basic");
-golden_test_lib_unix_only!(test_047_noexcept_basic, "047_noexcept_basic");
-golden_test_lib!(test_048_summary, "048_summary");
+golden_test_scaffold!(test_028_variadic_template, "028_variadic_template");
+golden_test_scaffold!(test_029_unique_ptr, "029_unique_ptr");
+golden_test_scaffold!(test_030_shared_ptr, "030_shared_ptr");
+golden_test_lib_unix_only!(
+    test_031_custom_deleter,
+    "031_custom_deleter",
+    "rust_hicc/src/lib_scaffold.rs"
+);
+golden_test_scaffold!(test_032_placement_new, "032_placement_new");
+golden_test_scaffold!(test_033_raii_pattern, "033_raii_pattern");
+golden_test_scaffold!(test_034_vector_basic, "034_vector_basic");
+golden_test_scaffold!(test_035_map_basic, "035_map_basic");
+golden_test_scaffold!(test_036_string_basic, "036_string_basic");
+golden_test_scaffold!(test_037_array_basic, "037_array_basic");
+golden_test_scaffold!(test_038_tuple_basic, "038_tuple_basic");
+golden_test_scaffold!(test_039_lambda_basic, "039_lambda_basic");
+golden_test_scaffold!(test_040_std_function, "040_std_function");
+golden_test_scaffold!(test_041_functional_bind, "041_functional_bind");
+golden_test_scaffold!(test_042_exception_basic, "042_exception_basic");
+golden_test_scaffold_unix_only!(test_043_namespace_nested, "043_namespace_nested");
+golden_test_scaffold!(test_044_enum_class, "044_enum_class");
+golden_test_scaffold_unix_only!(test_045_union_basic, "045_union_basic");
+golden_test_scaffold!(test_046_constexpr_basic, "046_constexpr_basic");
+golden_test_scaffold_unix_only!(test_047_noexcept_basic, "047_noexcept_basic");
+golden_test_scaffold!(test_048_summary, "048_summary");
+
+// Direct 绑定模式：无 extern-C shim 时生成 make_unique 工厂、跳过 destroy 属性。
+golden_test_lib!(test_049_direct_class_basic, "049_direct_class_basic");
 
 // ── 降级标记断言：直接验证 cpp2rust-todo[TAG] 是否被正确生成 ──────────────────
 //
@@ -167,8 +228,5 @@ macro_rules! todo_tag_test {
     };
 }
 
-todo_tag_test!(test_031_todo_fp, "031_custom_deleter", "FP");
 todo_tag_test!(test_039_todo_fp, "039_lambda_basic", "FP");
 todo_tag_test!(test_040_todo_fp, "040_std_function", "FP");
-#[cfg(not(windows))]
-todo_tag_test!(test_047_todo_fp, "047_noexcept_basic", "FP");

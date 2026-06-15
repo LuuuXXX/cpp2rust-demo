@@ -1,15 +1,19 @@
 hicc::cpp! {
-    #include <stddef.h>
     #include <iostream>
     #include <map>
     #include <string>
     #include <cstring>
 
     #include "map_basic.h"
+
+    extern "C" {
+        StringIntMap* hicc_string_int_map_new() { return new StringIntMap(); }
+        IntStringMap* hicc_int_string_map_new() { return new IntStringMap(); }
+    }
 }
 
 hicc::import_class! {
-    #[cpp(class = "StringIntMap", destroy = "string_int_map_delete")]
+    #[cpp(class = "StringIntMap")]
     pub class StringIntMap {
         #[cpp(method = "bool insert(const char* key, int val)")]
         pub fn insert(&mut self, key: *const i8, val: i32) -> bool;
@@ -35,7 +39,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntStringMap", destroy = "int_string_map_delete")]
+    #[cpp(class = "IntStringMap")]
     pub class IntStringMap {
         #[cpp(method = "size_t size() const")]
         pub fn size(&self) -> usize;
@@ -48,9 +52,9 @@ hicc::import_lib! {
     class StringIntMap;
     class IntStringMap;
 
-    #[cpp(func = "StringIntMap* string_int_map_new()")]
+    #[cpp(func = "StringIntMap* hicc_string_int_map_new()")]
     pub fn string_int_map_new() -> StringIntMap;
 
-    #[cpp(func = "IntStringMap* int_string_map_new()")]
+    #[cpp(func = "IntStringMap* hicc_int_string_map_new()")]
     pub fn int_string_map_new() -> IntStringMap;
 }

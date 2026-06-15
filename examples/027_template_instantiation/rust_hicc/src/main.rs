@@ -4,7 +4,7 @@ fn main() {
     println!("=== 027_template_instantiation - 模板显式实例化 ===\n");
 
     // IntMatrix
-    let mut im = intmatrix_new(3, 3);
+    let mut im = int_matrix_new_2(3, 3);
     im.set(0, 0, 1);
     im.set(0, 1, 2);
     im.set(0, 2, 3);
@@ -19,7 +19,7 @@ fn main() {
     println!();
 
     // DoubleMatrix
-    let mut dm = doublematrix_new(2, 2);
+    let mut dm = double_matrix_new_2(2, 2);
     dm.set(0, 0, 1.1);
     dm.set(0, 1, 2.2);
     dm.set(1, 0, 3.3);
@@ -31,4 +31,3 @@ fn main() {
     println!("Matrix<int> -> IntMatrix");
     println!("Matrix<double> -> DoubleMatrix");
 }
-

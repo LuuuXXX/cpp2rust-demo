@@ -1,40 +1,37 @@
-//! 045_union_basic 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
-
 use union_basic::*;
-use hicc::AbiClass;
+
+fn decode_cstr(ptr: *const i8) -> String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
+}
 
 #[test]
 fn smoke_variant_int() {
     let v = variant_new_int(42);
-    assert_eq!(v.get_type(), 0, "Variant INT 类型码应为 0");
-    assert_eq!(v.get_int(), 42, "Variant int 值应为 42");
+    assert_eq!(v.get_type(), 0, "Variant INT type code should be 0");
+    assert_eq!(v.get_int(), 42, "Variant int value should be 42");
 }
 
 #[test]
 fn smoke_variant_float() {
     let v = variant_new_float(3.14);
-    assert_eq!(v.get_type(), 1, "Variant FLOAT 类型码应为 1");
-    assert!((v.get_float() - 3.14f32).abs() < 0.01, "Variant float 值应接近 3.14");
+    assert_eq!(v.get_type(), 1, "Variant FLOAT type code should be 1");
+    assert!((v.get_float() - 3.14f32).abs() < 0.01, "Variant float value should be close to 3.14");
 }
 
 #[test]
 fn smoke_variant_string() {
     let v = unsafe { variant_new_string("hello\0".as_ptr() as *const i8) };
-    assert_eq!(v.get_type(), 2, "Variant STRING 类型码应为 2");
-    let s = unsafe { std::ffi::CStr::from_ptr(v.get_string()) };
-    assert_eq!(s.to_str().unwrap(), "hello", "Variant string 值应为 hello");
+    assert_eq!(v.get_type(), 2, "Variant STRING type code should be 2");
+    assert_eq!(decode_cstr(v.get_string()), "hello", "Variant string value should be hello");
 }
 
 #[test]
 fn smoke_union_memory_overlay() {
     let mut u = union_new();
-    unsafe { union_set_int(&u.as_mut_ptr(), 0x41414141) };
-    let int_val = union_get_int(&u.as_mut_ptr());
-    assert_eq!(int_val, 0x41414141i32, "读取 int 值应与写入一致");
-    let float_bits = union_get_float(&u.as_mut_ptr()).to_bits();
-    assert_eq!(float_bits, 0x41414141u32, "float 的位表示应与 int 相同（union 共享内存）");
+    u.set_int(0x41414141);
+    assert_eq!(u.get_int(), 0x41414141i32, "reading int value should match written value");
+    let float_bits = u.get_float().to_bits();
+    assert_eq!(float_bits, 0x41414141u32, "float bits representation should match int (union shared memory)");
 }
 
 #[test]

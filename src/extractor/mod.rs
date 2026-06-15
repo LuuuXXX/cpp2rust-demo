@@ -6,6 +6,7 @@ pub mod type_mapper;
 
 mod class_spec;
 mod cpp_block;
+pub(crate) mod direct_binding;
 mod dynamic_cast_spec;
 mod lib_spec;
 mod proxy_spec;
@@ -82,6 +83,10 @@ pub fn extract(
     let namespace_class_mode =
         detect_namespace_mode(has_any_classes, &used_classes, &eligible_functions);
 
+    // ── 绑定模式判定（P1）────────────────────────────────────
+    // 在 cpp! 块构建之前判定：Direct 模式不包含 shim 函数体
+    let binding_mode = direct_binding::classify(&ast.classes, &eligible_functions);
+
     // ── hicc::cpp! 块内容 ──────────────────────
     let cpp_block_lines = if namespace_class_mode {
         // 命名空间类模式：只生成项目头文件 include，不内联类体
@@ -90,6 +95,19 @@ pub fn extract(
         } else {
             Vec::new()
         }
+    } else if binding_mode == crate::ffi_model::BindingMode::Direct {
+        // Direct 模式：只包含系统 include + 项目头文件，不含 shim 函数体
+        let mut lines: Vec<String> = Vec::new();
+        for inc in system_includes {
+            lines.push(inc.clone());
+        }
+        if !system_includes.is_empty() {
+            lines.push(String::new());
+        }
+        if let Some(hdr) = project_header {
+            lines.push(format!("#include \"{}\"", hdr));
+        }
+        lines
     } else {
         cpp_block::build_cpp_block(
             ast,
@@ -104,7 +122,12 @@ pub fn extract(
     // ── import_class! 块列表 ──────────────────
     // 只为 extern-C 函数签名中明确引用的类生成 import_class!
     // 若 used_classes 为空（无类被引用），则不生成任何 import_class!
-    let class_specs: Vec<ClassSpec> = if namespace_class_mode || used_classes.is_empty() {
+    //
+    // **P1 Direct 模式**：跳过 used_classes 过滤，对所有非命名空间类构建方法绑定
+    // （因为 direct 模式不依赖 extern-C shim 函数，每个 C++ 类都直接通过方法暴露）。
+    let class_specs: Vec<ClassSpec> = if binding_mode == crate::ffi_model::BindingMode::Direct {
+        direct_binding::build_direct_class_specs(&ast.classes)
+    } else if namespace_class_mode || used_classes.is_empty() {
         Vec::new()
     } else {
         // 导出类名列表：只有在 used_classes 中的类才会真正生成 import_class! 块，
@@ -133,7 +156,11 @@ pub fn extract(
     // 始终调用 build_lib_spec：其内部的 is_mappable_rust_type 过滤器会自动排除
     // 含 `::` 的命名空间类型（如 std::string*、example::OperationResult*），
     // 而 void* → *mut u8 等可映射类型则正常生成绑定。
-    let lib_spec = {
+    //
+    // **P1 Direct 模式**：lib_spec 只含每个类的 `make_unique<T>` 工厂，不含其他 shim 绑定。
+    let lib_spec = if binding_mode == crate::ffi_model::BindingMode::Direct {
+        direct_binding::build_direct_lib_spec(&class_specs, &ast.classes, &functions, unit_name)
+    } else {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
         lib_spec::build_lib_spec(&functions, unit_name, &class_names)
     };
@@ -143,6 +170,7 @@ pub fn extract(
         cpp_block_lines,
         class_specs,
         lib_spec,
+        binding_mode,
         ..Default::default()
     };
 
@@ -526,7 +554,9 @@ fn is_mappable_rust_type(rust_ty: &str, class_names: &[&str]) -> bool {
         }
         return class_names.contains(&inner);
     }
-    false
+    // Direct 模式下 make_unique 返回 owned T（裸类名），需视为合法类型。
+    // Shim 模式下工厂返回 *mut T（指针），此处不生效（不会出现裸类名）。
+    class_names.contains(&rust_ty)
 }
 
 /// 从源文件字节数组中读取范围文本
@@ -923,6 +953,7 @@ mod tests {
             body_offset: None,
             is_override: false,
             is_default: false,
+            is_copy_ctor: false,
         }
     }
 

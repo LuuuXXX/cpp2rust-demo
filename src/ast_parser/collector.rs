@@ -458,6 +458,7 @@ pub(super) fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
             .unwrap_or_default()
             .is_empty(),
         is_default: entity.is_defaulted(),
+        is_copy_ctor: entity.is_copy_constructor(),
     })
 }
 

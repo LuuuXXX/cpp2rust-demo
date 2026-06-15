@@ -1,44 +1,40 @@
-//! 044_enum_class 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
-
 use enum_class::*;
 
 #[test]
 fn smoke_operation_result_error() {
-    let result = unsafe { operation_result_new() };
-    unsafe { operation_result_set_error(result, ERROR_INVALID_INPUT) };
-    assert_eq!(unsafe { operation_result_get_error(result) }, ERROR_INVALID_INPUT, "设置错误码应为 ERROR_INVALID_INPUT");
+    let mut result = operation_result_new();
+    result.set_error(ERROR_INVALID_INPUT);
+    assert_eq!(result.get_error(), ERROR_INVALID_INPUT, "error code should be ERROR_INVALID_INPUT");
 
-    unsafe { operation_result_set_error(result, ERROR_NOT_FOUND) };
-    assert_eq!(unsafe { operation_result_get_error(result) }, ERROR_NOT_FOUND, "设置错误码应为 ERROR_NOT_FOUND");
+    result.set_error(ERROR_NOT_FOUND);
+    assert_eq!(result.get_error(), ERROR_NOT_FOUND, "error code should be ERROR_NOT_FOUND");
 }
 
 #[test]
 fn smoke_operation_result_state() {
-    let result = unsafe { operation_result_new() };
-    unsafe { operation_result_set_state(result, STATE_RUNNING) };
-    assert_eq!(unsafe { operation_result_get_state(result) }, STATE_RUNNING, "设置状态应为 STATE_RUNNING");
+    let mut result = operation_result_new();
+    result.set_state(STATE_RUNNING);
+    assert_eq!(result.get_state(), STATE_RUNNING, "state should be STATE_RUNNING");
 
-    unsafe { operation_result_set_state(result, STATE_PAUSED) };
-    assert_eq!(unsafe { operation_result_get_state(result) }, STATE_PAUSED, "设置状态应为 STATE_PAUSED");
+    result.set_state(STATE_PAUSED);
+    assert_eq!(result.get_state(), STATE_PAUSED, "state should be STATE_PAUSED");
 }
 
 #[test]
 fn smoke_flags() {
-    let result = unsafe { operation_result_new() };
-    unsafe { operation_result_set_flags(result, FLAG_READ | FLAG_WRITE) };
-    let flags = unsafe { operation_result_get_flags(result) };
-    assert_eq!(flags, FLAG_READ | FLAG_WRITE, "设置标志位应为 READ|WRITE");
-    assert!(unsafe { has_flag(flags, FLAG_READ) } != 0, "应包含 FLAG_READ");
-    assert!(unsafe { has_flag(flags, FLAG_WRITE) } != 0, "应包含 FLAG_WRITE");
-    assert!(unsafe { has_flag(flags, FLAG_EXECUTE) } == 0, "不应包含 FLAG_EXECUTE");
+    let mut result = operation_result_new();
+    result.set_flags(FLAG_READ | FLAG_WRITE);
+    let flags = result.get_flags();
+    assert_eq!(flags, FLAG_READ | FLAG_WRITE, "flags should be READ|WRITE");
+    assert!(has_flag(flags, FLAG_READ) != 0, "should contain FLAG_READ");
+    assert!(has_flag(flags, FLAG_WRITE) != 0, "should contain FLAG_WRITE");
+    assert!(has_flag(flags, FLAG_EXECUTE) == 0, "should not contain FLAG_EXECUTE");
 }
 
 #[test]
 fn smoke_combine_flags() {
-    let combined = unsafe { combine_flags(FLAG_READ, FLAG_EXECUTE) };
-    assert_eq!(combined, FLAG_READ | FLAG_EXECUTE, "combine_flags 应合并两个标志");
+    let combined = combine_flags(FLAG_READ, FLAG_EXECUTE);
+    assert_eq!(combined, FLAG_READ | FLAG_EXECUTE, "combine_flags should merge two flags");
 }
 
 #[test]

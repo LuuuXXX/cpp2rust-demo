@@ -1,10 +1,12 @@
 use union_basic::*;
-use hicc::AbiClass;
+
+fn decode_cstr(ptr: *const i8) -> String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
+}
 
 fn main() {
     println!("=== 045_union_basic - Unions ===\n");
 
-    // Variant example
     println!("--- Variant Demo ---");
 
     let v_int = variant_new_int(42);
@@ -14,23 +16,19 @@ fn main() {
     println!("Type: {}, Value: {}", variant_type_name(v_float.get_type()), v_float.get_float());
 
     let v_string = unsafe { variant_new_string("Hello, Union!\0".as_ptr() as *const i8) };
-    let s = unsafe { std::ffi::CStr::from_ptr(v_string.get_string()) };
-    println!("Type: {}, Value: {}", variant_type_name(v_string.get_type()), s.to_str().unwrap());
+    println!("Type: {}, Value: {}", variant_type_name(v_string.get_type()), decode_cstr(v_string.get_string()));
 
-    // Memory overlay demo
     println!("\n--- Memory Overlay Demo ---");
     println!("sizeof(int) = {}, sizeof(float) = {}", std::mem::size_of::<i32>(), std::mem::size_of::<f32>());
 
     let mut union_ptr = union_new();
 
-    // Set int value
-    unsafe { union_set_int(&union_ptr.as_mut_ptr(), 0x41414141); }  // 'AAAA' in ASCII
-    let int_val = union_get_int(&union_ptr.as_mut_ptr());
+    union_ptr.set_int(0x41414141);
+    let int_val = union_ptr.get_int();
     println!("Set as int: {} (0x{:08x})", int_val, int_val as u32);
 
-    // Read same memory as float
-    let float_bits = union_get_float(&union_ptr.as_mut_ptr());
-    println!("Read as float: {} (bits: 0x{:08x})", float_bits, float_bits.to_bits());
+    let float_bits = union_ptr.get_float().to_bits();
+    println!("Read as float: {} (bits: 0x{:08x})", union_ptr.get_float(), float_bits);
 
     println!("\n--- Summary ---");
     println!("1. union all members share the same memory");

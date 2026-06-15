@@ -6,7 +6,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Buffer", destroy = "buffer_delete")]
+    #[cpp(class = "Buffer")]
     pub class Buffer {
         #[cpp(method = "void set(int index, int value)")]
         pub fn set(&mut self, index: i32, value: i32);
@@ -24,12 +24,12 @@ hicc::import_lib! {
 
     class Buffer;
 
-    #[cpp(func = "Buffer* buffer_new()")]
+    #[cpp(func = "std::unique_ptr<Buffer> hicc::make_unique<Buffer>()")]
     pub fn buffer_new() -> Buffer;
 
-    #[cpp(func = "Buffer* buffer_newWithSize(int)")]
-    pub fn buffer_new_with_size(size: i32) -> Buffer;
+    #[cpp(func = "std::unique_ptr<Buffer> std::make_unique<Buffer>(int)")]
+    pub fn buffer_new_with_sz(sz: i32) -> Buffer;
 
-    #[cpp(func = "Buffer* buffer_newCopy(const Buffer* other)")]
-    pub fn buffer_new_copy(other: *const Buffer) -> Buffer;
+    #[cpp(func = "std::unique_ptr<Buffer> std::make_unique<Buffer>(const Buffer &)")]
+    pub fn buffer_new_with_other(other: &Buffer) -> Buffer;
 }

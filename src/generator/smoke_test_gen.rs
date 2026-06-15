@@ -89,6 +89,24 @@ fn find_zero_param_factory<'a>(specs: &[&'a FfiSpec], class_name: &str) -> Optio
     None
 }
 
+/// 为 Rust 原始类型返回默认值字面量（用于 smoke 测试的 assert_eq! 断言）。
+///
+/// 仅返回**零值/默认值**可确定的原始类型；其他类型（类、字符串、指针、自定义类型）
+/// 返回 `None`，由调用方决定如何处理（通常保留 `let _result = ...`）。
+///
+/// 参考 hicc-usages/examples/006_class_basic/rust_hicc/tests/smoke.rs 中的
+/// `assert_eq!(c.count(), 0)` 风格断言。
+fn default_value_literal(rust_type: &str) -> Option<&'static str> {
+    match rust_type.trim() {
+        "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64" | "usize" => {
+            Some("0")
+        }
+        "f32" | "f64" => Some("0.0"),
+        "bool" => Some("false"),
+        _ => None,
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────
 //  生成主函数
 // ─────────────────────────────────────────────────────────────────
@@ -154,6 +172,10 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
     }
 
     // ── C. 类方法测试（有零参构造函数的类）──────────────────────
+    // 增强（参考 hicc-usages/006_class_basic/rust_hicc/tests/smoke.rs）：
+    // 当方法返回原始类型（i32/u32/bool/f64 等）时，对返回值生成 `assert_eq!(result, <default>)` 断言，
+    // 验证新构造实例的默认状态（如 `assert_eq!(c.count(), 0)`）。
+    // 其他返回类型（类、指针、字符串）无法预知默认值，保留 `let _result = ...` 形式。
 
     for spec in specs {
         for cs in &spec.class_specs {
@@ -193,11 +215,18 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
                     out.push_str("    let mut obj = obj;\n");
                 }
 
-                // 调用方法
+                // 调用方法，对原始类型返回值生成 assert 断言
                 let method_call = format!("obj.{}()", mb.rust_name);
                 match &mb.ret_type {
-                    Some(_) => {
-                        out.push_str(&format!("    let _result = {};\n", method_call));
+                    Some(rt) => {
+                        if let Some(literal) = default_value_literal(rt) {
+                            // 原始类型：assert_eq!(result, <default>)
+                            out.push_str(&format!("    let result = {};\n", method_call));
+                            out.push_str(&format!("    assert_eq!(result, {});\n", literal));
+                        } else {
+                            // 类/指针/字符串等：保留 _result 形式
+                            out.push_str(&format!("    let _result = {};\n", method_call));
+                        }
                     }
                     None => {
                         out.push_str(&format!("    {};\n", method_call));
@@ -419,11 +448,113 @@ mod tests {
             "有构造函数的类方法应生成测试\n{}",
             code
         );
+        // 增强（P1.4）：返回 i32 的零参方法应生成 assert_eq!(result, 0)
         assert!(
-            code.contains("let _result = obj.value();"),
-            "方法测试应构造实例并调用方法\n{}",
+            code.contains("let result = obj.value();"),
+            "方法测试应构造实例并调用方法（结果存入 result）\n{}",
             code
         );
+        assert!(
+            code.contains("assert_eq!(result, 0);"),
+            "i32 返回值的零参方法应生成默认值 assert 断言\n{}",
+            code
+        );
+    }
+
+    /// P1.4 新增：返回非原始类型（如类、字符串）的零参方法应保留 `let _result = ...` 形式
+    #[test]
+    fn generate_method_test_non_primitive_ret_keeps_underscore() {
+        // 返回 Foo（类类型）的方法不应生成 assert（无默认值）
+        let spec = spec_with(
+            vec![ClassSpec {
+                name: "Widget".to_string(),
+                methods: vec![MethodBinding {
+                    cpp_sig: "Foo get_foo() const".to_string(),
+                    rust_name: "get_foo".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: Some("Foo".to_string()),
+                    has_fn_ptr_param: false,
+                }],
+                associated_fns: vec![FnBinding {
+                    cpp_sig: "Widget* widget_new()".to_string(),
+                    rust_name: "widget_new".to_string(),
+                    params: vec![],
+                    ret_type: Some("Widget".to_string()),
+                    is_unsafe: false,
+                    has_fn_ptr_param: false,
+                }],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            vec![],
+        );
+        let code = generate_smoke_test("my_lib", &[&spec]);
+        assert!(
+            code.contains("let _result = obj.get_foo();"),
+            "非原始类型返回值的零参方法应保留 _result 形式（不生成 assert），实际：\n{}",
+            code
+        );
+        assert!(
+            !code.contains("assert_eq!(_result"),
+            "非原始类型不应生成 assert_eq!，实际：\n{}",
+            code
+        );
+    }
+
+    /// P1.4 新增：bool 返回值的零参方法应生成 `assert_eq!(result, false)`
+    #[test]
+    fn generate_method_test_bool_ret_uses_false_default() {
+        let spec = spec_with(
+            vec![ClassSpec {
+                name: "Flag".to_string(),
+                methods: vec![MethodBinding {
+                    cpp_sig: "bool is_on() const".to_string(),
+                    rust_name: "is_on".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: Some("bool".to_string()),
+                    has_fn_ptr_param: false,
+                }],
+                associated_fns: vec![FnBinding {
+                    cpp_sig: "Flag* flag_new()".to_string(),
+                    rust_name: "flag_new".to_string(),
+                    params: vec![],
+                    ret_type: Some("Flag".to_string()),
+                    is_unsafe: false,
+                    has_fn_ptr_param: false,
+                }],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            vec![],
+        );
+        let code = generate_smoke_test("my_lib", &[&spec]);
+        assert!(
+            code.contains("assert_eq!(result, false);"),
+            "bool 返回值应生成 `assert_eq!(result, false)` 默认值断言，实际：\n{}",
+            code
+        );
+    }
+
+    /// P1.4 单元测试：default_value_literal 覆盖所有原始类型
+    #[test]
+    fn default_value_literal_covers_primitive_types() {
+        // 整数类型 → 0
+        for t in &[
+            "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize",
+        ] {
+            assert_eq!(default_value_literal(t), Some("0"), "type {}", t);
+        }
+        // 浮点 → 0.0
+        assert_eq!(default_value_literal("f32"), Some("0.0"));
+        assert_eq!(default_value_literal("f64"), Some("0.0"));
+        // 布尔 → false
+        assert_eq!(default_value_literal("bool"), Some("false"));
+        // 非原始类型 → None
+        assert_eq!(default_value_literal("Foo"), None);
+        assert_eq!(default_value_literal("*const i8"), None);
+        assert_eq!(default_value_literal("hicc_std::string"), None);
     }
 
     #[test]

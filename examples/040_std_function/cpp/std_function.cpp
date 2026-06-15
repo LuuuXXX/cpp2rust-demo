@@ -50,7 +50,6 @@ void AsyncProcessorImpl::set_progress_callback(void (*cb)(int)) {
 }
 void AsyncProcessorImpl::start(int value) {
     cancelled = false;
-    // Simulate async processing
     for (int i = 0; i <= 100; i += 20) {
         if (cancelled) break;
         if (progress_callback) progress_callback(i);
@@ -77,55 +76,3 @@ MultiCallback::~MultiCallback() { delete impl; }
 // AsyncProcessor implementation
 AsyncProcessor::AsyncProcessor() : impl(new AsyncProcessorImpl()) {}
 AsyncProcessor::~AsyncProcessor() { delete impl; }
-
-// CallbackWrapper C API implementation
-struct CallbackWrapper* callback_wrapper_new(int (*fn)(int)) {
-    return new CallbackWrapper(fn);
-}
-
-struct CallbackWrapper* callback_wrapper_new_double(void) {
-    return new CallbackWrapper([](int x) -> int { return x * 2; });
-}
-
-void callback_wrapper_delete(struct CallbackWrapper* self) {
-    delete self;
-}
-
-// Processor C API implementation
-struct Processor* processor_new(void) {
-    return new Processor();
-}
-
-void processor_set_double(struct Processor* p) {
-    p->impl->set_callback([](int x) -> int { return x * 2; });
-}
-
-void processor_delete(struct Processor* self) {
-    delete self;
-}
-
-// MultiCallback C API implementation
-struct MultiCallback* multi_callback_new(void) {
-    return new MultiCallback();
-}
-
-void multi_callback_add_double(struct MultiCallback* mc) {
-    mc->impl->add([](int x) -> int { return x * 2; });
-}
-
-void multi_callback_add_triple(struct MultiCallback* mc) {
-    mc->impl->add([](int x) -> int { return x * 3; });
-}
-
-void multi_callback_delete(struct MultiCallback* self) {
-    delete self;
-}
-
-// AsyncProcessor C API implementation
-struct AsyncProcessor* async_processor_new(void) {
-    return new AsyncProcessor();
-}
-
-void async_processor_delete(struct AsyncProcessor* self) {
-    delete self;
-}

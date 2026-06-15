@@ -3,19 +3,16 @@ use constexpr_basic::*;
 fn main() {
     println!("=== 046_constexpr_basic - constexpr ===\n");
 
-    // Compile-time computed fibonacci number
     println!("--- Compile-time Fibonacci ---");
     let fib_10 = get_fibonacci_10();
     println!("fibonacci<10>() = {} (computed at compile time)", fib_10);
     println!("Rust equivalent: fib(10) = {} (also compile time)", FIB_RUST);
 
-    // Runtime manhattan distance
     println!("\n--- Runtime Manhattan Distance ---");
     println!("manhattan_distance(3, 4) = {}", manhattan_distance(3, 4));
     println!("manhattan_distance(-3, -4) = {}", manhattan_distance(-3, -4));
     println!("manhattan_distance(10, -5) = {}", manhattan_distance(10, -5));
 
-    // Array operations
     println!("\n--- Array Operations ---");
     let arr = [1, 5, 3, 9, 2, 8, 4, 7, 6, 0];
     let size = get_array_size();

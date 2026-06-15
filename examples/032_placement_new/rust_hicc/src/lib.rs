@@ -8,7 +8,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Buffer", destroy = "buffer_delete")]
+    #[cpp(class = "Buffer")]
     pub class Buffer {
         #[cpp(method = "void* data()")]
         pub fn data(&mut self) -> *mut u8;
@@ -25,7 +25,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "VectorBuffer", destroy = "vector_buffer_delete")]
+    #[cpp(class = "VectorBuffer")]
     pub class VectorBuffer {
         #[cpp(method = "void* data()")]
         pub fn data(&mut self) -> *mut u8;
@@ -44,9 +44,9 @@ hicc::import_lib! {
     class Buffer;
     class VectorBuffer;
 
-    #[cpp(func = "Buffer* buffer_new(size_t)")]
-    pub fn buffer_new(capacity: usize) -> Buffer;
+    #[cpp(func = "std::unique_ptr<Buffer> std::make_unique<Buffer>(size_t)")]
+    pub fn buffer_new_with_capacity(capacity: usize) -> Buffer;
 
-    #[cpp(func = "VectorBuffer* vector_buffer_new(size_t)")]
-    pub fn vector_buffer_new(capacity: usize) -> VectorBuffer;
+    #[cpp(func = "std::unique_ptr<VectorBuffer> std::make_unique<VectorBuffer>(size_t, size_t)")]
+    pub fn vector_buffer_new_2(capacity: usize, elem_size: usize) -> VectorBuffer;
 }

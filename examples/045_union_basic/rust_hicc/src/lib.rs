@@ -3,17 +3,65 @@ hicc::cpp! {
     #include <cstdint>
     #include <iostream>
     #include <cstring>
+    #include <memory>
 
     #include "union_basic.h"
+
+    class IntFloatUnion {
+    public:
+        union {
+            int int_value;
+            float float_value;
+        } data;
+        IntFloatUnion() { data.int_value = 0; }
+        int get_int() const { return data.int_value; }
+        float get_float() const { return data.float_value; }
+        void set_int(int v) { data.int_value = v; }
+        void set_float(float v) { data.float_value = v; }
+    };
+
+    std::unique_ptr<IntFloatUnion> union_new() {
+        return std::make_unique<IntFloatUnion>();
+    }
+
+    std::unique_ptr<Variant> variant_new_int(int value) {
+        auto v = std::make_unique<Variant>();
+        v->set_int(value);
+        return v;
+    }
+
+    std::unique_ptr<Variant> variant_new_float(float value) {
+        auto v = std::make_unique<Variant>();
+        v->set_float(value);
+        return v;
+    }
+
+    std::unique_ptr<Variant> variant_new_string(const char* value) {
+        auto v = std::make_unique<Variant>();
+        v->set_string(value);
+        return v;
+    }
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntFloatUnion", destroy = "union_delete")]
-    pub class IntFloatUnion {}
+    #[cpp(class = "IntFloatUnion")]
+    pub class IntFloatUnion {
+        #[cpp(method = "int get_int() const")]
+        pub fn get_int(&self) -> i32;
+
+        #[cpp(method = "float get_float() const")]
+        pub fn get_float(&self) -> f32;
+
+        #[cpp(method = "void set_int(int)")]
+        pub fn set_int(&mut self, v: i32);
+
+        #[cpp(method = "void set_float(float)")]
+        pub fn set_float(&mut self, v: f32);
+    }
 }
 
 hicc::import_class! {
-    #[cpp(class = "Variant", destroy = "variant_delete")]
+    #[cpp(class = "Variant")]
     pub class Variant {
         #[cpp(method = "int get_type() const")]
         pub fn get_type(&self) -> i32;
@@ -44,29 +92,17 @@ hicc::import_lib! {
     class IntFloatUnion;
     class Variant;
 
-    #[cpp(func = "IntFloatUnion* union_new()")]
+    #[cpp(func = "std::unique_ptr<IntFloatUnion> union_new()")]
     pub fn union_new() -> IntFloatUnion;
 
-    #[cpp(func = "Variant* variant_new_int(int)")]
+    #[cpp(func = "std::unique_ptr<Variant> variant_new_int(int)")]
     pub fn variant_new_int(value: i32) -> Variant;
 
-    #[cpp(func = "Variant* variant_new_float(float)")]
+    #[cpp(func = "std::unique_ptr<Variant> variant_new_float(float)")]
     pub fn variant_new_float(value: f32) -> Variant;
 
-    #[cpp(func = "Variant* variant_new_string(const char*)")]
+    #[cpp(func = "std::unique_ptr<Variant> variant_new_string(const char*)")]
     pub unsafe fn variant_new_string(value: *const i8) -> Variant;
-
-    #[cpp(func = "int union_get_int(IntFloatUnion* u)")]
-    pub fn union_get_int(u: *mut IntFloatUnion) -> i32;
-
-    #[cpp(func = "float union_get_float(IntFloatUnion* u)")]
-    pub fn union_get_float(u: *mut IntFloatUnion) -> f32;
-
-    #[cpp(func = "void union_set_int(IntFloatUnion* u, int)")]
-    pub unsafe fn union_set_int(u: *mut IntFloatUnion, value: i32);
-
-    #[cpp(func = "void union_set_float(IntFloatUnion* u, float)")]
-    pub unsafe fn union_set_float(u: *mut IntFloatUnion, value: f32);
 }
 
 pub fn variant_type_name(type_code: i32) -> &'static str {

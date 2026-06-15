@@ -8,7 +8,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Calculator", destroy = "calculator_delete")]
+    #[cpp(class = "Calculator")]
     pub class Calculator {
         #[cpp(method = "void clear_exception()")]
         pub fn clear_exception(&mut self);
@@ -29,7 +29,7 @@ hicc::import_lib! {
 
     class Calculator;
 
-    #[cpp(func = "Calculator* calculator_new()")]
+    #[cpp(func = "std::unique_ptr<Calculator> hicc::make_unique<Calculator>()")]
     pub fn calculator_new() -> Calculator;
 }
 

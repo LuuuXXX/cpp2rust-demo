@@ -7,7 +7,7 @@ fn main() {
     let filename = std::ffi::CString::new("test_default.txt").expect("CString::new failed");
     let mode = std::ffi::CString::new("w").expect("CString::new failed");
 
-    let mut handle = unsafe { file_open_default(filename.as_ptr(), mode.as_ptr()) };
+    let mut handle = unsafe { file_handle_new_default(filename.as_ptr(), mode.as_ptr()) };
 
     // 写入数据
     let data = std::ffi::CString::new("Hello, custom deleter!").expect("CString::new failed");

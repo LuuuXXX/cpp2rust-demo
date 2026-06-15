@@ -1,13 +1,17 @@
 hicc::cpp! {
-    #include <iostream>
-    #include <cstring>
     #include <string>
 
     #include "virtual_override.h"
+    std::unique_ptr<Base> base_new(const char* n) {
+        return std::make_unique<Base>(n);
+    }
+    std::unique_ptr<Derived> derived_new(double v) {
+        return std::make_unique<Derived>(v);
+    }
 }
 
 hicc::import_class! {
-    #[cpp(class = "Base", destroy = "base_delete")]
+    #[cpp(class = "Base")]
     pub class Base {
         #[cpp(method = "double area() const")]
         pub fn area(&self) -> f64;
@@ -18,7 +22,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Derived", destroy = "derived_delete")]
+    #[cpp(class = "Derived")]
     pub class Derived {
         #[cpp(method = "const char* getName() const")]
         pub fn get_name(&self) -> *const i8;
@@ -37,9 +41,9 @@ hicc::import_lib! {
     class Base;
     class Derived;
 
-    #[cpp(func = "Base* base_create(int)")]
-    pub fn base_create(type_: i32) -> Base;
+    #[cpp(func = "std::unique_ptr<Base> base_new(const char*)")]
+    pub unsafe fn base_new_with_n(n: *const i8) -> Base;
 
-    #[cpp(func = "Derived* derived_new(double)")]
-    pub fn derived_new(value: f64) -> Derived;
+    #[cpp(func = "std::unique_ptr<Derived> derived_new(double)")]
+    pub fn derived_new_with_v(v: f64) -> Derived;
 }

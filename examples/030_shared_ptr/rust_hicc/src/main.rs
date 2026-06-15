@@ -1,22 +1,23 @@
 use shared_ptr::*;
-use hicc::AbiClass;
+
+fn decode_cstr(ptr: *const i8) -> String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
+}
 
 fn main() {
     println!("=== 030_shared_ptr - std::shared_ptr + weak_ptr ===\n");
 
     // SharedData - 模拟 shared_ptr
     let name = std::ffi::CString::new("TestData").expect("CString::new failed");
-    let mut data1 = unsafe { shareddata_new(name.as_ptr()) };
+    let mut data1 = unsafe { shared_data_new_with_n(name.as_ptr()) };
 
-    println!("Created SharedData: {}", unsafe {
-        std::ffi::CStr::from_ptr(data1.get_name()).to_string_lossy().into_owned()
-    });
+    println!("Created SharedData: {}", decode_cstr(data1.get_name()));
     println!("Use count: {}", data1.use_count());
 
-    // Clone - 共享所有权
+    // Clone - 共享所有权 (返回 *mut SharedData 原始指针)
     let data2 = data1.clone();
     println!("\nCloned SharedData: {}", unsafe {
-        std::ffi::CStr::from_ptr(data2.get_name()).to_string_lossy().into_owned()
+        std::ffi::CStr::from_ptr((*data2).get_name()).to_string_lossy().into_owned()
     });
     println!("Use count (shared): {}", data1.use_count());
 
@@ -31,9 +32,9 @@ fn main() {
 
     let key1 = std::ffi::CString::new("key1").expect("CString::new failed");
     let key2 = std::ffi::CString::new("key2").expect("CString::new failed");
-    let _cached1a = unsafe { cache_get(&cache.as_mut_ptr(), key1.as_ptr()) };
-    let _cached1b = unsafe { cache_get(&cache.as_mut_ptr(), key1.as_ptr()) };  // 缓存命中
-    let _cached2 = unsafe { cache_get(&cache.as_mut_ptr(), key2.as_ptr()) };
+    let _cached1a = cache.get(key1.as_ptr());
+    let _cached1b = cache.get(key1.as_ptr());
+    let _cached2 = cache.get(key2.as_ptr());
 
     println!("\nCache demo:");
     println!("cached1a and cached1b point to same cache entry");

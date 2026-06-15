@@ -1,6 +1,3 @@
-// AbiClass is required by the `class!` macro expansion below.
-use hicc::AbiClass;
-
 hicc::cpp! {
     #include <iostream>
     #include <cmath>
@@ -10,8 +7,19 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "AbstractShape", destroy = "abstract_shape_delete")]
-    pub class AbstractShape {
+    #[cpp(class = "Circle")]
+    pub class Circle {
+        #[cpp(method = "double area() const")]
+        pub fn area(&self) -> f64;
+
+        #[cpp(method = "const char* getName() const")]
+        pub fn get_name(&self) -> *const i8;
+    }
+}
+
+hicc::import_class! {
+    #[cpp(class = "Rectangle")]
+    pub class Rectangle {
         #[cpp(method = "double area() const")]
         pub fn area(&self) -> f64;
 
@@ -23,11 +31,12 @@ hicc::import_class! {
 hicc::import_lib! {
     #![link_name = "virtual_pure"]
 
-    class AbstractShape;
+    class Circle;
+    class Rectangle;
 
-    #[cpp(func = "AbstractShape* abstract_shape_create_circle(double)")]
-    pub fn abstract_shape_create_circle(radius: f64) -> *mut AbstractShape;
+    #[cpp(func = "std::unique_ptr<Circle> std::make_unique<Circle>(double)")]
+    pub fn circle_new_with_r(r: f64) -> Circle;
 
-    #[cpp(func = "AbstractShape* abstract_shape_create_rectangle(double, double)")]
-    pub fn abstract_shape_create_rectangle(width: f64, height: f64) -> *mut AbstractShape;
+    #[cpp(func = "std::unique_ptr<Rectangle> std::make_unique<Rectangle>(double, double)")]
+    pub fn rectangle_new_2(w: f64, h: f64) -> Rectangle;
 }

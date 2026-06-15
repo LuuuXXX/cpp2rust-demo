@@ -6,7 +6,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "HardwareDevice", destroy = "hardware_device_delete")]
+    #[cpp(class = "HardwareDevice")]
     pub class HardwareDevice {
         #[cpp(method = "void init()")]
         pub fn init(&mut self);
@@ -21,12 +21,6 @@ hicc::import_lib! {
 
     class HardwareDevice;
 
-    #[cpp(func = "HardwareDevice* hardware_device_new()")]
+    #[cpp(func = "std::unique_ptr<HardwareDevice> hicc::make_unique<HardwareDevice>()")]
     pub fn hardware_device_new() -> HardwareDevice;
-
-    #[cpp(func = "uint32_t hardware_device_read_status(volatile HardwareDevice*)")]
-    pub unsafe fn hardware_device_read_status(self_: *mut HardwareDevice) -> u32;
-
-    #[cpp(func = "uint32_t hardware_device_read_data(volatile HardwareDevice*)")]
-    pub unsafe fn hardware_device_read_data(self_: *mut HardwareDevice) -> u32;
 }

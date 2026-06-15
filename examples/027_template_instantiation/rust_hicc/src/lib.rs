@@ -7,7 +7,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntMatrix", destroy = "intmatrix_delete")]
+    #[cpp(class = "IntMatrix")]
     pub class IntMatrix {
         #[cpp(method = "int rows() const")]
         pub fn rows(&self) -> i32;
@@ -27,7 +27,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "DoubleMatrix", destroy = "doublematrix_delete")]
+    #[cpp(class = "DoubleMatrix")]
     pub class DoubleMatrix {
         #[cpp(method = "int rows() const")]
         pub fn rows(&self) -> i32;
@@ -52,9 +52,9 @@ hicc::import_lib! {
     class IntMatrix;
     class DoubleMatrix;
 
-    #[cpp(func = "IntMatrix* intmatrix_new(int, int)")]
-    pub fn intmatrix_new(rows: i32, cols: i32) -> IntMatrix;
+    #[cpp(func = "std::unique_ptr<IntMatrix> std::make_unique<IntMatrix>(int, int)")]
+    pub fn int_matrix_new_2(rows: i32, cols: i32) -> IntMatrix;
 
-    #[cpp(func = "DoubleMatrix* doublematrix_new(int, int)")]
-    pub fn doublematrix_new(rows: i32, cols: i32) -> DoubleMatrix;
+    #[cpp(func = "std::unique_ptr<DoubleMatrix> std::make_unique<DoubleMatrix>(int, int)")]
+    pub fn double_matrix_new_2(rows: i32, cols: i32) -> DoubleMatrix;
 }

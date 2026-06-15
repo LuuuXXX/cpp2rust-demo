@@ -1,31 +1,11 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-struct Shape;
-
 enum ShapeType {
     SHAPE_TYPE_CIRCLE = 0,
     SHAPE_TYPE_RECTANGLE = 1,
     SHAPE_TYPE_TRIANGLE = 2
 };
 
-struct Shape* shape_new_circle(double radius);
-struct Shape* shape_new_rectangle(double width, double height);
-struct Shape* shape_new_triangle(double base, double height);
-
-void shape_delete(struct Shape* self);
-
-int shape_getType(struct Shape* self);
-const char* shape_getTypeName(struct Shape* self);
-double shape_area(struct Shape* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 class Shape {
 public:
     virtual ~Shape() = default;
@@ -62,5 +42,3 @@ public:
     const char* getTypeName() const override;
     double area() const override;
 };
-
-#endif

@@ -7,7 +7,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Animal", destroy = "animal_delete")]
+    #[cpp(class = "Animal")]
     pub class Animal {
         #[cpp(method = "const char* getName() const")]
         pub fn get_name(&self) -> *const i8;
@@ -18,7 +18,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Dog", destroy = "dog_delete")]
+    #[cpp(class = "Dog")]
     pub class Dog {
         #[cpp(method = "const char* getName() const")]
         pub fn get_name(&self) -> *const i8;
@@ -37,18 +37,9 @@ hicc::import_lib! {
     class Animal;
     class Dog;
 
-    #[cpp(func = "Animal* animal_new(const char*)")]
-    pub unsafe fn animal_new(name: *const i8) -> Animal;
+    #[cpp(func = "std::unique_ptr<Animal> std::make_unique<Animal>(const char*)")]
+    pub unsafe fn animal_new_with_n(n: *const i8) -> Animal;
 
-    #[cpp(func = "Dog* dog_new(const char*)")]
-    pub unsafe fn dog_new(name: *const i8) -> Dog;
-}
-
-pub fn decode_cstr(ptr: *const i8) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    unsafe { std::ffi::CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .to_string()
+    #[cpp(func = "std::unique_ptr<Dog> std::make_unique<Dog>(const char*)")]
+    pub unsafe fn dog_new_with_n(n: *const i8) -> Dog;
 }

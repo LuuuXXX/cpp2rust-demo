@@ -2,10 +2,17 @@ hicc::cpp! {
     #include <cstdint>
 
     #include "summary.h"
+
+    int safe_add(int a, int b) {
+        return a + b;
+    }
+    int get_max_size() {
+        return 100;
+    }
 }
 
 hicc::import_class! {
-    #[cpp(class = "Counter", destroy = "counter_delete")]
+    #[cpp(class = "Counter")]
     pub class Counter {
         #[cpp(method = "int get() const")]
         pub fn get(&self) -> i32;
@@ -23,7 +30,7 @@ hicc::import_lib! {
 
     class Counter;
 
-    #[cpp(func = "Counter* counter_new()")]
+    #[cpp(func = "std::unique_ptr<Counter> hicc::make_unique<Counter>()")]
     pub fn counter_new() -> Counter;
 
     #[cpp(func = "int safe_add(int, int)")]

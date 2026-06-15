@@ -6,7 +6,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "UniqueVector", destroy = "unique_vector_delete")]
+    #[cpp(class = "UniqueVector")]
     pub class UniqueVector {
         #[cpp(method = "int get(int index) const")]
         pub fn get(&self, index: i32) -> i32;
@@ -27,12 +27,9 @@ hicc::import_lib! {
 
     class UniqueVector;
 
-    #[cpp(func = "UniqueVector* unique_vector_new()")]
+    #[cpp(func = "std::unique_ptr<UniqueVector> hicc::make_unique<UniqueVector>()")]
     pub fn unique_vector_new() -> UniqueVector;
 
-    #[cpp(func = "UniqueVector* unique_vector_newWithData(int*, int)")]
-    pub unsafe fn unique_vector_new_with_data(data: *mut i32, size: i32) -> UniqueVector;
-
-    #[cpp(func = "void unique_vector_move(UniqueVector* dest, UniqueVector* src)")]
-    pub unsafe fn unique_vector_move(dest: *mut UniqueVector, src: *mut UniqueVector);
+    #[cpp(func = "std::unique_ptr<UniqueVector> std::make_unique<UniqueVector>(int*, int)")]
+    pub unsafe fn unique_vector_new_2(data: *mut i32, size: i32) -> UniqueVector;
 }

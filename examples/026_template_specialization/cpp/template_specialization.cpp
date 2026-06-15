@@ -4,56 +4,6 @@
 #include <cstdlib>
 #include <cstdio>
 
-// C-compatible wrapper functions
-IntHolder* intholder_new(int value) {
-    return new IntHolder(value);
-}
-
-void intholder_delete(IntHolder* self) {
-    if (self) delete self;
-}
-
-int intholder_get(IntHolder* self) {
-    return self->get();
-}
-
-const char* intholder_describe(IntHolder* self) {
-    return self->describe();
-}
-
-DoubleHolder* doubleholder_new(double value) {
-    return new DoubleHolder(value);
-}
-
-void doubleholder_delete(DoubleHolder* self) {
-    if (self) delete self;
-}
-
-double doubleholder_get(DoubleHolder* self) {
-    return self->get();
-}
-
-const char* doubleholder_describe(DoubleHolder* self) {
-    return self->describe();
-}
-
-StringHolder* stringholder_new(const char* value) {
-    return new StringHolder(value);
-}
-
-void stringholder_delete(StringHolder* self) {
-    if (self) delete self;
-}
-
-const char* stringholder_get(StringHolder* self) {
-    return self->get();
-}
-
-const char* stringholder_describe(StringHolder* self) {
-    return self->describe();
-}
-
-// IntHolder implementation
 IntHolder::IntHolder(int value) : value_(value) {}
 IntHolder::~IntHolder() {}
 int IntHolder::get() const { return value_; }
@@ -63,7 +13,6 @@ const char* IntHolder::describe() const {
     return buf;
 }
 
-// DoubleHolder implementation
 DoubleHolder::DoubleHolder(double value) : value_(value) {}
 DoubleHolder::~DoubleHolder() {}
 double DoubleHolder::get() const { return value_; }
@@ -73,7 +22,6 @@ const char* DoubleHolder::describe() const {
     return buf;
 }
 
-// StringHolder implementation
 StringHolder::StringHolder(const char* value) {
     value_ = strdup(value);
     length_ = strlen(value);

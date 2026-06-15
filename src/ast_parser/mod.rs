@@ -67,6 +67,8 @@ pub struct MethodInfo {
     pub is_override: bool,
     /// 是否是 `= default` 显式默认函数
     pub is_default: bool,
+    /// 是否是复制构造函数
+    pub is_copy_ctor: bool,
 }
 
 /// 基类说明符

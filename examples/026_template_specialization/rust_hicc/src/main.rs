@@ -1,34 +1,33 @@
 use template_specialization::*;
 
+fn decode_cstr(ptr: *const i8) -> String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
+}
+
 fn main() {
     println!("=== 026_template_specialization - 模板偏特化 ===\n");
 
     // IntHolder (通用版本)
-    let ih = intholder_new(42);
-    let ih_desc = unsafe { std::ffi::CStr::from_ptr(ih.describe()) };
-    println!("{}", ih_desc.to_string_lossy());
+    let ih = int_holder_new_with_value(42);
+    println!("{}", decode_cstr(ih.describe()));
     println!("  get(): {}", ih.get());
 
     println!();
 
     // DoubleHolder (通用版本)
-    let dh = doubleholder_new(3.14159);
-    let dh_desc = unsafe { std::ffi::CStr::from_ptr(dh.describe()) };
-    println!("{}", dh_desc.to_string_lossy());
+    let dh = double_holder_new_with_value(3.14159);
+    println!("{}", decode_cstr(dh.describe()));
     println!("  get(): {:.5}", dh.get());
 
     println!();
 
     // StringHolder (char* 特化版本)
     let s = std::ffi::CString::new("Hello, World!").expect("CString::new failed");
-    let sh = unsafe { stringholder_new(s.as_ptr()) };
-    let sh_desc = unsafe { std::ffi::CStr::from_ptr(sh.describe()) };
-    println!("{}", sh_desc.to_string_lossy());
-    let sh_val = unsafe { std::ffi::CStr::from_ptr(sh.get()) };
-    println!("  get(): {}", sh_val.to_string_lossy());
+    let sh = unsafe { string_holder_new_with_value(s.as_ptr()) };
+    println!("{}", decode_cstr(sh.describe()));
+    println!("  get(): {}", decode_cstr(sh.get()));
 
     println!("\nRust FFI: 每个模板特化是独立的结构");
     println!("通用版本: IntHolder, DoubleHolder");
     println!("偏特化: StringHolder (处理 char*)");
 }
-

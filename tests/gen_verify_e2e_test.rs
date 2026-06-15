@@ -25,7 +25,6 @@ use tempfile::TempDir;
 ///
 /// 验证工具对函数模板的生成代码（swap_int / swap_double 等）可被 Rust 编译器接受。
 #[test]
-#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_template_function() {
     gen_verify_example(
         "examples/024_template_function",
@@ -64,7 +63,6 @@ fn gen_verify_virtual_basic() {
 ///
 /// 验证工具对普通类方法的生成代码可被 Rust 编译器接受。
 #[test]
-#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_class_basic() {
     gen_verify_example("examples/006_class_basic", "class_basic", "class_basic");
 }
@@ -73,7 +71,6 @@ fn gen_verify_class_basic() {
 ///
 /// 验证工具对单继承（基类方法提升进子类）的生成代码可被 Rust 编译器接受。
 #[test]
-#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_inheritance_single() {
     gen_verify_example(
         "examples/013_inheritance_single",
@@ -86,7 +83,6 @@ fn gen_verify_inheritance_single() {
 ///
 /// 验证工具对含异常处理的 C++ 代码生成的 FFI 绑定可被 Rust 编译器接受。
 #[test]
-#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_exception_basic() {
     gen_verify_example(
         "examples/042_exception_basic",
@@ -99,7 +95,6 @@ fn gen_verify_exception_basic() {
 ///
 /// 验证工具对使用 unique_ptr 的 C++ 类生成的 FFI 绑定可被 Rust 编译器接受。
 #[test]
-#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_unique_ptr() {
     gen_verify_example("examples/029_unique_ptr", "unique_ptr", "unique_ptr");
 }
@@ -108,14 +103,12 @@ fn gen_verify_unique_ptr() {
 ///
 /// 验证工具对使用 std::vector 的 C++ 代码生成的 FFI 绑定可被 Rust 编译器接受。
 #[test]
-#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_vector_basic() {
     gen_verify_example("examples/034_vector_basic", "vector_basic", "vector_basic");
 }
 
 /// L6-9：001_hello_world — 基础函数
 #[test]
-#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_hello_world() {
     gen_verify_example("examples/001_hello_world", "hello_world", "hello_world");
 }
@@ -472,7 +465,6 @@ fn gen_verify_noexcept_basic() {
 
 /// L6-48：048_summary — 综合示例
 #[test]
-#[ignore = "gen-verify: 需要 g++/clang++ 与 libclang，在 CI gen-verify job 中运行"]
 fn gen_verify_summary() {
     gen_verify_example("examples/048_summary", "summary", "summary");
 }

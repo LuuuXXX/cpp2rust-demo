@@ -696,6 +696,108 @@ mod tests {
         );
     }
 
+    // ── P1.3 Direct 模式测试 ────────────────────────────────────────
+
+    /// Direct 模式：FfiSpec.binding_mode == Direct 时，import_class! 不带 destroy 属性，
+    /// import_lib! 中输出 `make_unique<T>` 工厂（而非 `<class>_delete` 等访问器）。
+    #[test]
+    fn direct_mode_generates_make_unique_factory_no_destroy() {
+        let spec = FfiSpec {
+            unit_name: "class_basic".to_string(),
+            cpp_block_lines: vec!["#include \"class_basic.h\"".to_string()],
+            class_specs: vec![ClassSpec {
+                name: "Counter".to_string(),
+                methods: vec![MethodBinding {
+                    cpp_sig: "int get() const".to_string(),
+                    rust_name: "get".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: Some("i32".to_string()),
+                    has_fn_ptr_param: false,
+                }],
+                associated_fns: vec![],
+                destroy_fn: None,
+                is_interface: false,
+            }],
+            lib_spec: LibSpec {
+                link_name: "class_basic".to_string(),
+                fwd_decls: vec![],
+                fn_bindings: vec![FnBinding {
+                    cpp_sig: "std::unique_ptr<Counter> hicc::make_unique<Counter>()".to_string(),
+                    rust_name: "counter_new".to_string(),
+                    params: vec![],
+                    ret_type: Some("Counter".to_string()),
+                    is_unsafe: false,
+                    has_fn_ptr_param: false,
+                }],
+            },
+            binding_mode: crate::ffi_model::BindingMode::Direct,
+            ..Default::default()
+        };
+        let code = generate(&spec);
+
+        // import_class! 块应存在且不含 destroy 属性
+        assert!(
+            code.contains("hicc::import_class!"),
+            "Direct 模式应生成 import_class! 块，实际：\n{}",
+            code
+        );
+        assert!(
+            code.contains("#[cpp(class = \"Counter\")]"),
+            "Direct 模式 class 属性应不含 destroy，实际：\n{}",
+            code
+        );
+        assert!(
+            !code.contains("destroy ="),
+            "Direct 模式不应生成 destroy 属性，实际：\n{}",
+            code
+        );
+
+        // import_lib! 应含 make_unique 工厂
+        assert!(
+            code.contains("hicc::make_unique<Counter>()"),
+            "Direct 模式应输出 make_unique<Counter>() 工厂，实际：\n{}",
+            code
+        );
+        assert!(
+            code.contains("pub fn counter_new() -> Counter;"),
+            "Direct 模式工厂应返回 owned Counter（非指针），实际：\n{}",
+            code
+        );
+
+        // 不应输出 counter_get / counter_delete 等 shim 访问器
+        assert!(
+            !code.contains("counter_get") && !code.contains("counter_delete"),
+            "Direct 模式不应输出 shim 访问器，实际：\n{}",
+            code
+        );
+    }
+
+    /// 回归：Shim 模式（默认）行为不变 —— 含 destroy_fn 时仍生成 destroy 属性
+    #[test]
+    fn shim_mode_default_keeps_destroy_attribute() {
+        let spec = FfiSpec {
+            unit_name: "class_basic".to_string(),
+            cpp_block_lines: vec!["#include \"class_basic.h\"".to_string()],
+            class_specs: vec![ClassSpec {
+                name: "Counter".to_string(),
+                methods: vec![],
+                associated_fns: vec![],
+                destroy_fn: Some("counter_delete".to_string()),
+                is_interface: false,
+            }],
+            lib_spec: LibSpec::default(),
+            // 默认 Shim 模式
+            ..Default::default()
+        };
+        let code = generate(&spec);
+        assert!(
+            code.contains("#[cpp(class = \"Counter\", destroy = \"counter_delete\")]"),
+            "Shim 模式（默认）含 destroy_fn 时应生成 destroy 属性，实际：\n{}",
+            code
+        );
+    }
+
     /// 回归（CI 修复）：@dynamic_cast 源/目标类型在本单元**没有** import_class! 定义
     /// （仅存在于 hicc::cpp! 原样 C++ 块）时，绑定行必须注释化，避免引用未定义 Rust 类型
     /// 导致 `cannot find type` 而使生成项目不可编译。

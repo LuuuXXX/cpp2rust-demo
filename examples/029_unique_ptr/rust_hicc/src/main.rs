@@ -1,10 +1,14 @@
 use unique_ptr::*;
 
+fn decode_cstr(ptr: *const i8) -> String {
+    unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned() }
+}
+
 fn main() {
     println!("=== 029_unique_ptr - std::unique_ptr ===\n");
 
     // UniqueBuffer - 模拟 unique_ptr 自动内存管理
-    let mut buffer = uniquebuffer_new(16);
+    let mut buffer = unique_buffer_new_with_sz(16);
     let size = buffer.get_size();
     println!("Buffer size: {}", size);
 
@@ -22,7 +26,7 @@ fn main() {
     let mut processor = processor_new();
     let input = std::ffi::CString::new("Hello, unique_ptr!").expect("CString::new failed");
     let result_ptr = processor.process(input.as_ptr());
-    let result = unsafe { std::ffi::CStr::from_ptr(result_ptr as *const i8).to_string_lossy().into_owned() };
+    let result = decode_cstr(result_ptr as *const i8);
     println!("Processed result: {}", result);
 
     println!("\nRust FFI: unique_ptr 的处理方式");

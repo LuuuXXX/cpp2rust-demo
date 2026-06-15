@@ -8,7 +8,7 @@ fn main() {
     println!("=== Virtual Function FFI with hicc ===\n");
 
     // Create Circle
-    let circle = circle_new(5.0);
+    let circle = circle_new_with_r(5.0);
 
     println!("Circle name: {}", decode_cstr(circle.get_name()));
     println!("Circle radius: {}", circle.get_radius());

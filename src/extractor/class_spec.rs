@@ -25,7 +25,7 @@ fn is_method_types_mappable(mb: &MethodBinding, class_names: &[&str]) -> bool {
 /// `exported_class_names`：实际会生成 `import_class!` 块的类名列表（即 `used_classes`
 /// 中的成员）。类型映射合法性检查只认可这些名称，避免将内部实现类（如
 /// `xml_memory_page`、`xpath_context`）误判为合法 FFI 类型，从而生成引用未定义类型的代码。
-pub(super) fn build_class_spec(
+pub(crate) fn build_class_spec(
     ci: &ClassInfo,
     all_classes: &[ClassInfo],
     exported_class_names: &[&str],

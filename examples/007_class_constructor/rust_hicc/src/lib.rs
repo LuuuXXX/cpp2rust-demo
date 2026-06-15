@@ -6,7 +6,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Point", destroy = "point_delete")]
+    #[cpp(class = "Point")]
     pub class Point {
         #[cpp(method = "int getX() const")]
         pub fn get_x(&self) -> i32;
@@ -27,9 +27,6 @@ hicc::import_lib! {
 
     class Point;
 
-    #[cpp(func = "Point* point_new_xy(int, int)")]
-    pub fn point_new_xy(x: i32, y: i32) -> Point;
-
-    #[cpp(func = "Point* point_newPolar(double, double)")]
-    pub fn point_new_polar(r: f64, theta: f64) -> Point;
+    #[cpp(func = "std::unique_ptr<Point> std::make_unique<Point>(int, int)")]
+    pub fn point_new_2(x: i32, y: i32) -> Point;
 }

@@ -5,7 +5,9 @@ hicc::cpp! {
 
     #include "custom_deleter.h"
 
-    typedef void (*FileDeleter)(struct FileHandle*);
+    std::unique_ptr<FileHandle> file_handle_new_default(const char* filename, const char* mode) {
+        return std::unique_ptr<FileHandle>(new FileHandle(filename, mode, default_file_deleter));
+    }
 }
 
 hicc::import_class! {
@@ -36,19 +38,6 @@ hicc::import_lib! {
 
     class FileHandle;
 
-    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "FileHandle* file_open(const char*, const char*, void (*)(FileHandle*))")]
-    pub unsafe fn file_open(filename: *const i8, mode: *const i8, deleter: unsafe extern "C" fn(*mut FileHandle)) -> *mut FileHandle;
-
-    #[cpp(func = "void file_close(FileHandle* handle)")]
-    pub unsafe fn file_close(handle: *mut FileHandle);
-
-    #[cpp(func = "int file_read(FileHandle* handle, char*, int)")]
-    pub unsafe fn file_read(handle: *mut FileHandle, buffer: *mut i8, size: i32) -> i32;
-
-    #[cpp(func = "int file_write(FileHandle* handle, const char*, int)")]
-    pub unsafe fn file_write(handle: *mut FileHandle, data: *const i8, size: i32) -> i32;
-
-    #[cpp(func = "FileHandle* file_open_default(const char*, const char*)")]
-    pub unsafe fn file_open_default(filename: *const i8, mode: *const i8) -> *mut FileHandle;
+    #[cpp(func = "std::unique_ptr<FileHandle> file_handle_new_default(const char*, const char*)")]
+    pub unsafe fn file_handle_new_default(filename: *const i8, mode: *const i8) -> FileHandle;
 }

@@ -1,24 +1,5 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-struct D;
-
-struct D* d_new(int a, int b, int c, int d);
-void d_delete(struct D* self);
-
-int d_getAValue(struct D* self);
-int d_getBValue(struct D* self);
-int d_getCValue(struct D* self);
-int d_getDValue(struct D* self);
-void d_compute(struct D* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 class A {
 protected:
     int a_value;
@@ -55,5 +36,3 @@ public:
     int getDValue() const;
     void compute() const;
 };
-
-#endif

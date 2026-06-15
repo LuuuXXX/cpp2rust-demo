@@ -5,26 +5,22 @@ fn main() {
 
     let mut calc = calculator_new();
 
-    // Test division - normal case
     println!("--- Division Tests ---");
     let result = calc.divide(10, 2);
     println!("10 / 2 = {}", result);
     check_exception(&mut calc, "10 / 2");
 
-    // Test division by zero
     println!("\nTesting division by zero:");
     let result = calc.divide(10, 0);
     println!("10 / 0 = {} (returns 0, check exception)", result);
     check_exception(&mut calc, "10 / 0");
 
-    // Clear exception and test division again
     println!("\nAfter clearing exception:");
     calc.clear_exception();
     let result = calc.divide(20, 4);
     println!("20 / 4 = {}", result);
     check_exception(&mut calc, "20 / 4");
 
-    // Test string to int
     println!("\n--- String to Int Tests ---");
     let result = calc.string_to_int("123\0".as_ptr() as *const i8);
     println!("string_to_int(\"123\") = {}", result);

@@ -155,6 +155,7 @@ mod tests {
             body_offset: None,
             is_override: false,
             is_default: false,
+            is_copy_ctor: false,
         }
     }
 
@@ -175,6 +176,7 @@ mod tests {
             body_offset: None,
             is_override: false,
             is_default: false,
+            is_copy_ctor: false,
         }
     }
 

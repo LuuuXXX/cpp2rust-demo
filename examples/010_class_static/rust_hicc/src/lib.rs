@@ -5,7 +5,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Counter", destroy = "counter_delete")]
+    #[cpp(class = "Counter")]
     pub class Counter {
         #[cpp(method = "int getValue() const")]
         pub fn get_value(&self) -> i32;
@@ -20,12 +20,12 @@ hicc::import_lib! {
 
     class Counter;
 
-    #[cpp(func = "Counter* counter_new()")]
-    pub fn counter_new() -> Counter;
-
-    #[cpp(func = "int counter_getInstanceCount()")]
+    #[cpp(func = "int Counter::getInstanceCount()")]
     pub fn counter_get_instance_count() -> i32;
 
-    #[cpp(func = "void counter_resetInstanceCount()")]
+    #[cpp(func = "void Counter::resetInstanceCount()")]
     pub fn counter_reset_instance_count();
+
+    #[cpp(func = "std::unique_ptr<Counter> hicc::make_unique<Counter>()")]
+    pub fn counter_new() -> Counter;
 }

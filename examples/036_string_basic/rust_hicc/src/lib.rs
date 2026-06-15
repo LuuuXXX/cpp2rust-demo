@@ -1,5 +1,4 @@
 hicc::cpp! {
-    #include <stddef.h>
     #include <iostream>
     #include <string>
     #include <cstring>
@@ -7,10 +6,16 @@ hicc::cpp! {
     #include <cctype>
 
     #include "string_basic.h"
+
+    extern "C" {
+        String* hicc_string_new() { return new String(); }
+        String* hicc_string_new_from(const char* str) { return new String(str); }
+        String* hicc_string_new_from_len(const char* str, size_t len) { return new String(str, len); }
+    }
 }
 
 hicc::import_class! {
-    #[cpp(class = "String", destroy = "string_delete")]
+    #[cpp(class = "String")]
     pub class String {
         #[cpp(method = "const char* c_str() const")]
         pub fn c_str(&self) -> *const i8;
@@ -46,12 +51,12 @@ hicc::import_lib! {
 
     class String;
 
-    #[cpp(func = "String* string_new()")]
+    #[cpp(func = "String* hicc_string_new()")]
     pub fn string_new() -> String;
 
-    #[cpp(func = "String* string_new_from(const char*)")]
+    #[cpp(func = "String* hicc_string_new_from(const char*)")]
     pub unsafe fn string_new_from(str: *const i8) -> String;
 
-    #[cpp(func = "String* string_new_from_len(const char*, size_t)")]
+    #[cpp(func = "String* hicc_string_new_from_len(const char*, size_t)")]
     pub unsafe fn string_new_from_len(str: *const i8, len: usize) -> String;
 }

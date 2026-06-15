@@ -1,46 +1,5 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// std::function 回调示例
-// 展示如何通过 FFI 传递 Rust 闭包到 C++
-
-#include <stddef.h>
-
-// Callback wrapper
-struct CallbackWrapper;
-
-struct CallbackWrapper* callback_wrapper_new(int (*fn)(int));
-struct CallbackWrapper* callback_wrapper_new_double(void);
-void callback_wrapper_delete(struct CallbackWrapper* self);
-
-// Processor structure
-struct Processor;
-
-struct Processor* processor_new(void);
-void processor_set_double(struct Processor* p);
-void processor_delete(struct Processor* self);
-
-// MultiCallback structure
-struct MultiCallback;
-
-struct MultiCallback* multi_callback_new(void);
-void multi_callback_add_double(struct MultiCallback* mc);
-void multi_callback_add_triple(struct MultiCallback* mc);
-void multi_callback_delete(struct MultiCallback* self);
-
-// AsyncProcessor
-struct AsyncProcessor;
-
-struct AsyncProcessor* async_processor_new(void);
-void async_processor_delete(struct AsyncProcessor* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 #include <functional>
 #include <vector>
 
@@ -112,5 +71,3 @@ struct AsyncProcessor {
     bool is_cancelled() const { return impl->cancelled; }
     void cancel() { impl->cancel(); }
 };
-
-#endif

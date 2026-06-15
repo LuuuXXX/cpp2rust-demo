@@ -8,7 +8,7 @@ hicc::cpp! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Shape", destroy = "shape_delete")]
+    #[cpp(class = "Shape")]
     pub class Shape {
         #[cpp(method = "double area() const")]
         pub fn area(&self) -> f64;
@@ -19,7 +19,7 @@ hicc::import_class! {
 }
 
 hicc::import_class! {
-    #[cpp(class = "Circle", destroy = "circle_delete")]
+    #[cpp(class = "Circle")]
     pub class Circle {
         #[cpp(method = "const char* getName() const")]
         pub fn get_name(&self) -> *const i8;
@@ -38,9 +38,9 @@ hicc::import_lib! {
     class Shape;
     class Circle;
 
-    #[cpp(func = "Shape* shape_new()")]
-    pub fn shape_new() -> Shape;
+    #[cpp(func = "std::unique_ptr<Shape> std::make_unique<Shape>(const char*)")]
+    pub unsafe fn shape_new_with_n(n: *const i8) -> Shape;
 
-    #[cpp(func = "Circle* circle_new(double)")]
-    pub fn circle_new(radius: f64) -> Circle;
+    #[cpp(func = "std::unique_ptr<Circle> std::make_unique<Circle>(double)")]
+    pub fn circle_new_with_r(r: f64) -> Circle;
 }

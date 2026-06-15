@@ -3,29 +3,9 @@
 #include <cstddef>
 
 #ifdef __cplusplus
-extern "C" {
-#endif
-
-// Compile-time array size constant
-static const int ARRAY_SIZE = 10;
-
-// FFI functions that use compile-time computed values
-int get_fibonacci_10(void);
-int manhattan_distance(int x, int y);
-int constexpr_sum_array(const int* arr, int size);
-int constexpr_find_max(const int* arr, int size);
-int get_array_size(void);
-
-#ifdef __cplusplus
-}
-#endif
-
-// C++ only: constexpr utilities (not part of FFI boundary)
-#ifdef __cplusplus
 
 namespace example {
 
-// Compile-time fibonacci calculation
 template<int N>
 constexpr int fibonacci() {
     if constexpr (N <= 1) {
@@ -35,7 +15,6 @@ constexpr int fibonacci() {
     }
 }
 
-// Compile-time point with constexpr constructor and methods
 struct ConstexprPoint {
     int x;
     int y;

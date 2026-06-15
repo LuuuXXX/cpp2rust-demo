@@ -11,14 +11,14 @@ fn main() {
 
     println!("\n--- Processor Demo ---");
     let mut processor = processor_new();
-    unsafe { processor_set_double(&processor.as_mut_ptr()); }
+    unsafe { processor_set_double(processor.as_mut_ptr()); }
     println!("process(10) = {}", processor.process(10));
 
     println!("\n--- MultiCallback Demo ---");
     let mut mc = multi_callback_new();
     unsafe {
-        multi_callback_add_double(&mc.as_mut_ptr());
-        multi_callback_add_triple(&mc.as_mut_ptr());
+        multi_callback_add_double(mc.as_mut_ptr());
+        multi_callback_add_triple(mc.as_mut_ptr());
     }
     println!("Invoking all callbacks with 4:");
     mc.invoke_all(4);

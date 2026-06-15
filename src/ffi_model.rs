@@ -2,6 +2,24 @@
 //!
 //! `FfiSpec` 描述从 C++ AST 提取后、待生成 hicc Rust 代码的完整 FFI 规格。
 
+/// C++ 类方法的绑定模式
+///
+/// 决定 hicc 代码生成器如何把 C++ 类暴露给 Rust：
+/// - [`BindingMode::Shim`]：依赖 C++ 端的 `extern "C"` 访问器函数（如 `counter_get(struct Counter*)`）
+///   —— 旧路径，向后兼容（如 references/rapidjson）
+/// - [`BindingMode::Direct`]：直接通过 `#[cpp(method = "...")]` 绑定 C++ 类方法，
+///   不需要 C++ 端写 extern-C shim —— 新路径（如 examples/006_class_basic）
+///
+/// 由 [`crate::extractor::direct_binding::classify`] 在 extract 末尾填充。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum BindingMode {
+    /// 通过 extern "C" shim 函数访问 C++ 类方法（旧路径，向后兼容）
+    #[default]
+    Shim,
+    /// 直接通过 `#[cpp(method = "...")]` 绑定 C++ 类方法（新路径，推荐）
+    Direct,
+}
+
 /// 顶层 FFI 规格
 #[derive(Debug, Default, Clone)]
 pub struct FfiSpec {
@@ -11,6 +29,8 @@ pub struct FfiSpec {
     pub cpp_block_lines: Vec<String>,
     /// 每个 C++ 类对应一个 ClassSpec（用于生成 import_class! 块）
     pub class_specs: Vec<ClassSpec>,
+    /// 类方法的绑定模式（shim vs direct），由 extractor 自动判定
+    pub binding_mode: BindingMode,
     /// import_lib! 块规格
     pub lib_spec: LibSpec,
     /// 模板类绑定规格（v6 Phase B）。v7 起由生成器**默认输出**泛型骨架（IR 非空即输出）。
