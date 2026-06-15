@@ -1,12 +1,8 @@
-//! 015_virtual_basic: 虚函数与覆写（命名空间类 + make_unique 工厂）。
-//!
-//! hicc 直出：基类 `Shape` 声明虚函数 `area()`（默认 0），派生类
-//! `Circle : public Shape` 以 `override` 覆写 `area()`（π·r²）。两类各自以
-//! `import_class!` 直接绑定真实命名空间类；所有成员/构造均为 `double`/无参，
-//! 可直出映射，故本示例 `lib.rs` 与工具默认支架（`lib_scaffold.rs`）一致。
-//!
-//! 虚函数的运行期分派由 C++ 负责：对 `Shape` 实例 `area()` 返回 0，对 `Circle`
-//! 实例返回 π·r²，体现覆写生效。
+// 015_virtual_basic 工具默认产物支架（hicc 直出，去 shim）。
+//
+// 用于 L1 黄金比对：校验 `init` 对「含虚函数及覆写的命名空间类」默认生成的 hicc 骨架。
+// 基类 Shape 的虚函数 area() 与派生类 Circle 的覆写 area() 各自绑定；double 成员/构造
+// 均可直出映射，本示例 `lib.rs` 与支架一致（无需手写补全）。
 
 hicc::cpp! {
     #include "virtual_basic.h"

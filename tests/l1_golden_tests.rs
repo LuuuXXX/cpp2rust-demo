@@ -100,7 +100,7 @@ golden_test_scaffold!(test_011_class_const, "011_class_const");
 golden_test_scaffold!(test_012_class_volatile, "012_class_volatile");
 golden_test_scaffold!(test_013_inheritance_single, "013_inheritance_single");
 golden_test_scaffold!(test_014_inheritance_multiple, "014_inheritance_multiple");
-golden_test_lib!(test_015_virtual_basic, "015_virtual_basic");
+golden_test_scaffold!(test_015_virtual_basic, "015_virtual_basic");
 golden_test_lib!(test_016_virtual_pure, "016_virtual_pure");
 golden_test_lib!(test_017_virtual_override, "017_virtual_override");
 // lib.rs 含有针对 hicc member_addr 截断 this 偏移量问题的手动包装函数修复，

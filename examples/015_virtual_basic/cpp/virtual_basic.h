@@ -1,46 +1,27 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace virtual_basic_ns {
 
-struct Shape;
-struct Circle;
-
-struct Shape* shape_new(void);
-void shape_delete(struct Shape* self);
-
-double shape_area(struct Shape* self);
-const char* shape_getName(struct Shape* self);
-
-struct Circle* circle_new(double radius);
-void circle_delete(struct Circle* self);
-
-double circle_area(struct Circle* self);
-double circle_getRadius(struct Circle* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
-#include <string>
+// 基类：含虚函数 area()
 class Shape {
-protected:
-    std::string name;
 public:
-    Shape(const char* n);
+    Shape();
     virtual ~Shape();
-    virtual double area() const;
-    const char* getName() const;
+    virtual double area() const;   // 虚函数，基类默认返回 0
 };
 
+// 派生类：覆写虚函数 area()
 class Circle : public Shape {
-    double radius;
 public:
-    Circle(double r);
+    explicit Circle(double r);
     ~Circle() override;
-    double area() const override;
-    double getRadius() const;
+    double area() const override;  // 覆写：π·r²
+    double radius() const;
+private:
+    double radius_;
 };
 
-#endif
+// 锚点：让 detect_idiomatic_mode 走直出路径。
+int virtual_basic_anchor();
+
+} // namespace virtual_basic_ns
