@@ -1,46 +1,37 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace virtual_pure_ns {
 
-struct AbstractShape;
-
-struct AbstractShape* abstract_shape_create_circle(double radius);
-struct AbstractShape* abstract_shape_create_rectangle(double width, double height);
-void abstract_shape_delete(struct AbstractShape* self);
-
-double abstract_shape_area(struct AbstractShape* self);
-const char* abstract_shape_getName(struct AbstractShape* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 纯虚接口（抽象基类）：无法直接实例化
 class AbstractShape {
 public:
     virtual ~AbstractShape() = default;
-    virtual double area() const = 0;
-    virtual const char* getName() const = 0;
+    virtual double area() const = 0;   // 纯虚函数
 };
 
+// 具体实现 1
 class Circle : public AbstractShape {
-    double radius;
 public:
-    Circle(double r);
+    explicit Circle(double r);
     ~Circle() override;
     double area() const override;
-    const char* getName() const override;
+    double radius() const;
+private:
+    double radius_;
 };
 
+// 具体实现 2
 class Rectangle : public AbstractShape {
-    double width;
-    double height;
 public:
     Rectangle(double w, double h);
     ~Rectangle() override;
     double area() const override;
-    const char* getName() const override;
+private:
+    double width_;
+    double height_;
 };
 
-#endif
+// 锚点：让 detect_idiomatic_mode 走直出路径。
+int virtual_pure_anchor();
+
+} // namespace virtual_pure_ns

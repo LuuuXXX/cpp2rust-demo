@@ -1,9 +1,8 @@
-//! 016_virtual_pure: 纯虚接口与具体实现（命名空间类 + make_unique 工厂）。
-//!
-//! hicc 直出：抽象基类 `AbstractShape` 声明纯虚函数 `area() const = 0`，不可实例化，
-//! 工具因其无公有构造而跳过（不生成绑定）；具体类 `Circle`/`Rectangle` 实现接口并各自
-//! 以 `import_class!` 直接绑定真实命名空间类。所有成员/构造均为 `double`，可直出映射，
-//! 故本示例 `lib.rs` 与工具默认支架（`lib_scaffold.rs`）一致（无需手写补全）。
+// 016_virtual_pure 工具默认产物支架（hicc 直出，去 shim）。
+//
+// 用于 L1 黄金比对：校验 `init` 对「纯虚接口 + 具体实现」默认生成的 hicc 骨架。
+// 抽象基类 AbstractShape 无公有构造（不可实例化），被工具跳过，不生成绑定；
+// 具体类 Circle/Rectangle 各自绑定，double 成员/构造可直出，`lib.rs` 与支架一致。
 
 hicc::cpp! {
     #include "virtual_pure.h"
