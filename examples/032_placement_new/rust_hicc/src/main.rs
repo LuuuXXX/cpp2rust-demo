@@ -1,35 +1,30 @@
 use placement_new::*;
-use hicc::AbiClass;
 
 fn main() {
-    println!("=== 032_placement_new - Placement New ===\n");
+    println!("=== 032_placement_new - 定位 new（hicc 直出）===\n");
 
-    // 创建预分配缓冲区
-    let capacity = 1024;
-    let mut buffer = unsafe { buffer_new(capacity).into_unique() };
-    println!("Buffer created with capacity: {}", capacity);
+    let mut buf = Buffer::new(64);
+    println!("capacity={}", buf.capacity());
+    println!(
+        "construct_at(0,42)={} value_at(0)={} size={}",
+        buf.construct_at(0, 42),
+        buf.value_at(0),
+        buf.size()
+    );
+    println!(
+        "construct_at(8,7)={} value_at(8)={}",
+        buf.construct_at(8, 7),
+        buf.value_at(8)
+    );
 
-    let data_ptr = buffer.data();
-    println!("Buffer data at: {:?}", data_ptr);
+    println!();
 
-    let buf_capacity = buffer.capacity();
-    println!("Buffer capacity: {}", buf_capacity);
+    let mut arr = ObjectArray::new(3);
+    println!("count={} element_size={}", arr.count(), arr.element_size());
+    for i in 0..arr.count() {
+        arr.emplace(i, (i + 1) * 10);
+    }
+    println!("at(0)={} at(1)={} at(2)={}", arr.at(0), arr.at(1), arr.at(2));
 
-    let buf_size = buffer.size();
-    println!("Buffer constructed size: {}", buf_size);
-
-    drop(buffer);
-
-    println!("\n--- VectorBuffer Demo ---");
-
-    // VectorBuffer 示例
-    let vec_buffer = vector_buffer_new(10);
-    let elem_size = vec_buffer.element_size();
-    println!("VectorBuffer element size: {}", elem_size);
-
-    println!("\nRust FFI: Placement New 模式");
-    println!("1. 在预分配内存中构造对象");
-    println!("2. 使用 placement new: new (address) Constructor(args)");
-    println!("3. 适用于内存池、STL 容器实现");
-    println!("4. Rust 需要手动管理内存布局");
+    println!("\nRust FFI: hicc 绑定在预分配存储中用 placement new 构造对象的类");
 }
