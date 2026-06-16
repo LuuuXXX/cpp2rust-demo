@@ -1,95 +1,44 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// std::bind 绑定示例
-// 展示如何通过 FFI 传递绑定了参数的函数
-
-#include <stddef.h>
-
-// Implementation functions (declared before Adder to control ordering)
-int add_five_impl(int a, int b);
-int add_ten_impl(int a, int b);
-
-// Adder structure
-struct Adder;
-
-struct Adder* adder_new(int base_value);
-void adder_delete(struct Adder* self);
-
-int adder_add(const struct Adder* self, int value);
-
-// Direct bound functions
-int add_five(int a);
-int add_ten(int a);
-
-// Multiplier structure
-struct Multiplier;
-struct Multiplier* multiplier_new(int factor);
-void multiplier_delete(struct Multiplier* self);
-int multiply(const struct Multiplier* self, int value);
-
-// StringProcessor (bound member functions)
-struct StringProcessor;
-struct StringProcessor* string_processor_new(void);
-void string_processor_delete(struct StringProcessor* self);
-
-void string_processor_set_target(struct StringProcessor* self, const char* target);
-int string_processor_count_char(const struct StringProcessor* self, char ch);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+#include <functional>
 #include <string>
 
-class AdderImpl {
+namespace functional_bind_ns {
+
+// Adder：内部持有由 std::bind 构造的 std::function，绑定 base 到加法左操作数。
+// hicc 直出无需 extern-C 不透明指针 + *_delete，析构由 Rust Drop 自动完成。
+class Adder {
+    std::function<int(int)> add_;
 public:
-    int base_value;
-    AdderImpl(int base);
-    ~AdderImpl();
-    int add(int value);
+    explicit Adder(int base);
+    Adder(const Adder&) = delete;
+    Adder& operator=(const Adder&) = delete;
+
+    int add(int value) const { return add_(value); }
 };
 
-class MultiplierImpl {
+// Multiplier：内部持有由 std::bind 构造的 std::function，绑定 factor 到乘法左操作数。
+class Multiplier {
+    std::function<int(int)> mul_;
 public:
-    int factor;
-    MultiplierImpl(int f);
-    ~MultiplierImpl();
-    int multiply(int value);
-};
-
-class StringProcessorImpl {
-public:
-    std::string target;
-    StringProcessorImpl();
-    ~StringProcessorImpl();
-    void set_target(const char* t);
-    int count_char(char ch);
-};
-
-struct Adder {
-    AdderImpl* impl;
-    explicit Adder(int base_value);
-    ~Adder();
-    int add(int value) { return impl->add(value); }
-};
-
-struct Multiplier {
-    MultiplierImpl* impl;
     explicit Multiplier(int factor);
-    ~Multiplier();
-    int multiply(int value) { return impl->multiply(value); }
+    Multiplier(const Multiplier&) = delete;
+    Multiplier& operator=(const Multiplier&) = delete;
+
+    int multiply(int value) const { return mul_(value); }
 };
 
-struct StringProcessor {
-    StringProcessorImpl* impl;
-    StringProcessor();
-    ~StringProcessor();
-    void set_target(const char* t) { impl->set_target(t); }
-    int count_char(char ch) { return impl->count_char(ch); }
+// StringProcessor：持有目标字符串并统计指定字符出现次数。
+class StringProcessor {
+    std::string target_;
+public:
+    StringProcessor() = default;
+
+    void set_target(const char* t) { target_ = t ? t : ""; }
+    int count_char(char ch) const;
 };
 
-#endif
+// 锚点：本单元可链接的非模板符号。
+int functional_bind_anchor();
+
+} // namespace functional_bind_ns

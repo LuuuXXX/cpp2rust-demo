@@ -1,210 +1,132 @@
-# 043_namespace_nested - 嵌套命名空间
+# 043_namespace_nested - 嵌套命名空间（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 嵌套命名空间（`foo::bar::config::ConfigManager`）如何在 FFI 中处理，以及命名空间如何影响符号名称。
-
-## 重要说明
-
-由于 hicc 的 `import_class!` 宏不支持嵌套命名空间类（如 `foo::bar::config::ConfigManager`），本示例使用 **raw extern "C" + void\*** 模式来实现 FFI。
+本示例展示 C++ **嵌套命名空间** 的 FFI 处理方式。保持 idiomatic 嵌套命名空间
+（`foo::bar::config` 与 `foo::baz`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete`
++ impl 间接层；`ConfigManager` 直接持有 `std::map<std::string, int>`，`DataProcessor`
+直接持有普通成员。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### namespace_nested.h
 
 ```cpp
-#pragma once
-
-#include <cstddef>
-#include <cstring>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// FFI opaque pointers using void*
-void* config_manager_new(void);
-void config_manager_delete(void* self);
-void config_manager_set_value(void* self, const char* key, int value);
-int config_manager_get_value(void* self, const char* key);
-
-int string_length(const char* str);
-
-void* data_processor_new(void);
-void data_processor_delete(void* self);
-int data_processor_process(void* self, int input);
-
-const char* get_version(void);
-int get_build_number(void);
-
-#ifdef __cplusplus
-}
-
-// Full class definitions
 namespace foo {
-    namespace bar {
-        namespace config {
-            class ConfigManager {
-            public:
-                static constexpr size_t MAX_ENTRIES = 10;
-            private:
-                int values_[MAX_ENTRIES];
-                const char* keys_[MAX_ENTRIES];
-                size_t count_;
-            public:
-                ConfigManager();
-                ~ConfigManager();
-                void set_value(const char* key, int value);
-                int get_value(const char* key) const;
-            };
-        }
-    }
+namespace bar { namespace config {
 
-    namespace baz {
-        class DataProcessor {
-        private:
-            int multiplier_;
-        public:
-            DataProcessor();
-            ~DataProcessor();
-            int process(int input) const;
-        };
-    }
+class ConfigManager {
+    std::map<std::string, int> values_;
+public:
+    ConfigManager() = default;
+    void set_value(const char* key, int value) { values_[key ? key : ""] = value; }
+    int get_value(const char* key) const { /* 未命中返回 -1 */ }
+    int size() const { return (int)values_.size(); }
+};
+
+}}
+
+namespace baz {
+class DataProcessor {
+    int multiplier_;
+public:
+    DataProcessor();
+    int process(int input) const { return input * multiplier_; }
+};
 }
 
-#endif
-```
+const char* get_version();
+int get_build_number();
 
-### namespace_nested.cpp
-
-```cpp
-#include "namespace_nested.h"
-
-namespace foo {
-    namespace bar {
-        namespace config {
-            ConfigManager::ConfigManager() : count_(0) { /* ... */ }
-            // ... 方法实现
-        }
-    }
-
-    namespace baz {
-        DataProcessor::DataProcessor() : multiplier_(1) {}
-        int DataProcessor::process(int input) const {
-            return input * multiplier_;
-        }
-    }
-}
-
-// FFI wrapper functions - 使用 void* 作为 opaque pointer
-void* config_manager_new() {
-    return new foo::bar::config::ConfigManager();
-}
-
-void config_manager_delete(void* self) {
-    if (self) {
-        delete static_cast<foo::bar::config::ConfigManager*>(self);
-    }
-}
+} // namespace foo
 ```
 
 ## Rust FFI 代码
+
+hicc 直出无需 extern-C shim，直接绑定嵌套命名空间类与 `make_unique` 工厂：
 
 ```rust
 hicc::cpp! {
     #include "namespace_nested.h"
 }
 
+hicc::import_class! {
+    #[cpp(class = "foo::bar::config::ConfigManager")]
+    pub class ConfigManager {
+        #[cpp(method = "void set_value(const char* key, int value)")]
+        pub fn set_value(&mut self, key: *const i8, value: i32);
+        #[cpp(method = "int get_value(const char* key) const")]
+        pub fn get_value(&self, key: *const i8) -> i32;
+        // size 略
+
+        pub fn new() -> Self { config_manager_new() }
+    }
+}
+
+// DataProcessor 同理（foo::baz::DataProcessor）
+
 hicc::import_lib! {
     #![link_name = "namespace_nested"]
 
-    #[cpp(func = "void* config_manager_new()")]
-    fn config_manager_new() -> *mut u8;
-
-    #[cpp(func = "void config_manager_delete(void*)")]
-    unsafe fn config_manager_delete(self_: *mut u8);
-
-    #[cpp(func = "void config_manager_set_value(void*, const char*, int)")]
-    unsafe fn config_manager_set_value(self_: *mut u8, key: *const i8, value: i32);
-
-    #[cpp(func = "int config_manager_get_value(void*, const char*)")]
-    unsafe fn config_manager_get_value(self_: *mut u8, key: *const i8) -> i32;
-
-    #[cpp(func = "int string_length(const char*)")]
-    unsafe fn string_length(str: *const i8) -> i32;
-
-    #[cpp(func = "void* data_processor_new()")]
-    fn data_processor_new() -> *mut u8;
-
-    #[cpp(func = "void data_processor_delete(void*)")]
-    unsafe fn data_processor_delete(self_: *mut u8);
-
-    #[cpp(func = "int data_processor_process(void*, int)")]
-    unsafe fn data_processor_process(self_: *mut u8, input: i32) -> i32;
-
-    #[cpp(func = "const char* get_version()")]
-    unsafe fn get_version() -> *const i8;
-
-    #[cpp(func = "int get_build_number()")]
-    fn get_build_number() -> i32;
+    #[cpp(func = "std::unique_ptr<foo::bar::config::ConfigManager> hicc::make_unique<foo::bar::config::ConfigManager>()")]
+    pub fn config_manager_new() -> ConfigManager;
+    // data_processor_new / get_version / get_build_number 同理
 }
 ```
-## 嵌套命名空间 FFI 模式
 
-| 方案 | 优点 | 缺点 |
-|------|------|------|
-| import_class! + 嵌套类 | 简洁 | hicc 不支持嵌套命名空间类 |
-| raw extern "C" + void\* | 兼容性好 | 需要手动类型转换 |
+## FFI 对比分析
 
-## 符号名称分析
-
-| C++ 命名空间 | 符号名（Linux） | 说明 |
-|-------------|----------------|------|
-| `foo::bar::config::ConfigManager` | `_ZN3foo3bar6config13ConfigManagerC1Ev` | 构造函数（mangled） |
-| `extern "C"` 函数 | `config_manager_new` | flat 符号名 |
-
-## 构建方法
-
-### Rust 编译
-
-```bash
-cd rust_hicc
-cargo build
-cargo run
-```
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 命名空间 | `foo::bar::config` / `foo::baz` | `#[cpp(class = "...")]` 使用完全限定名 |
+| 容器持有 | `std::map<std::string, int>` 成员 | hicc 绑定内部持有，对外透明 |
+| 查找 | `std::map::find` | `get_value(*const i8)`，未命中返回 -1 |
+| 普通类方法 | `DataProcessor::process` | 同名方法 |
+| 析构 | C++ 默认析构 | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 043_namespace_nested - 嵌套命名空间 ===
+=== 043_namespace_nested - 嵌套命名空间（hicc 直出）===
 
---- foo::bar::config::ConfigManager ---
-timeout = 30
-retry = 3
-port = 8080
+size=3 timeout=30 retry=3
+missing=-1
+process(5)=15
+version=1.0.0 build_number=42
 
---- string_length ---
-string_length("Hello, World!") = 13
-
---- foo::baz::DataProcessor ---
-process(42) = 42
-
---- Top-level Functions ---
-version = 1.0.0
-build_number = 42
-
---- 总结 ---
-1. C++ 嵌套命名空间：foo::bar::config
-2. 命名空间影响符号名称
-3. FFI 声明使用完全限定名称
-4. Rust 端使用 opaque pointer 模式
-5. hicc import_class! 不支持嵌套命名空间，使用 raw extern "C"
+Rust FFI: hicc 直接绑定嵌套命名空间类，析构由 Rust Drop 自动完成
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_config_manager_set_get_size` | set_value / get_value / size / 缺失键 |
+| `smoke_config_manager_overwrite` | 覆盖写入与 size 不变 |
+| `smoke_data_processor` | `process(5) == 15` |
+| `smoke_top_level_functions` | version / build_number / anchor |
+
+### 运行方式
+
+```bash
+cd examples/043_namespace_nested/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-1. C++ 嵌套命名空间可以任意深度嵌套（如 `foo::bar::config`）
-2. `extern "C"` 接口使用 flat 符号名，不包含命名空间信息
-3. **hicc 的 `import_class!` 不支持嵌套命名空间类**
-4. 使用 **void\* + static_cast** 模式实现 opaque pointer FFI
-5. Rust 端使用 `*mut std::ffi::c_void` 作为 opaque pointer 类型
+- C++ 嵌套命名空间类可通过 hicc 完全限定名直接绑定，无需 flatten 成单一 `_ns`
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- `ConfigManager` 直接持有 `std::map`，`DataProcessor` 保持 `foo::baz` 命名空间语义

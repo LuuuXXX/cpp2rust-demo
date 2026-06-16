@@ -1,64 +1,54 @@
-hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <functional>
-    #include <string>
+//! 041_functional_bind: std::bind（命名空间类内部持有由 std::bind 构造的 std::function）。
+//!
+//! `Adder` / `Multiplier` 在 C++ 构造函数中用 `std::bind` 绑定基础参数，`StringProcessor`
+//! 持有字符串状态并统计字符。hicc 直出无需 extern-C shim，析构由 Rust `Drop` 自动完成。
 
+hicc::cpp! {
     #include "functional_bind.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "Adder", destroy = "adder_delete")]
+    #[cpp(class = "functional_bind_ns::Adder")]
     pub class Adder {
-        #[cpp(method = "int add(int value)")]
-        pub fn add(&mut self, value: i32) -> i32;
+        #[cpp(method = "int add(int value) const")]
+        pub fn add(&self, value: i32) -> i32;
+
+        pub fn new(base: i32) -> Self { adder_new(base) }
     }
 }
 
 hicc::import_class! {
-    #[cpp(class = "Multiplier", destroy = "multiplier_delete")]
+    #[cpp(class = "functional_bind_ns::Multiplier")]
     pub class Multiplier {
-        #[cpp(method = "int multiply(int value)")]
-        pub fn multiply(&mut self, value: i32) -> i32;
+        #[cpp(method = "int multiply(int value) const")]
+        pub fn multiply(&self, value: i32) -> i32;
+
+        pub fn new(factor: i32) -> Self { multiplier_new(factor) }
     }
 }
 
 hicc::import_class! {
-    #[cpp(class = "StringProcessor", destroy = "string_processor_delete")]
+    #[cpp(class = "functional_bind_ns::StringProcessor")]
     pub class StringProcessor {
         #[cpp(method = "void set_target(const char* t)")]
         pub fn set_target(&mut self, t: *const i8);
 
-        #[cpp(method = "int count_char(char ch)")]
-        pub fn count_char(&mut self, ch: i8) -> i32;
+        #[cpp(method = "int count_char(char ch) const")]
+        pub fn count_char(&self, ch: i8) -> i32;
+
+        pub fn new() -> Self { string_processor_new() }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "functional_bind"]
 
-    class Adder;
-    class Multiplier;
-    class StringProcessor;
+    #[cpp(func = "std::unique_ptr<functional_bind_ns::Adder> hicc::make_unique<functional_bind_ns::Adder, int>(int&&)")]
+    pub fn adder_new(base: i32) -> Adder;
 
-    #[cpp(func = "Adder* adder_new(int)")]
-    pub fn adder_new(base_value: i32) -> Adder;
-
-    #[cpp(func = "Multiplier* multiplier_new(int)")]
+    #[cpp(func = "std::unique_ptr<functional_bind_ns::Multiplier> hicc::make_unique<functional_bind_ns::Multiplier, int>(int&&)")]
     pub fn multiplier_new(factor: i32) -> Multiplier;
 
-    #[cpp(func = "StringProcessor* string_processor_new()")]
+    #[cpp(func = "std::unique_ptr<functional_bind_ns::StringProcessor> hicc::make_unique<functional_bind_ns::StringProcessor>()")]
     pub fn string_processor_new() -> StringProcessor;
-
-    #[cpp(func = "int add_five_impl(int, int)")]
-    pub fn add_five_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int add_ten_impl(int, int)")]
-    pub fn add_ten_impl(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int add_five(int)")]
-    pub fn add_five(a: i32) -> i32;
-
-    #[cpp(func = "int add_ten(int)")]
-    pub fn add_ten(a: i32) -> i32;
 }

@@ -8,6 +8,7 @@ fn main() {
     cc_build.include(".");
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("functional_bind.cpp"));
+
     build.rust_file("src/lib.rs").compile("functional_bind");
 
     println!("cargo::rustc-link-lib=functional_bind");

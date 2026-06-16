@@ -1,64 +1,43 @@
 #pragma once
 
-#include <cstddef>
-#include <cstring>
+#include <map>
+#include <string>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// FFI opaque pointers using void*
-void* config_manager_new(void);
-void config_manager_delete(void* self);
-void config_manager_set_value(void* self, const char* key, int value);
-int config_manager_get_value(void* self, const char* key);
-
-int string_length(const char* str);
-
-void* data_processor_new(void);
-void data_processor_delete(void* self);
-int data_processor_process(void* self, int input);
-
-const char* get_version(void);
-int get_build_number(void);
-
-#ifdef __cplusplus
-}
-
-// Full class definitions
 namespace foo {
-    namespace bar {
-        namespace config {
+namespace bar { namespace config {
 
-            class ConfigManager {
-            public:
-                static constexpr size_t MAX_ENTRIES = 10;
-            private:
-                int values_[MAX_ENTRIES];
-                const char* keys_[MAX_ENTRIES];
-                size_t count_;
-            public:
-                ConfigManager();
-                ~ConfigManager();
-                void set_value(const char* key, int value);
-                int get_value(const char* key) const;
-            };
+// ConfigManager：直接持有 std::map<std::string, int>，演示嵌套命名空间类绑定。
+// hicc 直出无需 extern-C 不透明指针 + *_delete，析构由 Rust Drop 自动完成。
+class ConfigManager {
+    std::map<std::string, int> values_;
+public:
+    ConfigManager() = default;
 
-        }
+    void set_value(const char* key, int value) { values_[key ? key : ""] = value; }
+    int get_value(const char* key) const {
+        auto it = values_.find(key ? key : "");
+        return it == values_.end() ? -1 : it->second;
     }
+    int size() const { return static_cast<int>(values_.size()); }
+};
 
-    namespace baz {
+}} // namespace bar::config
 
-        class DataProcessor {
-        private:
-            int multiplier_;
-        public:
-            DataProcessor();
-            ~DataProcessor();
-            int process(int input) const;
-        };
+namespace baz {
 
-    }
-}
+class DataProcessor {
+    int multiplier_;
+public:
+    DataProcessor();
+    int process(int input) const { return input * multiplier_; }
+};
 
-#endif
+} // namespace baz
+
+const char* get_version();
+int get_build_number();
+
+// 锚点：本单元可链接的非模板符号。
+int namespace_nested_anchor();
+
+} // namespace foo

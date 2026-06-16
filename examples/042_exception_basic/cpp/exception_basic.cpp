@@ -1,97 +1,47 @@
 #include "exception_basic.h"
-#include <iostream>
-#include <stdexcept>
-#include <cstring>
 
-// ExceptionInfo implementation
-ExceptionInfo::ExceptionInfo() : code(EXCEPTION_NONE) {
-    message[0] = '\0';
-}
-void ExceptionInfo::clear() {
-    code = EXCEPTION_NONE;
-    message[0] = '\0';
-}
-void ExceptionInfo::set(int c, const char* msg) {
-    code = c;
-    strncpy(message, msg, 255);
-    message[255] = '\0';
+namespace exception_basic_ns {
+
+Calculator::Calculator() : last_error_(0) {}
+
+int Calculator::last_error() const {
+    return last_error_;
 }
 
-// CalculatorImpl implementation
-CalculatorImpl::CalculatorImpl() {}
-CalculatorImpl::~CalculatorImpl() {}
-void CalculatorImpl::clear_exception() {
-    last_exception.clear();
+void Calculator::clear_error() {
+    last_error_ = 0;
 }
-int CalculatorImpl::get_exception() {
-    return last_exception.code;
+
+int Calculator::has_error() const {
+    return last_error_ != 0 ? 1 : 0;
 }
-int CalculatorImpl::divide(int a, int b) {
-    if (b == 0) {
-        last_exception.set(EXCEPTION_RUNTIME_ERROR, "Division by zero");
-        throw std::runtime_error("Division by zero");
+
+int Calculator::divide(int a, int b) {
+    clear_error();
+    try {
+        if (b == 0) {
+            throw std::runtime_error("division by zero");
+        }
+        return a / b;
+    } catch (const std::runtime_error&) {
+        last_error_ = 3;
+        return 0;
     }
-    return a / b;
 }
-int CalculatorImpl::safe_get(int* arr, int size, int index) {
-    if (index < 0 || index >= size) {
-        last_exception.set(EXCEPTION_OUT_OF_RANGE, "Index out of range");
-        throw std::out_of_range("Index out of range");
+
+int Calculator::parse_int(const char* s) {
+    clear_error();
+    try {
+        return std::stoi(s ? s : "");
+    } catch (const std::invalid_argument&) {
+        last_error_ = 1;
+        return 0;
+    } catch (const std::out_of_range&) {
+        last_error_ = 2;
+        return 0;
     }
-    return arr[index];
-}
-int CalculatorImpl::string_to_int(const char* str) {
-    if (!str || *str == '\0') {
-        last_exception.set(EXCEPTION_INVALID_ARGUMENT, "Empty string");
-        throw std::invalid_argument("Empty string");
-    }
-    char* end;
-    int result = std::strtol(str, &end, 10);
-    if (*end != '\0') {
-        last_exception.set(EXCEPTION_INVALID_ARGUMENT, "Invalid number format");
-        throw std::invalid_argument("Invalid number format");
-    }
-    return result;
 }
 
-// Calculator implementation
-Calculator::Calculator() : impl(new CalculatorImpl()) {}
-Calculator::~Calculator() { delete impl; }
+int exception_basic_anchor() { return 0; }
 
-// Calculator C API implementation
-struct Calculator* calculator_new(void) {
-    return new Calculator();
-}
-
-void calculator_delete(struct Calculator* self) {
-    delete self;
-}
-
-int calculator_get_exception(const struct Calculator* self) {
-    if (self) return self->impl->get_exception();
-    return EXCEPTION_RUNTIME_ERROR;
-}
-
-void calculator_clear_exception(struct Calculator* self) {
-    if (self) self->impl->clear_exception();
-}
-
-int calculator_divide(struct Calculator* self, int a, int b) {
-    if (self) return self->impl->divide(a, b);
-    return 0;
-}
-
-int calculator_safe_get(struct Calculator* self, int* arr, int size, int index) {
-    if (self) return self->impl->safe_get(arr, size, index);
-    return 0;
-}
-
-int string_to_int(struct Calculator* self, const char* str) {
-    if (self) return self->impl->string_to_int(str);
-    return 0;
-}
-
-int has_exception(const struct Calculator* self) {
-    if (self) return self->impl->get_exception() != EXCEPTION_NONE;
-    return 1;
-}
+} // namespace exception_basic_ns
