@@ -100,10 +100,50 @@ fn map_field_type(cpp: &str) -> Option<String> {
         return None;
     }
     if cpp.contains("(*)") && mapped.starts_with("unsafe extern \"C\" fn") {
-        Some(format!("Option<{}>", mapped))
-    } else {
-        Some(mapped)
+        return Some(format!("Option<{}>", mapped));
     }
+    // 非函数指针字段必须落到「可在 Rust FFI 中表示」的类型：标量原始类型，或指向
+    // 标量的裸指针。否则（如 `cpp_to_rust` 原样返回的未知 C++ 类类型 `CrtDocument`、
+    // `StringBuffer`）说明这是个不透明句柄而非真正 POD，应退回不透明句柄路径，
+    // 不能直出 `#[repr(C)]`（会引用未定义类型，编译失败）。
+    if !is_representable_field_type(&mapped) {
+        return None;
+    }
+    Some(mapped)
+}
+
+/// 判断映射后的字段类型是否可安全放入 `#[repr(C)]` 结构体：剥除任意层裸指针前缀
+/// （`*mut` / `*const`）后，基类型必须是已知 Rust 标量原始类型。
+fn is_representable_field_type(ty: &str) -> bool {
+    let mut base = ty.trim();
+    while let Some(rest) = base
+        .strip_prefix("*mut ")
+        .or_else(|| base.strip_prefix("*const "))
+    {
+        base = rest.trim();
+    }
+    is_rust_scalar_primitive(base)
+}
+
+/// 已知 Rust 标量原始类型集合（[`cpp_to_rust`] 可产出的全部标量输出）。
+fn is_rust_scalar_primitive(s: &str) -> bool {
+    matches!(
+        s,
+        "i8" | "u8"
+            | "i16"
+            | "u16"
+            | "i32"
+            | "u32"
+            | "i64"
+            | "u64"
+            | "i128"
+            | "u128"
+            | "isize"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "bool"
+    )
 }
 
 /// 校验映射结果是否为「干净」的 Rust 类型：非空，且不含命名空间限定符或未消解的 C++ 记号。
@@ -288,5 +328,48 @@ mod tests {
         let (specs, removed) = build_repr_c_structs(&[ci], &fwd, &[]);
         assert!(specs.is_empty());
         assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn skips_opaque_handle_with_cpp_class_field() {
+        // 不透明句柄：公有头中是前向声明，私有头中真实定义带 C++ 类类型字段
+        // （如 rapidjson 的 `RapidJsonDocumentHandle { CrtDocument doc; }`）。
+        // `cpp_to_rust("CrtDocument")` 原样返回 `CrtDocument`，不是可表示的 Rust 标量，
+        // 必须跳过、退回不透明句柄路径，避免直出引用未定义类型的 #[repr(C)]。
+        let doc = pod_struct("RapidJsonDocumentHandle", vec![field("doc", "CrtDocument")]);
+        let sb = pod_struct(
+            "RapidJsonStringBufferHandle",
+            vec![field("sb", "StringBuffer")],
+        );
+        let fwd = vec![
+            "class RapidJsonDocumentHandle;".to_string(),
+            "class RapidJsonStringBufferHandle;".to_string(),
+        ];
+        let (specs, removed) = build_repr_c_structs(&[doc, sb], &fwd, &[]);
+        assert!(specs.is_empty());
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn maps_pod_with_scalar_and_pointer_fields() {
+        // 真正的 POD（标量 + 指向标量的指针）仍应正常直出。
+        let ci = pod_struct(
+            "ScalarPod",
+            vec![
+                field("count", "int"),
+                field("ratio", "double"),
+                field("data", "unsigned char *"),
+            ],
+        );
+        let fwd = vec!["class ScalarPod;".to_string()];
+        let (specs, removed) = build_repr_c_structs(&[ci], &fwd, &[]);
+        assert_eq!(removed, vec!["ScalarPod".to_string()]);
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].fields[0], ("count".to_string(), "i32".to_string()));
+        assert_eq!(specs[0].fields[1], ("ratio".to_string(), "f64".to_string()));
+        assert_eq!(
+            specs[0].fields[2],
+            ("data".to_string(), "*mut u8".to_string())
+        );
     }
 }
