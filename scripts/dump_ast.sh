@@ -13,7 +13,17 @@
 set -euo pipefail
 
 CPP_DIR="${1:?missing cpp dir}"
-STEM="${2:-$(ls "$CPP_DIR"/*.cpp | grep -v main.cpp | head -1 | xargs -n1 basename | sed 's/.cpp$//')}"
+# 默认取目录下第一个非 main.cpp 的实现单元作为 stem；显式传入 $2 可覆盖。
+if [ -z "${2:-}" ]; then
+    CPP_CANDIDATE="$(ls "$CPP_DIR"/*.cpp 2>/dev/null | grep -v main.cpp | head -1 || true)"
+    if [ -z "$CPP_CANDIDATE" ]; then
+        echo "[dump_ast] error: 在 $CPP_DIR 下未找到非 main.cpp 的 .cpp 文件，请显式传入 stem" >&2
+        exit 1
+    fi
+    STEM="$(basename "$CPP_CANDIDATE" | sed 's/.cpp$//')"
+else
+    STEM="$2"
+fi
 
 AST_DIR="$(cd "$CPP_DIR/.." && pwd)/ast"
 mkdir -p "$AST_DIR"

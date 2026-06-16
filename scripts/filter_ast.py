@@ -31,6 +31,9 @@ def short_loc(node):
     return "<unknown>"
 
 
+# 关注的声明类型（只保留对「C++ → hicc 绑定」有意义的顶层/成员声明：
+# 命名空间、类/记录、（构造/析构/成员/自由）函数、模板、字段、变量、枚举、typedef/别名）。
+# 其余 AST 节点（语句、表达式、隐式声明等）一律跳过，以输出可人工速读的精简清单。
 KEY_KINDS = {
     "FunctionDecl", "CXXRecordDecl", "CXXMethodDecl", "ClassTemplateDecl",
     "ClassTemplateSpecializationDecl", "FunctionTemplateDecl", "VarDecl",
