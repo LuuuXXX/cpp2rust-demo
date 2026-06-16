@@ -8,17 +8,27 @@
 //! 参考 hicc 自身的验证方式（`hicc-std/src/std_test/*`）——测试与 FFI 绑定位于同一
 //! crate，通过 `cargo test` 链接 C++ 静态库并真实使用绑定，验证 ABI 与基本可用性。
 //!
-//! ## 生成策略
+//! ## 生成策略（表驱动 + 行为级断言）
 //!
 //! 对每个 FfiSpec 中的可测试项生成独立 `#[test]` 函数：
 //!
-//! 1. **工厂函数**（associated_fns，如 `counter_new()`）：零参数时生成调用测试
-//! 2. **类方法**（methods）：所在类有零参构造函数时，构造实例并调用方法
-//! 3. **全局函数**（lib_spec.fn_bindings）：零参数时生成调用测试
-//! 4. **编译期类型断言**：所有 `pub class` 类型
-//! 5. 无法自动生成测试的函数以 `cpp2rust-todo[SMOKE]` 注释列出
+//! 1. **编译期类型断言**：所有 `pub class` 类型可用。
+//! 2. **setter/getter 往返**（行为级）：类含零参构造、且存在严格配对的
+//!    `set_<x>(标量)` 与 `<x>()`/`get_<x>()`/`is_<x>()` 标量 getter 时，
+//!    生成「构造 → set → `assert_eq!(get, 期望值)`」的确定性往返断言。
+//! 3. **工厂函数**（associated_fns，如 `counter_new()`）：零参数时生成调用测试。
+//! 4. **类方法**（methods）：所在类有零参构造函数时，构造实例并调用方法。
+//! 5. **全局函数**（lib_spec.fn_bindings）：零参数时生成调用测试。
+//! 6. 其余含非平凡参数、结果不可静态确定的项以**最小化** `cpp2rust-todo[SMOKE]`
+//!    注释列出，把占位比例降到最低。
+//!
+//! ## 安全约束
+//!
+//! 真实项目 E2E 会对生成的 `tests/smoke.rs` 运行 `cargo test`，因此行为级
+//! `assert_eq!` 仅在语义可确定（严格命名 + 标量类型配对）时生成，避免对未知库
+//! 实现做出错误假设而导致运行期失败。
 
-use crate::ffi_model::{FfiSpec, FnBinding};
+use crate::ffi_model::{ClassSpec, FfiSpec, FnBinding, MethodBinding, SelfKind};
 
 /// 冒烟测试文件相对生成项目根目录的路径（用于生成与用户提示保持一致）。
 pub const SMOKE_TEST_PATH: &str = "tests/smoke.rs";
@@ -89,6 +99,71 @@ fn find_zero_param_factory<'a>(specs: &[&'a FfiSpec], class_name: &str) -> Optio
     None
 }
 
+/// 判断类型是否为可静态构造默认值的标量类型，并返回用于往返断言的字面量。
+///
+/// 仅覆盖整数/浮点/布尔等结果可确定的标量，确保 `assert_eq!` 不依赖被绑定库的
+/// 具体实现细节（除「setter 原样存储」这一 setter 的语义本身外）。
+fn scalar_literal(ty: &str) -> Option<&'static str> {
+    match ty.trim() {
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
+        | "usize" => Some("42"),
+        "f32" | "f64" => Some("42.0"),
+        "bool" => Some("true"),
+        _ => None,
+    }
+}
+
+/// setter/getter 往返配对结果。
+struct RoundTrip<'a> {
+    setter: &'a MethodBinding,
+    getter: &'a MethodBinding,
+    /// 用于断言的标量字面量。
+    literal: &'static str,
+}
+
+/// 在单个类中检测严格配对的 setter/getter，用于生成行为级往返断言。
+///
+/// 规则（从严，避免对未知库做错误假设）：
+/// - setter：`rust_name` 形如 `set_<root>`，恰好 1 个标量参数，`&mut self`，无返回值；
+/// - getter：`rust_name` 为 `<root>` / `get_<root>` / `is_<root>` 之一，零参数，
+///   返回类型与 setter 参数标量类型完全一致。
+fn detect_round_trips(cs: &ClassSpec) -> Vec<RoundTrip<'_>> {
+    let mut pairs: Vec<RoundTrip<'_>> = Vec::new();
+    for setter in &cs.methods {
+        let root = match setter.rust_name.strip_prefix("set_") {
+            Some(r) if !r.is_empty() => r,
+            _ => continue,
+        };
+        if setter.self_kind != SelfKind::RefMut || setter.ret_type.is_some() {
+            continue;
+        }
+        if setter.params.len() != 1 || setter.has_fn_ptr_param {
+            continue;
+        }
+        let param_ty = &setter.params[0].1;
+        let literal = match scalar_literal(param_ty) {
+            Some(l) => l,
+            None => continue,
+        };
+        let getter = cs.methods.iter().find(|m| {
+            m.params.is_empty()
+                && !m.has_fn_ptr_param
+                && m.ret_type.as_deref() == Some(param_ty.as_str())
+                && (m.rust_name == root
+                    || m.rust_name == format!("get_{}", root)
+                    || m.rust_name == format!("is_{}", root))
+        });
+        if let Some(getter) = getter {
+            pairs.push(RoundTrip {
+                setter,
+                getter,
+                literal,
+            });
+        }
+    }
+    pairs
+}
+
 // ─────────────────────────────────────────────────────────────────
 //  生成主函数
 // ─────────────────────────────────────────────────────────────────
@@ -149,6 +224,51 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
                     out.push_str("}\n\n");
                     factory_count += 1;
                 }
+            }
+        }
+    }
+
+    // ── B2. setter/getter 往返（行为级 assert_eq! 断言）──────────
+    // 仅对「有零参构造 + 严格标量 setter/getter 配对」的类生成确定性往返断言。
+    for spec in specs {
+        for cs in &spec.class_specs {
+            if cs.methods.is_empty() {
+                continue;
+            }
+            let factory = match find_zero_param_factory(specs, &cs.name) {
+                Some(f) => f,
+                None => continue,
+            };
+            for rt in detect_round_trips(cs) {
+                if tested_fns.contains(&rt.setter.rust_name)
+                    || tested_fns.contains(&rt.getter.rust_name)
+                {
+                    continue;
+                }
+                tested_fns.push(rt.setter.rust_name.clone());
+                tested_fns.push(rt.getter.rust_name.clone());
+
+                out.push_str(&format!(
+                    "/// 行为级往返：set_* 后 get_* 应返回写入值。\n#[test]\nfn smoke_{}_roundtrip() {{\n",
+                    rt.setter.rust_name
+                ));
+                if factory.is_unsafe {
+                    out.push_str(&format!(
+                        "    let mut obj = unsafe {{ {}() }};\n",
+                        factory.rust_name
+                    ));
+                } else {
+                    out.push_str(&format!("    let mut obj = {}();\n", factory.rust_name));
+                }
+                out.push_str(&format!(
+                    "    obj.{}({});\n",
+                    rt.setter.rust_name, rt.literal
+                ));
+                out.push_str(&format!(
+                    "    assert_eq!(obj.{}(), {}, \"{} 写入后 {} 应返回写入值\");\n",
+                    rt.getter.rust_name, rt.literal, rt.setter.rust_name, rt.getter.rust_name
+                ));
+                out.push_str("}\n\n");
             }
         }
     }
@@ -481,6 +601,102 @@ mod tests {
         assert!(
             code.contains("- do_stuff"),
             "SMOKE 占位说明应列出函数名\n{}",
+            code
+        );
+    }
+
+    #[test]
+    fn generate_setter_getter_roundtrip_assertion() {
+        let cs = ClassSpec {
+            name: "Box".to_string(),
+            methods: vec![
+                MethodBinding {
+                    cpp_sig: "void set_value(int)".to_string(),
+                    rust_name: "set_value".to_string(),
+                    self_kind: SelfKind::RefMut,
+                    params: vec![("v".to_string(), "i32".to_string())],
+                    ret_type: None,
+                    has_fn_ptr_param: false,
+                },
+                MethodBinding {
+                    cpp_sig: "int value() const".to_string(),
+                    rust_name: "value".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: Some("i32".to_string()),
+                    has_fn_ptr_param: false,
+                },
+            ],
+            associated_fns: vec![FnBinding {
+                cpp_sig: "Box* box_new()".to_string(),
+                rust_name: "box_new".to_string(),
+                params: vec![],
+                ret_type: Some("Box".to_string()),
+                is_unsafe: false,
+                has_fn_ptr_param: false,
+            }],
+            destroy_fn: None,
+            is_interface: false,
+            ..Default::default()
+        };
+        let spec = spec_with(vec![cs], vec![]);
+        let code = generate_smoke_test("my_lib", &[&spec]);
+        assert!(
+            code.contains("fn smoke_set_value_roundtrip()"),
+            "应为 setter/getter 配对生成往返测试\n{}",
+            code
+        );
+        assert!(
+            code.contains("obj.set_value(42);"),
+            "往返测试应调用 setter 写入标量字面量\n{}",
+            code
+        );
+        assert!(
+            code.contains("assert_eq!(obj.value(), 42,"),
+            "往返测试应对 getter 结果生成 assert_eq! 行为级断言\n{}",
+            code
+        );
+    }
+
+    #[test]
+    fn generate_no_roundtrip_for_non_scalar_setter() {
+        let cs = ClassSpec {
+            name: "Holder".to_string(),
+            methods: vec![
+                MethodBinding {
+                    cpp_sig: "void set_name(const char*)".to_string(),
+                    rust_name: "set_name".to_string(),
+                    self_kind: SelfKind::RefMut,
+                    params: vec![("v".to_string(), "*const ::std::os::raw::c_char".to_string())],
+                    ret_type: None,
+                    has_fn_ptr_param: false,
+                },
+                MethodBinding {
+                    cpp_sig: "const char* name() const".to_string(),
+                    rust_name: "name".to_string(),
+                    self_kind: SelfKind::Ref,
+                    params: vec![],
+                    ret_type: Some("*const ::std::os::raw::c_char".to_string()),
+                    has_fn_ptr_param: false,
+                },
+            ],
+            associated_fns: vec![FnBinding {
+                cpp_sig: "Holder* holder_new()".to_string(),
+                rust_name: "holder_new".to_string(),
+                params: vec![],
+                ret_type: Some("Holder".to_string()),
+                is_unsafe: false,
+                has_fn_ptr_param: false,
+            }],
+            destroy_fn: None,
+            is_interface: false,
+            ..Default::default()
+        };
+        let spec = spec_with(vec![cs], vec![]);
+        let code = generate_smoke_test("my_lib", &[&spec]);
+        assert!(
+            !code.contains("_roundtrip()"),
+            "非标量 setter 不应生成往返 assert_eq!（避免对未知库实现做错误假设）\n{}",
             code
         );
     }
