@@ -1,186 +1,124 @@
-# 031_custom_deleter - 自定义删除器
+# 031_custom_deleter - 自定义删除器（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 中自定义删除器（Custom Deleter）的概念，以及如何通过 FFI 传递给 Rust 使用。
+本示例展示 C++ **自定义删除器**（custom deleter）的 FFI 处理方式。采用 idiomatic 命名空间
+风格（`custom_deleter_ns`），不再使用 extern-C 不透明指针 + 函数指针回调 + `*_delete` 桥接；
+`ManagedResource` 内部以带自定义删除器的 `std::unique_ptr<std::string, LoggingDeleter>`
+持有负载。析构由 Rust 的 `Drop` 自动完成，届时内部 `unique_ptr` 会调用自定义删除器。
 
 ## C++ 代码
 
 ### custom_deleter.h
 
 ```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace custom_deleter_ns {
 
-// 文件句柄结构体
-struct FileHandle;
+int cleanup_count(); // 自定义删除器被调用的累计次数
 
-// 创建文件句柄，第三个参数是自定义删除器函数指针
-FileHandle* file_open(const char* filename, const char* mode,
-                      void (*deleter)(struct FileHandle*));
-
-// 关闭文件句柄
-void file_close(FileHandle* handle);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### custom_deleter.cpp
-
-```cpp
-#include "custom_deleter.h"
-#include <iostream>
-#include <cstdio>
-
-struct FileHandle {
-    FILE* file;
-    void (*deleter)(struct FileHandle*);
-    const char* filename;
+struct LoggingDeleter {
+    void operator()(std::string* p) const; // 记录一次清理后 delete
 };
 
-// 默认删除器
-void default_file_deleter(struct FileHandle* handle) {
-    if (handle) {
-        if (handle->file) fclose(handle->file);
-        delete handle;
-    }
-}
+class ManagedResource {
+    std::unique_ptr<std::string, LoggingDeleter> res_;
+public:
+    explicit ManagedResource(const char* name)
+        : res_(new std::string(name ? name : ""), LoggingDeleter{}) {}
+    const char* name() const { return res_ ? res_->c_str() : ""; }
+    int released() const { return res_ ? 0 : 1; }
+    void release() { res_.reset(); } // 触发自定义删除器
+};
 
-// 带日志的自定义删除器
-void logging_file_deleter(struct FileHandle* handle) {
-    std::cout << "[LOG] Closing: " << handle->filename << std::endl;
-    if (handle->file) fclose(handle->file);
-    delete handle;
-}
-
-FileHandle* file_open(const char* filename, const char* mode,
-                      void (*deleter)(struct FileHandle*)) {
-    FileHandle* handle = new FileHandle();
-    handle->file = fopen(filename, mode);
-    handle->deleter = deleter ? deleter : default_file_deleter;
-    handle->filename = filename;
-    return handle;
-}
-
-void file_close(FileHandle* handle) {
-    if (handle && handle->deleter) {
-        handle->deleter(handle);
-    }
-}
+} // namespace custom_deleter_ns
 ```
-
-## 自定义删除器模式
-
-### 什么是自定义删除器
-
-自定义删除器是一种函数对象，用于控制资源的释放方式：
-
-```cpp
-std::unique_ptr<T, Deleter> ptr;
-```
-
-### 常见的删除器类型
-
-1. **默认删除器**：`delete ptr`
-2. **自定义函数**：`void (*deleter)(T*)`
-3. **lambda 表达式**
-4. **std::function**
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，也无需手写函数指针回调，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <iostream>
-    #include <cstdio>
-    #include <cstring>
-
     #include "custom_deleter.h"
-
-    typedef void (*FileDeleter)(struct FileHandle*);
 }
 
 hicc::import_class! {
-    #[cpp(class = "FileHandle", destroy = "refcounted_file_deleter")]
-    pub class FileHandle {
-        #[cpp(method = "bool is_open() const")]
-        fn is_open(&self) -> bool;
+    #[cpp(class = "custom_deleter_ns::ManagedResource")]
+    pub class ManagedResource {
+        #[cpp(method = "const char* name() const")]
+        pub fn name(&self) -> *const i8;
+        #[cpp(method = "int released() const")]
+        pub fn released(&self) -> i32;
+        #[cpp(method = "void release()")]
+        pub fn release(&mut self);
 
-        #[cpp(method = "int read(char* buffer, int size)")]
-        fn read(&mut self, buffer: *mut i8, size: i32) -> i32;
-
-        #[cpp(method = "int write(const char* data, int size)")]
-        fn write(&mut self, data: *const i8, size: i32) -> i32;
-
-        #[cpp(method = "const char* filename() const")]
-        fn filename(&self) -> *const i8;
-
-        #[cpp(method = "void close_file()")]
-        fn close_file(&mut self);
-
-        #[cpp(method = "void invoke_deleter()")]
-        fn invoke_deleter(&mut self);
+        pub fn new(name: *const i8) -> Self { managed_resource_new(name) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "custom_deleter"]
 
-    class FileHandle;
+    #[cpp(func = "std::unique_ptr<custom_deleter_ns::ManagedResource> hicc::make_unique<custom_deleter_ns::ManagedResource, const char*>(const char*&&)")]
+    pub fn managed_resource_new(name: *const i8) -> ManagedResource;
 
-    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "FileHandle* file_open(const char*, const char*, void (*)(FileHandle*))")]
-    unsafe fn file_open(filename: *const i8, mode: *const i8, deleter: unsafe extern "C" fn(*mut FileHandle)) -> *mut FileHandle;
-
-    #[cpp(func = "void file_close(FileHandle* handle)")]
-    unsafe fn file_close(handle: *mut FileHandle);
-
-    #[cpp(func = "int file_read(FileHandle* handle, char*, int)")]
-    unsafe fn file_read(handle: *mut FileHandle, buffer: *mut i8, size: i32) -> i32;
-
-    #[cpp(func = "int file_write(FileHandle* handle, const char*, int)")]
-    unsafe fn file_write(handle: *mut FileHandle, data: *const i8, size: i32) -> i32;
-
-    #[cpp(func = "FileHandle* file_open_default(const char*, const char*)")]
-    unsafe fn file_open_default(filename: *const i8, mode: *const i8) -> *mut FileHandle;
+    #[cpp(func = "int custom_deleter_ns::cleanup_count()")]
+    pub fn cleanup_count() -> i32;
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ 自定义删除器 | Rust FFI |
-|------|------------------|----------|
-| 删除器传递 | 函数指针作为模板参数 | 函数指针作为函数参数 |
-| 调用时机 | 析构时自动调用 | 手动调用 close() |
-| 类型安全 | 模板参数类型安全 | 类型擦除（void*） |
-| 灵活性 | 编译时确定 | 运行时可更换 |
-
-## 关键点
-
-1. **函数指针传递**：删除器作为函数指针传递
-2. **类型擦除**：C++ 模板提供类型安全，FFI 需要手动保证
-3. **生命周期**：Rust 侧需要确保删除器在对象生命周期内有效
-4. **错误处理**：FFI 边界需要处理 nullptr 情况
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 自定义删除策略 | `unique_ptr<T, Deleter>` | hicc 绑定内部持有，对外透明 |
+| 构造 | `ManagedResource("x")` | `ManagedResource::new(*const i8)`（`make_unique`） |
+| 主动释放 | `unique_ptr::reset()` | `release()` + `released()` |
+| 删除器触发 | 析构/reset 自动调用 | Rust `Drop` 自动触发，`cleanup_count` 可观测 |
 
 ## 运行结果
 
 ```
-=== 031_custom_deleter - 自定义删除器 ===
+=== 031_custom_deleter - 自定义删除器（hicc 直出）===
 
-Written 22 bytes
+name=logfile.txt released=0
+after release released=1
+cleanup_count delta=1
 
-Rust FFI: 自定义删除器模式
-1. C++ 允许传递函数指针作为删除器
-2. 删除器在对象销毁时自动调用
-3. Rust 可以传入自己的清理函数
-4. 适用于文件、内存、网络连接等资源
+Rust FFI: hicc 绑定内部使用 unique_ptr<T, Deleter> 的类，
+自定义删除器在对象析构（Rust Drop）时被自动调用
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_managed_resource_name` | name() 返回正确 |
+| `smoke_managed_resource_release` | release 后 released() 为 1 |
+| `smoke_custom_deleter_invoked` | 析构时自定义删除器被调用（计数增长） |
+
+### 运行方式
+
+```bash
+cd examples/031_custom_deleter/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- 自定义删除器是 C++ RAII 的延伸
-- FFI 边界需要显式传递删除器
-- Rust 侧通过 wrapper 类型提供安全接口
-- 适用于文件、数据库连接、网络 socket 等资源管理
+- C++ 自定义删除器可通过 hicc 绑定内部使用 `unique_ptr<T, Deleter>` 的类来表达
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim 或函数指针回调
+- 删除器在对象析构时被自动调用，行为可由 `cleanup_count()` 观测

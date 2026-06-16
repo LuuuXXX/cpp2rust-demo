@@ -1,54 +1,35 @@
+//! 031_custom_deleter: 自定义删除器（命名空间类内部用 unique_ptr<T, Deleter>）。
+//!
+//! `ManagedResource` 用带自定义删除器的 `std::unique_ptr` 持有负载，演示 RAII 自定义
+//! 删除策略。hicc 直出无需手写 `*_delete`，对象析构由 Rust `Drop` 自动完成，届时内部
+//! `unique_ptr` 会调用自定义删除器（`cleanup_count` 可观测其被触发）。
+
 hicc::cpp! {
-    #include <iostream>
-    #include <cstdio>
-    #include <cstring>
-
     #include "custom_deleter.h"
-
-    typedef void (*FileDeleter)(struct FileHandle*);
 }
 
 hicc::import_class! {
-    #[cpp(class = "FileHandle", destroy = "refcounted_file_deleter")]
-    pub class FileHandle {
-        #[cpp(method = "bool is_open() const")]
-        pub fn is_open(&self) -> bool;
+    #[cpp(class = "custom_deleter_ns::ManagedResource")]
+    pub class ManagedResource {
+        #[cpp(method = "const char* name() const")]
+        pub fn name(&self) -> *const i8;
 
-        #[cpp(method = "int read(char* buffer, int size)")]
-        pub fn read(&mut self, buffer: *mut i8, size: i32) -> i32;
+        #[cpp(method = "int released() const")]
+        pub fn released(&self) -> i32;
 
-        #[cpp(method = "int write(const char* data, int size)")]
-        pub fn write(&mut self, data: *const i8, size: i32) -> i32;
+        #[cpp(method = "void release()")]
+        pub fn release(&mut self);
 
-        #[cpp(method = "const char* filename() const")]
-        pub fn filename(&self) -> *const i8;
-
-        #[cpp(method = "void close_file()")]
-        pub fn close_file(&mut self);
-
-        #[cpp(method = "void invoke_deleter()")]
-        pub fn invoke_deleter(&mut self);
+        pub fn new(name: *const i8) -> Self { managed_resource_new(name) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "custom_deleter"]
 
-    class FileHandle;
+    #[cpp(func = "std::unique_ptr<custom_deleter_ns::ManagedResource> hicc::make_unique<custom_deleter_ns::ManagedResource, const char*>(const char*&&)")]
+    pub fn managed_resource_new(name: *const i8) -> ManagedResource;
 
-    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "FileHandle* file_open(const char*, const char*, void (*)(FileHandle*))")]
-    pub unsafe fn file_open(filename: *const i8, mode: *const i8, deleter: unsafe extern "C" fn(*mut FileHandle)) -> *mut FileHandle;
-
-    #[cpp(func = "void file_close(FileHandle* handle)")]
-    pub unsafe fn file_close(handle: *mut FileHandle);
-
-    #[cpp(func = "int file_read(FileHandle* handle, char*, int)")]
-    pub unsafe fn file_read(handle: *mut FileHandle, buffer: *mut i8, size: i32) -> i32;
-
-    #[cpp(func = "int file_write(FileHandle* handle, const char*, int)")]
-    pub unsafe fn file_write(handle: *mut FileHandle, data: *const i8, size: i32) -> i32;
-
-    #[cpp(func = "FileHandle* file_open_default(const char*, const char*)")]
-    pub unsafe fn file_open_default(filename: *const i8, mode: *const i8) -> *mut FileHandle;
+    #[cpp(func = "int custom_deleter_ns::cleanup_count()")]
+    pub fn cleanup_count() -> i32;
 }

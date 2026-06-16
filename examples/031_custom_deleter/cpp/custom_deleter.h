@@ -1,67 +1,33 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <string>
+#include <memory>
 
-// 自定义删除器示例
-// 展示如何将 C++ 的自定义删除器通过 FFI 传递给 Rust
+namespace custom_deleter_ns {
 
-// 文件句柄结构体
-struct FileHandle;
+// 自定义删除器被调用的累计次数（演示删除器确实被触发）。
+int cleanup_count();
 
-// 文件删除器函数类型
-typedef void (*FileDeleter)(struct FileHandle*);
-
-// 创建文件句柄，使用原始函数指针参数（会被 hicc (*)过滤器排除在 import_lib! 之外）
-FileHandle* file_open(const char* filename, const char* mode, void (*deleter)(struct FileHandle*));
-
-// 关闭文件句柄
-void file_close(FileHandle* handle);
-
-// 读取文件
-int file_read(FileHandle* handle, char* buffer, int size);
-
-// 写入文件
-int file_write(FileHandle* handle, const char* data, int size);
-
-// 通用删除器函数（必须在 file_open_default 之前声明，避免前向引用错误）
-void default_file_deleter(struct FileHandle* handle);
-
-// 创建使用默认删除器的文件句柄
-FileHandle* file_open_default(const char* filename, const char* mode);
-
-// 带日志的删除器
-void logging_file_deleter(struct FileHandle* handle);
-
-// 引用计数删除器
-void refcounted_file_deleter(struct FileHandle* handle);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
-#include <cstdio>
-
-using FileDeleter = void(*)(struct FileHandle*);
-
-class FileHandle {
-    FILE* file_;
-    FileDeleter deleter_;
-    const char* filename_;
-public:
-    FileHandle(const char* filename, const char* mode, FileDeleter deleter);
-    ~FileHandle();
-    FileHandle(const FileHandle&) = delete;
-    FileHandle& operator=(const FileHandle&) = delete;
-    FileHandle(FileHandle&&) = default;
-    FileHandle& operator=(FileHandle&&) = default;
-    bool is_open() const;
-    int read(char* buffer, int size);
-    int write(const char* data, int size);
-    const char* filename() const;
-    void close_file();
-    void invoke_deleter();
+// 自定义删除器：释放负载时记录一次清理，模拟带计数/日志的资源回收策略。
+struct LoggingDeleter {
+    void operator()(std::string* p) const;
 };
 
-#endif
+// ManagedResource：用 unique_ptr<T, 自定义删除器> 持有负载，演示 RAII 自定义删除策略。
+// hicc 直出无需手写 *_delete；Rust Drop 触发析构时内部 unique_ptr 会调用自定义删除器。
+class ManagedResource {
+    std::unique_ptr<std::string, LoggingDeleter> res_;
+public:
+    explicit ManagedResource(const char* name)
+        : res_(new std::string(name ? name : ""), LoggingDeleter{}) {}
+
+    const char* name() const { return res_ ? res_->c_str() : ""; }
+
+    // 是否已释放负载（类似已 reset 的 unique_ptr）。
+    int released() const { return res_ ? 0 : 1; }
+
+    // 主动释放负载，触发自定义删除器。
+    void release() { res_.reset(); }
+};
+
+} // namespace custom_deleter_ns
