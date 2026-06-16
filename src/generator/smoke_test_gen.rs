@@ -105,7 +105,7 @@ fn find_zero_param_factory<'a>(specs: &[&'a FfiSpec], class_name: &str) -> Optio
 /// 双值断言在单值（仅写 `42`）基础上再写入一个不同值并断言，能进一步证明 getter
 /// 真实回读 setter 写入的内容，而非恰好返回与首个字面量相等的常量。两个字面量均取
 /// 小整数/常见浮点/布尔，避免触发被绑定库可能存在的取值范围约束。
-fn scalar_literals(ty: &str) -> Option<(&'static str, &'static str)> {
+fn scalar_literal_pair(ty: &str) -> Option<(&'static str, &'static str)> {
     match ty.trim() {
         "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
         | "usize" => Some(("42", "7")),
@@ -145,7 +145,7 @@ fn detect_round_trips(cs: &ClassSpec) -> Vec<RoundTrip<'_>> {
             continue;
         }
         let param_ty = &setter.params[0].1;
-        let (literal, literal2) = match scalar_literals(param_ty) {
+        let (literal, literal2) = match scalar_literal_pair(param_ty) {
             Some(pair) => pair,
             None => continue,
         };
