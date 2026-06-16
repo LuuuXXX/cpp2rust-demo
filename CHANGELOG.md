@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 新增（方案 A：build.rs 自动注入捕获的编译元数据）
+
+- **生成的 `build.rs` 不再需要外部脚本就地改写**：`init` 阶段从 LD_PRELOAD hook 记录的 `.opts`（`-I`/`-isystem`/`-iquote` include 路径与 `-std=`）还原编译选项，并由 `.cpp2rust` 路径反推被绑定符号定义所在的实现 `.cpp`，聚合为编译元数据落盘到 `meta/build-meta.json`（新增模块 `src/build_meta.rs`）。
+- **`project_generator::write_build_rs` 据元数据注入 `cc::Build`**：当元数据非空时，生成的 `build.rs` 自动注入 `cc_build.std(...)` / `cc_build.include(...)` / `cc_build.file(...)` 并在非 MSVC 平台链接 `stdc++`，使端到端 `cargo check` / `cargo test` 可直接编译并链接第三方库实现；元数据为空时（黄金 / `gen-verify` 直接调用生成器）退化为最小化输出，产物逐字节不变。
+- **`usage/verify-rapidjson-ffi.sh` §5a 改为信任工具产物**：检测工具生成的 `build.rs` 是否已自包含（含 `cc_build.include` + `cc_build.file`），是则跳过就地改写（方案 A 生效）；否则退回脚本就地补全（方案 B 兜底，兼容旧版工具或未捕获 `.opts` 的情形）。
+
 ### 变更（收尾三项：甄别对照 / 冒烟双值往返 / 文档对齐）
 
 - **hicc-usages 甄别对照文档**：新增 `docs/references/hicc-usages-comparison.md`，系统分析 `references/hicc-usages`（48 特性 × hicc FFI 映射的参考实现）与本仓 `examples/` 的关系，逐项记录**采纳**（去 shim 直出形态、行为级冒烟样板、`tools/` AST 脚本）、**甄别修正**（继承绑定 `this` 偏移 SIGSEGV、`make_unique` 指针/标量实参 `&&` 转发、命名空间类型限定、友元函数类体内 inline 以保留直出）与**有意分歧**（黄金/L1–L6 测试体系、命名空间扁平化命名兼容）；从 `references/README.md` 链接。

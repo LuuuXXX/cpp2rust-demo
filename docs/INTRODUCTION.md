@@ -198,9 +198,10 @@ cpp2rust-demo merge --feature <name>
 你的项目/
 ├── .cpp2rust/<feature>/
 │   ├── c/                      # 预处理文件（.cpp2rust + .opts + targets.list）
-│   ├── meta/                   # build_cmd.txt、selected_files.json
+│   ├── meta/                   # build_cmd.txt、selected_files.json、build-meta.json
 │   └── rust/                   # 生成的 Rust FFI 项目
 │       ├── Cargo.toml
+│       ├── build.rs            # 自动注入 include 路径 / C++ 标准 / 实现 .cpp（取自 .opts）
 │       └── src/
 │           ├── lib.rs          # 汇总所有编译单元
 │           └── foo.rs          # 每个 .cpp 对应一个 .rs
