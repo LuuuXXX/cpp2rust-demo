@@ -58,6 +58,13 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+base.area=0
+derived.area=36 value=6
+```
+
 ## 总结
 
 1. **显式覆写**：`override` 关键字在编译期校验覆写正确性。

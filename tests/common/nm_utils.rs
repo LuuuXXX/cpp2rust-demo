@@ -117,6 +117,12 @@ fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
 /// - `_Z` / `__Z` — GCC/Clang mangling
 /// - `?`          — MSVC mangling (defensive, unlikely outside Windows)
 fn is_c_symbol(s: &str) -> bool {
+    // `main` 是程序入口点，并非 shim 导出符号。去 shim 直出（idiomatic）示例新增的
+    // cpp/main.cpp 会引入唯一的非 mangled T 符号 `main`，它不应被视为需要链接进 Rust
+    // 产物的 extern-C 导出。统一在此排除，避免误报。
+    if s == "main" {
+        return false;
+    }
     #[cfg(windows)]
     {
         // `_`-prefix rejects names reserved for the implementation by the C and

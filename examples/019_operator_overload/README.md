@@ -78,6 +78,17 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+a+b=13
+a-b=7
+a*b=30
+a/b=3
+-a=-10
+compare(a,b)=1
+```
+
 ## 总结
 
 1. **运算符跳过**：hicc 直出不自动绑定 `operator` 重载。

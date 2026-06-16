@@ -87,6 +87,16 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+HardwareDevice() ctor
+status=0xa5a5a5a5 data=0x00000000
+after init status=0x12345678 data=0x00000000
+after reset status=0xa5a5a5a5
+~HardwareDevice() dtor
+```
+
 ## 总结
 
 1. **volatile 数据**：寄存器保留 `volatile` 语义，编译器不缓存读取。

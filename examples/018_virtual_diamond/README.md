@@ -58,6 +58,13 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+a=1 b=2 c=3
+d_value=4 compute=10
+```
+
 ## 总结
 
 1. **菱形虚继承**：`A` 子对象唯一，避免重复继承的二义性。

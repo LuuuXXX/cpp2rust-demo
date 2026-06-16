@@ -122,6 +122,13 @@ cargo test               # 运行 tests/smoke.rs 行为级断言
 cargo run                # 运行 src/main.rs 演示
 ```
 
+## 运行结果
+
+```
+[rust] name=demo count=12
+[rust] after reset, count=0
+```
+
 ## 总结
 
 1. **去 shim**：直接绑定 `class_basic_ns::Counter`，无 opaque 指针、无 `extern "C"` 桥接。

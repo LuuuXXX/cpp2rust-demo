@@ -84,6 +84,18 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+Buffer(int) ctor, size=5
+Buffer(const Buffer&) copy ctor, size=5
+b2 size: 5
+b2 values: 10 20 30 40 50 
+after b1[0]=999: b1[0]=999 b2[0]=10 (unchanged)
+~Buffer() dtor, size=5
+~Buffer() dtor, size=5
+```
+
 ## 总结
 
 1. **多工厂**：默认 / `int` 构造 → `make_unique` 工厂，替代 `buffer_new` / `buffer_newWithSize` shim。

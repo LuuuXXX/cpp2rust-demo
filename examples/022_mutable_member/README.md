@@ -63,6 +63,15 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+fetch=101
+fetch=102
+access_count=2
+--- end main ---
+```
+
 ## 总结
 
 1. **mutable 内部可变**：`const` 方法可修改 `mutable` 成员。

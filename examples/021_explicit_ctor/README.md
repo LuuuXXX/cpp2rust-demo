@@ -69,6 +69,14 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+a.get_value()=42
+b.get_value()=3
+--- end main ---
+```
+
 ## 总结
 
 1. **多构造工厂**：每个公有构造各对应一条 `make_unique` 工厂与关联函数。

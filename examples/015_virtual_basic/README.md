@@ -58,6 +58,13 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+shape.area=0
+circle.area=12.566370614359172 radius=2
+```
+
 ## 总结
 
 1. **虚函数**：基类声明 `virtual area()`，派生类 `override` 覆写。

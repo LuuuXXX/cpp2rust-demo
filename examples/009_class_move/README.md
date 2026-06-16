@@ -85,6 +85,19 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+UniqueVector(int) ctor, size=3
+src size: 3 src[0]: 100
+UniqueVector() ctor
+dest size before move: 0
+dest size after move: 3 dest[0]: 100
+src size after move: 0 (emptied)
+~UniqueVector() dtor, size=3
+~UniqueVector() dtor, size=0
+```
+
 ## 总结
 
 1. **多工厂**：默认 / `int` 构造 → `make_unique` 工厂，替代 `unique_vector_new` / `unique_vector_newWithData` shim。

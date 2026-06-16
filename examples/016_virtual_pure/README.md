@@ -64,6 +64,13 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+circle.area=12.566370614359172 radius=2
+rect.area=12
+```
+
 ## 总结
 
 1. **纯虚接口**：`AbstractShape::area() = 0` 定义抽象契约。

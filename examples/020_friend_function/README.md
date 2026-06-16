@@ -72,6 +72,21 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+a.get_value()=10
+Friend getSum: 10 + 3 = 13
+getSum(a,b)=13
+Friend getProduct: 10 * 3 = 30
+getProduct(a,b)=30
+compare(a,b)=1
+compare(c,b) after set_value=0
+--- end main ---
+Friend compare: a > b
+Friend compare: a == b
+```
+
 ## 总结
 
 1. **友元跳过**：hicc 直出不自动绑定非成员自由函数（含友元）。

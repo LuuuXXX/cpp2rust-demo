@@ -85,6 +85,15 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+Calculator() ctor
+value=12 history=3
+after clear value=0 history=0
+~Calculator() dtor
+```
+
 ## 总结
 
 1. **const 映射**：const 方法 → `&self`，非 const 方法 → `&mut self`，借用规则编译期保证。

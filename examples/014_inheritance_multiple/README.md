@@ -70,6 +70,14 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
+## 运行结果
+
+```
+b1.value1=10
+b2.value2=20
+derived=12 compute=42
+```
+
 ## 总结
 
 1. **多继承**：派生类同时继承两个基类并组合其数据。

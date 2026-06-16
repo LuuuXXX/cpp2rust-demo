@@ -83,6 +83,19 @@ cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
 cd rust_hicc && cargo test       # 行为级 smoke 断言（用互斥锁串行化共享静态计数）
 ```
 
+## 运行结果
+
+```
+initial live: 0
+Counter() ctor, live=1
+Counter() ctor, live=2
+live: 2 c1: 2 c2: 1
+~Counter() dtor, live=1
+after drop c1, live: 1
+~Counter() dtor, live=0
+after drop all, live: 0
+```
+
 ## 总结
 
 1. **构造工厂**：默认构造 → `make_unique`，替代 `counter_new` shim。

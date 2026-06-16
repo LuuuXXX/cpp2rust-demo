@@ -82,16 +82,17 @@ hicc::import_lib! {
 ## 运行结果
 
 ```
-=== 027_template_instantiation - 模板实例化 ===
+=== 027_template_instantiation - 模板显式实例化 ===
 
    1   2   3
    4   5   6
    7   8   9
 
-   1.1   2.2
-   3.3   4.4
+ 1.1 2.2
+ 3.3 4.4
 
-Rust FFI: 模板实例化将模板绑定到具体类型
+Rust FFI: 显式实例化将模板绑定到具体类型
+extern template 声明可在库中预实例化
 Matrix<int> -> IntMatrix
 Matrix<double> -> DoubleMatrix
 ```
