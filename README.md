@@ -9,7 +9,7 @@ cpp2rust-demo init -- make -j4   # 捕获构建 + 生成 FFI 脚手架
 cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 ```
 
-> **工具定位**：cpp2rust-demo 负责生成 FFI **脚手架**，不处理业务逻辑、不重写 C++ 代码。**默认采用 hicc 直出**——对带命名空间的 idiomatic C++ 类与自由函数，直接用 `import_class!` / `import_lib!` 绑定真实类型（`#[cpp(class = "ns::T")]`），无需编写任何 `extern "C"` shim；仅对少数 hicc 无法直接表达的特性（运算符重载、菱形虚继承、typeid、模板具现等）在 `hicc::cpp!` 块内补必要的内联包装。生成产物开箱即可 `cargo check`。
+> **工具定位**：cpp2rust-demo 负责生成 FFI **脚手架**，不处理业务逻辑、不重写 C++ 代码。**默认采用 hicc 直出**——对带命名空间的 idiomatic C++ 类与自由函数，直接用 `import_class!` / `import_lib!` 绑定真实类型（`#[cpp(class = "ns::T")]`），无需编写任何 `extern "C"` shim；仅对少数 hicc 无法直接表达的特性（运算符重载、菱形虚继承、typeid、模板实例化等）在 `hicc::cpp!` 块内补必要的内联包装。生成产物开箱即可 `cargo check`。
 
 **主要特性**：
 
@@ -473,7 +473,7 @@ hicc::import_lib! {
 }
 ```
 
-**直出策略**：成员方法通过 `import_class!` 直接绑定真实类（const → `&self`，非 const → `&mut self`），构造交给 `hicc::make_unique` 工厂、析构交给 hicc 的 `Drop`，全程无 `*_new`/`*_delete` C shim。仅以下少数 hicc 无法直接表达的特性才在 `hicc::cpp!` 块内补必要的内联包装：运算符重载、菱形虚继承、`typeid`、模板具现、`enum`/`union` 转换器。
+**直出策略**：成员方法通过 `import_class!` 直接绑定真实类（const → `&self`，非 const → `&mut self`），构造交给 `hicc::make_unique` 工厂、析构交给 hicc 的 `Drop`，全程无 `*_new`/`*_delete` C shim。仅以下少数 hicc 无法直接表达的特性才在 `hicc::cpp!` 块内补必要的内联包装：运算符重载、菱形虚继承、`typeid`、模板实例化、`enum`/`union` 转换器。
 
 ---
 
