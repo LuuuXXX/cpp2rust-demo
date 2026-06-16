@@ -17,4 +17,6 @@ fn main() {
     #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
     println!("cargo::rustc-link-lib=stdc++");
     println!("cargo::rerun-if-changed=src/lib.rs");
+    println!("cargo::rerun-if-changed=../cpp/summary.cpp");
+    println!("cargo::rerun-if-changed=../cpp/summary.h");
 }

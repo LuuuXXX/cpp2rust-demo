@@ -1,49 +1,28 @@
 #pragma once
 
-#include <cstddef>
+#include <stdexcept>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace noexcept_basic_ns {
 
-// noexcept functions - guaranteed not to throw
-int noexcept_add(int a, int b) noexcept;
-int noexcept_multiply(int a, int b) noexcept;
+inline int noexcept_add(int a, int b) noexcept { return a + b; }
+inline int noexcept_multiply(int a, int b) noexcept { return a * b; }
+inline int conditional_abs(int x) noexcept { return x < 0 ? -x : x; }
 
-// Function that may throw
-int throwing_divide(int a, int b);
-
-// noexcept operator check
-int check_noexcept(int (*fn)(int, int)) noexcept;
-
-// Conditional noexcept
-int conditional_abs(int value) noexcept;
-
-// Move-only type with noexcept move operations
-struct NoexceptMover;
-
-struct NoexceptMover* noexcept_mover_new(int value);
-void noexcept_mover_delete(struct NoexceptMover* self);
-struct NoexceptMover* noexcept_mover_move(struct NoexceptMover* other) noexcept;
-
-// Check if a function pointer is noexcept
-int is_noexcept(int (*fn)(int, int)) noexcept;
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 class NoexceptMover {
-private:
     int value_;
 public:
-    NoexceptMover(int value);
-    ~NoexceptMover();
-    NoexceptMover(NoexceptMover&& other) noexcept;
-    NoexceptMover& operator=(NoexceptMover&& other) noexcept;
-    [[nodiscard]] int get_value() const;
+    explicit NoexceptMover(int v) noexcept : value_(v) {}
     NoexceptMover(const NoexceptMover&) = delete;
     NoexceptMover& operator=(const NoexceptMover&) = delete;
+    NoexceptMover(NoexceptMover&& o) noexcept : value_(o.value_) { o.value_ = 0; }
+    NoexceptMover& operator=(NoexceptMover&&) noexcept = default;
+    int get_value() const noexcept { return value_; }
 };
 
-#endif
+int throwing_divide(int a, int b);
+int safe_divide(int a, int b) noexcept;
+
+// 锚点：本单元可链接的非模板符号。
+int noexcept_basic_anchor();
+
+} // namespace noexcept_basic_ns
