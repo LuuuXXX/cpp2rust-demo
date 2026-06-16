@@ -1,11 +1,8 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace hello_world_ns {
 
-void hello_world(void);
+// 命名空间内自由函数：无需 extern "C"，由 hicc import_lib! 以 ns::fn() 直出绑定。
+void hello_world();
 
-#ifdef __cplusplus
-}
-#endif
+} // namespace hello_world_ns

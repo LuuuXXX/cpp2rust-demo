@@ -2,6 +2,8 @@
 #include <cstdarg>
 #include <cstdio>
 
+namespace variadic_functions_ns {
+
 int sum(int count, ...) {
     va_list args;
     va_start(args, count);
@@ -21,7 +23,6 @@ int print_formatted(const char* format, ...) {
     return result;
 }
 
-// Wrapper functions for FFI (Rust cannot call variadic functions directly)
 int sum_3(int a, int b, int c) {
     return sum(3, a, b, c);
 }
@@ -29,3 +30,5 @@ int sum_3(int a, int b, int c) {
 int sum_5(int a, int b, int c, int d, int e) {
     return sum(5, a, b, c, d, e);
 }
+
+} // namespace variadic_functions_ns
