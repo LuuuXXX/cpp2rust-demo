@@ -510,8 +510,15 @@ pub fn assert_valid_hicc_format(code: &str, unit_name: &str) {
             "unit '{}': import_class! 块缺少类注解 (#[cpp(class...)] 或 #[interface])",
             unit_name
         );
-        // 仅在当前 import_class! 块内检查方法绑定
-        if block.contains("fn ") {
+        // 仅在当前 import_class! 块内检查方法绑定。
+        // 注意：构造工厂形如 `pub fn new(...) -> Self { ... }`，是 Rust 端辅助函数，
+        // 并非 C++ 方法，不需要 #[cpp(method = "...")]。只有「非工厂」的方法绑定才要求该注解。
+        // 某些平台（如 macOS 的 libclang）可能丢弃全部不可映射方法，使得块内仅剩构造工厂，
+        // 这种「仅工厂」的 import_class! 块是合法 hicc，不应判为缺少方法注解。
+        let has_non_factory_fn = block
+            .lines()
+            .any(|l| l.contains("fn ") && !l.contains("-> Self"));
+        if has_non_factory_fn {
             assert!(
                 block.contains("#[cpp(method = \""),
                 "unit '{}': import_class! 块包含方法但缺少 #[cpp(method = \"...\")]",
