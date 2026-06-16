@@ -11,6 +11,7 @@
 - **仓库瘦身**：将被 Git 跟踪的 `examples-target/`（cargo 构建产物，915 文件）移出版本控制，并在 `.gitignore` 增补 `examples-target/` 忽略规则；该目录在 CI 中仅作为 `CARGO_TARGET_DIR` 使用，去版本控制不影响功能。
 - **AST 可追溯工具**：新增 `scripts/dump_ast.sh` + `scripts/filter_ast.py`（源自 `hicc-usages/tools/`），对某示例转储宏展开 `.i`、完整 `ast.json` 与「仅用户自有声明」的过滤 `user-ast.json`，便于人工核对工具抽取的 IR；新增 `make dump-ast DIR=...` 目标，产物写入 `<dir>/../ast/` 并经 `.gitignore` 忽略（绝不入库百 MB 级 JSON）。
 - **references 子模块决策文档化**：新增 `references/README.md` 说明各子模块用途，并明确 `references/rapidjson-refactoring` 保留 vendored 的理由——它是本仓特有的 rapidjson 重构工作区（含 `rapidjson_legacy`/`rapidjson_sys`/`baseline`/`inventory`/`reports`），无对应独立上游仓可指向，且 E2E 按固定相对路径取数，子模块化收益为负。
+- **新增真实项目 E2E（独立 CI）**：新增两个 header-only 真实库作为 E2E 依赖——`magic_enum`（重度 `constexpr`/模板元编程）与 `tomlplusplus`（toml++，大型单头 + 重度模板），各自以子模块引入，新增 `tests/{magic_enum,tomlplusplus}_e2e_test.rs`（init+merge+`cargo check` 门禁，与 nlohmann/json E2E 同构）与独立工作流 `.github/workflows/e2e-{magic-enum,tomlplusplus}.yml`；`Makefile` 的 `submodules`/`l4-test` 同步纳入。E2E 真实库由 6 增至 8。
 
 ### 变更（v7：高级映射能力默认生成，移除环境变量开关）
 

@@ -1,0 +1,53 @@
+name: E2E magic_enum
+
+# 实际项目独立 CI：Neargye/magic_enum（header-only 重度 constexpr / 模板元编程）
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "src/**"
+      - "tests/magic_enum_e2e_test.rs"
+      - ".github/workflows/e2e-magic-enum.yml"
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  magic_enum:
+    name: magic_enum init+merge+check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/magic_enum
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-magic-enum-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run magic_enum E2E
+        run: cargo test --test magic_enum_e2e_test -- --test-threads=1

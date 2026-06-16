@@ -23,9 +23,11 @@ submodules:
 		references/tinyxml2 \
 		references/pugixml \
 		references/nlohmann-json \
-		references/fmtlib
+		references/fmtlib \
+		references/magic_enum \
+		references/tomlplusplus
 
-## 运行全部 L4 E2E 集成测试（包括 rapidjson + 五个新项目）
+## 运行全部 L4 E2E 集成测试（包括 rapidjson + 七个真实项目）
 l4-test: submodules
 	cargo test --test rapidjson_e2e_test
 	cargo test --test tinyxml2_e2e_test
@@ -33,6 +35,8 @@ l4-test: submodules
 	cargo test --test sqlite3_e2e_test
 	cargo test --test nlohmann_json_e2e_test
 	cargo test --test fmtlib_e2e_test
+	cargo test --test magic_enum_e2e_test -- --test-threads=1
+	cargo test --test tomlplusplus_e2e_test -- --test-threads=1
 
 ## 转储某示例的「AST → hicc」可追溯产物（宏展开 .i + 完整 ast.json + 过滤后的 user-ast.json）
 ## 产物写入 <DIR>/../ast/（已被 .gitignore 忽略，绝不入库）。DIR 默认 006_class_basic。
