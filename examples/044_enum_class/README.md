@@ -1,58 +1,26 @@
-# 044_enum_class - 强类型枚举
+# 044_enum_class - enum class（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++11 引入的 `enum class`（强类型枚举）如何在 FFI 中处理。强类型枚举不会隐式转换为整数，提供了类型安全。
-
-## 重要说明
-
-由于 hicc 的 `import_class!` 宏不支持命名空间类（如 `example::OperationResult`），本示例使用 **raw extern "C" + void\*** 模式来实现 FFI。
+本示例展示 C++11 **enum class**（强类型枚举）的 FFI 处理方式。采用 idiomatic 命名空间风格（`enum_class_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；`OperationResult` 直接持有 `ErrorCode` / `State` / `Flags`。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### enum_class.h
 
 ```cpp
-#pragma once
+namespace enum_class_ns {
 
-#include <cstddef>
-#include <cstdint>
-
-// C++ enum class definitions (must be outside extern "C")
-namespace example {
-
-enum class ErrorCode : int {
-    None = 0,
-    InvalidInput = 1,
-    OutOfMemory = 2,
-    NotFound = 3,
-    PermissionDenied = 4,
-    Unknown = 99
-};
-
-enum class State : unsigned char {
-    Idle = 0,
-    Running = 1,
-    Paused = 2,
-    Stopped = 3
-};
-
-enum class Flags : unsigned int {
-    None = 0,
-    Read = 1,
-    Write = 2,
-    Execute = 4,
-    All = 7
-};
+enum class ErrorCode : int { None = 0, InvalidInput = 1, OutOfMemory = 2, NotFound = 3, PermissionDenied = 4, Unknown = 99 };
+enum class State : unsigned char { Idle = 0, Running = 1, Paused = 2, Stopped = 3 };
+enum class Flags : unsigned int { None = 0, Read = 1, Write = 2, Execute = 4, All = 7 };
 
 class OperationResult {
-private:
     ErrorCode error_;
     State state_;
     Flags flags_;
 public:
     OperationResult();
-    ~OperationResult();
     void set_error(int code);
     int get_error() const;
     void set_state(unsigned char s);
@@ -61,135 +29,95 @@ public:
     unsigned int get_flags() const;
 };
 
-}  // namespace example
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// FFI functions - 使用 void* 作为 opaque pointer
-void* operation_result_new(void);
-void operation_result_delete(void* p);
-void operation_result_set_error(void* p, int error_code);
-int operation_result_get_error(void* p);
-void operation_result_set_state(void* p, unsigned char state);
-unsigned char operation_result_get_state(void* p);
-void operation_result_set_flags(void* p, unsigned int flags);
-unsigned int operation_result_get_flags(void* p);
 unsigned int combine_flags(unsigned int f1, unsigned int f2);
 int has_flag(unsigned int flags, unsigned int flag);
 
-#ifdef __cplusplus
-}
-#endif
-```
-
-### enum_class.cpp
-
-```cpp
-#include "enum_class.h"
-
-namespace example {
-
-OperationResult::OperationResult() : error_(ErrorCode::None), state_(State::Idle), flags_(Flags::None) {}
-
-void OperationResult::set_error(int code) {
-    error_ = static_cast<ErrorCode>(code);
-}
-
-int OperationResult::get_error() const {
-    return static_cast<int>(error_);
-}
-
-// ... 其他方法实现
-
-}  // namespace example
-
-// FFI wrapper functions - 使用 void*
-void* operation_result_new(void) {
-    return new example::OperationResult();
-}
-
-void operation_result_delete(void* p) {
-    delete static_cast<example::OperationResult*>(p);
-}
+} // namespace enum_class_ns
 ```
 
 ## Rust FFI 代码
+
+hicc 直出无需 extern-C shim，直接绑定类、`make_unique` 工厂与命名空间自由函数：
 
 ```rust
 hicc::cpp! {
     #include "enum_class.h"
 }
 
+hicc::import_class! {
+    #[cpp(class = "enum_class_ns::OperationResult")]
+    pub class OperationResult {
+        #[cpp(method = "void set_error(int)")]
+        pub fn set_error(&mut self, code: i32);
+        #[cpp(method = "int get_error() const")]
+        pub fn get_error(&self) -> i32;
+        // state / flags 略
+
+        pub fn new() -> Self { operation_result_new() }
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "enum_class"]
 
-    #[cpp(func = "unsigned int combine_flags(unsigned int, unsigned int)")]
-    fn combine_flags(f1: u32, f2: u32) -> u32;
+    #[cpp(func = "std::unique_ptr<enum_class_ns::OperationResult> hicc::make_unique<enum_class_ns::OperationResult>()")]
+    pub fn operation_result_new() -> OperationResult;
 
-    #[cpp(func = "int has_flag(unsigned int, unsigned int)")]
-    fn has_flag(flags: u32, flag: u32) -> i32;
+    #[cpp(func = "unsigned int enum_class_ns::combine_flags(unsigned int, unsigned int)")]
+    pub fn combine_flags(f1: u32, f2: u32) -> u32;
 }
-```
-## enum class vs enum
-
-| 特性 | enum | enum class |
-|------|------|------------|
-| 类型安全 | 无（可隐式转int） | 强类型 |
-| 作用域 | 枚举名在enum所在作用域 | 枚举名在enum内部 |
-| 底层类型 | int | 可指定 |
-| 隐式转换 | 可以 | 不可以 |
-
-## 构建方法
-
-### Rust 编译
-
-```bash
-cd rust_hicc
-cargo build
-cargo run
 ```
 
 ## FFI 对比分析
 
-| 方面 | C++ enum class | Rust |
-|------|----------------|------|
-| 声明 | `enum class Foo : int` | `const FOO: i32 = 0;` |
-| 作用域 | `Foo::Bar` | `FOO_BAR` (flat) |
-| 转换 | `static_cast<int>` | 直接使用整数 |
-| 类型安全 | 编译期检查 | 运行时检查 |
+| 方面 | C++ enum class | Rust FFI |
+|------|----------------|----------|
+| 类型持有 | `enum class` 成员 | hicc 绑定内部持有，对外透明 |
+| 错误码 | `ErrorCode` | `i32` 底层整数 |
+| 状态 | `State : unsigned char` | `u8` |
+| 标志位 | `Flags : unsigned int` | `u32` |
+| 转换 | `static_cast` | 直接使用标量 |
+| 析构 | C++ 默认析构 | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 044_enum_class - 强类型枚举 ===
+=== 044_enum_class - enum class（hicc 直出）===
 
---- ErrorCode Demo ---
-Error: InvalidInput (code=1)
-Error: NotFound (code=3)
+error=3 state=1 flags=7
+combine_flags(1,2)=3 has_execute=1 has_execute_in_read=0
 
---- State Demo ---
-State: Running (value=1)
-State: Paused (value=2)
-
---- Flags Demo ---
-Flags: 011 (read=true, write=true, execute=false)
-Combined flags: 101
-
---- 总结 ---
-1. enum class 是强类型，不会隐式转换为 int
-2. 可以指定底层类型：enum class Foo : int
-3. FFI 传递枚举值作为整数
-4. Rust 端定义相应常量来模拟枚举
-5. 强类型枚举更安全，避免枚举值混淆
+Rust FFI: hicc 直接绑定持有 enum class 的类，析构由 Rust Drop 自动完成
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_operation_result_state_is_per_object` | set/get error、state、flags 的对象内状态 |
+| `smoke_flags_helpers` | combine_flags / has_flag |
+
+### 运行方式
+
+```bash
+cd examples/044_enum_class/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-1. `enum class` 是强类型枚举，不会隐式转换为整数
-2. 可以指定底层类型：`enum class Foo : int`
-3. FFI 中通过整数传递枚举值
-4. Rust 端定义相应的常量来模拟枚举
-5. **使用 void\* + static_cast 模式处理命名空间类**
-6. 强类型枚举更安全，避免枚举值混淆
+- C++ `enum class` 可通过 hicc 直接绑定持有它的类来表达，无需不透明指针 + impl 间接层
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- 跨 FFI 只交换 `int` / `unsigned char` / `unsigned int` 等标量，枚举转换在 C++ 内部用 `static_cast` 完成
