@@ -400,6 +400,10 @@ jobs:
       # 测试时 cargo_run 直接执行已编译二进制，跳过 cargo 开销。
       - name: Pre-build all Rust example projects
         run: |
+          # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
+          # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
+          first=$(ls -d examples/*/rust_hicc | head -n1)
+          cargo build --manifest-path "$first"/Cargo.toml
           ls -d examples/*/rust_hicc | \
             xargs -P$(nproc) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -1014,6 +1018,10 @@ jobs:
       # 测试时每个 cargo_build_example 调用直接命中缓存，跳过 cargo 开销。
       - name: Pre-build all Rust example projects
         run: |
+          # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
+          # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
+          first=$(ls -d examples/*/rust_hicc | head -n1)
+          cargo build --manifest-path "$first"/Cargo.toml
           ls -d examples/*/rust_hicc | \
             xargs -P$(nproc) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -1593,6 +1601,10 @@ jobs:
       # 并行预构建所有示例项目，共享 CARGO_TARGET_DIR，hicc 只编译一次
       - name: Pre-build all Rust example projects
         run: |
+          # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
+          # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
+          first=$(ls -d examples/*/rust_hicc | head -n1)
+          cargo build --manifest-path "$first"/Cargo.toml
           ls -d examples/*/rust_hicc | \
             xargs -P$(sysctl -n hw.logicalcpu) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -1731,6 +1743,10 @@ jobs:
       # 并行预构建所有示例 Rust crate：共享 CARGO_TARGET_DIR，hicc 只编译一次
       - name: Pre-build all Rust example projects
         run: |
+          # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
+          # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
+          first=$(ls -d examples/*/rust_hicc | head -n1)
+          cargo build --manifest-path "$first"/Cargo.toml
           ls -d examples/*/rust_hicc | \
             xargs -P$(sysctl -n hw.logicalcpu) -I{} \
               cargo build --manifest-path {}/Cargo.toml
