@@ -8,6 +8,7 @@ fn main() {
     cc_build.include(".");
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("vector_basic.cpp"));
+
     build.rust_file("src/lib.rs").compile("vector_basic");
 
     println!("cargo::rustc-link-lib=vector_basic");

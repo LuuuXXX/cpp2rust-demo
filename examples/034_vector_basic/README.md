@@ -1,203 +1,120 @@
-# 034_vector_basic - std::vector
+# 034_vector_basic - std::vector（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `std::vector` 的基本操作，以及如何通过 FFI 导出给 Rust 使用。
+本示例展示 C++ **std::vector** 基本操作的 FFI 处理方式。采用 idiomatic 命名空间风格
+（`vector_basic_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；
+`IntVector` / `StringVector` 直接持有 `std::vector`，演示 size/capacity/push_back/get/set
+等操作。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### vector_basic.h
 
 ```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace vector_basic_ns {
 
-struct IntVector;
-
-struct IntVector* int_vector_new(void);
-void int_vector_delete(struct IntVector* self);
-
-size_t int_vector_size(struct IntVector* self);
-size_t int_vector_capacity(struct IntVector* self);
-int int_vector_empty(struct IntVector* self);
-
-void int_vector_push_back(struct IntVector* self, int value);
-int int_vector_get(struct IntVector* self, size_t index);
-void int_vector_set(struct IntVector* self, size_t index, int value);
-int* int_vector_data(struct IntVector* self);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### vector_basic.cpp
-
-```cpp
-#include "vector_basic.h"
-#include <vector>
-
-struct IntVector {
-    std::vector<int> data;
+class IntVector {
+    std::vector<int> data_;
+public:
+    IntVector() = default;
+    int size() const { return (int)data_.size(); }
+    int capacity() const { return (int)data_.capacity(); }
+    int empty() const { return data_.empty() ? 1 : 0; }
+    void reserve(int n) { if (n > 0) data_.reserve(n); }
+    void push_back(int v) { data_.push_back(v); }
+    void pop_back() { if (!data_.empty()) data_.pop_back(); }
+    int get(int i) const { /* 边界检查 */ }
+    void set(int i, int v) { /* 边界检查 */ }
+    int sum() const { /* 累加 */ }
+    void clear() { data_.clear(); }
 };
 
-struct IntVector* int_vector_new() {
-    return new IntVector();
-}
+class StringVector {
+    std::vector<std::string> data_;
+public:
+    int size() const { return (int)data_.size(); }
+    void push_back(const char* s) { data_.push_back(s ? s : ""); }
+    const char* get(int i) const { /* 返回元素 c_str() */ }
+    void clear() { data_.clear(); }
+};
 
-void int_vector_delete(struct IntVector* self) {
-    delete self;
-}
-
-size_t int_vector_size(struct IntVector* self) {
-    return self->data.size();
-}
-
-void int_vector_push_back(struct IntVector* self, int value) {
-    self->data.push_back(value);
-}
-
-int int_vector_get(struct IntVector* self, size_t index) {
-    return self->data[index];
-}
+} // namespace vector_basic_ns
 ```
-
-## std::vector 特点
-
-| 操作 | C++ | Rust 等效 |
-|------|-----|-----------|
-| 创建 | `vector<T> v` | `Vec::new()` |
-| 添加 | `v.push_back(x)` | `v.push(x)` |
-| 大小 | `v.size()` | `v.len()` |
-| 访问 | `v[i]` | `v[i]` |
-| 数据指针 | `v.data()` | `v.as_ptr()` |
-| 清空 | `v.clear()` | `v.clear()` |
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <vector>
-    #include <string>
-    #include <cstring>
-
     #include "vector_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntVector", destroy = "int_vector_delete")]
+    #[cpp(class = "vector_basic_ns::IntVector")]
     pub class IntVector {
-        #[cpp(method = "void push_back(int val)")]
-        fn push_back(&mut self, val: i32);
+        #[cpp(method = "void push_back(int v)")]
+        pub fn push_back(&mut self, v: i32);
+        #[cpp(method = "int get(int i) const")]
+        pub fn get(&self, i: i32) -> i32;
+        // size / capacity / set / sum / clear 略
 
-        #[cpp(method = "int get(size_t i) const")]
-        fn get(&self, i: usize) -> i32;
-
-        #[cpp(method = "void set(size_t i, int val)")]
-        fn set(&mut self, i: usize, val: i32);
-
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
-
-        #[cpp(method = "size_t capacity() const")]
-        fn capacity(&self) -> usize;
-
-        #[cpp(method = "void reserve(size_t n)")]
-        fn reserve(&mut self, n: usize);
-
-        #[cpp(method = "int* data()")]
-        fn data(&mut self) -> *mut i32;
-
-        #[cpp(method = "void clear()")]
-        fn clear(&mut self);
+        pub fn new() -> Self { int_vector_new() }
     }
 }
 
-hicc::import_class! {
-    #[cpp(class = "StringVector", destroy = "string_vector_delete")]
-    pub class StringVector {
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-    }
-}
+// StringVector 同理（push_back(*const i8) / get -> *const i8）
 
 hicc::import_lib! {
     #![link_name = "vector_basic"]
 
-    class IntVector;
-    class StringVector;
-
-    #[cpp(func = "IntVector* int_vector_new()")]
-    fn int_vector_new() -> IntVector;
-
-    #[cpp(func = "StringVector* string_vector_new()")]
-    fn string_vector_new() -> StringVector;
+    #[cpp(func = "std::unique_ptr<vector_basic_ns::IntVector> hicc::make_unique<vector_basic_ns::IntVector>()")]
+    pub fn int_vector_new() -> IntVector;
+    // string_vector_new 同理
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ std::vector | Rust FFI |
-|------|-----------------|----------|
-| 内存管理 | 自动扩容 | C++ 侧管理 |
-| 元素访问 | `v[i]` | `get(i)` 函数 |
-| 迭代 | 迭代器 | `data()` + 长度 |
-| 字符串 | `std::string` | C 字符串传递 |
-
-## 关键点
-
-1. **Opaque 指针**：vector 内部结构对 Rust 隐藏
-2. **函数式 API**：push_back/get/set 等操作
-3. **容量管理**：C++ 侧自动处理 reallocation
-4. **字符串处理**：需要 CString 转换
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 容器持有 | `std::vector<T>` 成员 | hicc 绑定内部持有，对外透明 |
+| 增删 | `push_back` / `pop_back` | 同名方法 |
+| 访问 | `operator[]` | `get` / `set`（带边界检查） |
+| 容量 | `size` / `capacity` | 同名方法返回 i32 |
+| 析构 | `~IntVector` | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 034_vector_basic - std::vector ===
+=== 034_vector_basic - std::vector（hicc 直出）===
 
---- IntVector Demo ---
-Empty: true
-Size: 5, Capacity: 8
-Elements:
-  [0] = 0
-  [1] = 10
-  [2] = 20
-  [3] = 30
-  [4] = 40
-After set [2] = 999: 999
-Raw data pointer: 0x...
-After clear, size: 0
+empty=1
+size=5 sum=100
+get(2)=999
+after pop_back size=4
+after clear empty=1
 
-Rust FFI: std::vector 映射
-1. Opaque 指针隐藏 vector 内部结构
-2. push_back/get/set 等价于 Rust 的 push/get/index
-3. size()/capacity() 提供容器信息
-4. data() 获取原始指针用于批量操作
+sv size=2 get(0)=alpha get(1)=beta
 
-Note: StringVector example omitted due to FFI complexity with const char*
+Rust FFI: hicc 直接绑定持有 std::vector 的类，析构由 Rust Drop 自动完成
 ```
 
 ## 冒烟测试
 
 本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
-可链接 C++ 实现，且基本行为正确。
+链接并正确调用。
 
 ### 测试用例
 
 | 测试函数 | 验证内容 |
 |---------|---------|
-| `smoke_int_vector_new` | `int_vector_new()` 后 `empty()` = true，`size()` = 0 |
-| `smoke_int_vector_push_get` | `push_back(10)` 后 `size()` = 1，`get(0)` = 10 |
-| `smoke_int_vector_set` | `set(0, 42)` 后 `get(0)` = 42 |
-| `smoke_int_vector_clear` | `clear()` 后 `size()` = 0 |
-| `smoke_string_vector_type_available` | `StringVector` 类型可用性断言 |
+| `smoke_int_vector_push_and_sum` | push_back / size / sum / empty |
+| `smoke_int_vector_get_set` | get / set 往返 |
+| `smoke_int_vector_pop_clear` | pop_back / clear |
+| `smoke_int_vector_reserve_capacity` | reserve 后容量 >= 8 |
+| `smoke_string_vector` | 字符串容器 push_back / get |
 
 ### 运行方式
 
@@ -216,7 +133,6 @@ cargo test --test smoke
 
 ## 总结
 
-- std::vector 是最常用的 STL 容器
-- FFI 边界需要显式函数调用
-- Rust 侧通过 unsafe 函数操作
-- 推荐封装为安全的 Rust Vec 类型
+- C++ `std::vector` 可通过 hicc 直接绑定持有它的类来表达，无需不透明指针 + impl 间接层
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- push_back/get/set/size/capacity 等操作语义与 C++ 一致
