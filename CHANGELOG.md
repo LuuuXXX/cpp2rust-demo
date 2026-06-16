@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 变更（文档瘦身：直出为默认）
+
+- **README 重构为「hicc 直出（无 shim）为默认」叙事**：改写工具定位与主要特性，将「必要 C 桥接 shim」措辞替换为「直出 + 少数特性必要 `cpp!` 内联包装」；「生成代码格式（三段式）」示例由旧的 `*_new`/`*_delete` opaque shim 改为真实命名空间类 `#[cpp(class = "ns::T")]` + `make_unique` 工厂的实际直出产物；将「对纯 C++ 库使用 shim 工作流」整段（含 shim 头/实现示例）压缩为简短的「兼容性回落」说明；特性矩阵补充说明，澄清「FFI 策略」列为历史概念注解、实际产物以各 `examples/NNN/rust_hicc/src/lib.rs` 直出形态为准。文档变更，不影响工具行为与生成产物。
+
 ### 变更（去 shim 补齐 + 冒烟行为级 + 仓库瘦身）
 
 - **001–005 示例去 shim**：将 `001_hello_world`…`005_variadic_functions` 的头/实现由 `extern "C"` 改为命名空间内自由函数（`namespace <feat>_ns`），`rust_hicc/src/lib.rs` 改用 `#[cpp(func = "ns::fn()")]` 经 `import_lib!` 直出绑定，与 006+ 的 hicc 直出形态对齐；补齐 `cpp/main.cpp`、`cpp/standalone.sh`、`cpp/Makefile`，README 改写为命名空间形态。验证通过 L1（48/48）/L2/L3/L5 与示例行为级冒烟。

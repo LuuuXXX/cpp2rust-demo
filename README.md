@@ -9,13 +9,13 @@ cpp2rust-demo init -- make -j4   # 捕获构建 + 生成 FFI 脚手架
 cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 ```
 
-> **工具定位**：cpp2rust-demo 负责生成 FFI **脚手架**（绑定声明 + 必要 C 桥接 shim），不处理业务逻辑、不重写 C++ 代码。生成产物开箱即可 `cargo check`，部分降级特性需人工补全后才能完整编译运行。
+> **工具定位**：cpp2rust-demo 负责生成 FFI **脚手架**，不处理业务逻辑、不重写 C++ 代码。**默认采用 hicc 直出**——对带命名空间的 idiomatic C++ 类与自由函数，直接用 `import_class!` / `import_lib!` 绑定真实类型（`#[cpp(class = "ns::T")]`），无需编写任何 `extern "C"` shim；仅对少数 hicc 无法直接表达的特性（运算符重载、菱形虚继承、typeid、模板具现等）在 `hicc::cpp!` 块内补必要的内联包装。生成产物开箱即可 `cargo check`。
 
 **主要特性**：
 
 - 🔗 **跨平台编译拦截**：Linux 使用 `LD_PRELOAD`；Windows 通过 PATH 注入 `hook_shim.exe`，同时支持 GNU/MinGW 和 MSVC
 - 🔍 **libclang AST 解析**：精确提取类、函数、枚举、模板实例化；行标记扫描自动区分项目源文件与 `#include` 引入的头文件
-- 📦 **hicc 三段式代码生成**：`hicc::cpp!`（C++ shim 内联）/ `hicc::import_class!`（类方法绑定）/ `hicc::import_lib!`（全局函数绑定）
+- 📦 **hicc 直出（无 shim）为默认**：`hicc::import_class!` 直绑真实命名空间类、`hicc::import_lib!` 直绑自由函数与 `make_unique` 工厂；`hicc::cpp!` 仅用于 `#include` 与少数特性的必要内联包装
 - 🏷️ **多 feature 支持**：`--feature <name>` 将不同平台或构建配置的产物隔离到各自目录，`merge` 命令可将多个 feature 合并为带 `[features]` 段的统一 Rust 项目
 - 🤖 **CI / 非交互环境自动全选**：stdin 非 TTY 时自动全选所有捕获到的 `.cpp2rust` 文件，无需人工干预
 - 🧪 **五层测试体系**：L1 黄金文件比对 / L2 编译测试 / L3 运行输出验证 / L4 真实项目 E2E 转换（rapidjson + tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib） / L5 `nm` 符号双向验证
@@ -427,140 +427,53 @@ cargo build --features linux_x86,arm_embedded
 
 > **完整命令参数说明**见 [命令参考](#命令参考) 章节。
 
-### 进阶：对纯 C++ 库使用 shim 工作流
+### 进阶：对纯 C++ 库的兼容性回落（extern-C 桥接）
 
-`cpp2rust-demo` 通过解析 C++ 预处理后的 AST 来提取 `extern "C"` 函数。对于**纯 C++ 库**（例如 rapidjson、Eigen、Abseil），其头文件和源文件中均无 `extern "C"` 声明，直接运行 `init` 只会生成 `hicc::cpp!` 头文件块，**不会生成 `import_lib!` FFI 绑定**。
+默认的 hicc 直出适用于绝大多数带命名空间的 idiomatic C++ 类与自由函数。对于**完全无法直出**的纯 C++ 库（例如重度模板、私有实现且不暴露稳定接口的库），可回落到传统做法：先写一层 `extern "C"` 不透明句柄包装（shim），再对 shim 运行 `init`。工具会识别 shim 中的 `extern "C"` 函数并生成 `import_lib!` 绑定。
 
-这是预期行为，不是 bug。正确的做法是先编写一层 **C++ shim 文件**（`extern "C"` 不透明句柄包装层），再对 shim 文件运行 `cpp2rust-demo init`。
+> 这是**兼容性回落**，不是推荐路径。多数场景下直接对真实命名空间类运行 `init` 即可获得无 shim 的直出绑定。
 
-#### 推荐工作流
-
-```
-纯 C++ 库（如 rapidjson）
-        │
-        ▼
-  ① 编写 C++ shim 文件
-     （extern "C" 包装层，暴露必要的 API 为 C 函数）
-        │
-        ▼
-  ② cpp2rust-demo init --feature <name> -- <编译 shim 的命令>
-     （工具拦截 g++ 调用，提取 shim 中的 extern-C 函数）
-        │
-        ▼
-  ③ cpp2rust-demo merge --feature <name>
-        │
-        ▼
-  ④ 在生成的 Rust 项目中使用 import_lib! 绑定调用原始 C++ API
-```
-
-#### shim 文件示例
-
-```cpp
-// document_ffi.h — 暴露为 extern "C" 的不透明句柄 API
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-typedef struct RapidDocument RapidDocument;
-
-RapidDocument* rapid_document_new();
-void           rapid_document_delete(RapidDocument* doc);
-int            rapid_document_parse(RapidDocument* doc, const char* json);
-
-#ifdef __cplusplus
-}
-#endif
-
-// document_ffi.cpp — 实现（include header，g++ 编译时 extern-C 来自 header）
-#include "document_ffi.h"
-#include "rapidjson/document.h"
-
-struct RapidDocument { rapidjson::Document inner; };
-
-RapidDocument* rapid_document_new() { return new RapidDocument{}; }
-void rapid_document_delete(RapidDocument* doc) { delete doc; }
-int rapid_document_parse(RapidDocument* doc, const char* json) {
-    doc->inner.Parse(json);
-    return doc->inner.HasParseError() ? -1 : 0;
-}
-```
-
-#### rapidjson 完整参考实现
-
-本仓库已包含 rapidjson 的完整 shim 参考实现（10 个子系统），位于：
-
-```
-references/rapidjson-refactoring/rapidjson_sys/shim/
-├── allocator_ffi.cpp / .h
-├── document_ffi.cpp / .h
-├── pointer_ffi.cpp / .h
-├── reader_ffi.cpp / .h
-├── stringbuffer_ffi.cpp / .h
-├── value_ffi.cpp / .h
-└── …（共 10 个子系统）
-```
-
-使用本地验证脚本体验完整流程：
-
-```bash
-# 自动定位本地 shim 文件并运行完整转换 + 验证
-bash usage/verify-rapidjson-ffi.sh
-```
-
-> **生成 Cargo.toml 条件引入 `hicc-std` 依赖**：工具生成的 Rust FFI 代码通过 C++ 侧自定义包装类
-> 将 STL 类型暴露为普通 `extern "C"` 接口，所有平台均可编译运行，无需直接使用 `hicc_std::` 类型。
-> 为方便在 Linux / Windows 上直接使用 `hicc_std::` 类型别名（如 `hicc_std::string`、`hicc_std::vector`
-> 等），工具自动在生成的 `Cargo.toml` 中引入 `hicc-std` 依赖；通常使用工具生成的 wrapper 类方式
-> 即可满足需求，无需额外步骤。
+本仓库在 `references/rapidjson-refactoring/rapidjson_sys/shim/` 保留了一套完整的 rapidjson `extern "C"` shim 参考实现（10 个子系统），可用 `bash usage/verify-rapidjson-ffi.sh` 体验完整转换 + 验证流程。
 
 ---
 
 ## 生成代码格式（三段式）
 
-工具输出标准的 hicc 三段式 Rust FFI 代码：
+工具默认输出 hicc **直出**（无 shim）的三段式 Rust FFI 代码（以命名空间类 `foo_ns::Foo` 为例）：
 
 ```rust
-// ─── 段 1：C++ 实现内联（含必要 shim）───────────────────
+// ─── 段 1：仅 #include 项目头（无 extern-C shim）────────────
 hicc::cpp! {
     #include "foo.h"
-
-    // ctor/dtor/operator/placement-new 等必要 shim
-    Foo* foo_new(int value) { return new Foo(value); }
-    void foo_delete(Foo* self) { delete self; }
 }
 
-// ─── 段 2：类方法绑定（每个类独立块）──────────────────────
+// ─── 段 2：直接绑定真实命名空间类 ─────────────────────────
 hicc::import_class! {
-    #[cpp(class = "Foo")]
+    #[cpp(class = "foo_ns::Foo")]
     pub class Foo {
-        #[cpp(method = "int getValue() const")]
-        fn getValue(&self) -> i32;
+        #[cpp(method = "int get_value() const")]
+        pub fn get_value(&self) -> i32;
 
-        #[cpp(method = "void setValue(int v)")]
-        fn setValue(&mut self, v: i32);
+        #[cpp(method = "void set_value(int v)")]
+        pub fn set_value(&mut self, v: i32);
+
+        // 构造函数体在 import_lib! 的 make_unique 工厂中
+        pub fn new(value: i32) -> Self {
+            foo_new(value)
+        }
     }
 }
 
-// ─── 段 3：全局/关联函数绑定 ──────────────────────────────
+// ─── 段 3：make_unique 工厂 + 自由函数绑定 ────────────────
 hicc::import_lib! {
     #![link_name = "foo"]
 
-    class Foo;
-
-    #[cpp(func = "Foo* foo_new(int value)")]
-    fn foo_new(value: i32) -> *mut Foo;
-
-    #[cpp(func = "void foo_delete(Foo* self)")]
-    unsafe fn foo_delete(self_: *mut Foo);
+    #[cpp(func = "std::unique_ptr<foo_ns::Foo> hicc::make_unique<foo_ns::Foo, int>(int)")]
+    pub fn foo_new(value: i32) -> Foo;
 }
 ```
 
-**最小 shim 策略**：成员方法直接通过 `import_class!` 绑定（由 hicc 处理虚表 dispatch），只有以下场景才生成 C shim 函数：
-- 构造函数 / 析构函数（C 无 `new`/`delete`）
-- 静态成员变量 getter/setter
-- 运算符重载（C ABI 无运算符符号）
-- placement new
-- STL 容器 wrapper 类的 ctor/dtor
+**直出策略**：成员方法通过 `import_class!` 直接绑定真实类（const → `&self`，非 const → `&mut self`），构造交给 `hicc::make_unique` 工厂、析构交给 hicc 的 `Drop`，全程无 `*_new`/`*_delete` C shim。仅以下少数 hicc 无法直接表达的特性才在 `hicc::cpp!` 块内补必要的内联包装：运算符重载、菱形虚继承、`typeid`、模板具现、`enum`/`union` 转换器。
 
 ---
 
@@ -569,6 +482,11 @@ hicc::import_lib! {
 > 图例：✅ 完全自动生成可编译代码　⚠️ 降级生成 + 内联 TODO（代码仍可 `cargo check`）
 > 平台列：Linux = Linux（GCC/Clang）；Win = Windows（MinGW/MSVC）
 > `¹` 标注的特性：生成项目在 Linux/Win 上自动引入 `hicc-std` 依赖，可直接使用 `hicc_std::` 类型别名
+>
+> **说明**：下表「FFI 策略」列描述的是各特性的**概念处理思路**。所有含类的示例当前均已采用
+> **hicc 直出**——`#[cpp(class = "ns::T")]` 直绑真实命名空间类 + `hicc::make_unique` 工厂，**不再生成
+> `*_new`/`*_delete` 等 opaque shim**；策略列中提到的 "opaque pointer / ctor-dtor shim" 仅为历史思路注解。
+> 实际产物以各 `examples/NNN/rust_hicc/src/lib.rs` 为准。
 
 | 示例 | 类别 | C++ 特性 | 状态 | 平台 | FFI 策略 |
 |------|------|---------|------|------|---------|
