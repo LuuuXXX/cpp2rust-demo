@@ -53,9 +53,7 @@ pub(super) fn detect_idiomatic_mode(ast: &CppAst) -> bool {
     // 类型**（不透明句柄指针，如 `Counter*`/`void*`）。idiomatic 标量自由函数则不会。
     // 据此区分：仅当存在「引用类类型的 extern-C 非锚点函数」时才认为是旧式桥接。
     let has_extern_c_bridge = ast.functions.iter().any(|f| {
-        f.is_extern_c
-            && !f.name.ends_with("_anchor")
-            && fn_references_class(f, &class_names)
+        f.is_extern_c && !f.name.ends_with("_anchor") && fn_references_class(f, &class_names)
     });
     !has_extern_c_bridge
 }

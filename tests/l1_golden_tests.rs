@@ -146,4 +146,3 @@ golden_test_lib_unix_only!(test_045_union_basic, "045_union_basic");
 golden_test_lib!(test_046_constexpr_basic, "046_constexpr_basic");
 golden_test_lib_unix_only!(test_047_noexcept_basic, "047_noexcept_basic");
 golden_test_lib!(test_048_summary, "048_summary");
-

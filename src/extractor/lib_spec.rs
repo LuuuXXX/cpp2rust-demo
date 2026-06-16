@@ -11,6 +11,10 @@ use super::{
 use crate::ast_parser::FunctionInfo;
 use crate::ffi_model::{FnBinding, LibSpec};
 
+/// 非命名空间限定版本，仅用于单元测试（生产路径统一走
+/// [`build_lib_spec_namespaced`]）。标注 `#[cfg(test)]` 以避免非测试构建下的
+/// dead_code 告警。
+#[cfg(test)]
 pub(super) fn build_lib_spec(
     functions: &[&FunctionInfo],
     unit_name: &str,
