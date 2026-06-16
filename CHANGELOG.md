@@ -9,6 +9,8 @@
 - **001–005 示例去 shim**：将 `001_hello_world`…`005_variadic_functions` 的头/实现由 `extern "C"` 改为命名空间内自由函数（`namespace <feat>_ns`），`rust_hicc/src/lib.rs` 改用 `#[cpp(func = "ns::fn()")]` 经 `import_lib!` 直出绑定，与 006+ 的 hicc 直出形态对齐；补齐 `cpp/main.cpp`、`cpp/standalone.sh`、`cpp/Makefile`，README 改写为命名空间形态。验证通过 L1（48/48）/L2/L3/L5 与示例行为级冒烟。
 - **冒烟测试生成器升级为行为级**：`src/generator/smoke_test_gen.rs` 新增表驱动的 setter/getter 往返检测——对「含零参构造 + 严格配对的 `set_<x>(标量)` 与 `<x>()`/`get_<x>()`/`is_<x>()` 标量 getter」的类，生成确定性 `assert_eq!` 往返断言（构造→set→断言 get 返回写入值）。断言仅在结果可静态确定（严格命名 + 标量类型）时生成，保证对真实项目 E2E `cargo test` 安全；其余项保留最小化 `cpp2rust-todo[SMOKE]` 占位。
 - **仓库瘦身**：将被 Git 跟踪的 `examples-target/`（cargo 构建产物，915 文件）移出版本控制，并在 `.gitignore` 增补 `examples-target/` 忽略规则；该目录在 CI 中仅作为 `CARGO_TARGET_DIR` 使用，去版本控制不影响功能。
+- **AST 可追溯工具**：新增 `scripts/dump_ast.sh` + `scripts/filter_ast.py`（源自 `hicc-usages/tools/`），对某示例转储宏展开 `.i`、完整 `ast.json` 与「仅用户自有声明」的过滤 `user-ast.json`，便于人工核对工具抽取的 IR；新增 `make dump-ast DIR=...` 目标，产物写入 `<dir>/../ast/` 并经 `.gitignore` 忽略（绝不入库百 MB 级 JSON）。
+- **references 子模块决策文档化**：新增 `references/README.md` 说明各子模块用途，并明确 `references/rapidjson-refactoring` 保留 vendored 的理由——它是本仓特有的 rapidjson 重构工作区（含 `rapidjson_legacy`/`rapidjson_sys`/`baseline`/`inventory`/`reports`），无对应独立上游仓可指向，且 E2E 按固定相对路径取数，子模块化收益为负。
 
 ### 变更（v7：高级映射能力默认生成，移除环境变量开关）
 

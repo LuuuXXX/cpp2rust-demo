@@ -13,4 +13,8 @@ hook/libcpp2rust_hook.so
 *.o
 *.so
 examples/**/*.txt
+# dump_ast.sh 产物（宏展开 .i / 完整 ast.json 可达上百 MB / 过滤后的 user-ast.json）—— 仅本地可追溯用，绝不入库
+ast/
+examples/**/ast/
+/ast/
 

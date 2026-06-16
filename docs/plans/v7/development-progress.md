@@ -39,6 +39,8 @@
 
 > **本 PR 补记**：完成 001–005 去 shim（`extern "C"` → 命名空间自由函数 + `import_lib!` 直出绑定），
 > 冒烟测试生成器升级为表驱动 + 行为级 `assert_eq!` 往返断言，并将 `examples-target/` 构建产物移出版本控制。
+> 另新增 `scripts/dump_ast.sh` + `scripts/filter_ast.py` 与 `make dump-ast` 目标（AST→hicc 可追溯，产物 gitignore），
+> 并以 `references/README.md` 文档化「`rapidjson-refactoring` 保留 vendored」的决策（无独立上游、E2E 固定取数路径）。
 
 > **一句话结论**：v7 的「移开关 + 默认输出 + 重做黄金 + CI 门禁 + 文档对齐」主体已完成；
 > 冒烟测试**生成器**已升级为「表驱动 + 行为级断言」（setter/getter 往返 `assert_eq!`），

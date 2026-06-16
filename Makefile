@@ -5,8 +5,9 @@
 #   make l3-test    — 编译库 + 运行所有 L3 运行测试
 #   make l4-test    — 运行全部 L4 E2E 集成测试（需要已初始化子模块）
 #   make submodules — 初始化/更新所有 E2E 测试子模块
+#   make dump-ast DIR=examples/006_class_basic/cpp — 转储某示例的精简 AST（本地可追溯，产物不入库）
 
-.PHONY: l3-setup l3-test l4-test submodules
+.PHONY: l3-setup l3-test l4-test submodules dump-ast
 
 ## 编译所有 L3 测试所需的 C++ 动态库
 l3-setup:
@@ -32,3 +33,8 @@ l4-test: submodules
 	cargo test --test sqlite3_e2e_test
 	cargo test --test nlohmann_json_e2e_test
 	cargo test --test fmtlib_e2e_test
+
+## 转储某示例的「AST → hicc」可追溯产物（宏展开 .i + 完整 ast.json + 过滤后的 user-ast.json）
+## 产物写入 <DIR>/../ast/（已被 .gitignore 忽略，绝不入库）。DIR 默认 006_class_basic。
+dump-ast:
+	bash scripts/dump_ast.sh $(or $(DIR),examples/006_class_basic/cpp)
