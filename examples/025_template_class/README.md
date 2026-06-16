@@ -1,103 +1,94 @@
-# 025_template_class - 类模板
+# 025_template_class - 类模板（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 类模板的 FFI 处理方式。类模板必须为每种类型显式实例化。
+本示例展示 C++ **类模板**的 FFI 处理方式。类模板 `Stack<T>` 是「蓝图」，须按具体类型
+实例化（`Stack<int>`、`Stack<double>` …）才成为可链接的具体类型。本示例将每个具体类型
+暴露为 idiomatic 命名空间类（`IntStack` / `DoubleStack`，内部复用 `Stack<T>`），hicc 直出
+按普通类绑定其方法与 `make_unique` 构造工厂，无需任何 extern-C shim。
 
 ## C++ 代码
 
 ### template_class.h
 
 ```cpp
-// Stack<int> 和 Stack<double> 是两个完全独立的类
-struct IntStack { /* ... */ };
-struct DoubleStack { /* ... */ };
-```
+namespace template_class_ns {
 
-### template_class.cpp
-
-```cpp
-// 内部使用 std::stack 实现
-struct IntStack {
-    std::stack<int> data;
+// 类模板：泛型栈蓝图
+template <typename T>
+class Stack {
+public:
+    std::stack<T> data;
+    Stack() = default;
+    int size() const { return static_cast<int>(data.size()); }
+    bool empty() const { return data.empty(); }
+    void push(T value) { data.push(value); }
+    T top() const { return data.top(); }
+    void pop() { data.pop(); }
 };
 
-struct DoubleStack {
-    std::stack<double> data;
+// 显式实例化为具体类
+class IntStack {
+public:
+    Stack<int> impl;
+    IntStack() = default;
+    int size() const { return impl.size(); }
+    /* ... push/top/pop/empty ... */
 };
+
+class DoubleStack { /* Stack<double> 同理 */ };
+
+} // namespace template_class_ns
 ```
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定具体类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <iostream>
-    #include <stack>
-
     #include "template_class.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntStack", destroy = "intstack_delete")]
+    #[cpp(class = "template_class_ns::IntStack")]
     pub class IntStack {
         #[cpp(method = "int size() const")]
-        fn size(&self) -> i32;
-
+        pub fn size(&self) -> i32;
         #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
-
+        pub fn empty(&self) -> bool;
         #[cpp(method = "void push(int value)")]
-        fn push(&mut self, value: i32);
-
+        pub fn push(&mut self, value: i32);
         #[cpp(method = "int top() const")]
-        fn top(&self) -> i32;
-
+        pub fn top(&self) -> i32;
         #[cpp(method = "void pop()")]
-        fn pop(&mut self);
+        pub fn pop(&mut self);
+
+        pub fn new() -> Self { int_stack_new() }
     }
 }
 
-hicc::import_class! {
-    #[cpp(class = "DoubleStack", destroy = "doublestack_delete")]
-    pub class DoubleStack {
-        #[cpp(method = "int size() const")]
-        fn size(&self) -> i32;
-
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
-
-        #[cpp(method = "void push(double value)")]
-        fn push(&mut self, value: f64);
-
-        #[cpp(method = "double top() const")]
-        fn top(&self) -> f64;
-
-        #[cpp(method = "void pop()")]
-        fn pop(&mut self);
-    }
-}
+// DoubleStack 同理（Stack<double>）
 
 hicc::import_lib! {
     #![link_name = "template_class"]
 
-    class IntStack;
-    class DoubleStack;
+    #[cpp(func = "std::unique_ptr<template_class_ns::IntStack> hicc::make_unique<template_class_ns::IntStack>()")]
+    pub fn int_stack_new() -> IntStack;
 
-    #[cpp(func = "IntStack* intstack_new()")]
-    fn intstack_new() -> IntStack;
-
-    #[cpp(func = "DoubleStack* doublestack_new()")]
-    fn doublestack_new() -> DoubleStack;
+    #[cpp(func = "std::unique_ptr<template_class_ns::DoubleStack> hicc::make_unique<template_class_ns::DoubleStack>()")]
+    pub fn double_stack_new() -> DoubleStack;
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ 模板 | Rust FFI |
-|------|----------|----------|
-| 类型参数化 | `Stack<T>` | 手动实例化 |
-| 实例化方式 | 编译器自动 | 手动为每种类型创建 |
-| 类型安全 | 编译器保证 | 命名约定保证 |
-| 代码复用 | 高 | 低（重复代码） |
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 模板定义 | `template<T> class Stack` | 不可直接导出 |
+| 模板实例化 | `Stack<int>` / `Stack<double>` | 暴露为具体类 `IntStack` / `DoubleStack` |
+| 构造 | `IntStack()` | `IntStack::new()`（`make_unique` 工厂） |
+| 内存管理 | RAII | hicc `unique_ptr` 自动析构 |
 
 ## 运行结果
 
@@ -114,7 +105,7 @@ DoubleStack size: 3
 DoubleStack top: 3.3
 After pop, top: 2.2
 
-Rust FFI: 类模板 = 为每种类型实例化独立结构
+Rust FFI: 类模板 = 为每种类型实例化独立的具体类
 Stack<int> -> IntStack
 Stack<double> -> DoubleStack
 ```
@@ -122,15 +113,15 @@ Stack<double> -> DoubleStack
 ## 冒烟测试
 
 本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
-可链接 C++ 实现，且基本行为正确。
+链接并正确调用。
 
 ### 测试用例
 
 | 测试函数 | 验证内容 |
 |---------|---------|
-| `smoke_int_stack_basic` | `int_stack_new()` → `push(42)` → `top()` 返回 42，`empty()` 为 false |
-| `smoke_double_stack_basic` | `double_stack_new()` → `push(3.14)` → `top()` ≈ 3.14 |
-| `smoke_int_stack_type_available` | `IntStack` 类型可用性断言 |
+| `smoke_int_stack_basic` | `IntStack` 的 push/top/pop/size/empty 行为 |
+| `smoke_double_stack_basic` | `DoubleStack` 的 push/top/pop/size 行为 |
+| `smoke_int_stack_type_available` | `IntStack` / `DoubleStack` 类型可用 |
 
 ### 运行方式
 
@@ -149,7 +140,7 @@ cargo test --test smoke
 
 ## 总结
 
-- 类模板的 FFI 需要为每种类型创建独立结构
-- C++ 内部可以使用 `std::stack<T>` 实现
-- 导出时通过命名约定区分不同实例
-- 这是模板 FFI 的标准做法
+- C++ 类模板无法直接 FFI 导出（模板本身没有可链接符号）
+- 策略：将每个具体实例化暴露为 idiomatic 命名空间类
+- hicc 直出按普通类绑定方法与 `make_unique` 工厂，无需 extern-C shim
+- `Stack<int>` → `IntStack`，`Stack<double>` → `DoubleStack`

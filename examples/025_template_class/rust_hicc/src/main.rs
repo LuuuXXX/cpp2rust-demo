@@ -3,8 +3,8 @@ use template_class::*;
 fn main() {
     println!("=== 025_template_class - 类模板 ===\n");
 
-    // IntStack
-    let mut int_stack = intstack_new();
+    // Stack<int> -> IntStack
+    let mut int_stack = IntStack::new();
     println!("IntStack empty: {}", int_stack.empty());
 
     int_stack.push(10);
@@ -18,8 +18,8 @@ fn main() {
 
     println!();
 
-    // DoubleStack
-    let mut double_stack = doublestack_new();
+    // Stack<double> -> DoubleStack
+    let mut double_stack = DoubleStack::new();
     println!("DoubleStack empty: {}", double_stack.empty());
 
     double_stack.push(1.1);
@@ -31,7 +31,7 @@ fn main() {
     double_stack.pop();
     println!("After pop, top: {}", double_stack.top());
 
-    println!("\nRust FFI: 类模板 = 为每种类型实例化独立结构");
+    println!("\nRust FFI: 类模板 = 为每种类型实例化独立的具体类");
     println!("Stack<int> -> IntStack");
     println!("Stack<double> -> DoubleStack");
 }

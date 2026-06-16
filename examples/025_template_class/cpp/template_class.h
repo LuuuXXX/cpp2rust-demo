@@ -1,40 +1,16 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-struct IntStack;
-struct DoubleStack;
-
-IntStack* intstack_new(void);
-void intstack_delete(IntStack* self);
-
-int intstack_size(IntStack* self);
-int intstack_empty(IntStack* self);
-void intstack_push(IntStack* self, int value);
-int intstack_top(IntStack* self);
-void intstack_pop(IntStack* self);
-
-DoubleStack* doublestack_new(void);
-void doublestack_delete(DoubleStack* self);
-
-int doublestack_size(DoubleStack* self);
-int doublestack_empty(DoubleStack* self);
-void doublestack_push(DoubleStack* self, double value);
-double doublestack_top(DoubleStack* self);
-void doublestack_pop(DoubleStack* self);
-
-#ifdef __cplusplus
-}
-#endif
-
-#ifdef __cplusplus
 #include <stack>
-template<typename T>
+
+namespace template_class_ns {
+
+// 类模板：一个简单的泛型栈。模板是「蓝图」，须按具体类型实例化（Stack<int> …）
+// 才成为可链接的具体类型。
+template <typename T>
 class Stack {
 public:
     std::stack<T> data;
+
     Stack() = default;
     int size() const { return static_cast<int>(data.size()); }
     bool empty() const { return data.empty(); }
@@ -43,9 +19,11 @@ public:
     void pop() { data.pop(); }
 };
 
+// 显式实例化为具体类：每个具体类型暴露一个 idiomatic 命名空间类，内部复用 Stack<T>。
 class IntStack {
 public:
     Stack<int> impl;
+
     IntStack() = default;
     int size() const { return impl.size(); }
     bool empty() const { return impl.empty(); }
@@ -57,6 +35,7 @@ public:
 class DoubleStack {
 public:
     Stack<double> impl;
+
     DoubleStack() = default;
     int size() const { return impl.size(); }
     bool empty() const { return impl.empty(); }
@@ -65,4 +44,7 @@ public:
     void pop() { impl.pop(); }
 };
 
-#endif
+// 锚点：本单元可链接的非模板符号。
+int template_class_anchor();
+
+} // namespace template_class_ns
