@@ -1,224 +1,124 @@
-# 040_std_function - std::function 回调
+# 040_std_function - std::function（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `std::function`（通用可调用对象包装器）的 FFI 处理方式，特别是如何将 Rust 闭包传递给 C++。
+本示例展示 C++ **std::function** 的 FFI 处理方式。采用 idiomatic 命名空间风格
+（`std_function_ns`），不再使用 extern-C 函数指针回调 + 不透明指针 + `*_new`/`*_delete` 桥接；
+`Callback` 内部持有由 lambda 构造的 `std::function`，`Pipeline` 内部持有多个 `std::function`
+并按顺序执行。回调完全在 C++ 侧内部持有，无需把 Rust 函数指针跨 FFI 传递；析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
-### std_function.h
+### std_function.h / .cpp
 
 ```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace std_function_ns {
 
-struct CallbackWrapper;
-struct Processor;
-
-struct CallbackWrapper* callback_wrapper_new(int (*fn)(int));
-void callback_wrapper_delete(struct CallbackWrapper* self);
-int callback_wrapper_invoke(struct CallbackWrapper* self, int value);
-
-struct Processor* processor_new(void);
-void processor_delete(struct Processor* self);
-void processor_set_callback(struct Processor* self, int (*cb)(int));
-int processor_process(struct Processor* self, int value);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### std_function.cpp
-
-```cpp
-#include "std_function.h"
-#include <functional>
-
-struct CallbackWrapper {
-    std::function<int(int)> callback;
-
-    CallbackWrapper(int (*fn)(int)) : callback(fn) {}
-
-    int invoke(int value) {
-        if (callback) {
-            return callback(value);
-        }
-        return value;
-    }
+class Callback {                        // 按 kind 选择 double/triple/negate 的 lambda
+    std::function<int(int)> fn_;
+public:
+    explicit Callback(int kind);        // 0=double,1=triple,2=negate
+    int invoke(int v) const { return fn_(v); }
 };
 
-struct Processor* processor_new() { return new Processor(); }
+class Pipeline {                        // 按顺序持有 std::function 序列
+    std::vector<std::function<int(int)>> fns_;
+public:
+    Pipeline() = default;
+    void add(int kind);                 // 0=double,1=triple,2=negate
+    int run(int v) const;               // 依次应用所有回调
+    int size() const { return (int)fns_.size(); }
+};
 
-void processor_set_callback(struct Processor* self, int (*cb)(int)) {
-    self->callback = cb;
-}
+} // namespace std_function_ns
 
-int processor_process(struct Processor* self, int value) {
-    if (self->callback) {
-        return self->callback(value);
-    }
-    return value * 2;
-}
-```
-
-## std::function 特点
-
-| 特性 | 说明 |
-|------|------|
-| 类型擦除 | 存储任何可调用对象 |
-| 通用包装 | 函数指针、lambda、函数对象 |
-| 内存管理 | 自动管理捕获的 lambda |
-| 空检查 | `operator bool()` |
-
-### 与函数指针对比
-
-```cpp
-// 函数指针 - 只适用于普通函数
-typedef int (*Callback)(int);
-void foo(Callback cb);
-
-// std::function - 适用于任何可调用对象
-#include <functional>
-void foo(std::function<int(int)> cb);
+// Callback::Callback / Pipeline::add 在 .cpp 中按 kind 赋不同 lambda；run 依次应用。
 ```
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，也无需把 Rust 函数指针传入 C++，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <functional>
-    #include <vector>
-    #include <thread>
-    #include <chrono>
-
     #include "std_function.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "CallbackWrapper", destroy = "callback_wrapper_delete")]
-    pub class CallbackWrapper {
-        #[cpp(method = "int invoke(int value)")]
-        fn invoke(&mut self, value: i32) -> i32;
+    #[cpp(class = "std_function_ns::Callback")]
+    pub class Callback {
+        #[cpp(method = "int invoke(int v) const")]
+        pub fn invoke(&self, v: i32) -> i32;
+        pub fn new(kind: i32) -> Self { callback_new(kind) }
     }
 }
 
-hicc::import_class! {
-    #[cpp(class = "Processor", destroy = "processor_delete")]
-    pub class Processor {
-        #[cpp(method = "int process(int value)")]
-        fn process(&mut self, value: i32) -> i32;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "MultiCallback", destroy = "multi_callback_delete")]
-    pub class MultiCallback {
-        #[cpp(method = "void invoke_all(int value)")]
-        fn invoke_all(&mut self, value: i32);
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "AsyncProcessor", destroy = "async_processor_delete")]
-    pub class AsyncProcessor {
-        #[cpp(method = "bool is_cancelled() const")]
-        fn is_cancelled(&self) -> bool;
-
-        #[cpp(method = "void cancel()")]
-        fn cancel(&mut self);
-    }
-}
+// Pipeline 同理（add(&mut) / run / size）
 
 hicc::import_lib! {
     #![link_name = "std_function"]
 
-    class CallbackWrapper;
-    class Processor;
-    class MultiCallback;
-    class AsyncProcessor;
-
-    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "CallbackWrapper* callback_wrapper_new(int (*)(int))")]
-    unsafe fn callback_wrapper_new(fn_: unsafe extern "C" fn(i32) -> i32) -> CallbackWrapper;
-
-    #[cpp(func = "CallbackWrapper* callback_wrapper_new_double()")]
-    fn callback_wrapper_new_double() -> CallbackWrapper;
-
-    #[cpp(func = "Processor* processor_new()")]
-    fn processor_new() -> Processor;
-
-    #[cpp(func = "MultiCallback* multi_callback_new()")]
-    fn multi_callback_new() -> MultiCallback;
-
-    #[cpp(func = "AsyncProcessor* async_processor_new()")]
-    fn async_processor_new() -> AsyncProcessor;
-
-    #[cpp(func = "void processor_set_double(Processor* p)")]
-    unsafe fn processor_set_double(p: *mut Processor);
-
-    #[cpp(func = "void multi_callback_add_double(MultiCallback* mc)")]
-    unsafe fn multi_callback_add_double(mc: *mut MultiCallback);
-
-    #[cpp(func = "void multi_callback_add_triple(MultiCallback* mc)")]
-    unsafe fn multi_callback_add_triple(mc: *mut MultiCallback);
+    #[cpp(func = "std::unique_ptr<std_function_ns::Callback> hicc::make_unique<std_function_ns::Callback, int>(int&&)")]
+    pub fn callback_new(kind: i32) -> Callback;
+    // pipeline_new 同理
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ std::function | Rust FFI |
-|------|-------------------|----------|
-| 存储内容 | 任何可调用对象 | 函数指针 |
-| 类型擦除 | 是 | 否（类型擦除） |
-| 捕获 lambda | 支持 | 需要包装 |
-| 空状态 | 支持 | nullptr |
-
-## 关键点
-
-1. **函数指针**：Rust 闭包转为函数指针传递
-2. **类型擦除**：C++ 侧使用 std::function
-3. **生命周期**：Rust 函数指针需要 'static
-4. **回调链**：多个回调需要多函数指针数组
-
-## 使用场景
-
-- **事件处理**：GUI 按钮点击
-- **异步编程**：完成回调、进度回调
-- **策略模式**：运行时选择算法
-- **观察者模式**：事件通知
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 回调持有 | `std::function` 成员 | hicc 绑定内部持有，对外透明 |
+| 单个回调 | `Callback::invoke` | 同名方法 |
+| 回调链 | `Pipeline` 顺序执行 | `add` / `run` / `size` |
+| 析构 | `~Callback` | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 040_std_function - std::function 回调 ===
+=== 040_std_function - std::function（hicc 直出）===
 
---- CallbackWrapper Demo ---
-invoke(5) = 10 (doubles input)
-invoke(7) = 14 (doubles input)
+double(5)=10
+triple(5)=15
+negate(5)=-5
 
---- Processor Demo ---
-process(10) = 20
+pipeline size=2 run(2)=12
 
---- MultiCallback Demo ---
-Invoking all callbacks with 4:
-
---- AsyncProcessor Demo ---
-is_cancelled = false
-after cancel: is_cancelled = true
-
-Rust FFI: std::function 回调映射
-1. std::function 存储可调用对象
-2. 回调可用于事件处理
-3. 此示例展示基本的回调封装模式
+Rust FFI: hicc 绑定内部持有 std::function 的类，回调状态在 C++ 侧保留
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_callback_double` | double 回调结果正确 |
+| `smoke_callback_triple` | triple 回调结果正确 |
+| `smoke_callback_negate` | negate 回调结果正确 |
+| `smoke_pipeline_add_and_run` | Pipeline 按顺序执行 double 再 triple |
+| `smoke_pipeline_size_and_state` | Pipeline size 与每对象状态 |
+
+### 运行方式
+
+```bash
+cd examples/040_std_function/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- std::function 提供类型擦除的可调用对象包装
-- FFI 边界使用函数指针作为回调
-- Rust 闭包需要转换为函数指针
-- 适用于需要运行时灵活性的场景
+- C++ `std::function` 可通过 hicc 绑定内部持有它的类来表达，无需跨 FFI 传函数指针
+- 单个回调与回调链均可，回调状态在 C++ 侧保留
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim

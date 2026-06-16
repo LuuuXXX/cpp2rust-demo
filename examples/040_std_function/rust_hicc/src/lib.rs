@@ -1,79 +1,44 @@
-hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <functional>
-    #include <vector>
-    #include <thread>
-    #include <chrono>
+//! 040_std_function: std::function 回调（命名空间类内部持有 std::function）。
+//!
+//! `Callback` 按 kind 选择 double/triple/negate 的 lambda，`Pipeline` 按顺序持有并运行多个回调。
+//! hicc 直出无需把函数指针跨 FFI 传递，回调在 C++ 侧内部持有；析构由 Rust `Drop` 自动完成。
 
+hicc::cpp! {
     #include "std_function.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "CallbackWrapper", destroy = "callback_wrapper_delete")]
-    pub class CallbackWrapper {
-        #[cpp(method = "int invoke(int value)")]
-        pub fn invoke(&mut self, value: i32) -> i32;
+    #[cpp(class = "std_function_ns::Callback")]
+    pub class Callback {
+        #[cpp(method = "int invoke(int v) const")]
+        pub fn invoke(&self, v: i32) -> i32;
+
+        pub fn new(kind: i32) -> Self { callback_new(kind) }
     }
 }
 
 hicc::import_class! {
-    #[cpp(class = "Processor", destroy = "processor_delete")]
-    pub class Processor {
-        #[cpp(method = "int process(int value)")]
-        pub fn process(&mut self, value: i32) -> i32;
-    }
-}
+    #[cpp(class = "std_function_ns::Pipeline")]
+    pub class Pipeline {
+        #[cpp(method = "void add(int kind)")]
+        pub fn add(&mut self, kind: i32);
 
-hicc::import_class! {
-    #[cpp(class = "MultiCallback", destroy = "multi_callback_delete")]
-    pub class MultiCallback {
-        #[cpp(method = "void invoke_all(int value)")]
-        pub fn invoke_all(&mut self, value: i32);
-    }
-}
+        #[cpp(method = "int run(int v) const")]
+        pub fn run(&self, v: i32) -> i32;
 
-hicc::import_class! {
-    #[cpp(class = "AsyncProcessor", destroy = "async_processor_delete")]
-    pub class AsyncProcessor {
-        #[cpp(method = "bool is_cancelled() const")]
-        pub fn is_cancelled(&self) -> bool;
+        #[cpp(method = "int size() const")]
+        pub fn size(&self) -> i32;
 
-        #[cpp(method = "void cancel()")]
-        pub fn cancel(&mut self);
+        pub fn new() -> Self { pipeline_new() }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "std_function"]
 
-    class CallbackWrapper;
-    class Processor;
-    class MultiCallback;
-    class AsyncProcessor;
+    #[cpp(func = "std::unique_ptr<std_function_ns::Callback> hicc::make_unique<std_function_ns::Callback, int>(int&&)")]
+    pub fn callback_new(kind: i32) -> Callback;
 
-    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "CallbackWrapper* callback_wrapper_new(int (*)(int))")]
-    pub unsafe fn callback_wrapper_new(fn_: unsafe extern "C" fn(i32) -> i32) -> CallbackWrapper;
-
-    #[cpp(func = "CallbackWrapper* callback_wrapper_new_double()")]
-    pub fn callback_wrapper_new_double() -> CallbackWrapper;
-
-    #[cpp(func = "Processor* processor_new()")]
-    pub fn processor_new() -> Processor;
-
-    #[cpp(func = "MultiCallback* multi_callback_new()")]
-    pub fn multi_callback_new() -> MultiCallback;
-
-    #[cpp(func = "AsyncProcessor* async_processor_new()")]
-    pub fn async_processor_new() -> AsyncProcessor;
-
-    #[cpp(func = "void processor_set_double(Processor* p)")]
-    pub unsafe fn processor_set_double(p: *mut Processor);
-
-    #[cpp(func = "void multi_callback_add_double(MultiCallback* mc)")]
-    pub unsafe fn multi_callback_add_double(mc: *mut MultiCallback);
-
-    #[cpp(func = "void multi_callback_add_triple(MultiCallback* mc)")]
-    pub unsafe fn multi_callback_add_triple(mc: *mut MultiCallback);
+    #[cpp(func = "std::unique_ptr<std_function_ns::Pipeline> hicc::make_unique<std_function_ns::Pipeline>()")]
+    pub fn pipeline_new() -> Pipeline;
 }

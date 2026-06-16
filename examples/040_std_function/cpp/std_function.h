@@ -1,116 +1,37 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// std::function 回调示例
-// 展示如何通过 FFI 传递 Rust 闭包到 C++
-
-#include <stddef.h>
-
-// Callback wrapper
-struct CallbackWrapper;
-
-struct CallbackWrapper* callback_wrapper_new(int (*fn)(int));
-struct CallbackWrapper* callback_wrapper_new_double(void);
-void callback_wrapper_delete(struct CallbackWrapper* self);
-
-// Processor structure
-struct Processor;
-
-struct Processor* processor_new(void);
-void processor_set_double(struct Processor* p);
-void processor_delete(struct Processor* self);
-
-// MultiCallback structure
-struct MultiCallback;
-
-struct MultiCallback* multi_callback_new(void);
-void multi_callback_add_double(struct MultiCallback* mc);
-void multi_callback_add_triple(struct MultiCallback* mc);
-void multi_callback_delete(struct MultiCallback* self);
-
-// AsyncProcessor
-struct AsyncProcessor;
-
-struct AsyncProcessor* async_processor_new(void);
-void async_processor_delete(struct AsyncProcessor* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 #include <functional>
 #include <vector>
 
-class CallbackWrapperImpl {
+namespace std_function_ns {
+
+// Callback：内部持有由 lambda 构造的 std::function，按 kind 选择运算。
+// 演示 C++ std::function 在 C++ 侧内部持有回调，hicc 直出无需跨 FFI 传函数指针。
+class Callback {
+    std::function<int(int)> fn_;
 public:
-    std::function<int(int)> callback;
-    explicit CallbackWrapperImpl(int (*fn)(int));
-    ~CallbackWrapperImpl();
-    int invoke(int value);
-    void set(int (*fn)(int));
+    // kind: 0=double, 1=triple, 2=negate
+    explicit Callback(int kind);
+    Callback(const Callback&) = delete;
+    Callback& operator=(const Callback&) = delete;
+
+    int invoke(int v) const { return fn_(v); }
 };
 
-class ProcessorImpl {
+// Pipeline：内部持有 std::function 序列，按 add 顺序依次处理输入。
+class Pipeline {
+    std::vector<std::function<int(int)>> fns_;
 public:
-    std::function<int(int)> callback;
-    ProcessorImpl();
-    ~ProcessorImpl();
-    void set_callback(int (*cb)(int));
-    int process(int value);
+    Pipeline() = default;
+    Pipeline(const Pipeline&) = delete;
+    Pipeline& operator=(const Pipeline&) = delete;
+
+    void add(int kind);
+    int run(int v) const;
+    int size() const { return static_cast<int>(fns_.size()); }
 };
 
-class MultiCallbackImpl {
-public:
-    std::vector<std::function<int(int)>> callbacks;
-    MultiCallbackImpl();
-    ~MultiCallbackImpl();
-    void add(int (*cb)(int));
-    void invoke_all(int value);
-};
+// 锚点：本单元可链接的非模板符号。
+int std_function_anchor();
 
-class AsyncProcessorImpl {
-public:
-    std::function<void(int, int)> completion_callback;
-    std::function<void(int)> progress_callback;
-    bool cancelled;
-    AsyncProcessorImpl();
-    ~AsyncProcessorImpl();
-    void set_completion_callback(void (*cb)(int, int));
-    void set_progress_callback(void (*cb)(int));
-    void start(int value);
-    void cancel();
-};
-
-struct CallbackWrapper {
-    CallbackWrapperImpl* impl;
-    explicit CallbackWrapper(int (*fn)(int));
-    ~CallbackWrapper();
-    int invoke(int value) { return impl->invoke(value); }
-};
-
-struct Processor {
-    ProcessorImpl* impl;
-    Processor();
-    ~Processor();
-    int process(int value) { return impl->process(value); }
-};
-
-struct MultiCallback {
-    MultiCallbackImpl* impl;
-    MultiCallback();
-    ~MultiCallback();
-    void invoke_all(int value) { impl->invoke_all(value); }
-};
-
-struct AsyncProcessor {
-    AsyncProcessorImpl* impl;
-    AsyncProcessor();
-    ~AsyncProcessor();
-    bool is_cancelled() const { return impl->cancelled; }
-    void cancel() { impl->cancel(); }
-};
-
-#endif
+} // namespace std_function_ns
