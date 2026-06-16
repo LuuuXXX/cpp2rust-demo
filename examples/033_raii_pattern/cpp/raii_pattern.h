@@ -1,101 +1,39 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// RAII 模式示例
-// 展示如何使用 FFI 模拟 RAII 自动资源管理
-
-#include <stddef.h>
-
-// 互斥锁结构
-class Mutex;
-
-// 创建互斥锁
-Mutex* mutex_new(void);
-
-// 销毁互斥锁
-void mutex_delete(Mutex* self);
-
-// 加锁
-void mutex_lock(Mutex* self);
-
-// 解锁
-void mutex_unlock(Mutex* self);
-
-// 尝试加锁
-int mutex_try_lock(Mutex* self);
-
-// 作用域锁/守卫
-class ScopedLock;
-
-// 创建作用域锁（构造时自动加锁）
-ScopedLock* scoped_lock_new(Mutex* mutex);
-
-// 销毁作用域锁（析构时自动解锁）
-void scoped_lock_delete(ScopedLock* self);
-
-// 文件锁结构
-class FileLock;
-
-// 创建文件锁
-FileLock* file_lock_new(const char* filename);
-
-// 销毁文件锁
-void file_lock_delete(FileLock* self);
-
-// 加锁
-void file_lock_lock(FileLock* self);
-
-// 解锁
-void file_lock_unlock(FileLock* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
-#include <mutex>
-#include <fstream>
 #include <string>
 
-class Mutex {
-    std::mutex mtx_;
+namespace raii_pattern_ns {
+
+// 当前存活的 Resource 实例数量（演示 RAII：构造 +1、析构 -1）。
+int active_count();
+
+// 未提交即析构（回滚）的 Transaction 累计数量（演示 RAII 作用域守卫）。
+int rollback_count();
+
+// Resource：构造时获取资源（计数 +1），析构时释放资源（计数 -1）。
+// hicc 直出无需手写 *_delete；Rust Drop 触发析构时资源自动释放。
+class Resource {
     std::string name_;
 public:
-    explicit Mutex();
-    explicit Mutex(const char* name);
-    ~Mutex();
-    void lock();
-    void unlock();
-    bool try_lock();
-    const char* name() const;
+    explicit Resource(const char* name);
+    ~Resource();
+    Resource(const Resource&) = delete;
+    Resource& operator=(const Resource&) = delete;
+
+    const char* name() const { return name_.c_str(); }
 };
 
-class ScopedLock {
-    Mutex* mutex_;
-    bool owns_lock_;
+// Transaction：作用域守卫。若析构前未 commit()，析构时自动回滚（rollback_count +1）。
+class Transaction {
+    bool committed_;
 public:
-    explicit ScopedLock(Mutex* m);
-    ~ScopedLock();
-    ScopedLock(ScopedLock&& other) noexcept;
-    ScopedLock(const ScopedLock&) = delete;
-    ScopedLock& operator=(const ScopedLock&) = delete;
-    bool owns_lock() const { return owns_lock_; }
+    Transaction();
+    ~Transaction();
+    Transaction(const Transaction&) = delete;
+    Transaction& operator=(const Transaction&) = delete;
+
+    void commit() { committed_ = true; }
+    int committed() const { return committed_ ? 1 : 0; }
 };
 
-class FileLock {
-    std::mutex mtx_;
-    std::ofstream file_;
-    std::string filename_;
-public:
-    explicit FileLock(const char* fname);
-    ~FileLock();
-    FileLock(const FileLock&) = delete;
-    FileLock& operator=(const FileLock&) = delete;
-    void lock();
-    void unlock();
-    const char* filename() const;
-};
-
-#endif
+} // namespace raii_pattern_ns
