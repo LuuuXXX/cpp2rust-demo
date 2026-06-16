@@ -1,64 +1,83 @@
-# 024_template_function - 函数模板
+# 024_template_function - 函数模板（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 函数模板的 FFI 处理方式。模板是编译时多态，必须为每种类型显式实例化。
+本示例展示 C++ **函数模板**的 FFI 处理方式。模板是编译期多态：`template<T>` 只是
+「蓝图」，每个实例化（`do_swap<int>`、`do_swap<double>` …）才是独立的具体函数。
+模板本身没有可链接符号，无法整体绑定到 Rust，必须为每个需要的具体类型做实例化。
+
+本示例采用 idiomatic 命名空间风格（`template_function_ns`），不再使用 extern-C 单态化
+shim；各类型实例化由 `rust_hicc/src/lib.rs` 中的 `hicc::cpp!` 命名包装函数补全。
 
 ## C++ 代码
 
-### template_function.cpp
+### template_function.h
 
 ```cpp
-// 模板函数 swap - 内部实现
-template<typename T>
-void do_swap(T* a, T* b) {
-    T temp = *a;
-    *a = *b;
-    *b = temp;
-}
+namespace template_function_ns {
 
-// 必须显式实例化要导出的类型
-void swap_int(int* a, int* b) { do_swap<int>(a, b); }
-void swap_double(double* a, double* b) { do_swap<double>(a, b); }
+// 函数模板：按指针交换两个对象。
+template <typename T>
+void do_swap(T* a, T* b) { T t = *a; *a = *b; *b = t; }
+
+// 函数模板：返回两者中较大的值。
+template <typename T>
+T max_value(T a, T b) { return a > b ? a : b; }
+
+// 锚点：本单元可链接的非模板符号。
+int template_function_anchor();
+
+} // namespace template_function_ns
 ```
 
 ## Rust FFI 代码
 
+hicc 直出仅绑定可链接的非模板锚点 `template_function_anchor()`（见
+`rust_hicc/src/lib_scaffold.rs`）。各类型实例化在手写 `lib.rs` 中补全：每个
+`hicc::cpp!` 包装函数显式实例化模板，再绑定为普通自由函数。
+
 ```rust
 hicc::cpp! {
     #include "template_function.h"
+
+    using namespace template_function_ns;
+
+    // 显式实例化：每个具体类型的包装即一次模板实例化。
+    void swap_i32(int* a, int* b) { do_swap<int>(a, b); }
+    void swap_f64(double* a, double* b) { do_swap<double>(a, b); }
+
+    int max_i32(int a, int b) { return max_value<int>(a, b); }
+    double max_f64(double a, double b) { return max_value<double>(a, b); }
 }
 
 hicc::import_lib! {
     #![link_name = "template_function"]
 
-    #[cpp(func = "void swap_int(int*, int*)")]
-    unsafe fn swap_int(a: *mut i32, b: *mut i32);
+    #[cpp(func = "void swap_i32(int*, int*)")]
+    pub unsafe fn swap_i32(a: *mut i32, b: *mut i32);
 
-    #[cpp(func = "void swap_double(double*, double*)")]
-    unsafe fn swap_double(a: *mut f64, b: *mut f64);
+    #[cpp(func = "void swap_f64(double*, double*)")]
+    pub unsafe fn swap_f64(a: *mut f64, b: *mut f64);
 
-    #[cpp(func = "void swap_char(unsigned char*, unsigned char*)")]
-    unsafe fn swap_char(a: *mut u8, b: *mut u8);
+    #[cpp(func = "int max_i32(int, int)")]
+    pub fn max_i32(a: i32, b: i32) -> i32;
 
-    #[cpp(func = "void swap_int_array(int*, int, int)")]
-    unsafe fn swap_int_array(arr: *mut i32, i: i32, j: i32);
+    #[cpp(func = "double max_f64(double, double)")]
+    pub fn max_f64(a: f64, b: f64) -> f64;
 
-    #[cpp(func = "int get_int_array(int*, int)")]
-    unsafe fn get_int_array(arr: *mut i32, idx: i32) -> i32;
-
-    #[cpp(func = "void set_int_array(int*, int, int)")]
-    unsafe fn set_int_array(arr: *mut i32, idx: i32, value: i32);
+    #[cpp(func = "int template_function_anchor()")]
+    pub fn template_function_anchor() -> i32;
 }
 ```
+
 ## FFI 对比分析
 
 | 方面 | C++ | Rust FFI |
 |------|-----|----------|
-| 模板定义 | `template<T> void swap(T*, T*)` | 不可直接导出 |
-| 模板实例化 | 编译时自动生成 | 必须手动实例化 |
-| 符号 | `swap<int>` / `swap<double>` | `swap_int` / `swap_double` |
-| 类型安全 | 编译器保证 | 手动保证 |
+| 模板定义 | `template<T> void do_swap(T*, T*)` | 不可直接导出 |
+| 模板实例化 | 使用点自动生成 | 经 `hicc::cpp!` 包装显式实例化 |
+| 符号 | `do_swap<int>` / `do_swap<double>` | `swap_i32` / `swap_f64` |
+| 类型安全 | 编译器保证 | 包装函数按类型固定 |
 
 ## 运行结果
 
@@ -66,40 +85,32 @@ hicc::import_lib! {
 === 024_template_function - 函数模板 ===
 
 Before swap: a = 10, b = 20
-swap_int called
-After swap: a = 20, b = 10
+After swap:  a = 20, b = 10
 
 Before swap: x = 3.14, y = 2.71
-swap_double called
-After swap: x = 2.71, y = 3.14
+After swap:  x = 2.71, y = 3.14
 
-Before swap: c1 = A, c2 = B
-swap_char called
-After swap: c1 = B, c2 = A
+max_i32(3, 7) = 7
+max_f64(2.5, 1.5) = 2.5
 
-Array before swap(0,4): [1, 2, 3, 4, 5]
-swap_int_array: arr[0] <-> arr[4]
-Array after swap(0,4): [5, 2, 3, 4, 1]
-
-Rust FFI: 模板必须在 C++ 侧实例化
-每个模板实例 = 一个独立的 C 函数
-swap_int, swap_double, swap_char 是三个不同的函数
+Rust FFI: 模板必须在 C++ 侧按具体类型实例化
+每个实例化（do_swap<int>、do_swap<double> …）是一个独立的具体函数
+anchor() = 0
 ```
 
 ## 冒烟测试
 
 本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
-可链接 C++ 实现，且基本行为正确。
+可链接 C++ 模板实例化，且基本行为正确。
 
 ### 测试用例
 
 | 测试函数 | 验证内容 |
 |---------|---------|
-| `smoke_swap_int` | `swap_int(&mut a, &mut b)` 后 a、b 互换 |
-| `smoke_swap_double` | `swap_double(&mut x, &mut y)` 后 x、y 互换 |
-| `smoke_swap_char` | `swap_char(&mut c1, &mut c2)` 后字符互换 |
-| `smoke_array_get_set` | `set_int_array` 后 `get_int_array` 返回相同值 |
-| `smoke_swap_int_array` | `swap_int_array(arr, 0, 4)` 后首尾元素互换 |
+| `smoke_swap_i32` | `swap_i32(&mut a, &mut b)` 后 a、b 互换 |
+| `smoke_swap_f64` | `swap_f64(&mut x, &mut y)` 后 x、y 互换 |
+| `smoke_max_value` | `max_i32` / `max_f64` 返回较大值 |
+| `smoke_anchor` | `template_function_anchor()` 返回 0 |
 
 ### 运行方式
 
@@ -118,7 +129,7 @@ cargo test --test smoke
 
 ## 总结
 
-- C++ 模板无法直接 FFI 导出
-- 策略：为每种需要的类型创建显式实例化函数
-- Rust 端调用时需要知道具体类型
+- C++ 模板无法直接 FFI 导出（模板本身没有可链接符号）
+- 策略：为每种需要的类型创建显式实例化的 `hicc::cpp!` 包装函数
+- Rust 端调用时即对应一个具体类型的实例化
 - 这是 FFI 处理模板的标准方法

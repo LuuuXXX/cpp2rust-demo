@@ -1,48 +1,39 @@
 //! 024_template_function 冒烟测试
 //!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 模板实例化，且基本行为正确。
 
 use template_function::*;
 
 #[test]
-fn smoke_swap_int() {
+fn smoke_swap_i32() {
     let mut a = 10i32;
     let mut b = 20i32;
-    unsafe { swap_int(&mut a, &mut b) };
+    unsafe {
+        swap_i32(&mut a, &mut b);
+    }
     assert_eq!(a, 20, "swap 后 a 应等于原 b");
     assert_eq!(b, 10, "swap 后 b 应等于原 a");
 }
 
 #[test]
-fn smoke_swap_double() {
+fn smoke_swap_f64() {
     let mut x = 3.14f64;
     let mut y = 2.71f64;
-    unsafe { swap_double(&mut x, &mut y) };
+    unsafe {
+        swap_f64(&mut x, &mut y);
+    }
     assert!((x - 2.71).abs() < 1e-10, "swap 后 x 应等于原 y");
     assert!((y - 3.14).abs() < 1e-10, "swap 后 y 应等于原 x");
 }
 
 #[test]
-fn smoke_swap_char() {
-    let mut c1 = b'A';
-    let mut c2 = b'B';
-    unsafe { swap_char(&mut c1, &mut c2) };
-    assert_eq!(c1, b'B');
-    assert_eq!(c2, b'A');
+fn smoke_max_value() {
+    assert_eq!(max_i32(3, 7), 7);
+    assert_eq!(max_i32(42, 1), 42);
+    assert!((max_f64(2.5, 1.5) - 2.5).abs() < 1e-10);
 }
 
 #[test]
-fn smoke_array_get_set() {
-    let mut arr = [10i32, 20, 30];
-    unsafe { set_int_array(arr.as_mut_ptr(), 1, 99) };
-    let v = unsafe { get_int_array(arr.as_mut_ptr(), 1) };
-    assert_eq!(v, 99, "set 后 get 应返回相同值");
-}
-
-#[test]
-fn smoke_swap_int_array() {
-    let mut arr = [1i32, 2, 3, 4, 5];
-    unsafe { swap_int_array(arr.as_mut_ptr(), 0, 4) };
-    assert_eq!(arr[0], 5);
-    assert_eq!(arr[4], 1);
+fn smoke_anchor() {
+    assert_eq!(template_function_anchor(), 0);
 }
