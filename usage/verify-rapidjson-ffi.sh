@@ -255,6 +255,76 @@ grep -r "cpp2rust-todo" "${RUST_SRC}" 2>/dev/null \
     || echo "  （无降级标记）"
 
 # =============================================================================
+# § 5a. 补全生成项目的 build.rs —— 提供底层 C++ 实现与头文件包含路径
+#
+# 背景（重要）：
+#   工具生成的 build.rs 现在会对每个含 hicc 宏的单元文件调用 `.rust_file(...)`，
+#   使 hicc-build 为 import_lib! 生成 `_hicc_export_methods_*` 方法表导出函数（修复
+#   了测试二进制链接时 undefined reference 的根因）。但 hicc-build 生成的胶水 C++
+#   会 `#include "<unit>_ffi.h"`，进而包含 rapidjson 头；同时 import_lib! 包装最终调用
+#   shim 中的 `rapidjson_*` extern "C" 函数（定义在 *_ffi.cpp）。因此本地验证还需：
+#     ① 给 cc 构建加入 rapidjson / shim 头文件包含路径；
+#     ② 编译 shim 的 *_ffi.cpp，提供 `rapidjson_*` 实现符号；
+#     ③ 与 shim 一致地固定 C++ 标准。
+#   工具默认生成的 build.rs 无法自动得知第三方库的头/实现路径（需要落盘编译元数据，
+#   属工具侧后续增强），故此处由验证脚本就地补全，使端到端 cargo check / cargo test
+#   能够真正编译并链接通过。
+# =============================================================================
+step "§ 5a. 补全 build.rs（注入 rapidjson 头路径与 shim 实现）"
+
+RUST_PROJECT="${CPP2RUST_OUTPUT}/rust"
+BUILD_RS="${RUST_PROJECT}/build.rs"
+LIB_NAME="${FEATURE//-/_}"
+
+if [ -f "${BUILD_RS}" ]; then
+    info "原始 build.rs（工具生成，逐文件注册 .rust_file）："
+    sed 's/^/    /' "${BUILD_RS}"
+
+    # 收集所有含 hicc 宏的单元 .rs（排除 lib.rs / mod.rs），生成 .rust_file 行
+    RUST_FILE_LINES=""
+    while IFS= read -r rs; do
+        rel="${rs#${RUST_PROJECT}/}"
+        RUST_FILE_LINES="${RUST_FILE_LINES}        .rust_file(\"${rel}\")
+"
+    done < <(find -L "${RUST_PROJECT}/src" -name "*.rs" \
+                 ! -name "lib.rs" ! -name "mod.rs" | sort)
+
+    # 收集 shim 的 *_ffi.cpp 实现文件，生成 cc_build.file 行
+    SHIM_FILE_LINES=""
+    while IFS= read -r cpp; do
+        SHIM_FILE_LINES="${SHIM_FILE_LINES}    cc_build.file(\"${cpp}\");
+"
+    done < <(find "${SHIM_DIR}" -maxdepth 1 -name "*.cpp" | sort)
+
+    cat > "${BUILD_RS}" << EOF
+fn main() {
+    let mut build = hicc_build::Build::new();
+    use std::ops::DerefMut;
+    let cc_build: &mut cc::Build = build.deref_mut();
+    // 与 shim 编译保持一致的 C++ 标准（脚本 CXX_STD=${CXX_STD}）
+    cc_build.std("${CXX_STD}");
+    // ① rapidjson 与 shim 头文件包含路径（hicc 生成的胶水 C++ #include 需要）
+    cc_build.include("${RAPIDJSON_INCLUDE}");
+    cc_build.include("${SHIM_DIR}");
+    // ② 编译 shim 的 *_ffi.cpp，提供 rapidjson_* extern "C" 实现符号
+${SHIM_FILE_LINES}
+    // 逐文件注册含 hicc 宏的单元，生成 _hicc_export_methods_* 导出函数
+    build
+${RUST_FILE_LINES}        .compile("${LIB_NAME}");
+
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+    println!("cargo::rustc-link-lib=stdc++");
+}
+EOF
+
+    info "补全后的 build.rs："
+    sed 's/^/    /' "${BUILD_RS}"
+    ok "build.rs 已补全（注入头路径 + shim 实现 + 逐文件注册）"
+else
+    warn "未找到 ${BUILD_RS}，跳过 build.rs 补全"
+fi
+
+# =============================================================================
 # § 5b. cargo check — 验证生成的 Rust 项目可编译
 # =============================================================================
 step "§ 5b. cargo check（验证生成的 Rust 项目语法与类型正确）"
@@ -293,7 +363,7 @@ if [ -f "${SMOKE_FILE}" ]; then
     if (cd "${RUST_PROJECT}" && cargo test 2>&1); then
         ok "cargo test 通过 ✓（生成的冒烟测试全部通过）"
     else
-        warn "cargo test 失败（hicc import_lib! 在测试二进制链接时可能遇到 _hicc_export_methods_* 未定义限制，非代码生成问题）"
+        warn "cargo test 失败 — 请检查上方链接日志（build.rs 已逐文件注册 .rust_file 并编译 shim 实现，理论上 _hicc_export_methods_* 与 rapidjson_* 符号均应可解析）"
     fi
 else
     info "未生成 tests/smoke.rs（可能 init 阶段无 pub class 类型），跳过 cargo test"

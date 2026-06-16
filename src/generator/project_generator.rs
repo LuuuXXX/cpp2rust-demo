@@ -417,7 +417,9 @@ pub fn write_multi_feature_build_rs(
         let lib_name = feature.replace('-', "_");
         let mut chain = String::new();
         if unit_rel_paths.is_empty() {
-            chain.push_str(&format!("            .rust_file(\"src/{feature}/mod.rs\")\n"));
+            chain.push_str(&format!(
+                "            .rust_file(\"src/{feature}/mod.rs\")\n"
+            ));
         } else {
             for rel in unit_rel_paths {
                 chain.push_str(&format!("            .rust_file(\"{rel}\")\n"));

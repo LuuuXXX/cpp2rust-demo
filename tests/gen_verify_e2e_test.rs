@@ -477,6 +477,125 @@ fn gen_verify_summary() {
     gen_verify_example("examples/048_summary", "summary", "summary");
 }
 
+/// L6-49（回归）：多单元 + hicc 宏位于子模块 + 实际链接二进制目标。
+///
+/// 锁死「生成的 build.rs 只注册无宏的 `src/lib.rs`」回归：当 `import_lib!` 分散在
+/// `src/<unit>.rs` 子模块文件中时，`hicc-build` 必须对**每个**单元文件调用
+/// `.rust_file(...)`，否则 C++ 侧 `_hicc_export_methods_*` 方法表导出函数不会生成，
+/// 链接测试二进制时报 `undefined reference`（详见 problem statement 的 rapidjson 报错）。
+///
+/// 与 [`gen_verify_example`] 不同：本测试**手工**构造一个多单元项目（不经 AST 解析，
+/// 故不依赖 libclang），用 [`project_generator::write_build_rs`] 生成 build.rs，再以
+/// `cargo test` 真正链接并运行一个测试目标。仍需 g++/clang++ 与网络获取 hicc crate，
+/// 故标注 `#[ignore]`，在 CI gen-verify job 中运行。
+#[test]
+#[ignore = "gen-verify: 需要 g++/clang++ 与联网获取 hicc crate，在 CI gen-verify job 中运行"]
+fn gen_verify_multi_unit_submodule_links() {
+    use cpp2rust_demo::generator::project_generator;
+
+    let tmp = TempDir::new().expect("创建临时目录失败");
+    let project_dir = tmp.path().to_path_buf();
+    let src_dir = project_dir.join("src");
+    std::fs::create_dir_all(src_dir.join("sub")).expect("创建 src/sub 失败");
+
+    // 单元 1：src/math_ffi.rs（含 cpp! + import_lib!）
+    std::fs::write(
+        src_dir.join("math_ffi.rs"),
+        r#"hicc::cpp! {
+    extern "C" int gv_add(int a, int b) { return a + b; }
+}
+hicc::import_lib! {
+    #![link_name = "gv_math"]
+    #[cpp(func = "int gv_add(int, int)")]
+    pub fn gv_add(a: i32, b: i32) -> i32;
+}
+"#,
+    )
+    .expect("写 math_ffi.rs 失败");
+
+    // 单元 2：src/sub/text_ffi.rs（嵌套子目录，验证多级模块逐文件注册）
+    std::fs::write(
+        src_dir.join("sub").join("text_ffi.rs"),
+        r#"hicc::cpp! {
+    extern "C" int gv_mul(int a, int b) { return a * b; }
+}
+hicc::import_lib! {
+    #![link_name = "gv_text"]
+    #[cpp(func = "int gv_mul(int, int)")]
+    pub fn gv_mul(a: i32, b: i32) -> i32;
+}
+"#,
+    )
+    .expect("写 sub/text_ffi.rs 失败");
+
+    // 单元路径与 init 阶段一致（相对 src/、`/` 分隔、不含扩展名）
+    let unit_paths = vec!["math_ffi".to_string(), "sub/text_ffi".to_string()];
+
+    // lib.rs（仅模块声明，无宏）+ build.rs（被测：逐文件注册）
+    project_generator::write_lib_rs(&project_dir, &unit_paths).expect("写 lib.rs 失败");
+    project_generator::write_build_rs(&project_dir, "gv_multi", &unit_paths)
+        .expect("写 build.rs 失败");
+
+    // build.rs 必须为每个含宏单元注册 .rust_file，而非仅 src/lib.rs
+    let build_rs = std::fs::read_to_string(project_dir.join("build.rs")).unwrap();
+    assert!(
+        build_rs.contains(".rust_file(\"src/math_ffi.rs\")")
+            && build_rs.contains(".rust_file(\"src/sub/text_ffi.rs\")"),
+        "build.rs 应逐文件注册所有含宏单元，实际：\n{build_rs}"
+    );
+
+    std::fs::write(
+        project_dir.join("Cargo.toml"),
+        r#"[package]
+name = "gv-multi"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+name = "gv_multi"
+path = "src/lib.rs"
+
+[dependencies]
+hicc = { version = "0.2" }
+
+[build-dependencies]
+hicc-build = { version = "0.2" }
+cc = "1.0"
+"#,
+    )
+    .expect("写 Cargo.toml 失败");
+
+    // 链接二进制（集成测试目标）：调用两个分散在不同子模块的 import_lib! 函数
+    std::fs::create_dir_all(project_dir.join("tests")).expect("创建 tests 失败");
+    std::fs::write(
+        project_dir.join("tests").join("smoke.rs"),
+        r#"#[test]
+fn calls_both_units() {
+    assert_eq!(gv_multi::gv_add(2, 3), 5);
+    assert_eq!(gv_multi::gv_mul(4, 5), 20);
+}
+"#,
+    )
+    .expect("写 tests/smoke.rs 失败");
+
+    // cargo test：真正链接并运行测试目标。若 build.rs 漏注册子模块单元，
+    // 链接阶段会因 `_hicc_export_methods_*` 未定义而失败。
+    let output = std::process::Command::new("cargo")
+        .args(["test", "--manifest-path"])
+        .arg(project_dir.join("Cargo.toml"))
+        .output()
+        .expect("运行 cargo test 失败");
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        panic!(
+            "[gen-verify] 多单元子模块项目 cargo test 失败（应已逐文件注册 .rust_file）\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+    }
+    println!("[gen-verify] ✅ 多单元 + 子模块宏 + 链接二进制 回归通过");
+}
+
 // ─────────────────────────────────────────────────────────────────
 //  核心验证逻辑
 // ─────────────────────────────────────────────────────────────────
