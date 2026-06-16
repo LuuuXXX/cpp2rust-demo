@@ -1570,6 +1570,14 @@ jobs:
     name: L3 Run tests (macOS)
     runs-on: macos-latest
     needs: [l1-golden-macos, l2-compile-macos]
+    # hicc-std 一次构建会编译 12 个重 STL 模板 TU（std_vector / std_map / std_unordered_map…）。
+    # macos-15-arm64 runner 仅 7GB 内存，Apple Clang/libc++ 为嵌套模板生成 DWARF 调试信息
+    # （-g -gdwarf-2）的内存开销极高，致编译进程被系统杀死（exit 1、stderr 为空）而 L3/L5 失败。
+    # 关闭 dev profile 的调试信息：cc-rs 据 Cargo 的 DEBUG 环境变量决定是否加 -g，置 false 即去掉
+    # -g -gdwarf-2，显著降低重模板 TU 的编译内存峰值；对 L3（仅比对 stdout）无影响。
+    # 在 job 级设置以保证预热 / 并行 / 测试各步骤 profile 指纹一致，hicc-std 只构建一次并复用缓存。
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "false"
     steps:
       - uses: actions/checkout@v4
 
@@ -1614,9 +1622,11 @@ jobs:
           # 不依赖 hicc-std 的代表示例（如 001）正常预热，预编译 hicc / hicc-build 等共享 build 脚本。
           first=$(ls -d examples/*/rust_hicc | head -n1)
           [ -n "$first" ] && cargo build --manifest-path "$first"/Cargo.toml
-          # hicc-std 单次构建内含大量重模板翻译单元（如 std_vector.rs.cpp），macOS runner 内存有限，
-          # cc-rs 并发编译多个此类 TU 会触发 OOM，编译进程被杀（exit 1、stderr 为空）致 L3/L5 失败。
-          # 用 --jobs 1 串行编译 hicc-std，消除并发重 TU 的内存峰值；产物供后续并行阶段直接复用。
+          # hicc-std 单次构建内含 12 个重 STL 模板翻译单元（如 std_vector.rs.cpp），
+          # 叠加 DWARF 调试信息生成（见 job 级 CARGO_PROFILE_DEV_DEBUG=false）会推高单 TU 内存峰值；
+          # 在 7GB 的 macOS runner 上，cc-rs 并发编译多个此类 TU 会触发 OOM，编译进程被杀
+          # （exit 1、stderr 为空）致 L3/L5 失败。用 --jobs 1 串行编译 hicc-std，消除并发重 TU 的
+          # 内存叠加；与关闭调试信息共同保证单 TU 峰值远低于内存上限；产物供后续并行阶段直接复用。
           std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
           [ -n "$std_first" ] && cargo build --jobs 1 --manifest-path "$std_first"/Cargo.toml
           ls -d examples/*/rust_hicc | \
@@ -1727,6 +1737,11 @@ jobs:
     name: L5 nm symbol validation (macOS)
     runs-on: macos-latest
     needs: [l2-compile-macos]
+    # 同 L3：关闭 dev profile 调试信息，去掉重模板 TU 编译命令中的 -g -gdwarf-2，降低内存峰值，
+    # 消除 hicc-std 在 macOS 上因 DWARF 生成内存超限被杀（exit 1、stderr 为空）的失败。
+    # L5 基于符号表（nm 的 T/W 导出符号）校验，与 DWARF 调试信息无关，关闭调试信息不影响结果。
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "false"
     steps:
       - uses: actions/checkout@v4
 
@@ -1762,9 +1777,11 @@ jobs:
           # 不依赖 hicc-std 的代表示例（如 001）正常预热，预编译 hicc / hicc-build 等共享 build 脚本。
           first=$(ls -d examples/*/rust_hicc | head -n1)
           [ -n "$first" ] && cargo build --manifest-path "$first"/Cargo.toml
-          # hicc-std 单次构建内含大量重模板翻译单元（如 std_vector.rs.cpp），macOS runner 内存有限，
-          # cc-rs 并发编译多个此类 TU 会触发 OOM，编译进程被杀（exit 1、stderr 为空）致 L3/L5 失败。
-          # 用 --jobs 1 串行编译 hicc-std，消除并发重 TU 的内存峰值；产物供后续并行阶段直接复用。
+          # hicc-std 单次构建内含 12 个重 STL 模板翻译单元（如 std_vector.rs.cpp），
+          # 叠加 DWARF 调试信息生成（见 job 级 CARGO_PROFILE_DEV_DEBUG=false）会推高单 TU 内存峰值；
+          # 在 7GB 的 macOS runner 上，cc-rs 并发编译多个此类 TU 会触发 OOM，编译进程被杀
+          # （exit 1、stderr 为空）致 L3/L5 失败。用 --jobs 1 串行编译 hicc-std，消除并发重 TU 的
+          # 内存叠加；与关闭调试信息共同保证单 TU 峰值远低于内存上限；产物供后续并行阶段直接复用。
           std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
           [ -n "$std_first" ] && cargo build --jobs 1 --manifest-path "$std_first"/Cargo.toml
           ls -d examples/*/rust_hicc | \
