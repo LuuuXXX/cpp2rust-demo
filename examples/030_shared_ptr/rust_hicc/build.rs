@@ -17,9 +17,7 @@ fn main() {
     build.rust_file("src/lib.rs").compile("shared_ptr");
 
     println!("cargo::rustc-link-lib=shared_ptr");
-    #[cfg(target_os = "macos")]
-    println!("cargo::rustc-link-lib=c++");
-    #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     println!("cargo::rustc-link-lib=stdc++");
     println!("cargo::rerun-if-changed=src/lib.rs");
     println!("cargo::rerun-if-changed=../cpp/shared_ptr.cpp");

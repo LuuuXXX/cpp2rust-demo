@@ -5,7 +5,7 @@
 //! 2. `merge --feature feat_a --output-dir <dir>` output-dir 导出功能
 //!
 //! 每个测试函数使用独立的 TempDir 保证完全隔离，
-//! 在 Ubuntu / macOS / Windows 多平台 CI 中运行。
+//! 在 Ubuntu / Windows 多平台 CI 中运行。
 
 mod common;
 

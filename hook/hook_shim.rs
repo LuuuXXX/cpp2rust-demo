@@ -1,4 +1,4 @@
-// hook_shim.rs — Windows 编译器 Shim，用于替代 Linux/macOS 的 LD_PRELOAD 捕获机制。
+// hook_shim.rs — Windows 编译器 Shim，用于替代 Linux 的 LD_PRELOAD 捕获机制。
 //
 // 工作原理：
 //   1. capture::build_hook_windows() 将本文件内容写入临时目录并用 rustc 编译为 hook_shim.exe

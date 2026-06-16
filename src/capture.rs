@@ -47,18 +47,13 @@ pub fn run_with_hook(
 //  Unix 实现（LD_PRELOAD + libhook.so）
 // ─────────────────────────────────────────────────────────────────
 
-/// 从 `hook/Makefile` 构建 `libhook.so`（Linux）或 `libhook.dylib`（macOS）。
+/// 从 `hook/Makefile` 构建 `libhook.so`（Linux）。
 ///
 /// 若产物已是最新则跳过重新构建（快速路径）。返回产物路径。
 #[cfg(unix)]
 fn build_hook_unix() -> Result<PathBuf> {
     let hook_dir = hook_dir()?;
-    // macOS 产物为 .dylib；Linux 产物为 .so
-    let lib_name = if cfg!(target_os = "macos") {
-        "libhook.dylib"
-    } else {
-        "libhook.so"
-    };
+    let lib_name = "libhook.so";
     let so = hook_dir.join(lib_name);
     let cpp = hook_dir.join("hook.cpp");
 
@@ -101,7 +96,7 @@ fn build_hook_unix() -> Result<PathBuf> {
     Ok(so)
 }
 
-/// 使用 DYLD_INSERT_LIBRARIES（macOS）或 LD_PRELOAD（Linux）注入 hook 库，执行用户提供的构建命令。
+/// 使用 LD_PRELOAD（Linux）注入 hook 库，执行用户提供的构建命令。
 #[cfg(unix)]
 fn run_with_hook_unix(
     build_dir: &Path,
@@ -124,10 +119,7 @@ fn run_with_hook_unix(
         .canonicalize()
         .with_context(|| format!("canonicalize {}", hook_so.display()))?;
 
-    // macOS 使用 DYLD_INSERT_LIBRARIES；Linux 使用 LD_PRELOAD
-    #[cfg(target_os = "macos")]
-    let inject_var = "DYLD_INSERT_LIBRARIES";
-    #[cfg(not(target_os = "macos"))]
+    // Linux 使用 LD_PRELOAD
     let inject_var = "LD_PRELOAD";
 
     println!("Running build command: {}", cmd.join(" "));
@@ -196,7 +188,6 @@ fn hook_dir() -> Result<PathBuf> {
 /// 目录路径：
 /// - Linux / 其他：`$XDG_DATA_HOME/cpp2rust-demo/hook/`
 ///   （默认 `~/.local/share/cpp2rust-demo/hook/`）
-/// - macOS：`~/Library/Application Support/cpp2rust-demo/hook/`
 #[cfg(unix)]
 fn ensure_hook_data_dir() -> Result<PathBuf> {
     let base = data_dir().ok_or_else(|| anyhow!("cannot determine user data directory"))?;
@@ -455,10 +446,6 @@ fn detect_windows_cxx_compiler() -> Option<(PathBuf, WindowsCompilerKind)> {
 
 /// 平台相关的基础数据目录（不含应用子路径）。
 fn data_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        dirs_home().map(|h| h.join("Library").join("Application Support"))
-    }
     #[cfg(windows)]
     {
         // 优先使用 %APPDATA%（通常为 C:\Users\<user>\AppData\Roaming）
@@ -466,7 +453,7 @@ fn data_dir() -> Option<PathBuf> {
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(not(windows))]
     {
         // 优先使用 XDG_DATA_HOME；回退到 ~/.local/share。
         if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
@@ -481,7 +468,7 @@ fn data_dir() -> Option<PathBuf> {
 
 /// 返回当前用户的 home 目录。
 ///
-/// - POSIX（Linux / macOS）：使用 `HOME` 环境变量。
+/// - POSIX（Linux）：使用 `HOME` 环境变量。
 /// - Windows：依次尝试 `USERPROFILE`、`HOMEDRIVE` + `HOMEPATH`。
 fn dirs_home() -> Option<PathBuf> {
     // POSIX: HOME

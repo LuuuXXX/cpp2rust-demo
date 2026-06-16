@@ -110,7 +110,6 @@ cargo test --test smoke
 | 平台 | 状态 | 备注 |
 |------|------|------|
 | Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
-| macOS | ✅ | 支持 |
 | Windows MinGW | ✅ | 支持 |
 
 ## 总结

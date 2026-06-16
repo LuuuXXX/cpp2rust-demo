@@ -62,22 +62,14 @@ fn run_nm(path: &Path) -> std::io::Result<std::process::Output> {
 //  nm output parsing
 // ─────────────────────────────────────────────────────────────────
 
-/// On macOS, `nm` prefixes all symbol names with `_`. Strip it so comparisons
-/// work uniformly on both Linux and macOS.
+/// Normalize a symbol name. On Linux/Windows no transformation is needed; the
+/// function is kept so callers have a single normalization point.
 pub fn normalize_symbol(sym: &str) -> String {
-    #[cfg(target_os = "macos")]
-    {
-        sym.strip_prefix('_').unwrap_or(sym).to_string()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        sym.to_string()
-    }
+    sym.to_string()
 }
 
 /// Parse `nm --defined-only -f posix` output and return the set of symbol names
-/// that match the given type character(s). Symbol names are normalized
-/// (macOS `_` prefix stripped).
+/// that match the given type character(s). Symbol names are normalized.
 ///
 /// posix format: `name type address size`
 fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
@@ -113,7 +105,7 @@ fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
 ///   false-positive validation failures (observed: clang++ + MSVC STL 14.4x).
 ///   Extend this list if future toolchain versions add more inline CRT symbols.
 ///
-/// **On Linux/macOS** only C++ mangling prefixes are rejected:
+/// **On Linux** only C++ mangling prefixes are rejected:
 /// - `_Z` / `__Z` — GCC/Clang mangling
 /// - `?`          — MSVC mangling (defensive, unlikely outside Windows)
 fn is_c_symbol(s: &str) -> bool {
@@ -154,7 +146,7 @@ fn is_c_symbol(s: &str) -> bool {
 // ─────────────────────────────────────────────────────────────────
 
 /// Compile one or more C++ source files to a combined object file (partial link
-/// using `g++ -r` on Linux/macOS, `llvm-link` or `clang++` on Windows) so that
+/// using `g++ -r` on Linux, `llvm-link` or `clang++` on Windows) so that
 /// a single `.o` can be nm-ed.
 ///
 /// Returns the path to the output `.o` file, or `None` on failure.
@@ -288,7 +280,7 @@ fn cxx_partial_link(objs: &[PathBuf], out: &Path) -> Option<bool> {
 ///
 /// Returns symbols whose nm type is `T` or `W` (text section, including weak)
 /// and whose name does **not** start with a C++ mangling prefix:
-/// - `_Z` / `__Z` — GCC/Clang (Linux, macOS, MinGW) mangling
+/// - `_Z` / `__Z` — GCC/Clang (Linux, MinGW) mangling
 /// - `?`          — MSVC mangling (Windows); all MSVC-mangled names begin with `?`
 ///
 /// This identifies functions declared `extern "C"` in the source.

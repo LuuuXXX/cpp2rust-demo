@@ -137,7 +137,7 @@ fn template_skeleton_emitted_by_default() {
 
     // v6 Phase B 增强（再续）：显式实例化 `template class Stack<long>;`
     // 应生成 Stack<long> 的实例化别名与构造工厂骨架。
-    // `long` 的位宽随平台而异：LP64（Linux/macOS）映射为 i64，
+    // `long` 的位宽随平台而异：LP64（Linux）映射为 i64，
     // LLP64（Windows）映射为 i32，故别名与工厂名须与平台保持一致。
     #[cfg(not(target_os = "windows"))]
     let (expected_alias, expected_factory) = (

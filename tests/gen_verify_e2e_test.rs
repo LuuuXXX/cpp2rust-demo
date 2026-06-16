@@ -642,9 +642,7 @@ cc = "1.0"
     build.rust_file("src/lib.rs").compile({cpp_stem:?});
 
     println!("cargo::rustc-link-lib={cpp_stem}");
-    #[cfg(target_os = "macos")]
-    println!("cargo::rustc-link-lib=c++");
-    #[cfg(not(any(target_os = "macos", all(target_os = "windows", target_env = "msvc"))))]
+    #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     println!("cargo::rustc-link-lib=stdc++");
     println!("cargo::rerun-if-changed=src/lib.rs");
 {rerun_lines}}}
