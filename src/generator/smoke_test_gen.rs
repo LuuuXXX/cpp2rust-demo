@@ -13,9 +13,10 @@
 //! 对每个 FfiSpec 中的可测试项生成独立 `#[test]` 函数：
 //!
 //! 1. **编译期类型断言**：所有 `pub class` 类型可用。
-//! 2. **setter/getter 往返**（行为级）：类含零参构造、且存在严格配对的
+//! 2. **setter/getter 往返**（行为级·双值）：类含零参构造、且存在严格配对的
 //!    `set_<x>(标量)` 与 `<x>()`/`get_<x>()`/`is_<x>()` 标量 getter 时，
-//!    生成「构造 → set → `assert_eq!(get, 期望值)`」的确定性往返断言。
+//!    生成「构造 → set(A) → `assert_eq!(get, A)` → set(B) → `assert_eq!(get, B)`」
+//!    的双值确定性往返断言（A≠B，证明 getter 真实回读而非返回常量）。
 //! 3. **工厂函数**（associated_fns，如 `counter_new()`）：零参数时生成调用测试。
 //! 4. **类方法**（methods）：所在类有零参构造函数时，构造实例并调用方法。
 //! 5. **全局函数**（lib_spec.fn_bindings）：零参数时生成调用测试。
@@ -99,16 +100,17 @@ fn find_zero_param_factory<'a>(specs: &[&'a FfiSpec], class_name: &str) -> Optio
     None
 }
 
-/// 判断类型是否为可静态构造默认值的标量类型，并返回用于往返断言的字面量。
+/// 返回某标量类型用于「双值往返」断言的两个**互不相等**字面量 `(first, second)`。
 ///
-/// 仅覆盖整数/浮点/布尔等结果可确定的标量，确保 `assert_eq!` 不依赖被绑定库的
-/// 具体实现细节（除「setter 原样存储」这一 setter 的语义本身外）。
-fn scalar_literal(ty: &str) -> Option<&'static str> {
+/// 双值断言在单值（仅写 `42`）基础上再写入一个不同值并断言，能进一步证明 getter
+/// 真实回读 setter 写入的内容，而非恰好返回与首个字面量相等的常量。两个字面量均取
+/// 小整数/常见浮点/布尔，避免触发被绑定库可能存在的取值范围约束。
+fn scalar_literals(ty: &str) -> Option<(&'static str, &'static str)> {
     match ty.trim() {
         "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
-        | "usize" => Some("42"),
-        "f32" | "f64" => Some("42.0"),
-        "bool" => Some("true"),
+        | "usize" => Some(("42", "7")),
+        "f32" | "f64" => Some(("42.0", "7.0")),
+        "bool" => Some(("true", "false")),
         _ => None,
     }
 }
@@ -117,8 +119,10 @@ fn scalar_literal(ty: &str) -> Option<&'static str> {
 struct RoundTrip<'a> {
     setter: &'a MethodBinding,
     getter: &'a MethodBinding,
-    /// 用于断言的标量字面量。
+    /// 用于断言的首个标量字面量。
     literal: &'static str,
+    /// 用于「双值往返」二次断言的另一个标量字面量（与 `literal` 不相等）。
+    literal2: &'static str,
 }
 
 /// 在单个类中检测严格配对的 setter/getter，用于生成行为级往返断言。
@@ -141,8 +145,8 @@ fn detect_round_trips(cs: &ClassSpec) -> Vec<RoundTrip<'_>> {
             continue;
         }
         let param_ty = &setter.params[0].1;
-        let literal = match scalar_literal(param_ty) {
-            Some(l) => l,
+        let (literal, literal2) = match scalar_literals(param_ty) {
+            Some(pair) => pair,
             None => continue,
         };
         let getter = cs.methods.iter().find(|m| {
@@ -158,6 +162,7 @@ fn detect_round_trips(cs: &ClassSpec) -> Vec<RoundTrip<'_>> {
                 setter,
                 getter,
                 literal,
+                literal2,
             });
         }
     }
@@ -249,7 +254,7 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
                 tested_fns.push(rt.getter.rust_name.clone());
 
                 out.push_str(&format!(
-                    "/// 行为级往返：set_* 后 get_* 应返回写入值。\n#[test]\nfn smoke_{}_roundtrip() {{\n",
+                    "/// 行为级双值往返：set_* 写入两个不同标量后，get_* 均应回读写入值。\n#[test]\nfn smoke_{}_roundtrip() {{\n",
                     rt.setter.rust_name
                 ));
                 if factory.is_unsafe {
@@ -265,8 +270,20 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
                     rt.setter.rust_name, rt.literal
                 ));
                 out.push_str(&format!(
-                    "    assert_eq!(obj.{}(), {}, \"{} 写入后 {} 应返回写入值\");\n",
-                    rt.getter.rust_name, rt.literal, rt.setter.rust_name, rt.getter.rust_name
+                    "    assert_eq!(obj.{}(), {}, \"{} 写入 {} 后 {} 应回读写入值\");\n",
+                    rt.getter.rust_name,
+                    rt.literal,
+                    rt.setter.rust_name,
+                    rt.literal,
+                    rt.getter.rust_name
+                ));
+                out.push_str(&format!(
+                    "    obj.{}({});\n",
+                    rt.setter.rust_name, rt.literal2
+                ));
+                out.push_str(&format!(
+                    "    assert_eq!(obj.{}(), {}, \"{} 改写为 {} 后 {} 应回读新值（验证真实存储而非常量）\");\n",
+                    rt.getter.rust_name, rt.literal2, rt.setter.rust_name, rt.literal2, rt.getter.rust_name
                 ));
                 out.push_str("}\n\n");
             }
@@ -654,6 +671,11 @@ mod tests {
         assert!(
             code.contains("assert_eq!(obj.value(), 42,"),
             "往返测试应对 getter 结果生成 assert_eq! 行为级断言\n{}",
+            code
+        );
+        assert!(
+            code.contains("obj.set_value(7);") && code.contains("assert_eq!(obj.value(), 7,"),
+            "往返测试应写入第二个不同标量并再次断言（双值往返，验证真实存储）\n{}",
             code
         );
     }

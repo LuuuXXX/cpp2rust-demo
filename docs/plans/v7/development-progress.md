@@ -43,8 +43,14 @@
 > 并以 `references/README.md` 文档化「`rapidjson-refactoring` 保留 vendored」的决策（无独立上游、E2E 固定取数路径）。
 
 > **一句话结论**：v7 的「移开关 + 默认输出 + 重做黄金 + CI 门禁 + 文档对齐」主体已完成；
-> 冒烟测试**生成器**已升级为「表驱动 + 行为级断言」（setter/getter 往返 `assert_eq!`），
+> 冒烟测试**生成器**已升级为「表驱动 + 行为级断言」（setter/getter **双值**往返 `assert_eq!`），
 > 让 `init` 对**新项目**生成的 `tests/smoke.rs` 也具备示例库已有的行为级断言质量。
+
+> **收尾补记（本轮）**：原审查列出的三项收尾项已全部落地——
+> ① 新增 `docs/references/hicc-usages-comparison.md`（hicc-usages 甄别/采纳/修正/分歧对照，
+> 从 `references/README.md` 链接）；② 冒烟生成器 setter/getter 往返由单值升级为**双值**
+> （`set(A)`→断言→`set(B)`→断言，A≠B，证明真实存储而非常量返回）；③ `README.md` /
+> `docs/INTRODUCTION.md` 冒烟小节与 L_smoke 描述二次对齐为「行为级双值往返 + 48/48 全示例」。
 
 ---
 
@@ -99,18 +105,17 @@
 
 ## 4. 未完成部分（下一个 PR 的工作清单）
 
-### 4.1 【核心】冒烟测试生成器升级为表驱动 + 行为级断言（Phase 1 剩余）🟡
+### 4.1 冒烟测试生成器：双值往返已落地，全类别表驱动仍为后续增强 🟡
 
-**现状**：`src/generator/smoke_test_gen.rs` 当前策略（§4.1 现状，非 §4.2 目标）：
+**现状**：`src/generator/smoke_test_gen.rs` 已对「零参构造 + 严格配对标量 `set_<x>`/getter」
+生成**双值**行为级 `assert_eq!` 往返（`set(A)`→断言→`set(B)`→断言，A≠B）。其余类别
+（友元/命名空间函数、静态/constexpr、运算符、模板实例化、虚函数/proxy、dynamic_cast、
+异常、智能指针/RAII）仍为「零参调用不 panic」或最小化 `cpp2rust-todo[SMOKE]` 占位。
 
-- A. 对所有 `pub class` 生成编译期类型可用性断言 `assert_type_available::<T>()`；
-- B. 仅对**零参**工厂函数生成构造调用；
-- C. 仅对**零参且类有零参构造**的方法生成 `let _result = obj.method();`（不做 `assert_eq!`）；
-- D. 仅对**零参**全局函数生成调用；
-- F. 其余「含非平凡参数」的函数统一以 `// cpp2rust-todo[SMOKE]` 列名占位。
-
-也就是说：**工具对新项目生成的 `tests/smoke.rs` 只验证「可编译/可链接/可调用」，不做行为级 `assert_eq!`**。
-示例库里的行为级断言全部是**手写**的，并非工具产物。这与方案 §4.2「表驱动 + 行为级断言、覆盖全部可安全调用接口」尚有差距。
+> **设计权衡**：真实库 E2E 会对生成的 `tests/smoke.rs` 直接 `cargo test`，因此自动 `assert_eq!`
+> 仅在「结果可静态确定 + 构造无副作用前提」时生成。带标量参数构造器（可能含取值范围约束）
+> 与含副作用的 getter 暂不纳入自动断言，避免对未知库做错误假设而导致 E2E 运行期失败；
+> 示例库中更丰富的多态/模板/异常断言保持**手写**。全类别表驱动断言留作后续安全增强。
 
 ### 4.2 【可选】运算符 `impl std::ops::*` 骨架增强（Phase 6 §6 可选项）⬜
 
@@ -122,10 +127,11 @@
 - `emit_dynamic_cast(out, dc, active)` 仍带 `active` 形参（用于「类型是否在 Rust 作用域内」裁决，
   与开关无关，但属可评估收敛项）。需确认是否保留语义或进一步收敛。
 
-### 4.4 文档「冒烟测试」章节随生成器升级二次更新（Phase 8 收尾）⬜
+### 4.4 文档「冒烟测试」章节随生成器升级二次更新（Phase 8 收尾）✅
 
-- 一旦 §4.1 生成器升级完成，需把 `INTRODUCTION.md` / `README.md` 的冒烟测试小节，
-  从「工具生成类型/链接级冒烟」改述为「工具默认生成行为级冒烟」，并同步 CHANGELOG。
+- 已完成：`INTRODUCTION.md` / `README.md` 的冒烟测试小节已改述为「类型可用性 + 零参调用 +
+  标量 setter/getter **双值往返行为级断言**」，L_smoke 层描述更正为「48/48 全示例」，
+  并在 `CHANGELOG.md` `[Unreleased]` 追加对应条目。
 
 ---
 

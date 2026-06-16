@@ -87,9 +87,9 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 3. 交互式选择参与转换的文件（非交互/CI 环境自动全选）
 4. libclang 解析 AST，提取类 / 函数 / 枚举 / 模板实例化
 5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
-6. 生成冒烟测试 `.cpp2rust/<feature>/rust/tests/smoke.rs`（默认生成，验证生成的 FFI 类型可被编译链接）
+6. 生成冒烟测试 `.cpp2rust/<feature>/rust/tests/smoke.rs`（默认生成；含类型可用性断言、零参工厂/方法/全局函数调用，以及对严格配对的标量 `set_<x>`/`get_<x>` 自动生成**行为级双值往返 `assert_eq!`** 断言）
 
-> **验证闭环**：进入 `.cpp2rust/<feature>/rust/` 执行 `cargo test`，即可对生成的 Rust FFI 做"编译 + 冒烟"验证。`smoke.rs` 已存在时不会被覆盖，可在其上补充"构造→调用→断言"逻辑。
+> **验证闭环**：进入 `.cpp2rust/<feature>/rust/` 执行 `cargo test`，即可对生成的 Rust FFI 做"编译 + 链接 + 行为级冒烟"验证。`smoke.rs` 已存在时不会被覆盖，可在其上补充更多"构造→调用→断言"逻辑。
 
 **参数说明：**
 
@@ -581,7 +581,7 @@ hicc::import_lib! {
 | **L1** 黄金文件测试 | `l1_golden_tests.rs` | 工具生成的 hicc 脚手架与 `rust_hicc/src/lib.rs`（或 `main.rs`）中对应块一致 | ✅ **49/49 通过** |
 | **L2** 编译测试 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | ✅ **48/48 通过** |
 | **L3** 运行测试 | `l3_run_tests.rs` | `cargo run` 输出与各示例 README 中"运行结果"一致 | ✅ **48/48 通过** |
-| **L_smoke** 冒烟测试 | 各示例 `tests/smoke.rs` | `cargo test` 验证 FFI 绑定行为（015–018、023–027 已覆盖） | ✅ 通过（已改造示例） |
+| **L_smoke** 冒烟测试 | 各示例 `tests/smoke.rs` | `cargo test` 验证 FFI 绑定行为（48/48 示例均有行为级断言；CI `l-smoke` 自动发现并逐个运行） | ✅ **48/48 通过** |
 | **L4** E2E 测试 | `rapidjson_e2e_test.rs` 等 | 对真实开源项目执行完整 init + merge 转换：①rapidjson（10 子系统 shim）验证 `import_lib!` FFI 绑定；②五大库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）验证工具在不同类型项目上的覆盖率与鲁棒性 | ✅ 通过 |
 | **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
