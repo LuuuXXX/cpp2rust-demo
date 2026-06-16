@@ -3,40 +3,33 @@ use template_function::*;
 fn main() {
     println!("=== 024_template_function - 函数模板 ===\n");
 
-    // swap int
+    // do_swap<int> 实例化
     let mut a = 10i32;
     let mut b = 20i32;
     println!("Before swap: a = {}, b = {}", a, b);
-    unsafe { swap_int(&mut a, &mut b); }
-    println!("After swap: a = {}, b = {}", a, b);
+    unsafe {
+        swap_i32(&mut a, &mut b);
+    }
+    println!("After swap:  a = {}, b = {}", a, b);
 
     println!();
 
-    // swap double
+    // do_swap<double> 实例化
     let mut x = 3.14f64;
     let mut y = 2.71f64;
     println!("Before swap: x = {}, y = {}", x, y);
-    unsafe { swap_double(&mut x, &mut y); }
-    println!("After swap: x = {}, y = {}", x, y);
+    unsafe {
+        swap_f64(&mut x, &mut y);
+    }
+    println!("After swap:  x = {}, y = {}", x, y);
 
     println!();
 
-    // swap char
-    let mut c1 = b'A';
-    let mut c2 = b'B';
-    println!("Before swap: c1 = {}, c2 = {}", c1 as char, c2 as char);
-    unsafe { swap_char(&mut c1, &mut c2); }
-    println!("After swap: c1 = {}, c2 = {}", c1 as char, c2 as char);
+    // max_value<T> 实例化
+    println!("max_i32(3, 7) = {}", max_i32(3, 7));
+    println!("max_f64(2.5, 1.5) = {}", max_f64(2.5, 1.5));
 
-    println!();
-
-    // swap in array
-    let mut arr = [1i32, 2, 3, 4, 5];
-    println!("Array before swap(0,4): {:?}", arr);
-    unsafe { swap_int_array(arr.as_mut_ptr(), 0, 4); }
-    println!("Array after swap(0,4): {:?}", arr);
-
-    println!("\nRust FFI: 模板必须在 C++ 侧实例化");
-    println!("每个模板实例 = 一个独立的 C 函数");
-    println!("swap_int, swap_double, swap_char 是三个不同的函数");
+    println!("\nRust FFI: 模板必须在 C++ 侧按具体类型实例化");
+    println!("每个实例化（do_swap<int>、do_swap<double> …）是一个独立的具体函数");
+    println!("anchor() = {}", template_function_anchor());
 }

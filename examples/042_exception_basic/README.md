@@ -1,162 +1,116 @@
-# 042_exception_basic - 异常处理
+# 042_exception_basic - 异常处理（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示如何在 FFI 边界处理 C++ 异常。由于异常不能直接跨 FFI 边界传播，我们使用错误码和异常状态模式。
+本示例展示 C++ **异常处理** 在 FFI 场景下的安全处理方式。采用 idiomatic 命名空间风格
+（`exception_basic_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；
+`Calculator` 在方法边界内部使用真实 `throw` / `catch`，把异常转换为对象内错误码，确保没有
+C++ 异常跨 FFI 边界传播。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### exception_basic.h
 
 ```cpp
-#pragma once
+namespace exception_basic_ns {
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// 异常状态码
-#define EXCEPTION_NONE 0
-#define EXCEPTION_INVALID_ARGUMENT 1
-#define EXCEPTION_OUT_OF_RANGE 2
-#define EXCEPTION_RUNTIME_ERROR 3
-
-struct Calculator;
-
-struct Calculator* calculator_new(void);
-void calculator_delete(struct Calculator* self);
-int calculator_get_exception(struct Calculator* self);
-void calculator_clear_exception(struct Calculator* self);
-int calculator_divide(struct Calculator* self, int a, int b);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### exception_basic.cpp
-
-```cpp
-#include "exception_basic.h"
-#include <stdexcept>
-
-struct Calculator {
-    ExceptionInfo last_exception;
-
-    int divide(int a, int b) {
-        clear_exception();
-        if (b == 0) {
-            // 捕获 C++ 异常，转换为错误码
-            last_exception.set(EXCEPTION_RUNTIME_ERROR, "division by zero");
-            return 0;
-        }
-        return a / b;
-    }
+class Calculator {
+    int last_error_;  // 0=none,1=invalid_argument,2=out_of_range,3=runtime_error
+public:
+    Calculator();
+    int last_error() const;
+    void clear_error();
+    int has_error() const;
+    int divide(int a, int b);
+    int parse_int(const char* s);
 };
+
+} // namespace exception_basic_ns
 ```
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <stdexcept>
-    #include <cstring>
-
     #include "exception_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "Calculator", destroy = "calculator_delete")]
+    #[cpp(class = "exception_basic_ns::Calculator")]
     pub class Calculator {
-        #[cpp(method = "void clear_exception()")]
-        fn clear_exception(&mut self);
-
-        #[cpp(method = "int get_exception()")]
-        fn get_exception(&mut self) -> i32;
-
         #[cpp(method = "int divide(int a, int b)")]
-        fn divide(&mut self, a: i32, b: i32) -> i32;
+        pub fn divide(&mut self, a: i32, b: i32) -> i32;
+        #[cpp(method = "int parse_int(const char* s)")]
+        pub fn parse_int(&mut self, s: *const i8) -> i32;
+        // last_error / clear_error / has_error 略
 
-        #[cpp(method = "int string_to_int(const char* str)")]
-        fn string_to_int(&mut self, str: *const i8) -> i32;
+        pub fn new() -> Self { calculator_new() }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "exception_basic"]
 
-    class Calculator;
-
-    #[cpp(func = "Calculator* calculator_new()")]
-    fn calculator_new() -> Calculator;
+    #[cpp(func = "std::unique_ptr<exception_basic_ns::Calculator> hicc::make_unique<exception_basic_ns::Calculator>()")]
+    pub fn calculator_new() -> Calculator;
 }
-```
-## 构建方法
-
-### C++ 编译
-
-```bash
-cd cpp
-g++ -c exception_basic.cpp -o exception_basic.o
-g++ -shared -fPIC exception_basic.cpp -o libexception_basic.so
-```
-
-### Rust 编译
-
-```bash
-cd rust_hicc
-cargo build
 ```
 
 ## FFI 对比分析
 
-| 方面 | C++ | Rust |
-|------|-----|------|
-| 异常传播 | `throw` / `catch` | `Result<T, E>` |
-| 异常检测 | `try` / `catch` | `match` 或 `?` |
-| 异常传递 | 直接传播 | 通过错误码模拟 |
-| 多异常类型 | 不同异常类 | 枚举变体 |
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 异常产生 | `throw std::runtime_error` / `std::stoi` | 不直接暴露 |
+| 异常处理 | 方法内部 `catch` | 观察 `last_error()` / `has_error()` |
+| 状态持有 | `Calculator::last_error_` 成员 | 每个 Rust 对象独立持有 |
+| 析构 | `~Calculator` | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 042_exception_basic - Exception Handling ===
+=== 042_exception_basic - 异常处理（hicc 直出）===
 
---- Division Tests ---
-10 / 2 = 5
-  10 / 2: No exception
+10 / 2 = 5 error=0
+1 / 0 = 0 error=3 has_error=1
+after clear has_error=0
+parse_int(123) = 123 error=0
+parse_int(abc) = 0 error=1
+parse_int(99999999999999999999) = 0 error=2
 
-Testing division by zero:
-10 / 0 = 0 (returns 0, check exception)
-  10 / 0: Runtime error exception
-
-After clearing exception:
-20 / 4 = 5
-  20 / 4: No exception
-
---- String to Int Tests ---
-string_to_int("123") = 123
-  string_to_int("123"): No exception
-string_to_int("abc") = 0 (returns 0, check exception)
-  string_to_int("abc"): Invalid argument exception
-
---- Summary ---
-1. C++ exceptions CANNOT propagate across FFI boundary
-2. Common FFI pattern: set error code, return error value
-3. Check exception/error state after each call
-4. Clear exception state before next operation
-5. Never throw in FFI boundary - use error codes instead
+Rust FFI: hicc 直接绑定类，C++ 异常在方法边界内部捕获并转为错误码
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_calculator_error_state` | 正常除法、除零错误、清错、合法/非法/越界字符串转换 |
+
+> 注：错误码保存在 `Calculator` 对象内，不使用全局状态，故并行测试下断言仍确定。
+
+### 运行方式
+
+```bash
+cd examples/042_exception_basic/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-1. C++ 异常不能直接跨 FFI 边界传播到 Rust
-2. 常见模式：
-   - 通过错误码返回值
-   - 通过全局/结构体存储异常信息
-   - 通过回调函数报告错误
-3. `hicc::Exception<T>` 提供类型安全的异常封装
-4. 每次调用后应检查异常状态
-5. 异常状态需要在操作前清除
+- C++ 异常必须在 FFI 方法边界内部捕获，不能跨语言边界传播
+- hicc 可直接绑定持有错误状态的命名空间类，无需 extern-C shim 和手写 delete
+- 错误码为对象内状态，调用者可用 `last_error()` / `has_error()` 查询并用 `clear_error()` 清除

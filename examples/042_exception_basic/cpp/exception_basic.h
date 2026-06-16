@@ -1,81 +1,24 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <string>
+#include <stdexcept>
 
-// 异常处理示例
-// 展示如何在 FFI 边界处理 C++ 异常
+namespace exception_basic_ns {
 
-#include <stddef.h>
-
-// Exception status codes
-#define EXCEPTION_NONE 0
-#define EXCEPTION_INVALID_ARGUMENT 1
-#define EXCEPTION_OUT_OF_RANGE 2
-#define EXCEPTION_RUNTIME_ERROR 3
-
-// Calculator structure
-struct Calculator;
-
-struct Calculator* calculator_new(void);
-void calculator_delete(struct Calculator* self);
-
-// Get last exception code
-int calculator_get_exception(const struct Calculator* self);
-
-// Clear exception state
-void calculator_clear_exception(struct Calculator* self);
-
-// Division (may throw exception)
-int calculator_divide(struct Calculator* self, int a, int b);
-
-// Safe array access (may throw exception)
-int calculator_safe_get(struct Calculator* self, int* arr, int size, int index);
-
-// String to int conversion (may throw exception)
-int string_to_int(struct Calculator* self, const char* str);
-
-// Check if there's an exception
-int has_exception(const struct Calculator* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
-class ExceptionInfo {
+// Calculator：在方法边界内部捕获 C++ 异常并转换为错误码，避免异常跨 FFI 传播。
+class Calculator {
+    int last_error_;  // 0=none,1=invalid_argument,2=out_of_range,3=runtime_error
 public:
-    int code;
-    char message[256];
-    ExceptionInfo();
-    void clear();
-    void set(int c, const char* msg);
-};
-
-class CalculatorImpl {
-public:
-    ExceptionInfo last_exception;
-    CalculatorImpl();
-    ~CalculatorImpl();
-    void clear_exception();
-    int get_exception();
-    int divide(int a, int b);
-    int safe_get(int* arr, int size, int index);
-    int string_to_int(const char* str);
-};
-
-struct Calculator {
-    CalculatorImpl* impl;
     Calculator();
-    ~Calculator();
-    void clear_exception() { impl->clear_exception(); }
-    int get_exception() { return impl->get_exception(); }
-    int divide(int a, int b) {
-        try { return impl->divide(a, b); } catch (...) { return 0; }
-    }
-    int string_to_int(const char* str) {
-        try { return impl->string_to_int(str); } catch (...) { return 0; }
-    }
+
+    int last_error() const;
+    void clear_error();
+    int has_error() const;
+    int divide(int a, int b);
+    int parse_int(const char* s);
 };
 
-#endif
+// 锚点：本单元可链接的非模板符号。
+int exception_basic_anchor();
+
+} // namespace exception_basic_ns

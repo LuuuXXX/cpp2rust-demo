@@ -1,39 +1,44 @@
 #pragma once
-
 #include <cstdint>
+#include <iostream>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace class_volatile_ns {
 
-struct HardwareDevice;
-
-struct HardwareDevice* hardware_device_new(void);
-void hardware_device_delete(struct HardwareDevice* self);
-
-// volatile 成员函数 - 读取可能随时改变的硬件寄存器
-uint32_t hardware_device_read_status(volatile struct HardwareDevice* self);
-uint32_t hardware_device_read_data(volatile struct HardwareDevice* self);
-
-// 非 volatile 成员函数 - 配置
-void hardware_device_init(struct HardwareDevice* self);
-void hardware_device_reset(struct HardwareDevice* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 演示 volatile 成员变量：寄存器以 `volatile` 修饰，禁止编译器缓存/优化掉读取，
+// 保证每次访问都真实读内存（模拟内存映射硬件寄存器）。
+//
+// 注：hicc 不支持 `volatile`-this 限定的成员函数（方法指针类型不匹配），故访问器
+// 采用普通 const/非 const 方法读取 volatile 数据成员，是 hicc 直出下的地道写法。
 class HardwareDevice {
-    volatile uint32_t status_reg;
-    volatile uint32_t data_reg;
-    uint32_t config_reg;
 public:
-    HardwareDevice();
-    ~HardwareDevice();
-    volatile uint32_t readStatus() volatile;
-    volatile uint32_t readData() volatile;
-    void init();
-    void reset();
+    HardwareDevice()
+        : status_reg_(0xA5A5A5A5u), data_reg_(0u), config_reg_(0u) {
+        std::cout << "HardwareDevice() ctor" << std::endl;
+    }
+    ~HardwareDevice() {
+        std::cout << "~HardwareDevice() dtor" << std::endl;
+    }
+
+    // 读取 volatile 寄存器（只读 → &self）。
+    uint32_t read_status() const { return status_reg_; }
+    uint32_t read_data() const { return data_reg_; }
+
+    // 配置（可变 → &mut self）。
+    void init() {
+        config_reg_ = 0x00000001u;
+        status_reg_ = 0x12345678u;
+        data_reg_ = 0u;
+    }
+    void reset() {
+        status_reg_ = 0xA5A5A5A5u;
+        data_reg_ = 0u;
+        config_reg_ = 0u;
+    }
+
+private:
+    volatile uint32_t status_reg_;
+    volatile uint32_t data_reg_;
+    uint32_t config_reg_;
 };
 
-#endif
+} // namespace class_volatile_ns

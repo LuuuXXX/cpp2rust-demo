@@ -54,7 +54,31 @@ pub(super) fn collect_namespace(
     cpp_ranges: &[std::ops::Range<u32>],
     user_ranges: &[std::ops::Range<u32>],
 ) {
+    collect_namespace_inner(ns, ast, cpp_ranges, user_ranges, "");
+}
+
+/// 递归收集命名空间成员；`ns_path` 为已累积的 `::` 限定父路径（如 `foo::bar`）。
+fn collect_namespace_inner(
+    ns: &clang::Entity<'_>,
+    ast: &mut CppAst,
+    cpp_ranges: &[std::ops::Range<u32>],
+    user_ranges: &[std::ops::Range<u32>],
+    parent_path: &str,
+) {
     let ns_name = ns.get_name().unwrap_or_default();
+    // 当前命名空间的 `::` 限定路径
+    let cur_path = if ns_name.is_empty() {
+        parent_path.to_string()
+    } else if parent_path.is_empty() {
+        ns_name.clone()
+    } else {
+        format!("{}::{}", parent_path, ns_name)
+    };
+    let path_opt = if cur_path.is_empty() {
+        None
+    } else {
+        Some(cur_path.clone())
+    };
     for entity in ns.get_children() {
         if entity
             .get_location()
@@ -66,10 +90,13 @@ pub(super) fn collect_namespace(
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
                 if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
-                    // 命名空间前缀扁平化到类名
+                    // 旧路径兼容：命名空间前缀（仅直接父命名空间名）扁平化进 `name`，
+                    // 以维持「被 extern-C 桥接引用的类」匹配等历史行为不变。
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
+                    // hicc 直出路径用 simple_name + namespace 还原真实命名空间类名。
+                    ci.namespace = path_opt.clone();
                     ci.is_in_namespace = true;
                     ast.classes.push(ci);
                 }
@@ -79,13 +106,16 @@ pub(super) fn collect_namespace(
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
+                    ci.namespace = path_opt.clone();
                     ci.is_in_namespace = true;
                     ast.classes.push(ci);
                 }
             }
             EntityKind::FunctionDecl => {
-                if let Some(fi) = extract_function(&entity, None, cpp_ranges) {
+                if let Some(mut fi) = extract_function(&entity, None, cpp_ranges) {
                     if fi.is_from_current_file {
+                        // 记录函数所属命名空间路径，供 hicc 直出自由函数名限定使用。
+                        fi.namespace = path_opt.clone();
                         ast.functions.push(fi);
                     }
                 }
@@ -99,7 +129,7 @@ pub(super) fn collect_namespace(
                 collect_typedef(&entity, ast, user_ranges);
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, ast, cpp_ranges, user_ranges);
+                collect_namespace_inner(&entity, ast, cpp_ranges, user_ranges, &cur_path);
             }
             _ => {}
         }
@@ -300,7 +330,8 @@ pub(super) fn extract_class(
     let (bases, methods, fields) = extract_class_members(entity);
 
     Some(ClassInfo {
-        name,
+        name: name.clone(),
+        simple_name: name,
         is_struct,
         is_abstract,
         template_args,
@@ -308,6 +339,7 @@ pub(super) fn extract_class(
         methods,
         fields,
         is_in_namespace: false,
+        namespace: None,
         is_from_current_file,
     })
 }
@@ -510,6 +542,7 @@ pub(super) fn extract_function(
         friend_of: friend_of.map(String::from),
         body_offset,
         is_from_current_file,
+        namespace: None,
     })
 }
 

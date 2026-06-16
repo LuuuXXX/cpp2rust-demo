@@ -69,6 +69,78 @@ fn emit_fn_binding(out: &mut String, fb: &FnBinding, ret_override: Option<&str>)
     ));
 }
 
+/// 生成 hicc 直出的 `import_class!` 块（去 shim）：直接绑定真实命名空间类、成员方法，
+/// 并在 body 内输出 `pub fn <ctor>(...) -> Self { <factory>(...) }` 关联函数。
+fn emit_hicc_direct_class(out: &mut String, cs: &crate::ffi_model::ClassSpec) {
+    use crate::ffi_model::SelfKind;
+    out.push('\n');
+    out.push_str("hicc::import_class! {\n");
+    let cpp_class = cs.cpp_class.as_deref().unwrap_or(&cs.name);
+    out.push_str(&format!("    #[cpp(class = \"{}\")]\n", cpp_class));
+    out.push_str(&format!("    pub class {} {{\n", cs.name));
+
+    let mut first = true;
+    for mb in &cs.methods {
+        if !first {
+            out.push('\n');
+        }
+        first = false;
+        if mb.has_fn_ptr_param {
+            out.push_str("        // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern \"C\" 调用约定\n");
+        }
+        out.push_str(&format!("        #[cpp(method = \"{}\")]\n", mb.cpp_sig));
+        let self_ref = match mb.self_kind {
+            SelfKind::Ref => "&self",
+            SelfKind::RefMut => "&mut self",
+        };
+        let params_str = if mb.params.is_empty() {
+            String::new()
+        } else {
+            let ps: Vec<String> = mb
+                .params
+                .iter()
+                .map(|(n, t)| format!("{}: {}", n, t))
+                .collect();
+            format!(", {}", ps.join(", "))
+        };
+        let ret_str = match &mb.ret_type {
+            Some(t) => format!(" -> {}", t),
+            None => String::new(),
+        };
+        out.push_str(&format!(
+            "        pub fn {}({}{}){};\n",
+            mb.rust_name, self_ref, params_str, ret_str
+        ));
+    }
+
+    // 构造关联函数：转发到 import_lib! 中的 make_unique 工厂
+    for cf in &cs.ctor_factories {
+        if !first {
+            out.push('\n');
+        }
+        first = false;
+        let sig_params = cf
+            .params
+            .iter()
+            .map(|(n, t)| format!("{}: {}", n, t))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let call_args = cf
+            .params
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "        pub fn {}({}) -> Self {{ {}({}) }}\n",
+            cf.ctor_fn, sig_params, cf.factory_rust_name, call_args
+        ));
+    }
+
+    out.push_str("    }\n");
+    out.push_str("}\n");
+}
+
 /// 从 FfiSpec 生成三段式 hicc Rust FFI 代码字符串
 pub fn generate(spec: &FfiSpec) -> String {
     let mut out = String::new();
@@ -85,6 +157,11 @@ pub fn generate(spec: &FfiSpec) -> String {
     for cs in &spec.class_specs {
         // P2-1：跳过空块（无方法、无关联函数、且无 destroy 属性）
         if cs.is_empty() {
+            continue;
+        }
+        // hicc 直出模式：直接绑定真实命名空间类 + make_unique 工厂（去 shim）
+        if cs.hicc_direct {
+            emit_hicc_direct_class(&mut out, cs);
             continue;
         }
         out.push('\n');
@@ -160,6 +237,10 @@ pub fn generate(spec: &FfiSpec) -> String {
         .class_specs
         .iter()
         .any(|cs| !cs.associated_fns.is_empty());
+    let has_ctor_factories = spec
+        .class_specs
+        .iter()
+        .any(|cs| !cs.ctor_factories.is_empty());
     let has_template_fns = !spec.template_functions.is_empty();
     let has_template_factories = !spec.template_factories.is_empty();
     let has_proxy_factories = !spec.proxy_factories.is_empty();
@@ -167,6 +248,7 @@ pub fn generate(spec: &FfiSpec) -> String {
     if spec.lib_spec.fn_bindings.is_empty()
         && spec.lib_spec.fwd_decls.is_empty()
         && !has_associated_fns
+        && !has_ctor_factories
         && !has_template_fns
         && !has_template_factories
         && !has_proxy_factories
@@ -185,6 +267,27 @@ pub fn generate(spec: &FfiSpec) -> String {
         out.push('\n');
         for decl in &spec.lib_spec.fwd_decls {
             out.push_str(&format!("    {}\n", decl));
+        }
+    }
+
+    // hicc 直出构造工厂（make_unique）：在 import_lib! 顶部输出
+    for cs in &spec.class_specs {
+        for cf in &cs.ctor_factories {
+            out.push('\n');
+            out.push_str(&format!("    #[cpp(func = \"{}\")]\n", cf.make_unique_sig));
+            if cf.non_snake_case {
+                out.push_str("    #[allow(non_snake_case)]\n");
+            }
+            let params_str = cf
+                .params
+                .iter()
+                .map(|(n, t)| format!("{}: {}", n, t))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "    pub fn {}({}) -> {};\n",
+                cf.factory_rust_name, params_str, cf.ret_class
+            ));
         }
     }
 
@@ -597,6 +700,7 @@ mod tests {
                 associated_fns: vec![],
                 destroy_fn: None,
                 is_interface: false,
+                ..Default::default()
             }],
             lib_spec: LibSpec {
                 link_name: "test".to_string(),
@@ -664,6 +768,7 @@ mod tests {
                     associated_fns: vec![],
                     destroy_fn: None,
                     is_interface: false,
+                    ..Default::default()
                 },
                 ClassSpec {
                     name: "Bar".to_string(),
@@ -671,6 +776,7 @@ mod tests {
                     associated_fns: vec![],
                     destroy_fn: None,
                     is_interface: false,
+                    ..Default::default()
                 },
             ],
             lib_spec: LibSpec {

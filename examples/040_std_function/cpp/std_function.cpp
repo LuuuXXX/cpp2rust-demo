@@ -1,131 +1,41 @@
 #include "std_function.h"
-#include <iostream>
-#include <functional>
-#include <vector>
-#include <thread>
-#include <chrono>
 
-// CallbackWrapperImpl implementation
-CallbackWrapperImpl::CallbackWrapperImpl(int (*fn)(int)) : callback(fn) {}
-CallbackWrapperImpl::~CallbackWrapperImpl() {}
-int CallbackWrapperImpl::invoke(int value) {
-    if (callback) return callback(value);
-    return value;
-}
-void CallbackWrapperImpl::set(int (*fn)(int)) {
-    callback = fn;
-}
+namespace std_function_ns {
 
-// ProcessorImpl implementation
-ProcessorImpl::ProcessorImpl() : callback(nullptr) {}
-ProcessorImpl::~ProcessorImpl() {}
-void ProcessorImpl::set_callback(int (*cb)(int)) {
-    callback = cb;
-}
-int ProcessorImpl::process(int value) {
-    if (callback) return callback(value);
-    return value;
-}
-
-// MultiCallbackImpl implementation
-MultiCallbackImpl::MultiCallbackImpl() {}
-MultiCallbackImpl::~MultiCallbackImpl() {}
-void MultiCallbackImpl::add(int (*cb)(int)) {
-    callbacks.push_back(cb);
-}
-void MultiCallbackImpl::invoke_all(int value) {
-    for (auto& cb : callbacks) {
-        cb(value);
+Callback::Callback(int kind) {
+    switch (kind) {
+        case 1:
+            fn_ = [](int v) { return v * 3; };
+            break;
+        case 2:
+            fn_ = [](int v) { return -v; };
+            break;
+        default:
+            fn_ = [](int v) { return v * 2; };
+            break;
     }
 }
 
-// AsyncProcessorImpl implementation
-AsyncProcessorImpl::AsyncProcessorImpl() : cancelled(false) {}
-AsyncProcessorImpl::~AsyncProcessorImpl() {}
-void AsyncProcessorImpl::set_completion_callback(void (*cb)(int, int)) {
-    completion_callback = cb;
-}
-void AsyncProcessorImpl::set_progress_callback(void (*cb)(int)) {
-    progress_callback = cb;
-}
-void AsyncProcessorImpl::start(int value) {
-    cancelled = false;
-    // Simulate async processing
-    for (int i = 0; i <= 100; i += 20) {
-        if (cancelled) break;
-        if (progress_callback) progress_callback(i);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+void Pipeline::add(int kind) {
+    switch (kind) {
+        case 1:
+            fns_.push_back([](int v) { return v * 3; });
+            break;
+        case 2:
+            fns_.push_back([](int v) { return -v; });
+            break;
+        default:
+            fns_.push_back([](int v) { return v * 2; });
+            break;
     }
-    if (completion_callback) completion_callback(value, value * 2);
-}
-void AsyncProcessorImpl::cancel() {
-    cancelled = true;
 }
 
-// CallbackWrapper implementation
-CallbackWrapper::CallbackWrapper(int (*fn)(int)) : impl(new CallbackWrapperImpl(fn)) {}
-CallbackWrapper::~CallbackWrapper() { delete impl; }
-
-// Processor implementation
-Processor::Processor() : impl(new ProcessorImpl()) {}
-Processor::~Processor() { delete impl; }
-
-// MultiCallback implementation
-MultiCallback::MultiCallback() : impl(new MultiCallbackImpl()) {}
-MultiCallback::~MultiCallback() { delete impl; }
-
-// AsyncProcessor implementation
-AsyncProcessor::AsyncProcessor() : impl(new AsyncProcessorImpl()) {}
-AsyncProcessor::~AsyncProcessor() { delete impl; }
-
-// CallbackWrapper C API implementation
-struct CallbackWrapper* callback_wrapper_new(int (*fn)(int)) {
-    return new CallbackWrapper(fn);
+int Pipeline::run(int v) const {
+    int result = v;
+    for (const auto& fn : fns_) result = fn(result);
+    return result;
 }
 
-struct CallbackWrapper* callback_wrapper_new_double(void) {
-    return new CallbackWrapper([](int x) -> int { return x * 2; });
-}
+int std_function_anchor() { return 0; }
 
-void callback_wrapper_delete(struct CallbackWrapper* self) {
-    delete self;
-}
-
-// Processor C API implementation
-struct Processor* processor_new(void) {
-    return new Processor();
-}
-
-void processor_set_double(struct Processor* p) {
-    p->impl->set_callback([](int x) -> int { return x * 2; });
-}
-
-void processor_delete(struct Processor* self) {
-    delete self;
-}
-
-// MultiCallback C API implementation
-struct MultiCallback* multi_callback_new(void) {
-    return new MultiCallback();
-}
-
-void multi_callback_add_double(struct MultiCallback* mc) {
-    mc->impl->add([](int x) -> int { return x * 2; });
-}
-
-void multi_callback_add_triple(struct MultiCallback* mc) {
-    mc->impl->add([](int x) -> int { return x * 3; });
-}
-
-void multi_callback_delete(struct MultiCallback* self) {
-    delete self;
-}
-
-// AsyncProcessor C API implementation
-struct AsyncProcessor* async_processor_new(void) {
-    return new AsyncProcessor();
-}
-
-void async_processor_delete(struct AsyncProcessor* self) {
-    delete self;
-}
+} // namespace std_function_ns

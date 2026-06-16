@@ -11,10 +11,35 @@ use super::{
 use crate::ast_parser::FunctionInfo;
 use crate::ffi_model::{FnBinding, LibSpec};
 
+/// 非命名空间限定版本，仅用于单元测试（生产路径统一走
+/// [`build_lib_spec_namespaced`]）。标注 `#[cfg(test)]` 以避免非测试构建下的
+/// dead_code 告警。
+#[cfg(test)]
 pub(super) fn build_lib_spec(
     functions: &[&FunctionInfo],
     unit_name: &str,
     class_names: &[&str],
+) -> LibSpec {
+    build_lib_spec_impl(functions, unit_name, class_names, false)
+}
+
+/// 与 [`build_lib_spec`] 相同，但对来自命名空间的自由函数（`fi.namespace` 为 `Some`）
+/// 在 C++ 签名中以 `ns::name` 形式限定函数名。仅用于 hicc 直出（idiomatic）路径：
+/// 此时自由函数是真实命名空间 C++ 函数（如 `enum_class_ns::combine_flags`），需限定
+/// 才能在 hicc `cpp!` 胶水代码中正确解析；旧式 extern-C 全局桥接路径不受影响。
+pub(super) fn build_lib_spec_namespaced(
+    functions: &[&FunctionInfo],
+    unit_name: &str,
+    class_names: &[&str],
+) -> LibSpec {
+    build_lib_spec_impl(functions, unit_name, class_names, true)
+}
+
+fn build_lib_spec_impl(
+    functions: &[&FunctionInfo],
+    unit_name: &str,
+    class_names: &[&str],
+    qualify_ns: bool,
 ) -> LibSpec {
     let shims = classify_functions(functions, class_names);
     let mut fn_bindings: Vec<FnBinding> = shims
@@ -35,7 +60,7 @@ pub(super) fn build_lib_spec(
                 .all(|p| is_mappable_rust_type(&cpp_to_rust(&p.type_name), class_names))
                 && is_mappable_rust_type(&cpp_to_rust(&fi.return_type), class_names)
         })
-        .map(|(fi, _)| build_fn_binding(fi, class_names))
+        .map(|(fi, _)| build_fn_binding(fi, class_names, qualify_ns))
         .collect();
 
     // 先按 cpp_sig 去重：同一 C++ 签名可能因 "struct T*" 与 "T*" 的差异
@@ -107,7 +132,11 @@ pub(super) fn build_lib_spec(
     }
 }
 
-pub(super) fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBinding {
+pub(super) fn build_fn_binding(
+    fi: &FunctionInfo,
+    class_names: &[&str],
+    qualify_ns: bool,
+) -> FnBinding {
     let rust_name = sanitize_fn_name(&fi.name);
     let params: Vec<(String, String)> = fi
         .params
@@ -204,7 +233,15 @@ pub(super) fn build_fn_binding(fi: &FunctionInfo, class_names: &[&str]) -> FnBin
         param_parts.join(", ")
     };
 
-    let cpp_sig = format!("{} {}({})", ret_clean, fi.name, params_str);
+    // hicc 直出路径下，自由函数为真实命名空间 C++ 函数，需以 `ns::name` 限定，
+    // 否则 hicc `cpp!` 胶水代码会在全局作用域解析失败。旧式 extern-C 全局桥接
+    // 路径（qualify_ns=false 或无命名空间）保持裸函数名不变。
+    let cpp_fn_name = match (qualify_ns, fi.namespace.as_deref()) {
+        (true, Some(ns)) if !ns.is_empty() => format!("{}::{}", ns, fi.name),
+        _ => fi.name.clone(),
+    };
+
+    let cpp_sig = format!("{} {}({})", ret_clean, cpp_fn_name, params_str);
 
     FnBinding {
         cpp_sig,

@@ -1,32 +1,15 @@
 use friend_function::*;
-use hicc::AbiClass;
 
 fn main() {
-    println!("=== Friend Function FFI ===\n");
-    println!("Friend functions in C++ can access private members of a class\n");
+    let a = MyClass::new(10);
+    let b = MyClass::new(3);
+    println!("a.get_value()={}", a.get_value());
+    println!("getSum(a,b)={}", a.friend_sum(&b));
+    println!("getProduct(a,b)={}", a.friend_product(&b));
+    println!("compare(a,b)={}", a.friend_compare(&b));
 
-    let a = myclass_new(10);
-    let b = myclass_new(20);
-
-    println!("Created MyClass objects:");
-    println!("  a.value = {}", a.get_value());
-    println!("  b.value = {}", b.get_value());
-    println!();
-
-    // Friend functions: can access private members
-    println!("Friend function operations:");
-    let sum = friend_function_get_sum(&a.as_ptr(), &b.as_ptr());
-    println!("  Sum: {}", sum);
-
-    let product = friend_function_get_product(&a.as_ptr(), &b.as_ptr());
-    println!("  Product: {}", product);
-
-    let cmp = friend_function_compare(&a.as_ptr(), &b.as_ptr());
-    println!("  Compare: {}", cmp);
-
-    println!();
-    println!("Rust FFI: Friend functions are just regular functions");
-    println!("In C FFI, we can access struct members directly");
-    println!("The 'friend' relationship is a C++ access control concept");
-
+    let mut c = MyClass::new(10);
+    c.set_value(3);
+    println!("compare(c,b) after set_value={}", c.friend_compare(&b));
+    println!("--- end main ---");
 }

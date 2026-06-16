@@ -1,49 +1,32 @@
 use vector_basic::*;
 
 fn main() {
-    println!("=== 034_vector_basic - std::vector ===\n");
+    println!("=== 034_vector_basic - std::vector（hicc 直出）===\n");
 
-    // IntVector demo
-    println!("--- IntVector Demo ---");
-    let mut vec = int_vector_new();
-
-    println!("Empty: {}", vec.empty());
-
-    // Reserve capacity to ensure consistent behavior across platforms
-    vec.reserve(8);
-
-    // Push elements
+    let mut v = IntVector::new();
+    println!("empty={}", v.empty());
+    v.reserve(8);
     for i in 0..5 {
-        vec.push_back((i * 10) as i32);
+        v.push_back(i * 10);
     }
+    println!("size={} sum={}", v.size(), v.sum());
+    v.set(2, 999);
+    println!("get(2)={}", v.get(2));
+    v.pop_back();
+    println!("after pop_back size={}", v.size());
+    v.clear();
+    println!("after clear empty={}", v.empty());
 
-    let size = vec.size();
-    let capacity = vec.capacity();
-    println!("Size: {}, Capacity: {}", size, capacity);
+    println!();
 
-    // Access elements
-    println!("Elements:");
-    for i in 0..size {
-        let val = vec.get(i);
-        println!("  [{}] = {}", i, val);
+    let mut sv = StringVector::new();
+    for s in ["alpha", "beta"] {
+        let cs = std::ffi::CString::new(s).expect("CString::new failed");
+        sv.push_back(cs.as_ptr());
     }
+    let g0 = unsafe { std::ffi::CStr::from_ptr(sv.get(0)).to_string_lossy().into_owned() };
+    let g1 = unsafe { std::ffi::CStr::from_ptr(sv.get(1)).to_string_lossy().into_owned() };
+    println!("sv size={} get(0)={} get(1)={}", sv.size(), g0, g1);
 
-    // Modify element
-    vec.set(2, 999);
-    println!("After set [2] = 999: {}", vec.get(2));
-
-    // Get raw data pointer
-    let data_ptr = vec.data();
-    println!("Raw data pointer: {:?}", data_ptr);
-
-    vec.clear();
-    println!("After clear, size: {}", vec.size());
-
-    println!("\nRust FFI: std::vector 映射");
-    println!("1. Opaque 指针隐藏 vector 内部结构");
-    println!("2. push_back/get/set 等价于 Rust 的 push/get/index");
-    println!("3. size()/capacity() 提供容器信息");
-    println!("4. data() 获取原始指针用于批量操作");
-    println!("\nNote: StringVector example omitted due to FFI complexity with const char*");
+    println!("\nRust FFI: hicc 直接绑定持有 std::vector 的类，析构由 Rust Drop 自动完成");
 }
-

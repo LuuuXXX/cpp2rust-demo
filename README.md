@@ -13,7 +13,7 @@ cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 
 **主要特性**：
 
-- 🔗 **跨平台编译拦截**：Linux/macOS 使用 `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES`；Windows 通过 PATH 注入 `hook_shim.exe`，同时支持 GNU/MinGW 和 MSVC
+- 🔗 **跨平台编译拦截**：Linux 使用 `LD_PRELOAD`；Windows 通过 PATH 注入 `hook_shim.exe`，同时支持 GNU/MinGW 和 MSVC
 - 🔍 **libclang AST 解析**：精确提取类、函数、枚举、模板实例化；行标记扫描自动区分项目源文件与 `#include` 引入的头文件
 - 📦 **hicc 三段式代码生成**：`hicc::cpp!`（C++ shim 内联）/ `hicc::import_class!`（类方法绑定）/ `hicc::import_lib!`（全局函数绑定）
 - 🏷️ **多 feature 支持**：`--feature <name>` 将不同平台或构建配置的产物隔离到各自目录，`merge` 命令可将多个 feature 合并为带 `[features]` 段的统一 Rust 项目
@@ -82,8 +82,8 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 
 `init` 自动完成以下步骤：
 
-1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（Linux）/ `libhook.dylib`（macOS）（后续调用自动跳过）
-2. 通过 `LD_PRELOAD`（Linux）/ `DYLD_INSERT_LIBRARIES`（macOS）注入构建过程，捕获 `.cpp2rust` 预处理文件
+1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（Linux）（后续调用自动跳过）
+2. 通过 `LD_PRELOAD`（Linux）注入构建过程，捕获 `.cpp2rust` 预处理文件
 3. 交互式选择参与转换的文件（非交互/CI 环境自动全选）
 4. libclang 解析 AST，提取类 / 函数 / 枚举 / 模板实例化
 5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
@@ -211,53 +211,8 @@ cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
 cargo install --path .
 ```
 
-#### macOS
-
-```bash
-# 安装 Homebrew LLVM（提供 libclang 和 clang++）
-brew install llvm
-
-# 设置 LIBCLANG_PATH（使工具能找到 libclang.dylib）
-# 建议写入 ~/.zprofile 或 ~/.bash_profile 永久生效
-export LIBCLANG_PATH=$(brew --prefix llvm)/lib
-
-# 确认 Xcode Command Line Tools 已安装（提供 make、ar 等基础工具）
-xcode-select --install  # 若已安装会提示跳过
-
-# 从 GitHub 安装（无需克隆仓库）
-cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
-
-# 或从本地源码安装（开发者）
-cargo install --path .
-```
-
-> **macOS SIP（系统完整性保护）注意事项**：`DYLD_INSERT_LIBRARIES`（macOS 上的编译拦截机制）
-> 对受系统保护的二进制（如 `/usr/bin/g++`、`/usr/bin/clang++`）无效，SIP 会静默忽略注入。
->
-> **解决方案**：使用 Homebrew 安装的编译器，它们位于 `/opt/homebrew/bin/` 或 `/usr/local/bin/`，
-> 不受 SIP 保护：
->
-> ```bash
-> brew install gcc    # 提供 g++-14 等版本化编译器
-> # 或
-> brew install llvm   # 提供 $(brew --prefix llvm)/bin/clang++
-> ```
->
-> 调用 `cpp2rust-demo init` 时，将 Homebrew 编译器路径置于 PATH 最前面，或通过 `CPP2RUST_CXX`
-> 环境变量显式指定：
->
-> ```bash
-> # 方式一：调整 PATH（推荐）
-> export PATH="$(brew --prefix llvm)/bin:$PATH"
-> cpp2rust-demo init -- make -j4
->
-> # 方式二：通过环境变量显式指定
-> CPP2RUST_CXX=$(brew --prefix llvm)/bin/clang++ cpp2rust-demo init -- make -j4
-> ```
-
 > **注意**：`hook/hook.cpp` 已内嵌进 binary，无需额外文件。首次执行 `init` 时工具
-> 自动将 hook 源码解压到 `~/.local/share/cpp2rust-demo/hook/`（Linux）或
-> `~/Library/Application Support/cpp2rust-demo/hook/`（macOS）并编译；后续调用在 hook 库为最新版时自动跳过重编译。
+> 自动将 hook 源码解压到 `~/.local/share/cpp2rust-demo/hook/`（Linux）并编译；后续调用在 hook 库为最新版时自动跳过重编译。
 
 #### Windows
 
@@ -355,8 +310,8 @@ cpp2rust-demo init --feature arm_embedded -- arm-none-eabi-g++ -shared -fPIC myl
 
 
 `init` 自动完成：
-1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（Linux）/ `libhook.dylib`（macOS）（后续调用自动跳过）
-2. 通过 `LD_PRELOAD`（Linux）/ `DYLD_INSERT_LIBRARIES`（macOS）注入构建过程，捕获 `.cpp2rust` 预处理文件
+1. 首次运行时将内嵌的 `hook.cpp` 解压到用户数据目录并编译为 `libhook.so`（Linux）（后续调用自动跳过）
+2. 通过 `LD_PRELOAD`（Linux）注入构建过程，捕获 `.cpp2rust` 预处理文件
 3. 交互式选择参与转换的文件（非交互环境自动全选）
 4. libclang 解析 AST，提取类/函数/枚举/模板实例化
 5. 生成 `.cpp2rust/<feature>/rust/` 下的 hicc Rust 脚手架
@@ -555,14 +510,8 @@ bash usage/verify-rapidjson-ffi.sh
 > **生成 Cargo.toml 条件引入 `hicc-std` 依赖**：工具生成的 Rust FFI 代码通过 C++ 侧自定义包装类
 > 将 STL 类型暴露为普通 `extern "C"` 接口，所有平台均可编译运行，无需直接使用 `hicc_std::` 类型。
 > 为方便在 Linux / Windows 上直接使用 `hicc_std::` 类型别名（如 `hicc_std::string`、`hicc_std::vector`
-> 等），工具自动在生成的 `Cargo.toml` 中通过
-> `[target.'cfg(not(target_os = "macos"))'.dependencies]` 引入 `hicc-std`，macOS 不引入。
->
-> **macOS 不引入的原因**：`hicc-std 0.2` 在 macOS Apple Clang 下存在编译问题——其 `build.rs`
-> 在非 MSVC 平台统一链接 `stdc++`（GNU libstdc++），而 Apple Clang 默认使用 `libc++`
-> （需链接 `-lc++`），导致 `cargo build` 在 macOS 上失败。macOS 用户若需直接使用
-> `hicc_std::` 类型，可在项目 `build.rs` 中手动处理标准库链接后再添加 `hicc-std` 依赖；
-> 通常使用工具生成的 wrapper 类方式即可满足需求，无需额外步骤。
+> 等），工具自动在生成的 `Cargo.toml` 中引入 `hicc-std` 依赖；通常使用工具生成的 wrapper 类方式
+> 即可满足需求，无需额外步骤。
 
 ---
 
@@ -618,8 +567,8 @@ hicc::import_lib! {
 ## C++ 特性支持矩阵
 
 > 图例：✅ 完全自动生成可编译代码　⚠️ 降级生成 + 内联 TODO（代码仍可 `cargo check`）
-> 平台列：Linux = Linux（GCC/Clang）；macOS = macOS（Apple Clang）；Win = Windows（MinGW/MSVC）
-> `¹` 标注的特性：生成项目在 Linux/Win 上自动引入 `hicc-std` 依赖，可直接使用 `hicc_std::` 类型别名；macOS 不引入，仅支持 wrapper 类方式（功能等价，但不支持 `hicc_std::` 直接类型）
+> 平台列：Linux = Linux（GCC/Clang）；Win = Windows（MinGW/MSVC）
+> `¹` 标注的特性：生成项目在 Linux/Win 上自动引入 `hicc-std` 依赖，可直接使用 `hicc_std::` 类型别名
 
 | 示例 | 类别 | C++ 特性 | 状态 | 平台 | FFI 策略 |
 |------|------|---------|------|------|---------|
@@ -672,7 +621,7 @@ hicc::import_lib! {
 | [047_noexcept_basic](examples/047_noexcept_basic) | 高级特性 | noexcept | ✅ | 全平台 | `noexcept` 语义对 FFI 透明，直接处理 |
 | [048_summary](examples/048_summary) | 高级特性 | 综合 FFI 模式 | ✅ | 全平台 | 以上所有策略的组合应用 |
 
-> **STL 容器核心策略**：先在 `hicc::cpp!` 中生成薄 wrapper 类（如 `IntVector` 封装 `std::vector<int>`），再对 wrapper 类做 `import_class!` 绑定，规避模板方法签名复杂度。所有平台均支持此方式；Linux / Windows 上生成项目还额外携带 `hicc-std` 依赖（见上方说明），可直接使用 `hicc_std::vector`、`hicc_std::map`、`hicc_std::string` 等类型别名（macOS 不支持）。
+> **STL 容器核心策略**：先在 `hicc::cpp!` 中生成薄 wrapper 类（如 `IntVector` 封装 `std::vector<int>`），再对 wrapper 类做 `import_class!` 绑定，规避模板方法签名复杂度。所有平台均支持此方式；Linux / Windows 上生成项目还额外携带 `hicc-std` 依赖（见上方说明），可直接使用 `hicc_std::vector`、`hicc_std::map`、`hicc_std::string` 等类型别名。
 
 ---
 
@@ -718,7 +667,7 @@ hicc::import_lib! {
 | **L4** E2E 测试 | `rapidjson_e2e_test.rs` 等 | 对真实开源项目执行完整 init + merge 转换：①rapidjson（10 子系统 shim）验证 `import_lib!` FFI 绑定；②五大库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）验证工具在不同类型项目上的覆盖率与鲁棒性 | ✅ 通过 |
 | **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
-> **每个实际项目独立 CI**：L4 各真实项目（rapidjson / tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）在 Linux 上各有一个独立 workflow（`.github/workflows/e2e-<project>.yml`），互不阻塞、便于定位；跨平台（Windows/MSVC/macOS）覆盖仍集中在 `ci.yml`。
+> **每个实际项目独立 CI**：L4 各真实项目（rapidjson / tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）在 Linux 上各有一个独立 workflow（`.github/workflows/e2e-<project>.yml`），互不阻塞、便于定位；跨平台（Windows MinGW/MSVC）覆盖仍集中在 `ci.yml`。
 
 ### 测试命令
 
@@ -828,9 +777,6 @@ cd examples/001_hello_world
 # 编译 C++ 共享库（Linux）
 cd cpp && g++ -shared -fPIC hello_world.cpp -o libhello_world.so && cd ..
 
-# 编译 C++ 共享库（macOS）
-cd cpp && clang++ -dynamiclib hello_world.cpp -o libhello_world.dylib && cd ..
-
 # 编译并运行 Rust FFI
 cd rust_hicc && cargo run
 ```
@@ -840,7 +786,7 @@ cd rust_hicc && cargo run
 ## 依赖
 
 - **操作系统**：
-  - Linux / macOS（`LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` 编译拦截）
+  - Linux（`LD_PRELOAD` 编译拦截）
   - Windows（`hook_shim.exe` PATH 注入，同时支持 GNU/MinGW 和 MSVC 编译器）
 - C++ 编译器：g++ 或 clang++（C++11 或更高）
 - Rust 工具链：rustc / cargo（1.82+）
@@ -860,10 +806,6 @@ libclang 未找到时工具会在 init 阶段报错。解决方法：
 sudo apt-get install libclang-dev
 export LIBCLANG_PATH=/usr/lib/llvm-14/lib   # 替换为实际版本路径
 
-# macOS（Homebrew）
-brew install llvm
-export LIBCLANG_PATH=$(brew --prefix llvm)/lib
-
 # 永久生效：将 export 行写入 ~/.bashrc 或 ~/.zshrc
 ```
 
@@ -874,16 +816,7 @@ export LIBCLANG_PATH=$(brew --prefix llvm)/lib
 ```sh
 # Ubuntu / Debian
 sudo apt-get install g++
-
-# macOS
-xcode-select --install    # 或安装 Xcode
 ```
-
-### macOS SIP 导致捕获失败
-
-`DYLD_INSERT_LIBRARIES` 对受 SIP（系统完整性保护）保护的系统二进制（如 `/usr/bin/g++`）无效，注入会被静默忽略。
-
-解决方法：使用不受 SIP 保护的编译器（如 Homebrew 安装的 `g++` 或 `clang++`）执行构建命令。详见 [前置条件说明](#前置条件)。
 
 ### 生成的 Rust 项目 `cargo check` 失败
 

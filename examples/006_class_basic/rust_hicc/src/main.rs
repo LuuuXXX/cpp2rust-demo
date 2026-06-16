@@ -1,16 +1,17 @@
 use class_basic::*;
 
 fn main() {
-    let mut counter = counter_new();
-    println!("Initial value: {}", counter.get());
+    let name = hicc_std::string::from(c"demo");
+    let mut c = Counter::with_name(&name);
 
-    counter.increment();
-    counter.increment();
-    counter.increment();
-    println!("After 3 increments: {}", counter.get());
+    c.inc();
+    c.inc();
+    c.inc_by(10);
 
-    counter.decrement();
-    println!("After 1 decrement: {}", counter.get());
+    let nm = c.name();
+    let cs = unsafe { std::ffi::CStr::from_ptr(nm.c_str()) };
+    println!("[rust] name={} count={}", cs.to_str().unwrap(), c.count());
 
-    println!("\nRust FFI: Basic class operations completed!");
+    c.reset();
+    println!("[rust] after reset, count={}", c.count());
 }

@@ -154,7 +154,7 @@ v6 中三类被开关锁住的高级能力（模板、`@make_proxy`、`@dynamic_
 - 测试名表意（`smoke_<feature>_<behavior>`），失败信息可读（`assert_eq!` 带上下文）。
 - 不使用全局可变状态；`unsafe` 块最小化并集中在 FFI 调用点。
 - 默认 `cargo test` 可运行（链接 C++ 由生成的 `build.rs` 负责），无需额外环境变量。
-- 平台差异（如某些虚函数示例在 macOS）用 `#[cfg]` / `#[ignore]` 标注并在注释说明，对标 v6 L3 先例。
+- 平台差异用 `#[cfg]` / `#[ignore]` 标注并在注释说明，对标 v6 L3 先例。
 
 ### 4.4 覆盖全部特性
 

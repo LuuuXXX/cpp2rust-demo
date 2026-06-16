@@ -6,25 +6,16 @@
 #   bash scripts/build_cpp_libs.sh 001_hello_world  # 只编译指定示例（可传多个）
 #
 # 效果：
-#   每个 examples/<NNN_name>/cpp/ 目录下会生成 lib<name>.so（Linux）
-#   或 lib<name>.dylib（macOS）。
+#   每个 examples/<NNN_name>/cpp/ 目录下会生成 lib<name>.so（Linux）。
 #
-# 已存在的库文件会被跳过（增量编译）。若想强制重新编译，先删除对应的 .so/.dylib。
+# 已存在的库文件会被跳过（增量编译）。若想强制重新编译，先删除对应的 .so。
 
 set -euo pipefail
 
-OS="$(uname -s)"
-
 # 选定编译器和链接选项
-if [ "$OS" = "Darwin" ]; then
-    CXX="${CXX:-clang++}"
-    SHARED_FLAGS="-dynamiclib"
-    LIB_EXT="dylib"
-else
-    CXX="${CXX:-g++}"
-    SHARED_FLAGS="-shared -fPIC"
-    LIB_EXT="so"
-fi
+CXX="${CXX:-g++}"
+SHARED_FLAGS="-shared -fPIC"
+LIB_EXT="so"
 
 # 如果传入了具体示例名，只处理这些；否则扫描全部
 if [ $# -gt 0 ]; then

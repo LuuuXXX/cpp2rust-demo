@@ -1,29 +1,24 @@
 #pragma once
+#include <string>
+#include <iostream>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace class_basic_ns {
 
-class Counter;
-
-struct Counter* counter_new(void);
-void counter_delete(struct Counter* self);
-int counter_get(struct Counter* self);
-void counter_increment(struct Counter* self);
-void counter_decrement(struct Counter* self);
-
-#ifdef __cplusplus
-}
-#endif
-
-#ifdef __cplusplus
 class Counter {
-    int value = 0;
 public:
-    Counter();
-    ~Counter();
-    int get() const;
-    void increment();
-    void decrement();
+    Counter() : count_(0), name_("anon") {}
+    explicit Counter(const std::string& name) : count_(0), name_(name) {}
+
+    void inc() { ++count_; }
+    void inc_by(int delta) { count_ += delta; }
+    void reset() { count_ = 0; }
+
+    int count() const { return count_; }
+    const std::string& name() const { return name_; }
+
+private:
+    int count_;
+    std::string name_;
 };
-#endif
+
+} // namespace class_basic_ns

@@ -1,36 +1,25 @@
-//! 023_typeid_rtti 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 023_typeid_rtti 冒烟测试：经基类引用的 typeid 取回动态类型名（RTTI）。
 
-use hicc::AbiClass;
 use typeid_rtti::*;
+use std::ffi::CStr;
 
-#[test]
-fn smoke_circle_type_and_area() {
-    let circle = unsafe { shape_new_circle(5.0).into_unique() };
-    assert_eq!(circle.get_type(), 0, "Circle 的 getType() 应返回 SHAPE_TYPE_CIRCLE=0");
-    let area = circle.area();
-    // area ≈ π * 5² ≈ 78.539...，用 3.14159 近似
-    assert!(area > 78.0 && area < 79.0, "Circle 面积应约为 78.5");
+fn type_name(p: *const i8) -> String {
+    // 安全性：指针来自 typeid(...).name()，指向静态生命周期的 C 字符串。
+    unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
 }
 
 #[test]
-fn smoke_rectangle_type_and_area() {
-    let rect = unsafe { shape_new_rectangle(4.0, 6.0).into_unique() };
-    assert_eq!(rect.get_type(), 1, "Rectangle 的 getType() 应返回 SHAPE_TYPE_RECTANGLE=1");
-    assert!((rect.area() - 24.0).abs() < 1e-10, "Rectangle 面积应为 24.0");
+fn areas() {
+    assert!((Circle::new(2.0).area() - 12.566_370_6).abs() < 1e-4);
+    assert_eq!(Rectangle::new(3.0, 4.0).area(), 12.0);
+    assert_eq!(Triangle::new(6.0, 2.0).area(), 6.0);
 }
 
 #[test]
-fn smoke_triangle_type_and_area() {
-    let tri = unsafe { shape_new_triangle(3.0, 4.0).into_unique() };
-    assert_eq!(tri.get_type(), 2, "Triangle 的 getType() 应返回 SHAPE_TYPE_TRIANGLE=2");
-    assert!((tri.area() - 6.0).abs() < 1e-10, "Triangle 面积应为 0.5 * 3 * 4 = 6.0");
-}
-
-#[test]
-fn smoke_get_type_name() {
-    let circle = unsafe { shape_new_circle(1.0).into_unique() };
-    let name = unsafe { std::ffi::CStr::from_ptr(circle.get_type_name()) };
-    assert_eq!(name.to_str().unwrap(), "Circle", "getTypeName() 应返回 \"Circle\"");
+fn rtti_runtime_type_names() {
+    // typeid 名称在不同平台/ABI 下格式不同（Itanium 含 "6Circle"，MSVC 含 "Circle"），
+    // 但都包含类名，故用 contains 断言以保证跨平台稳定。
+    assert!(type_name(Circle::new(1.0).runtime_type_name()).contains("Circle"));
+    assert!(type_name(Rectangle::new(1.0, 1.0).runtime_type_name()).contains("Rectangle"));
+    assert!(type_name(Triangle::new(1.0, 1.0).runtime_type_name()).contains("Triangle"));
 }

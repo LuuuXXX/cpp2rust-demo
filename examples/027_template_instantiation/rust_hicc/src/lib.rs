@@ -1,13 +1,15 @@
-hicc::cpp! {
-    #include <iostream>
-    #include <vector>
-    #include <iomanip>
+//! 027_template_instantiation: 模板实例化（命名空间类模板 Matrix<T> + 具体实例化类）。
+//!
+//! C++ 类模板 `Matrix<T>` 在使用点按具体类型实例化（`Matrix<int>`、`Matrix<double>`）。
+//! 本示例将每个实例化暴露为 idiomatic 命名空间类（`IntMatrix` / `DoubleMatrix`），
+//! hicc 直出按普通类绑定方法与 `make_unique` 工厂，无需任何 extern-C shim。
 
+hicc::cpp! {
     #include "template_instantiation.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntMatrix", destroy = "intmatrix_delete")]
+    #[cpp(class = "template_instantiation_ns::IntMatrix")]
     pub class IntMatrix {
         #[cpp(method = "int rows() const")]
         pub fn rows(&self) -> i32;
@@ -23,11 +25,13 @@ hicc::import_class! {
 
         #[cpp(method = "void print() const")]
         pub fn print(&self);
+
+        pub fn new(rows: i32, cols: i32) -> Self { int_matrix_new(rows, cols) }
     }
 }
 
 hicc::import_class! {
-    #[cpp(class = "DoubleMatrix", destroy = "doublematrix_delete")]
+    #[cpp(class = "template_instantiation_ns::DoubleMatrix")]
     pub class DoubleMatrix {
         #[cpp(method = "int rows() const")]
         pub fn rows(&self) -> i32;
@@ -43,18 +47,17 @@ hicc::import_class! {
 
         #[cpp(method = "void print() const")]
         pub fn print(&self);
+
+        pub fn new(rows: i32, cols: i32) -> Self { double_matrix_new(rows, cols) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "template_instantiation"]
 
-    class IntMatrix;
-    class DoubleMatrix;
+    #[cpp(func = "std::unique_ptr<template_instantiation_ns::IntMatrix> hicc::make_unique<template_instantiation_ns::IntMatrix, int, int>(int&&, int&&)")]
+    pub fn int_matrix_new(rows: i32, cols: i32) -> IntMatrix;
 
-    #[cpp(func = "IntMatrix* intmatrix_new(int, int)")]
-    pub fn intmatrix_new(rows: i32, cols: i32) -> IntMatrix;
-
-    #[cpp(func = "DoubleMatrix* doublematrix_new(int, int)")]
-    pub fn doublematrix_new(rows: i32, cols: i32) -> DoubleMatrix;
+    #[cpp(func = "std::unique_ptr<template_instantiation_ns::DoubleMatrix> hicc::make_unique<template_instantiation_ns::DoubleMatrix, int, int>(int&&, int&&)")]
+    pub fn double_matrix_new(rows: i32, cols: i32) -> DoubleMatrix;
 }

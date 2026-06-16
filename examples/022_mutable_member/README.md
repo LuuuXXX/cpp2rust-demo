@@ -1,82 +1,79 @@
-# 022_mutable_member - mutable 成员
+# 022_mutable_member - mutable 成员（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 中 `mutable` 关键字的作用：允许在 const 成员函数中修改特定成员。
+本示例展示 **`mutable` 成员**的地道 C++ 命名空间类 `DataFetcher`：成员 `access_count_`
+被 `mutable` 修饰，因而即便在 `const` 方法 `fetch() const` 中也可被修改（「逻辑常量、
+物理可变」的内部可变性）。用 hicc 直出绑定，**无 opaque 指针、无 `extern "C"` 桥接、
+无 `*_new`/`*_delete` shim**。
 
-## C++ 代码
-
-### mutable_member.h
+## C++ 代码（节选）
 
 ```cpp
-struct DataFetcher {
-    mutable int cache_count;  // mutable 成员
-    const char* getName() const;  // const 方法可以修改 cache_count
+namespace mutable_member_ns {
+
+class DataFetcher {
+public:
+    explicit DataFetcher(int seed);
+    int fetch() const;        // const 方法，但修改 mutable 成员
+    int accessCount() const;
+private:
+    int seed_;
+    mutable int access_count_; // mutable：const 方法中可修改
 };
+
+} // namespace mutable_member_ns
 ```
 
-## FFI 对比分析
+配套 `standalone.sh` / `Makefile` 两种纯 C++ 构建方式。
 
-| 方面 | C++ | Rust FFI |
-|------|-----|----------|
-| mutable 作用 | 允许 const 方法修改该成员 | 无影响 - FFI 调用只是 C 函数 |
-| 函数签名 | `const char* getName() const` | `const char* datafetcher_getName(struct DataFetcher*)` |
-| 实现差异 | 内部可修改 mutable 成员 | 相同实现，但 Rust 不区分 |
+## Rust FFI 代码（hicc 直出）
 
-
-## Rust FFI 代码
+hicc 直出把 `const` 方法映射为 `&self`：可变更新发生在 C++ 侧（受 `mutable` 约束），
+Rust 侧以共享引用调用即可，无需 `&mut self`。
 
 ```rust
-hicc::cpp! {
-    #include <iostream>
-    #include <cstring>
-
-    #include "mutable_member.h"
-}
-
 hicc::import_class! {
-    #[cpp(class = "DataFetcher", destroy = "datafetcher_delete")]
+    #[cpp(class = "mutable_member_ns::DataFetcher")]
     pub class DataFetcher {
-        #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const i8;
+        #[cpp(method = "int fetch() const")]
+        pub fn fetch(&self) -> i32;        // &self，但底层更新 mutable 计数
 
-        #[cpp(method = "int getCacheCount() const")]
-        fn get_cache_count(&self) -> i32;
+        #[cpp(method = "int accessCount() const")]
+        pub fn access_count(&self) -> i32;
 
-        #[cpp(method = "void refresh()")]
-        fn refresh(&mut self);
+        pub fn new(seed: i32) -> Self { data_fetcher_new(seed) }
     }
 }
+```
 
-hicc::import_lib! {
-    #![link_name = "mutable_member"]
+## 关键点
 
-    class DataFetcher;
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| `const` 方法 | `&self`（共享引用） |
+| `mutable` 成员 | C++ 侧内部可变；Rust 侧无需 `&mut self` |
+| `fetch() const` 修改计数 | 调用 `&self` 方法即触发 mutable 更新 |
+| 构造 `DataFetcher(int)` | `make_unique` 工厂 → `new(i32)` |
 
-    #[cpp(func = "DataFetcher* datafetcher_new(const char*)")]
-    unsafe fn datafetcher_new(name: *const i8) -> DataFetcher;
-}
+## 构建方法
+
+```bash
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
 ## 运行结果
 
 ```
-=== 022_mutable_member - mutable 成员 ===
-
-Calling getName() 3 times (const method with mutable cache):
-  Call 1: name = 0, cache_count = 0
-  Call 2: name = 1, cache_count = 0
-  Call 3: name = 2, cache_count = 0
-
-Refreshing...
-Cache count after refresh: 1
-
-Rust FFI: mutable 关键字在 FFI 中无影响
-mutable 只影响 C++ 编译器允许在 const 方法中修改该成员
+fetch=101
+fetch=102
+access_count=2
+--- end main ---
 ```
 
 ## 总结
 
-- `mutable` 是 C++ 编译器内部优化机制
-- 在 FFI 中无影响 - 传递的是指针，函数实现相同
-- Rust FFI 调用时无需特别处理
+1. **mutable 内部可变**：`const` 方法可修改 `mutable` 成员。
+2. **映射为 &self**：hicc 直出按 const 限定符映射，mutable 更新留在 C++ 侧。
+3. **去 shim**：无 `*_new`/`*_delete`、无 opaque 指针、无 `extern "C"` 桥接。

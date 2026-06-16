@@ -1,61 +1,16 @@
-#ifdef _MSC_VER
-#define _USE_MATH_DEFINES
-#endif
 #include "virtual_pure.h"
-#include <iostream>
-#include <cmath>
-#include <cstring>
 
-// Circle class implementations
-Circle::Circle(double r) : radius(r) {}
+namespace virtual_pure_ns {
 
-Circle::~Circle() {
-    std::cout << "Deleting Circle" << std::endl;
-}
+Circle::Circle(double r) : radius_(r) {}
+Circle::~Circle() = default;
+double Circle::area() const { return 3.14159265358979323846 * radius_ * radius_; }
+double Circle::radius() const { return radius_; }
 
-double Circle::area() const {
-    return M_PI * radius * radius;
-}
+Rectangle::Rectangle(double w, double h) : width_(w), height_(h) {}
+Rectangle::~Rectangle() = default;
+double Rectangle::area() const { return width_ * height_; }
 
-const char* Circle::getName() const {
-    return "Circle";
-}
+int virtual_pure_anchor() { return 0; }
 
-// Rectangle class implementations
-Rectangle::Rectangle(double w, double h) : width(w), height(h) {}
-
-Rectangle::~Rectangle() {
-    std::cout << "Deleting Rectangle" << std::endl;
-}
-
-double Rectangle::area() const {
-    return width * height;
-}
-
-const char* Rectangle::getName() const {
-    return "Rectangle";
-}
-
-// FFI wrapper functions
-struct AbstractShape* abstract_shape_create_circle(double radius) {
-    return new Circle(radius);
-}
-
-struct AbstractShape* abstract_shape_create_rectangle(double width, double height) {
-    return new Rectangle(width, height);
-}
-
-void abstract_shape_delete(struct AbstractShape* self) {
-    if (self) {
-        std::cout << "Deleting " << self->getName() << std::endl;
-        delete self;
-    }
-}
-
-double abstract_shape_area(struct AbstractShape* self) {
-    return self->area();
-}
-
-const char* abstract_shape_getName(struct AbstractShape* self) {
-    return self->getName();
-}
+} // namespace virtual_pure_ns

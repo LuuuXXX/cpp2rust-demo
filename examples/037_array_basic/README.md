@@ -1,226 +1,119 @@
-# 037_array_basic - std::array
+# 037_array_basic - std::array（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `std::array`（固定大小数组容器）的基本操作。
+本示例展示 C++ **std::array** 基本操作的 FFI 处理方式。采用 idiomatic 命名空间风格
+（`array_basic_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；
+`IntArray` 直接持有固定大小 `std::array<int, 8>`，演示 size/set/get/fill/sum/max/min
+等操作。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### array_basic.h
 
 ```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace array_basic_ns {
 
-struct IntArray5;
-
-struct IntArray5* int_array5_new(void);
-struct IntArray5* int_array5_new_from(const int* values);
-void int_array5_delete(struct IntArray5* self);
-
-size_t int_array5_size(struct IntArray5* self);
-int int_array5_get(struct IntArray5* self, size_t index);
-void int_array5_set(struct IntArray5* self, size_t index, int value);
-int* int_array5_data(struct IntArray5* self);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### array_basic.cpp
-
-```cpp
-#include "array_basic.h"
-#include <array>
-
-struct IntArray5 {
-    std::array<int, 5> data;
+class IntArray {
+    std::array<int, 8> data_;
+public:
+    IntArray() : data_{} {}
+    int size() const { return 8; }
+    void set(int i, int v) { /* 边界检查 */ }
+    int get(int i) const { /* 越界返回 0 */ }
+    void fill(int v) { data_.fill(v); }
+    int sum() const { /* 累加 */ }
+    int max() const { /* 最大值 */ }
+    int min() const { /* 最小值 */ }
 };
 
-struct IntArray5* int_array5_new(void) {
-    return new IntArray5();
-}
-
-size_t int_array5_size(struct IntArray5* self) {
-    return self->data.size();
-}
-
-int int_array5_get(struct IntArray5* self, size_t index) {
-    return self->data[index];
-}
-
-int* int_array5_data(struct IntArray5* self) {
-    return self->data.data();
-}
+} // namespace array_basic_ns
 ```
-
-## std::array 特点
-
-| 特性 | 说明 |
-|------|------|
-| 固定大小 | 大小在编译时确定 |
-| 栈分配 | 通常在栈上分配 |
-| 无动态扩容 | 不能改变大小 |
-| 聚合语义 | 支持迭代器 |
-
-### 与 std::vector 对比
-
-| 特性 | std::array | std::vector |
-|------|------------|-------------|
-| 大小 | 固定 | 动态 |
-| 内存位置 | 栈/静态 | 堆 |
-| 性能 | 更快 | 有分配开销 |
-| 灵活性 | 低 | 高 |
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <array>
-    #include <string>
-    #include <cstring>
-
     #include "array_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntArray5", destroy = "int_array5_delete")]
-    pub class IntArray5 {
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
+    #[cpp(class = "array_basic_ns::IntArray")]
+    pub class IntArray {
+        #[cpp(method = "void set(int i, int v)")]
+        pub fn set(&mut self, i: i32, v: i32);
+        #[cpp(method = "int get(int i) const")]
+        pub fn get(&self, i: i32) -> i32;
+        // size / fill / sum / max / min 略
 
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
-
-        #[cpp(method = "void set(size_t i, int val)")]
-        fn set(&mut self, i: usize, val: i32);
-
-        #[cpp(method = "int get(size_t i) const")]
-        fn get(&self, i: usize) -> i32;
-
-        #[cpp(method = "int at(size_t i) const")]
-        fn at(&self, i: usize) -> i32;
-
-        #[cpp(method = "int* data()")]
-        fn data(&mut self) -> *mut i32;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "DoubleArray3", destroy = "double_array3_delete")]
-    pub class DoubleArray3 {
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "StringArray4", destroy = "string_array4_delete")]
-    pub class StringArray4 {
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
+        pub fn new() -> Self { int_array_new() }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "array_basic"]
 
-    class IntArray5;
-    class DoubleArray3;
-    class StringArray4;
-
-    #[cpp(func = "IntArray5* int_array5_new()")]
-    fn int_array5_new() -> IntArray5;
-
-    #[cpp(func = "IntArray5* int_array5_new_from(const int*)")]
-    fn int_array5_new_from(values: *const i32) -> IntArray5;
-
-    #[cpp(func = "DoubleArray3* double_array3_new()")]
-    fn double_array3_new() -> DoubleArray3;
-
-    #[cpp(func = "DoubleArray3* double_array3_new_from(const double*)")]
-    fn double_array3_new_from(values: *const f64) -> DoubleArray3;
-
-    #[cpp(func = "StringArray4* string_array4_new()")]
-    fn string_array4_new() -> StringArray4;
+    #[cpp(func = "std::unique_ptr<array_basic_ns::IntArray> hicc::make_unique<array_basic_ns::IntArray>()")]
+    pub fn int_array_new() -> IntArray;
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ std::array | Rust FFI |
-|------|----------------|----------|
-| 大小 | 编译时模板参数 | 运行时返回 |
-| 元素类型 | 模板参数 | 分离的函数 |
-| 访问方式 | `v[i]` 或 `v.at(i)` | get(i) 函数 |
-| 内存位置 | 栈或静态 | 堆（通过 new） |
-
-## 关键点
-
-1. **固定大小**：大小不能改变
-2. **编译时确定**：类型包含大小信息
-3. **栈分配**：更高效的内存布局
-4. **数据指针**：`data()` 返回连续内存
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 容器持有 | `std::array<int, 8>` 成员 | hicc 绑定内部持有，对外透明 |
+| 大小 | 编译期固定为 8 | `size()` 返回 i32 |
+| 访问 | `operator[]` | `get` / `set`（带边界检查） |
+| 批量赋值 | `fill` | 同名方法 |
+| 析构 | `~IntArray` | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 037_array_basic - std::array ===
+=== 037_array_basic - std::array（hicc 直出）===
 
---- IntArray5 Demo ---
-Size: 5
-Empty: false
-Elements:
-  [0] = 0
-  [1] = 10
-  [2] = 20
-  [3] = 30
-  [4] = 40
-at(2) = 20
-Data pointer: 0x...
+size=8 sum=0
+after set sum=280 min=0 max=70
+get(2)=999 get(99)=0
+after fill sum=56 min=7 max=7
 
---- IntArray5 from values Demo ---
-Size: 5
-Elements:
-  [0] = 1
-  [1] = 2
-  [2] = 3
-  [3] = 4
-  [4] = 5
-
-Rust FFI: std::array 映射
-1. std::array 是固定大小的数组容器
-2. 大小在编译时确定（模板参数）
-3. data() 返回原始指针用于批量访问
-4. 与 Rust 的 [T; N] 数组语义相似
+Rust FFI: hicc 直接绑定持有 std::array 的类，析构由 Rust Drop 自动完成
 ```
 
 ## 冒烟测试
 
-本示例在 `.cpp2rust/array_basic/rust/tests/smoke.rs` 中包含以下冒烟测试，CI 通过 `l-smoke` job 自动运行：
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+链接并正确调用。
+
+### 测试用例
 
 | 测试函数 | 验证内容 |
-|----------|----------|
-| `smoke_int_array5_new` | `int_array5_new()` 分配成功，返回非空指针 |
-| `smoke_int_array5_set_get` | `int_array5_set` / `int_array5_get` 写入读取值正确 |
-| `smoke_int_array5_at` | `int_array5_at` 越界返回 `-1`（哨兵值） |
-| `smoke_int_array5_new_from` | `int_array5_new_from` 从整型数组初始化，索引读取正确 |
-| `smoke_double_array3_type_available` | `DoubleArray3` 类型可用（编译期可见性验证） |
+|---------|---------|
+| `smoke_int_array_size_and_zero_init` | size / 零初始化 / sum / min / max |
+| `smoke_int_array_set_get_sum` | set / get / sum |
+| `smoke_int_array_fill_min_max` | fill / min / max |
+| `smoke_int_array_oob_is_safe` | 越界 get 返回 0，越界 set 不修改状态 |
+| `smoke_int_array_per_object_state` | 每个对象独立保存状态 |
 
-运行单个冒烟测试：
+### 运行方式
 
 ```bash
-cd examples/037_array_basic/.cpp2rust/array_basic/rust
-cargo test smoke_int_array5_set_get -- --nocapture
+cd examples/037_array_basic/rust_hicc
+cargo test --test smoke
 ```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- std::array 是固定大小的数组容器
-- FFI 边界需要分离不同大小的类型
-- 与 Rust 的 `[T; N]` 语义相似
-- 适用于固定大小的集合
+- C++ `std::array` 可通过 hicc 直接绑定持有它的类来表达，无需不透明指针 + impl 间接层
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- get/set/fill/sum/min/max 等操作语义与 C++ 一致，越界访问保持安全默认值

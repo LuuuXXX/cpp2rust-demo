@@ -1,32 +1,21 @@
 use lambda_basic::*;
 
 fn main() {
-    println!("=== 039_lambda_basic - Lambda 表达式 ===\n");
+    println!("=== 039_lambda_basic - lambda 表达式（hicc 直出）===\n");
 
-    println!("--- Direct function calls ---");
-    println!("add_impl(3, 4) = {}", add_impl(3, 4));
-    println!("multiply_impl(3, 4) = {}", multiply_impl(3, 4));
-    println!("max_impl(3, 4) = {}", max_impl(3, 4));
+    let add = Operation::new(0);
+    let mul = Operation::new(1);
+    let mx = Operation::new(2);
+    println!("add(3,4)={}", add.apply(3, 4));
+    println!("mul(3,4)={}", mul.apply(3, 4));
+    println!("max(3,4)={}", mx.apply(3, 4));
 
-    println!("\n--- LambdaWrapper Demo ---");
-    let mut add_wrapper = make_add_lambda();
-    println!("add invoke(5, 6) = {}", add_wrapper.invoke(5, 6));
+    println!();
 
-    let mut mul_wrapper = make_multiply_lambda();
-    println!("multiply invoke(5, 6) = {}", mul_wrapper.invoke(5, 6));
+    let mut acc = Accumulator::new(10);
+    let a = acc.apply(5);
+    let b = acc.apply(3);
+    println!("acc.apply(5)={} apply(3)={} value={}", a, b, acc.value());
 
-    println!("\n--- StateLambda Demo ---");
-    let mut state = state_lambda_new(10);
-    println!("initial value = {}", state.get_value());
-    println!("add(5) = {}", state.add(5));
-    println!("add(3) = {}", state.add(3));
-
-    println!("\n--- Comparator Demo ---");
-    let cmp = comparator_new_add();
-    println!("compare(2, 3) = {}", cmp.compare(2, 3));
-
-    println!("\nRust FFI: Lambda 表达式映射");
-    println!("1. 函数指针可以通过 FFI 传递");
-    println!("2. 捕获状态的 lambda 需要包装在类中");
-    println!("3. 此示例展示基本的类封装模式");
+    println!("\nRust FFI: hicc 绑定内部持有 lambda(std::function) 的类，闭包状态在 C++ 侧保留");
 }

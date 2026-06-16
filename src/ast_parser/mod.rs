@@ -105,8 +105,27 @@ pub struct ClassInfo {
     pub fields: Vec<FieldInfo>,
     /// 是否来自命名空间（collect_namespace 收集的类）
     pub is_in_namespace: bool,
+    /// 类的简单名（未做命名空间扁平化，如 `Counter`）。顶层类与 `name` 相同。
+    /// 命名空间类的 `name` 仍保留旧式扁平化前缀（如 `class_basic_ns_Counter`）以兼容
+    /// 旧路径的「被 extern-C 桥接引用的类」匹配逻辑；hicc 直出路径用本字段与 `namespace`
+    /// 还原真实命名空间类名（`#[cpp(class = "ns::T")]`）。
+    pub simple_name: String,
+    /// 所属命名空间的 `::` 限定路径（如 `class_basic_ns` 或 `foo::bar`）。
+    /// 顶层类为 `None`。用于 hicc 直出时绑定真实命名空间类（`#[cpp(class = "ns::T")]`）。
+    pub namespace: Option<String>,
     /// 是否定义在当前被解析的 `.cpp2rust` 文件中（false 表示来自被 include 的头文件）
     pub is_from_current_file: bool,
+}
+
+impl ClassInfo {
+    /// 返回 C++ 端的 `::` 限定类名（如 `class_basic_ns::Counter`）。
+    /// 顶层类返回简单名本身。
+    pub fn qualified_name(&self) -> String {
+        match &self.namespace {
+            Some(ns) if !ns.is_empty() => format!("{}::{}", ns, self.simple_name),
+            _ => self.simple_name.clone(),
+        }
+    }
 }
 
 /// 全局函数
@@ -126,6 +145,9 @@ pub struct FunctionInfo {
     /// 函数声明/定义是否位于当前编译单元（.cpp 文件自身），而非被 include 的头文件。
     /// 与 `ClassInfo::is_from_current_file` 语义一致，通过 `cpp_byte_ranges` 判断。
     pub is_from_current_file: bool,
+    /// 函数所属命名空间的 `::` 限定路径（如 `foo`、`foo::bar::config`）。
+    /// 全局作用域函数为 `None`。hicc 直出路径据此对自由函数名做命名空间限定。
+    pub namespace: Option<String>,
 }
 
 /// 模板类声明（`ClassTemplate`）— v6 Phase A

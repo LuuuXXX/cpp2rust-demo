@@ -1,74 +1,42 @@
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
+#include <cstring>
+#include <string>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace union_basic_ns {
 
-// Value type constants
-enum VariantType { VALUE_TYPE_INT = 0, VALUE_TYPE_FLOAT = 1, VALUE_TYPE_STRING = 2 };
-
-// Forward declaration
-struct Variant;
-
-// Factory functions
-struct Variant* variant_new_int(int value);
-struct Variant* variant_new_float(float value);
-struct Variant* variant_new_string(const char* value);
-void variant_delete(struct Variant* self);
-
-// Accessors
-int variant_get_type(const struct Variant* self);
-int variant_get_int(const struct Variant* self);
-float variant_get_float(const struct Variant* self);
-const char* variant_get_string(const struct Variant* self);
-
-// Mutators
-void variant_set_int(struct Variant* self, int value);
-void variant_set_float(struct Variant* self, float value);
-void variant_set_string(struct Variant* self, const char* value);
-
-// IntFloatUnion for demonstrating memory overlay
-struct IntFloatUnion {
-    union {
-        int int_value;
-        float float_value;
-    } data;
-};
-
-struct IntFloatUnion* union_new(void);
-void union_delete(struct IntFloatUnion* u);
-int union_get_int(struct IntFloatUnion* u);
-float union_get_float(struct IntFloatUnion* u);
-void union_set_int(struct IntFloatUnion* u, int value);
-void union_set_float(struct IntFloatUnion* u, float value);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// Variant：tagged union，按 type_ 记录当前活跃成员。
 class Variant {
-public:
-    using StringBuffer = char[64];
-private:
-    int type_;
-    union {
-        int int_value_;
-        float float_value_;
-        char string_buffer_[64];
-    } data_;
+    int type_;                  // 0=int, 1=float, 2=string
+    union { int i_; float f_; char s_[64]; };
+    std::string sbuf_;          // get_string() 返回 c_str() 的稳定 backing
 public:
     Variant();
-    ~Variant();
-    [[nodiscard]] int get_type() const;
-    void set_int(int value);
-    void set_float(float value);
-    void set_string(const char* value);
-    [[nodiscard]] int get_int() const;
-    [[nodiscard]] float get_float() const;
-    [[nodiscard]] const char* get_string() const;
+
+    void set_int(int v);
+    void set_float(float v);
+    void set_string(const char* v);
+
+    int get_type() const;
+    int get_int() const;
+    float get_float() const;
+    const char* get_string() const;
 };
 
-#endif
+// IntFloatUnion：同一块内存用 int / float 两种视图读取。
+class IntFloatUnion {
+    union { int i_; float f_; };
+public:
+    IntFloatUnion();
+
+    void set_int(int v);
+    void set_float(float v);
+
+    int get_int() const;
+    float get_float() const;
+};
+
+// 锚点：本单元可链接的非模板符号。
+int union_basic_anchor();
+
+} // namespace union_basic_ns

@@ -340,6 +340,7 @@ mod tests {
     fn make_class(name: &str) -> ClassInfo {
         ClassInfo {
             name: name.to_string(),
+            simple_name: name.to_string(),
             is_struct: false,
             is_abstract: false,
             template_args: vec![],
@@ -347,6 +348,7 @@ mod tests {
             methods: vec![],
             fields: vec![],
             is_in_namespace: false,
+            namespace: None,
             is_from_current_file: true,
         }
     }
@@ -369,6 +371,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         }
     }
 
@@ -393,6 +396,7 @@ mod tests {
                 associated_fns: vec![],
                 destroy_fn: None,
                 is_interface: false,
+                ..Default::default()
             }],
             lib_spec: LibSpec::default(),
             ..Default::default()

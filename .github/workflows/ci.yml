@@ -393,13 +393,21 @@ jobs:
           for dir in examples/*/cpp; do
             example=$(basename $(dirname "$dir"))
             echo "Building C++ lib for $example..."
-            (cd "$dir" && g++ -shared -fPIC *.cpp -o "lib${example##*_}.so") || echo "⚠ Failed to build C++ lib for $example (skipping)"
+            (cd "$dir" && g++ -shared -fPIC *.cpp -o "lib${example##*_}.so") || echo "::warning::Failed to build C++ lib for $example (skipping)"
           done
 
       # 并行预构建所有示例项目：共享同一 CARGO_TARGET_DIR，hicc 只编译一次；
       # 测试时 cargo_run 直接执行已编译二进制，跳过 cargo 开销。
       - name: Pre-build all Rust example projects
         run: |
+          # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
+          # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
+          # 同时预热「不依赖 hicc-std」与「依赖 hicc-std」的代表示例各一个，
+          # 确保 hicc / hicc-build / hicc-std 等共享 build 脚本（cc-rs）只在串行阶段编译一次。
+          std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
+          for warm in "$(ls -d examples/*/rust_hicc | head -n1)" "$std_first"; do
+            [ -n "$warm" ] && cargo build --manifest-path "$warm"/Cargo.toml
+          done
           ls -d examples/*/rust_hicc | \
             xargs -P$(nproc) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -463,7 +471,7 @@ jobs:
           for dir in examples/*/cpp; do
             example=$(basename $(dirname "$dir"))
             echo "Building C++ DLL for $example..."
-            (cd "$dir" && g++ -shared *.cpp -o "${example##*_}.dll") || echo "⚠ Failed to build C++ DLL for $example (skipping)"
+            (cd "$dir" && g++ -shared *.cpp -o "${example##*_}.dll") || echo "::warning::Failed to build C++ DLL for $example (skipping)"
           done
 
       # 并行预构建所有示例项目（PowerShell），共享 CARGO_TARGET_DIR。
@@ -701,43 +709,6 @@ jobs:
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
-  # ── L6: gen-verify 端到端生成验证 (macOS) ────────────────────────
-  gen-verify-macos:
-    name: L6 gen-verify (macOS)
-    runs-on: macos-latest
-    needs: [unit-tests-macos, l1-golden-macos]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-gen-verify-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-gen-verify-
-            ${{ runner.os }}-cargo-
-
-      - name: Run L6 gen-verify tests
-        run: |
-          cargo test --test gen_verify_e2e_test -- \
-            --include-ignored \
-            --test-threads=1
-
   # ── L4 Windows（MinGW）: 在 windows-latest 上验证 E2E 捕获流程 ──
   l4-rapidjson-e2e-windows:
     name: L4 rapidjson E2E (Windows MinGW)
@@ -833,11 +804,12 @@ jobs:
       - name: Verify generated project passes cargo test (smoke tests)
         # hicc import_lib! 在测试二进制链接时可能遇到 _hicc_export_methods_* 未定义限制；
         # 此步骤为 best-effort，不阻塞 CI
-        continue-on-error: true
         run: |
           cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
           if [ -f "tests/smoke.rs" ]; then
-            cargo test --quiet || echo "⚠ cargo test failed (hicc import_lib! linking limitation)"
+            if ! cargo test --quiet; then
+              echo "::warning::rapidjson smoke cargo test 失败（已知 hicc import_lib! 链接限制：未定义 _hicc_export_methods_* 符号）。不阻塞 CI，但已作为警告显式暴露，避免绿色掩盖错误。"
+            fi
           else
             echo "No tests/smoke.rs generated, skipping cargo test"
           fi
@@ -898,13 +870,14 @@ jobs:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
       - name: Verify generated project passes cargo test (smoke tests)
-        continue-on-error: true
         shell: msys2 {0}
         run: |
           export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
           cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/rapidjson_shim/rust"
           if [ -f "tests/smoke.rs" ]; then
-            cargo test --quiet || echo "⚠ cargo test failed (hicc import_lib! linking limitation)"
+            if ! cargo test --quiet; then
+              echo "::warning::rapidjson smoke cargo test 失败（已知 hicc import_lib! 链接限制：未定义 _hicc_export_methods_* 符号）。不阻塞 CI，但已作为警告显式暴露，避免绿色掩盖错误。"
+            fi
           else
             echo "No tests/smoke.rs generated, skipping cargo test"
           fi
@@ -964,13 +937,14 @@ jobs:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
       - name: Verify generated project passes cargo test (smoke tests)
-        continue-on-error: true
         shell: msys2 {0}
         run: |
           export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
           cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/rapidjson_shim/rust"
           if [ -f "tests/smoke.rs" ]; then
-            cargo test --quiet || echo "⚠ cargo test failed (hicc import_lib! linking limitation)"
+            if ! cargo test --quiet; then
+              echo "::warning::rapidjson smoke cargo test 失败（已知 hicc import_lib! 链接限制：未定义 _hicc_export_methods_* 符号）。不阻塞 CI，但已作为警告显式暴露，避免绿色掩盖错误。"
+            fi
           else
             echo "No tests/smoke.rs generated, skipping cargo test"
           fi
@@ -1011,6 +985,14 @@ jobs:
       # 测试时每个 cargo_build_example 调用直接命中缓存，跳过 cargo 开销。
       - name: Pre-build all Rust example projects
         run: |
+          # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
+          # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
+          # 同时预热「不依赖 hicc-std」与「依赖 hicc-std」的代表示例各一个，
+          # 确保 hicc / hicc-build / hicc-std 等共享 build 脚本（cc-rs）只在串行阶段编译一次。
+          std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
+          for warm in "$(ls -d examples/*/rust_hicc | head -n1)" "$std_first"; do
+            [ -n "$warm" ] && cargo build --manifest-path "$warm"/Cargo.toml
+          done
           ls -d examples/*/rust_hicc | \
             xargs -P$(nproc) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -1406,401 +1388,6 @@ jobs:
           CARGO_TARGET_DIR: ${{ github.workspace }}\examples-target
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
-  # ════════════════════════════════════════════════════════════════
-  # macOS 系列（macos-latest，Apple Silicon / x86_64）
-  # 依赖：Homebrew LLVM（提供 libclang + clang++）
-  # 编译拦截：DYLD_INSERT_LIBRARIES + libhook.dylib（make -f hook/Makefile）
-  # ════════════════════════════════════════════════════════════════
-
-  # ── Build (macOS) ─────────────────────────────────────────────────
-  build-macos:
-    name: Build (cpp2rust-demo, macOS)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Build
-        run: cargo build --all-targets
-
-  # ── Unit tests (macOS) ────────────────────────────────────────────
-  unit-tests-macos:
-    name: Unit tests (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run unit tests (lib)
-        run: cargo test --lib
-
-      - name: Run unit tests (bin) – multi-feature merge & output-dir
-        run: cargo test --bin cpp2rust-demo
-
-  # ── L1 Golden tests (macOS) ───────────────────────────────────────
-  l1-golden-macos:
-    name: L1 Golden tests (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      # L1 测试须单线程运行（clang 全局状态竞争）
-      - name: Run L1 golden tests
-        run: |
-          cargo test --test l1_golden_tests -- \
-            --include-ignored \
-            --test-threads=1
-
-  # ── L2 Compile tests (macOS) ──────────────────────────────────────
-  l2-compile-macos:
-    name: L2 Compile tests (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run L2 compile tests
-        run: cargo test --test l2_compile_tests
-
-  # ── L3 Run tests (macOS) ──────────────────────────────────────────
-  l3-run-macos:
-    name: L3 Run tests (macOS)
-    runs-on: macos-latest
-    needs: [l1-golden-macos, l2-compile-macos]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            examples-target
-          key: ${{ runner.os }}-cargo-l3-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-l3-
-            ${{ runner.os }}-cargo-
-
-      - name: Build C++ shared libraries for all examples
-        run: |
-          for dir in examples/*/cpp; do
-            example=$(basename $(dirname "$dir"))
-            echo "Building C++ dylib for $example..."
-            # 使用系统 Apple Clang，避免 LLVM clang++ 使用其自带头文件与 macOS SDK 不兼容
-            (cd "$dir" && /usr/bin/clang++ -dynamiclib *.cpp -o "lib${example##*_}.dylib") || echo "⚠ Failed to build C++ dylib for $example (skipping)"
-          done
-
-      # 并行预构建所有示例项目，共享 CARGO_TARGET_DIR，hicc 只编译一次
-      - name: Pre-build all Rust example projects
-        run: |
-          ls -d examples/*/rust_hicc | \
-            xargs -P$(sysctl -n hw.logicalcpu) -I{} \
-              cargo build --manifest-path {}/Cargo.toml
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-      - name: Run L3 run tests
-        run: |
-          cargo test --test l3_run_tests -- \
-            --include-ignored \
-            --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-  # ── L4 rapidjson E2E (macOS) ──────────────────────────────────────
-  l4-rapidjson-e2e-macos:
-    name: L4 rapidjson E2E (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install cmake
-        run: brew install cmake
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      # 单线程运行：clang 全局状态 + rapidjson 文件数量多
-      - name: Run L4 rapidjson E2E tests
-        run: |
-          cargo test --test rapidjson_e2e_test -- \
-            --test-threads=1
-
-  # ── Usage verify-rapidjson-ffi (macOS) ────────────────────────────
-  usage-verify-rapidjson-ffi-macos:
-    name: Usage verify-rapidjson-ffi (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install cmake
-        run: brew install cmake
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Build cpp2rust-demo binary
-        run: cargo build --release
-
-      - name: Run verify-rapidjson-ffi.sh
-        run: |
-          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
-          SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
-
-      - name: Verify generated project passes cargo test (smoke tests)
-        continue-on-error: true
-        run: |
-          cd "${GITHUB_WORKSPACE}/.cpp2rust/rapidjson_shim/rust"
-          if [ -f "tests/smoke.rs" ]; then
-            cargo test --quiet || echo "⚠ cargo test failed (hicc import_lib! linking limitation)"
-          else
-            echo "No tests/smoke.rs generated, skipping cargo test"
-          fi
-
-  # ── L5 nm symbol validation (macOS) ──────────────────────────────
-  l5-nm-symbols-macos:
-    name: L5 nm symbol validation (macOS)
-    runs-on: macos-latest
-    needs: [l2-compile-macos]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            examples-target
-          key: ${{ runner.os }}-cargo-l5-${{ hashFiles('**/Cargo.toml', 'examples/*/rust_hicc/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-l5-
-            ${{ runner.os }}-cargo-
-
-      # 并行预构建所有示例 Rust crate：共享 CARGO_TARGET_DIR，hicc 只编译一次
-      - name: Pre-build all Rust example projects
-        run: |
-          ls -d examples/*/rust_hicc | \
-            xargs -P$(sysctl -n hw.logicalcpu) -I{} \
-              cargo build --manifest-path {}/Cargo.toml
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-      # --nocapture：确保符号比对报告在 CI 日志中可见
-      - name: Run L5 nm symbol tests
-        run: |
-          cargo test --test l5_nm_symbol_tests -- \
-            --ignored \
-            --nocapture \
-            --test-threads=4
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/examples-target
-
-  # ── L4 E2E Libraries (macOS) ──────────────────────────────────────
-  l4-e2e-libraries-macos:
-    name: L4 E2E Libraries (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Init E2E submodules
-        run: |
-          git submodule update --init \
-            references/tinyxml2 \
-            references/pugixml \
-            references/nlohmann-json \
-            references/fmtlib
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install sqlite3
-        run: brew install sqlite3
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Run tinyxml2 E2E
-        run: cargo test --test tinyxml2_e2e_test -- --test-threads=1
-
-      - name: Run pugixml E2E
-        run: cargo test --test pugixml_e2e_test -- --test-threads=1
-
-      - name: Run sqlite3 E2E
-        # macOS 系统头路径与 Linux 不同，测试内部会自动跳过（graceful skip）
-        run: cargo test --test sqlite3_e2e_test -- --test-threads=1
-
-      - name: Run nlohmann/json E2E
-        run: cargo test --test nlohmann_json_e2e_test -- --test-threads=1
-
-      - name: Run fmtlib E2E
-        run: cargo test --test fmtlib_e2e_test -- --test-threads=1
-
   # ── L4 E2E Libraries (Windows MinGW) ─────────────────────────────
   l4-e2e-libraries-windows:
     name: L4 E2E Libraries (Windows MinGW)
@@ -1974,40 +1561,6 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       # 单线程运行：clang 全局状态竞争 + 项目内文件数量多
-      - name: Run multi-feature & output-dir E2E tests
-        run: |
-          cargo test --test multi_feature_e2e_test -- \
-            --test-threads=1
-
-  # ── L4: 多 feature 合并 & output-dir 真实项目验证（macOS）────────
-  l4-multi-feature-e2e-macos:
-    name: L4 Multi-Feature & Output-Dir E2E (macOS)
-    runs-on: macos-latest
-    needs: build-macos
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install LLVM
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Set LIBCLANG_PATH
-        run: echo "LIBCLANG_PATH=${{ env.LLVM_PATH }}/lib" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
       - name: Run multi-feature & output-dir E2E tests
         run: |
           cargo test --test multi_feature_e2e_test -- \

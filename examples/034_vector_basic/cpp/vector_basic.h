@@ -1,85 +1,55 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// std::vector 基本操作示例
-
-#include <stddef.h>
-
-// Forward declarations (opaque pointers)
-struct IntVector;
-struct StringVector;
-
-// IntVector operations
-struct IntVector* int_vector_new(void);
-void int_vector_delete(struct IntVector* self);
-
-size_t int_vector_size(const struct IntVector* self);
-size_t int_vector_capacity(const struct IntVector* self);
-int int_vector_empty(const struct IntVector* self);
-
-void int_vector_push_back(struct IntVector* self, int value);
-void int_vector_pop_back(struct IntVector* self);
-int int_vector_get(const struct IntVector* self, size_t index);
-void int_vector_set(struct IntVector* self, size_t index, int value);
-
-void int_vector_clear(struct IntVector* self);
-int* int_vector_data(struct IntVector* self);
-
-// StringVector operations
-struct StringVector* string_vector_new(void);
-void string_vector_delete(struct StringVector* self);
-
-size_t string_vector_size(const struct StringVector* self);
-size_t string_vector_capacity(const struct StringVector* self);
-
-void string_vector_push_back(struct StringVector* self, const char* value);
-const char* string_vector_get(const struct StringVector* self, size_t index);
-void string_vector_clear(struct StringVector* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 #include <vector>
 #include <string>
 
-class IntVectorImpl {
+namespace vector_basic_ns {
+
+// IntVector：直接持有 std::vector<int>，演示基本容器操作。
+// hicc 直出无需 extern-C 不透明指针 + *_delete，析构由 Rust Drop 自动完成。
+class IntVector {
+    std::vector<int> data_;
 public:
-    std::vector<int> data;
-    IntVectorImpl();
-    ~IntVectorImpl();
+    IntVector() = default;
+
+    int size() const { return static_cast<int>(data_.size()); }
+    int capacity() const { return static_cast<int>(data_.capacity()); }
+    int empty() const { return data_.empty() ? 1 : 0; }
+
+    void reserve(int n) { if (n > 0) data_.reserve(static_cast<std::size_t>(n)); }
+    void push_back(int v) { data_.push_back(v); }
+    void pop_back() { if (!data_.empty()) data_.pop_back(); }
+
+    int get(int i) const {
+        return (i >= 0 && static_cast<std::size_t>(i) < data_.size()) ? data_[i] : 0;
+    }
+    void set(int i, int v) {
+        if (i >= 0 && static_cast<std::size_t>(i) < data_.size()) data_[i] = v;
+    }
+
+    int sum() const {
+        int s = 0;
+        for (int x : data_) s += x;
+        return s;
+    }
+    void clear() { data_.clear(); }
 };
 
-class StringVectorImpl {
+// StringVector：直接持有 std::vector<std::string>，get 返回元素的 c_str()。
+class StringVector {
+    std::vector<std::string> data_;
 public:
-    std::vector<std::string> data;
-    StringVectorImpl();
-    ~StringVectorImpl();
+    StringVector() = default;
+
+    int size() const { return static_cast<int>(data_.size()); }
+    void push_back(const char* s) { data_.push_back(s ? s : ""); }
+    const char* get(int i) const {
+        return (i >= 0 && static_cast<std::size_t>(i) < data_.size()) ? data_[i].c_str() : "";
+    }
+    void clear() { data_.clear(); }
 };
 
-struct IntVector {
-    IntVectorImpl* impl;
-    explicit IntVector();
-    ~IntVector();
-    void push_back(int val) { impl->data.push_back(val); }
-    int get(size_t i) const { return impl->data[i]; }
-    void set(size_t i, int val) { impl->data[i] = val; }
-    size_t size() const { return impl->data.size(); }
-    bool empty() const { return impl->data.empty(); }
-    size_t capacity() const { return impl->data.capacity(); }
-    void reserve(size_t n) { impl->data.reserve(n); }
-    int* data() { return impl->data.data(); }
-    void clear() { impl->data.clear(); }
-};
+// 锚点：本单元可链接的非模板符号。
+int vector_basic_anchor();
 
-struct StringVector {
-    StringVectorImpl* impl;
-    explicit StringVector();
-    ~StringVector();
-    size_t size() const { return impl->data.size(); }
-};
-
-#endif
+} // namespace vector_basic_ns

@@ -1,8 +1,8 @@
-# 048_summary - 汇总
+# 048_summary - 汇总（hicc 直出，去 shim）
 
 ## 项目概述
 
-本项目是一个 C++ 到 Rust 的 FFI（Foreign Function Interface）示例集合，通过 48 个循序渐进示例展示 C++ 各种特性如何映射到 Rust FFI 接口。
+本项目是一个 C++ 到 Rust 的 FFI（Foreign Function Interface）示例集合，通过 48 个循序渐进示例展示 C++ 各种特性如何映射到 Rust FFI 接口。本收尾示例保留“总结全系列”的定位，但代码风格迁移为 hicc shimless 直出：直接绑定 C++ 命名空间类与自由函数，不再编写 extern-C shim。
 
 ### 目录结构
 
@@ -14,259 +14,201 @@ examples/
 ├── 004_inline_functions/   # 内联函数
 ├── 005_variadic_functions/ # 可变参数函数
 ├── 006_class_basic/        # 基础类
-├── 007_class_constructor/   # 构造函数
-├── 008_class_copy/        # 拷贝构造
-├── 009_class_move/        # 移动构造
-├── 010_class_static/      # 静态成员
-├── 011_class_const/       # const 成员函数
-├── 012_class_volatile/    # volatile 成员
+├── 007_class_constructor/  # 构造函数
+├── 008_class_copy/         # 拷贝构造
+├── 009_class_move/         # 移动构造
+├── 010_class_static/       # 静态成员
+├── 011_class_const/        # const 成员函数
+├── 012_class_volatile/     # volatile 成员
 ├── 013_inheritance_single/ # 单继承
 ├── 014_inheritance_multiple/ # 多继承
-├── 015_virtual_basic/     # 虚函数基础
-├── 016_virtual_pure/      # 纯虚函数
-├── 017_virtual_override/  # 函数覆盖
-├── 018_virtual_diamond/   # 菱形继承
-├── 019_operator_overload/ # 运算符重载
-├── 020_friend_function/  # 友元函数
-├── 021_explicit_ctor/     # explicit 构造函数
-├── 022_mutable_member/    # mutable 成员
-├── 023_typeid_rtti/       # typeid 和 RTTI
-├── 024_template_function/ # 函数模板
-├── 025_template_class/    # 类模板
+├── 015_virtual_basic/      # 虚函数基础
+├── 016_virtual_pure/       # 纯虚函数
+├── 017_virtual_override/   # 函数覆盖
+├── 018_virtual_diamond/    # 菱形继承
+├── 019_operator_overload/  # 运算符重载
+├── 020_friend_function/    # 友元函数
+├── 021_explicit_ctor/      # explicit 构造函数
+├── 022_mutable_member/     # mutable 成员
+├── 023_typeid_rtti/        # typeid 和 RTTI
+├── 024_template_function/  # 函数模板
+├── 025_template_class/     # 类模板
 ├── 026_template_specialization/ # 模板特化
-├── 027_template_instantiation/ # 模板实例化
-├── 028_variadic_template/ # 可变参数模板
-├── 029_unique_ptr/       # unique_ptr
-├── 030_shared_ptr/        # shared_ptr
-├── 031_custom_deleter/    # 自定义删除器
-├── 032_placement_new/     # placement new
-├── 033_raii_pattern/      # RAII 模式
-├── 034_vector_basic/      # vector 基础
-├── 035_map_basic/         # map 基础
-├── 036_string_basic/      # string 基础
-├── 037_array_basic/       # array 基础
-├── 038_tuple_basic/       # tuple 基础
-├── 039_lambda_basic/      # lambda 基础
-├── 040_std_function/      # std::function
-├── 041_functional_bind/   # std::bind
-├── 042_exception_basic/   # 异常处理
-├── 043_namespace_nested/  # 嵌套命名空间
-├── 044_enum_class/        # 强类型枚举
-├── 045_union_basic/      # 共用体
-├── 046_constexpr_basic/   # constexpr
-├── 047_noexcept_basic/    # noexcept
-└── 048_summary/           # 本汇总
+├── 027_template_instantiation/  # 模板实例化
+├── 028_variadic_template/  # 可变参数模板
+├── 029_unique_ptr/         # unique_ptr
+├── 030_shared_ptr/         # shared_ptr
+├── 031_custom_deleter/     # 自定义删除器
+├── 032_placement_new/      # placement new
+├── 033_raii_pattern/       # RAII 模式
+├── 034_vector_basic/       # vector 基础
+├── 035_map_basic/          # map 基础
+├── 036_string_basic/       # string 基础
+├── 037_array_basic/        # array 基础
+├── 038_tuple_basic/        # tuple 基础
+├── 039_lambda_basic/       # lambda 基础
+├── 040_std_function/       # std::function
+├── 041_functional_bind/    # std::bind
+├── 042_exception_basic/    # 异常处理
+├── 043_namespace_nested/   # 嵌套命名空间
+├── 044_enum_class/         # 强类型枚举
+├── 045_union_basic/        # 共用体
+├── 046_constexpr_basic/    # constexpr
+├── 047_noexcept_basic/     # noexcept
+└── 048_summary/            # 本汇总
 ```
 
 ## 示例分类
 
-### 第一部分：基础（001-005）
+| 范围 | 主题 | 说明 |
+|------|------|------|
+| 001-005 | 基础函数 | 函数、重载、默认参数、inline、可变参数 |
+| 006-012 | 类基础 | 构造、拷贝、移动、静态/const/volatile 成员 |
+| 013-018 | 继承与多态 | 单/多继承、虚函数、纯虚函数、菱形继承 |
+| 019-023 | 运算符与特殊成员 | 运算符、友元、explicit、mutable、RTTI |
+| 024-028 | 模板 | 函数模板、类模板、特化、实例化、参数包 |
+| 029-033 | 智能指针与内存 | unique_ptr、shared_ptr、自定义删除器、RAII |
+| 034-038 | STL 容器 | vector、map、string、array、tuple |
+| 039-042 | 函数对象与异常 | lambda、std::function、bind、异常处理 |
+| 043-048 | 其他高级特性 | namespace、enum class、union、constexpr、noexcept、汇总 |
 
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 001 | hello_world | 函数导出 | extern "C" 函数 |
-| 002 | function_overload | 函数重载 | 重载解析模拟 |
-| 003 | default_args | 默认参数 | 默认值模拟 |
-| 004 | inline_functions | 内联函数 | 内联提示处理 |
-| 005 | variadic_functions | 可变参数 | va_list 转换 |
+## C++ 特性
 
-### 第二部分：类基础（006-012）
+本示例展示一个最小但完整的收尾绑定：`summary_ns::Counter` 保存对象内状态，`safe_add` 与 `max_size` 是命名空间自由函数。跨 FFI 只交换 `int` 标量；对象通过 `std::unique_ptr<summary_ns::Counter> hicc::make_unique<...>()` 构造，析构由 Rust `Drop` 自动完成。
 
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 006 | class_basic | 类定义 | opaque pointer |
-| 007 | class_constructor | 构造函数 | 工厂函数 |
-| 008 | class_copy | 拷贝构造 | 拷贝语义模拟 |
-| 009 | class_move | 移动构造 | 移动语义模拟 |
-| 010 | class_static | 静态成员 | 静态函数包装 |
-| 011 | class_const | const 成员 | const 正确性 |
-| 012 | class_volatile | volatile | 内存顺序语义 |
+## C++ 代码
 
-### 第三部分：继承与多态（013-018）
+### summary.h
 
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 013 | inheritance_single | 单继承 | 基类指针模拟 |
-| 014 | inheritance_multiple | 多继承 | 多接口模拟 |
-| 015 | virtual_basic | 虚函数 | 虚表模拟 |
-| 016 | virtual_pure | 纯虚函数 | 抽象接口 |
-| 017 | virtual_override | 函数覆盖 | 动态分发 |
-| 018 | virtual_diamond | 菱形继承 | 虚继承处理 |
+```cpp
+namespace summary_ns {
 
-### 第四部分：运算符与特殊成员（019-023）
+class Counter {
+    int count_;
+public:
+    Counter() : count_(0) {}
+    void increment() { ++count_; }
+    void decrement() { --count_; }
+    int get() const { return count_; }
+    void reset() { count_ = 0; }
+};
 
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 019 | operator_overload | 运算符重载 | 命名函数模拟 |
-| 020 | friend_function | 友元函数 | 友元访问模拟 |
-| 021 | explicit_ctor | explicit | 隐式转换阻止 |
-| 022 | mutable_member | mutable | 状态修改语义 |
-| 023 | typeid_rtti | typeid/RTTI | 类型信息传递 |
+int safe_add(int a, int b);
+int max_size();
+int summary_anchor();
 
-### 第五部分：模板（024-028）
-
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 024 | template_function | 函数模板 | 实例化模拟 |
-| 025 | template_class | 类模板 | 特化处理 |
-| 026 | template_specialization | 模板特化 | 特化版本选择 |
-| 027 | template_instantiation | 显式实例化 | 链接处理 |
-| 028 | variadic_template | 可变参数模板 | 参数包展开 |
-
-### 第六部分：智能指针与内存（029-033）
-
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 029 | unique_ptr | unique_ptr | 独占所有权 |
-| 030 | shared_ptr | shared_ptr | 引用计数 |
-| 031 | custom_deleter | 自定义删除器 | 资源释放策略 |
-| 032 | placement_new | placement new | 指定地址构造 |
-| 033 | raii_pattern | RAII 模式 | 资源获取释放 |
-
-### 第七部分：STL 容器（034-038）
-
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 034 | vector_basic | vector | 动态数组模拟 |
-| 035 | map_basic | map | 红黑树映射 |
-| 036 | string_basic | string | 字符串处理 |
-| 037 | array_basic | array | 固定数组 |
-| 038 | tuple_basic | tuple | 异构集合 |
-
-### 第八部分：函数对象（039-042）
-
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 039 | lambda_basic | lambda | 闭包模拟 |
-| 040 | std_function | std::function | 函数包装器 |
-| 041 | functional_bind | std::bind | 部分应用模拟 |
-| 042 | exception_basic | 异常处理 | 错误码模式 |
-
-### 第九部分：其他高级特性（043-048）
-
-| 编号 | 名称 | C++ 特性 | FFI 模式 |
-|------|------|----------|----------|
-| 043 | namespace_nested | 嵌套命名空间 | 命名空间映射 |
-| 044 | enum_class | 强类型枚举 | 类型安全枚举 |
-| 045 | union_basic | 共用体 | 内存overlay |
-| 046 | constexpr_basic | constexpr | 编译期计算 |
-| 047 | noexcept_basic | noexcept | 异常规格 |
-| 048 | summary | 综合 FFI 模式 | 所有策略组合 |
-
-## 构建所有示例
-
-### 前提条件
-
-- C++ 编译器（g++ 或 clang++）
-- Rust 编译器（rustc）和 Cargo
-- hicc 和 hicc-build crate
-
-### 构建单个示例
-
-```bash
-# 进入示例目录
-cd 001_hello_world
-
-# 编译 C++ 共享库
-cd cpp
-g++ -shared -fPIC hello_world.cpp -o libhello_world.so
-cd ..
-
-# 编译 Rust FFI
-cd rust_hicc
-cargo build
-cd ..
+} // namespace summary_ns
 ```
 
-### 批量构建脚本
+### summary.cpp
 
-```bash
-#!/bin/bash
+```cpp
+namespace summary_ns {
 
-for dir in 0*/; do
-    if [ -d "$dir/cpp" ] && [ -d "$dir/rust_hicc" ]; then
-        echo "Building $dir..."
-        (cd "$dir/cpp" && g++ -shared -fPIC *.cpp -o lib"${dir%/}"".so" 2>/dev/null)
-        (cd "$dir/rust_hicc" && cargo build 2>/dev/null)
-        echo "Done: $dir"
-    fi
-done
+int safe_add(int a, int b) { return a + b; }
+int max_size() { return 1024; }
+int summary_anchor() { return 0; }
+
+} // namespace summary_ns
+```
+
+## Rust FFI 代码
+
+hicc 直出无需 extern-C shim，直接绑定命名空间类、`make_unique` 工厂与自由函数：
+
+```rust
+hicc::cpp! {
+    #include "summary.h"
+}
+
+hicc::import_class! {
+    #[cpp(class = "summary_ns::Counter")]
+    pub class Counter {
+        #[cpp(method = "void increment()")]
+        pub fn increment(&mut self);
+        #[cpp(method = "void decrement()")]
+        pub fn decrement(&mut self);
+        #[cpp(method = "int get() const")]
+        pub fn get(&self) -> i32;
+        #[cpp(method = "void reset()")]
+        pub fn reset(&mut self);
+
+        pub fn new() -> Self { counter_new() }
+    }
+}
+
+hicc::import_lib! {
+    #![link_name = "summary"]
+
+    #[cpp(func = "std::unique_ptr<summary_ns::Counter> hicc::make_unique<summary_ns::Counter>()")]
+    pub fn counter_new() -> Counter;
+
+    #[cpp(func = "int summary_ns::safe_add(int, int)")]
+    pub fn safe_add(a: i32, b: i32) -> i32;
+
+    #[cpp(func = "int summary_ns::max_size()")]
+    pub fn max_size() -> i32;
+}
+```
+
+## FFI 对比分析
+
+| 方面 | 旧 extern-C shim | hicc 直出 |
+|------|------------------|-----------|
+| 类绑定 | `struct Counter*` + `counter_new/delete` | `summary_ns::Counter` 直接导入 |
+| 构造 | 手写 C shim 工厂 | `hicc::make_unique` 工厂 |
+| 析构 | 手写 `*_delete` | Rust `Drop` 自动触发 |
+| 命名空间 | shim 中展平 | Rust 注解写完整 C++ 名称 |
+| 参数/返回 | 标量或指针 | 本例仅交换 `int` 标量 |
+
+## 运行结果
+
+```
+=== 048_summary - 示例系列汇总（hicc 直出）===
+
+initial=0
+after increment x3=3
+after decrement=2
+after reset=0
+safe_add(2,3)=5
+max_size()=1024
+
+Rust FFI: hicc 直接绑定命名空间类与自由函数，无需 extern-C shim
 ```
 
 ## FFI 模式总结
 
-### Opaque Pointer（不透明指针）
+1. C++ 异常不能跨 FFI 边界传播，应在 C++ 侧转换为错误码或受控结果。
+2. 类对象可通过 hicc `import_class!` 直接绑定，减少不透明指针 shim。
+3. 命名空间保留在 C++ 类型/函数签名中，Rust 注解写全限定名。
+4. enum class、union、constexpr、noexcept 等高级特性应在 C++ 侧保持语义，跨边界优先交换标量或 `const char*`。
+5. 资源所有权优先交给 `std::unique_ptr` 与 Rust `Drop` 管理。
 
-最常用的 FFI 模式，用于处理 C++ 类：
+## 冒烟测试
 
-```cpp
-// C++
-struct MyClass;
-MyClass* my_class_new();
-void my_class_delete(MyClass*);
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_counter_state_is_per_object` | `Counter::new`、increment x3、decrement、reset |
+| `smoke_free_functions` | `safe_add(2,3)==5`、`max_size()==1024` |
+
+### 运行方式
+
+```bash
+bash examples/048_summary/cpp/standalone.sh
+cd examples/048_summary/rust_hicc
+cargo test --test smoke
 ```
 
-```rust
-// Rust
-struct MyClass;
-#[cpp(func = "struct MyClass* my_class_new()")]
-fn my_class_new() -> *mut MyClass;
-```
+### 各平台支持
 
-### 函数指针回调
-
-处理 C++ 回调到 Rust：
-
-```cpp
-// C++
-typedef int (*Callback)(int);
-void set_callback(Callback cb);
-```
-
-```rust
-// Rust
-type Callback = extern "C" fn(i32) -> i32;
-#[cpp(func = "void set_callback(int(*)(int))")]
-fn set_callback(cb: Option<Callback>);
-```
-
-### 错误处理模式
-
-跨 FFI 边界的异常传播不可行，需要特殊模式：
-
-1. **错误码返回**：`int error = do_something();`
-2. **全局状态**：`get_last_error()` 获取错误信息
-3. **hicc::Exception<T>**：类型安全的异常封装
-
-### 类型映射表
-
-| C++ 类型 | Rust 类型 | 说明 |
-|----------|-----------|------|
-| `int` | `i32` | |
-| `unsigned` | `u32` | |
-| `long` | `i64` / `isize` | 平台相关 |
-| `float` | `f32` | |
-| `double` | `f64` | |
-| `char*` | `*const i8` | C 字符串 |
-| `void*` | `*mut std::ffi::c_void` | |
-| `bool` | `bool` | |
-
-## 项目依赖
-
-### C++ 端
-
-- C++11 或更高版本
-- 标准库
-
-### Rust 端
-
-```toml
-[dependencies]
-hicc = "0.2"
-
-[build-dependencies]
-hicc-build = "0.2"
-```
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 学习路径
 
@@ -276,112 +218,14 @@ hicc-build = "0.2"
 4. **内存**：`029_unique_ptr` -> `033_raii_pattern`
 5. **STL**：`034_vector_basic` -> `040_std_function`
 6. **高级**：`041_functional_bind` -> `047_noexcept_basic`
+7. **收尾**：`048_summary` 回顾全系列并展示去 shim 直出写法
+
+## 总结
+
+- 本示例保留汇总全系列的 README 精神，同时将代码迁移为 hicc shimless direct binding
+- `Counter` 作为命名空间类直接导入，构造经 `make_unique`，析构由 Rust `Drop` 自动完成
+- `safe_add` / `max_size` 作为命名空间自由函数直出绑定，无需 extern-C 包装层
 
 ## 许可
 
 本项目仅供学习参考。
-
-
-## Rust FFI 代码
-
-```rust
-hicc::cpp! {
-    #include <cstdint>
-
-    #include "summary.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Counter", destroy = "counter_delete")]
-    pub class Counter {
-        #[cpp(method = "int get() const")]
-        fn get(&self) -> i32;
-
-        #[cpp(method = "void increment()")]
-        fn increment(&mut self);
-
-        #[cpp(method = "void decrement()")]
-        fn decrement(&mut self);
-    }
-}
-
-hicc::import_lib! {
-    #![link_name = "summary"]
-
-    class Counter;
-
-    #[cpp(func = "Counter* counter_new()")]
-    fn counter_new() -> Counter;
-
-    #[cpp(func = "int safe_add(int, int)")]
-    fn safe_add(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int get_max_size()")]
-    fn get_max_size() -> i32;
-}
-```
-
-## 运行结果
-
-```
-=== 048_summary - FFI Patterns Summary ===
-
---- 1. Opaque Pointer Pattern ---
-Initial value: 0
-After 2 increments: 2
-After 1 decrement: 1
-
---- 2. Class Import Pattern ---
-See 006_class_basic for full class FFI pattern
-
---- 3. Namespace Pattern ---
-Namespaces are flattened in FFI
-get_max_size() = 100
-
---- 4. Enum Class Pattern ---
-See 044_enum_class for enum class FFI pattern
-Enum values passed as integers across FFI
-
---- 5. Union Pattern ---
-See 045_union_basic for union FFI pattern
-Unions share memory between members
-
---- 6. Constexpr Pattern ---
-constexpr values computed at compile time
-get_max_size() = 100 (runtime call, but value is constexpr)
-
---- 7. Noexcept Pattern ---
-safe_add(10, 20) = 30
-noexcept guarantees no exceptions
-
---- 8. Exception Handling Pattern ---
-See 042_exception_basic for exception FFI pattern
-Exceptions cannot cross FFI boundary
-
-=== Pattern Summary Table ===
-| Example | Pattern |
-|---------|---------|
-| 001-005 | extern "C" functions |
-| 006-012 | Class with opaque pointer |
-| 013-018 | Inheritance and virtual |
-| 019-023 | Operators and special members |
-| 024-028 | Templates |
-| 029-033 | Smart pointers and RAII |
-| 034-038 | STL containers |
-| 039-041 | Functions and lambdas |
-| 042 | Exception handling |
-| 043 | Nested namespaces |
-| 044 | enum class |
-| 045 | Union |
-| 046 | constexpr |
-| 047 | noexcept |
-
-=== Key FFI Principles ===
-1. C++ exceptions cannot propagate across FFI boundary
-2. Use opaque pointers for C++ classes
-3. extern "C" flattens C++ name mangling
-4. Enums passed as underlying integer type
-5. Unions share memory between members
-6. constexpr computed at compile time
-7. noexcept is part of function signature in FFI
-```

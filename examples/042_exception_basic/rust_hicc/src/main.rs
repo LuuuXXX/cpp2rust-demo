@@ -1,43 +1,24 @@
 use exception_basic::*;
 
 fn main() {
-    println!("=== 042_exception_basic - Exception Handling ===\n");
+    println!("=== 042_exception_basic - 异常处理（hicc 直出）===\n");
 
-    let mut calc = calculator_new();
+    let mut calc = Calculator::new();
+    println!("10 / 2 = {} error={}", calc.divide(10, 2), calc.last_error());
+    println!(
+        "1 / 0 = {} error={} has_error={}",
+        calc.divide(1, 0),
+        calc.last_error(),
+        calc.has_error()
+    );
+    calc.clear_error();
+    println!("after clear has_error={}", calc.has_error());
 
-    // Test division - normal case
-    println!("--- Division Tests ---");
-    let result = calc.divide(10, 2);
-    println!("10 / 2 = {}", result);
-    check_exception(&mut calc, "10 / 2");
+    for s in ["123", "abc", "99999999999999999999"] {
+        let cs = std::ffi::CString::new(s).expect("CString::new failed");
+        let value = calc.parse_int(cs.as_ptr());
+        println!("parse_int({}) = {} error={}", s, value, calc.last_error());
+    }
 
-    // Test division by zero
-    println!("\nTesting division by zero:");
-    let result = calc.divide(10, 0);
-    println!("10 / 0 = {} (returns 0, check exception)", result);
-    check_exception(&mut calc, "10 / 0");
-
-    // Clear exception and test division again
-    println!("\nAfter clearing exception:");
-    calc.clear_exception();
-    let result = calc.divide(20, 4);
-    println!("20 / 4 = {}", result);
-    check_exception(&mut calc, "20 / 4");
-
-    // Test string to int
-    println!("\n--- String to Int Tests ---");
-    let result = calc.string_to_int("123\0".as_ptr() as *const i8);
-    println!("string_to_int(\"123\") = {}", result);
-    check_exception(&mut calc, "string_to_int(\"123\")");
-
-    let result = calc.string_to_int("abc\0".as_ptr() as *const i8);
-    println!("string_to_int(\"abc\") = {} (returns 0, check exception)", result);
-    check_exception(&mut calc, "string_to_int(\"abc\")");
-
-    println!("\n--- Summary ---");
-    println!("1. C++ exceptions CANNOT propagate across FFI boundary");
-    println!("2. Common FFI pattern: set error code, return error value");
-    println!("3. Check exception/error state after each call");
-    println!("4. Clear exception state before next operation");
-    println!("5. Never throw in FFI boundary - use error codes instead");
+    println!("\nRust FFI: hicc 直接绑定类，C++ 异常在方法边界内部捕获并转为错误码");
 }

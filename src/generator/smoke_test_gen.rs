@@ -294,6 +294,7 @@ mod tests {
             associated_fns: vec![],
             destroy_fn: None,
             is_interface: false,
+            ..Default::default()
         }
     }
 
@@ -318,6 +319,7 @@ mod tests {
             }],
             destroy_fn: None,
             is_interface: false,
+            ..Default::default()
         }
     }
 
@@ -328,6 +330,7 @@ mod tests {
             associated_fns: vec![],
             destroy_fn: None,
             is_interface: false,
+            ..Default::default()
         }
     }
 

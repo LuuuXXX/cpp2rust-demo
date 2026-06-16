@@ -1,154 +1,120 @@
-# 046_constexpr_basic - constexpr
+# 046_constexpr_basic - constexpr（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `constexpr` 关键字如何在 FFI 中体现。`constexpr` 指定表达式在编译期计算，可以是变量、函数或类构造函数。
+本示例展示 C++ **constexpr** 构造函数、内联方法与模板函数的 FFI 处理方式。采用 idiomatic 命名空间风格（`constexpr_basic_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；`ConstexprPoint` 直接持有 `int` 坐标。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### constexpr_basic.h
 
 ```cpp
-#pragma once
+namespace constexpr_basic_ns {
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+class ConstexprPoint {
+    int x_;
+    int y_;
+public:
+    constexpr ConstexprPoint(int x, int y) : x_(x), y_(y) {}
+    constexpr int x() const { return x_; }
+    constexpr int y() const { return y_; }
+    constexpr int manhattan_distance() const { return (x_<0?-x_:x_) + (y_<0?-y_:y_); }
+};
 
-// constexpr 数组大小
-#define ARRAY_SIZE 10
+template<int N> constexpr int fibonacci() { return fibonacci<N-1>() + fibonacci<N-2>(); }
+template<> constexpr int fibonacci<0>() { return 0; }
+template<> constexpr int fibonacci<1>() { return 1; }
 
-// constexpr 函数
-constexpr int square(int x) {
-    return x * x;
-}
+int fibonacci_10();
+int array_size();
 
-// constexpr 模板函数（编译期递归）
-template<int N>
-constexpr int fibonacci() {
-    if constexpr (N <= 1) {
-        return N;
-    } else {
-        return fibonacci<N-1>() + fibonacci<N-2>();
-    }
-}
-
-// 获取编译期计算的斐波那契数
-int get_fibonacci_10(void);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### constexpr_basic.cpp
-
-```cpp
-#include "constexpr_basic.h"
-
-// 斐波那契数列编译期计算
-// fibonacci<10>() = 55 在编译时就已经确定了
-constexpr int FIB_10 = fibonacci<10>();
-
-int get_fibonacci_10(void) {
-    return FIB_10;  // 直接返回编译期常量
-}
+} // namespace constexpr_basic_ns
 ```
 
 ## Rust FFI 代码
+
+hicc 直出无需 extern-C shim，直接绑定类、`make_unique` 工厂与命名空间自由函数：
 
 ```rust
 hicc::cpp! {
     #include "constexpr_basic.h"
 }
 
+hicc::import_class! {
+    #[cpp(class = "constexpr_basic_ns::ConstexprPoint")]
+    pub class ConstexprPoint {
+        #[cpp(method = "int x() const")]
+        pub fn x(&self) -> i32;
+        #[cpp(method = "int y() const")]
+        pub fn y(&self) -> i32;
+        #[cpp(method = "int manhattan_distance() const")]
+        pub fn manhattan_distance(&self) -> i32;
+
+        pub fn new(x: i32, y: i32) -> Self { constexpr_point_new(x, y) }
+    }
+}
+
 hicc::import_lib! {
     #![link_name = "constexpr_basic"]
 
-    #[cpp(func = "int get_fibonacci_10()")]
-    fn get_fibonacci_10() -> i32;
+    #[cpp(func = "std::unique_ptr<constexpr_basic_ns::ConstexprPoint> hicc::make_unique<constexpr_basic_ns::ConstexprPoint, int, int>(int&&, int&&)")]
+    pub fn constexpr_point_new(x: i32, y: i32) -> ConstexprPoint;
 
-    #[cpp(func = "int manhattan_distance(int, int)")]
-    fn manhattan_distance(x: i32, y: i32) -> i32;
-
-    #[cpp(func = "int constexpr_sum_array(const int*, int)")]
-    fn constexpr_sum_array(arr: *const i32, size: i32) -> i32;
-
-    #[cpp(func = "int constexpr_find_max(const int*, int)")]
-    fn constexpr_find_max(arr: *const i32, size: i32) -> i32;
-
-    #[cpp(func = "int get_array_size()")]
-    fn get_array_size() -> i32;
+    #[cpp(func = "int constexpr_basic_ns::fibonacci_10()")]
+    pub fn fibonacci_10() -> i32;
 }
-```
-## constexpr vs const
-
-| 特性 | const | constexpr |
-|------|-------|-----------|
-| 适用对象 | 变量、引用 | 变量、函数、类 |
-| 求值时间 | 可能是运行时 | 编译时 |
-| 复杂性 | 简单 | 可以很复杂 |
-| 模板 | 不可用 | 可用于模板参数 |
-
-## 构建方法
-
-### C++ 编译
-
-```bash
-cd cpp
-g++ -c constexpr_basic.cpp -o constexpr_basic.o
-g++ -shared -fPIC constexpr_basic.cpp -o libconstexpr_basic.so
-```
-
-### Rust 编译
-
-```bash
-cd rust_hicc
-cargo build
 ```
 
 ## FFI 对比分析
 
-| 方面 | C++ | Rust |
-|------|-----|------|
-| 编译期常量 | `constexpr int N = 10;` | `const N: i32 = 10;` |
-| 编译期函数 | `constexpr int sq(int x) { return x*x; }` | `const fn sq(x: i32) -> i32 { x*x }` |
-| 模板参数 | `fibonacci<10>()` | 泛型 `fib::<10>()` ( nightly ) |
-| 宏 | `#define ARRAY_SIZE 10` | 编译期常量 |
+| 方面 | C++ constexpr | Rust FFI |
+|------|---------------|----------|
+| 类型持有 | `int` 坐标成员 | hicc 绑定内部持有，对外透明 |
+| 构造 | `constexpr ConstexprPoint(int, int)` | `make_unique` 工厂 |
+| 访问 | `constexpr` 内联方法 | 同名方法返回 i32 |
+| 模板 | `fibonacci<10>()` | 命名空间自由函数返回标量 |
+| 析构 | C++ 默认析构 | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 046_constexpr_basic - constexpr ===
+=== 046_constexpr_basic - constexpr（hicc 直出）===
 
---- Compile-time Fibonacci ---
-get_fibonacci_10() called, returning compile-time computed value: 55
-fibonacci<10>() = 55 (computed at compile time)
-Rust equivalent: fib(10) = 55 (also compile time)
+p x=3 y=4 manhattan=7
+neg manhattan=7
+fibonacci<10>()=55 array_size=16
 
---- Runtime Manhattan Distance ---
-manhattan_distance(3, 4) = 7
-manhattan_distance(-3, -4) = 7
-manhattan_distance(10, -5) = 15
-
---- Array Operations ---
-Array: [1, 5, 3, 9, 2, 8, 4, 7, 6, 0]
-Sum: 45
-Max: 9
-
---- Summary ---
-1. constexpr specifies expression computed at compile time
-2. constexpr functions must satisfy compile-time evaluation conditions
-3. constexpr variables have determined values at compile time
-4. FFI constexpr values passed via preprocessor macros
-5. Rust const fn can achieve similar functionality
+Rust FFI: hicc 直接绑定 constexpr 类与命名空间自由函数，析构由 Rust Drop 自动完成
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_constexpr_point_positive_is_per_object` | x / y / manhattan_distance 的对象内状态 |
+| `smoke_constexpr_point_negative_is_per_object` | 负坐标 manhattan_distance |
+| `smoke_constexpr_free_functions` | fibonacci_10 / array_size |
+
+### 运行方式
+
+```bash
+cd examples/046_constexpr_basic/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-1. `constexpr` 指定表达式在编译期计算
-2. `constexpr` 函数必须满足编译期求值的条件
-3. `constexpr` 变量在编译时就有确定的值
-4. FFI 中 `constexpr` 值通过预处理器宏或内联函数传递
-5. Rust `const fn` 可以实现类似的编译期计算功能
-6. C++17 引入了 `constexpr lambda`，C++20 引入了 `consteval`
+- C++ `constexpr` 类可通过 hicc 直接绑定持有它的类来表达，无需不透明指针 + impl 间接层
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- 跨 FFI 只交换 `int` 等标量，模板与 constexpr 计算保留在 C++ 内部

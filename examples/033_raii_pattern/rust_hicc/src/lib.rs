@@ -1,67 +1,48 @@
-hicc::cpp! {
-    #include <stddef.h>
-    #include <string>
-    #include <iostream>
-    #include <thread>
-    #include <mutex>
-    #include <fstream>
-    #include <cstring>
+//! 033_raii_pattern: RAII 资源管理（命名空间类，构造获取/析构释放）。
+//!
+//! `Resource` 构造时获取资源（活跃计数 +1）、析构时释放（计数 -1）；`Transaction` 是作用域
+//! 守卫，未 `commit()` 即析构则自动回滚。hicc 直出无需手写 `*_delete`，析构由 Rust `Drop`
+//! 自动触发，RAII 语义与 C++ 一致。
 
+hicc::cpp! {
     #include "raii_pattern.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "Mutex", destroy = "mutex_delete")]
-    pub class Mutex {
-        #[cpp(method = "void lock()")]
-        pub fn lock(&mut self);
-
-        #[cpp(method = "void unlock()")]
-        pub fn unlock(&mut self);
-
-        #[cpp(method = "bool try_lock()")]
-        pub fn try_lock(&mut self) -> bool;
-
+    #[cpp(class = "raii_pattern_ns::Resource")]
+    pub class Resource {
         #[cpp(method = "const char* name() const")]
         pub fn name(&self) -> *const i8;
+
+        pub fn new(name: *const i8) -> Self { resource_new(name) }
     }
 }
 
 hicc::import_class! {
-    #[cpp(class = "ScopedLock", destroy = "scoped_lock_delete")]
-    pub class ScopedLock {
-        #[cpp(method = "bool owns_lock() const")]
-        pub fn owns_lock(&self) -> bool;
-    }
-}
+    #[cpp(class = "raii_pattern_ns::Transaction")]
+    pub class Transaction {
+        #[cpp(method = "void commit()")]
+        pub fn commit(&mut self);
 
-hicc::import_class! {
-    #[cpp(class = "FileLock", destroy = "file_lock_delete")]
-    pub class FileLock {
-        #[cpp(method = "void lock()")]
-        pub fn lock(&mut self);
+        #[cpp(method = "int committed() const")]
+        pub fn committed(&self) -> i32;
 
-        #[cpp(method = "void unlock()")]
-        pub fn unlock(&mut self);
-
-        #[cpp(method = "const char* filename() const")]
-        pub fn filename(&self) -> *const i8;
+        pub fn new() -> Self { transaction_new() }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "raii_pattern"]
 
-    class Mutex;
-    class ScopedLock;
-    class FileLock;
+    #[cpp(func = "std::unique_ptr<raii_pattern_ns::Resource> hicc::make_unique<raii_pattern_ns::Resource, const char*>(const char*&&)")]
+    pub fn resource_new(name: *const i8) -> Resource;
 
-    #[cpp(func = "Mutex* mutex_new()")]
-    pub fn mutex_new() -> Mutex;
+    #[cpp(func = "std::unique_ptr<raii_pattern_ns::Transaction> hicc::make_unique<raii_pattern_ns::Transaction>()")]
+    pub fn transaction_new() -> Transaction;
 
-    #[cpp(func = "ScopedLock* scoped_lock_new(Mutex* mutex)")]
-    pub unsafe fn scoped_lock_new(mutex: *mut Mutex) -> ScopedLock;
+    #[cpp(func = "int raii_pattern_ns::active_count()")]
+    pub fn active_count() -> i32;
 
-    #[cpp(func = "FileLock* file_lock_new(const char*)")]
-    pub unsafe fn file_lock_new(filename: *const i8) -> FileLock;
+    #[cpp(func = "int raii_pattern_ns::rollback_count()")]
+    pub fn rollback_count() -> i32;
 }

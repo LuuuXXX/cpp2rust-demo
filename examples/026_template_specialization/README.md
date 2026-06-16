@@ -1,129 +1,123 @@
-# 026_template_specialization - 模板偏特化
+# 026_template_specialization - 模板特化（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 模板偏特化的 FFI 处理方式。每个模板特化都需要独立导出。
+本示例展示 C++ **模板特化**的 FFI 处理方式。通用类模板 `ValueHolder<T>` 提供默认实现，
+全特化 `ValueHolder<std::string>` 行为不同。模板/特化本身没有可链接符号、不可裸绑定，
+本示例将每个具体类型暴露为 idiomatic 命名空间类（`IntHolder`/`DoubleHolder` 走通用模板，
+`StringHolder` 走特化版本），hicc 直出按普通类绑定其方法与 `make_unique` 工厂，无需
+extern-C shim。
 
 ## C++ 代码
 
-### template_specialization.cpp
+### template_specialization.h
 
 ```cpp
-// 通用版本 ValueHolder<T>
-struct IntHolder { int value; };
-struct DoubleHolder { double value; };
+namespace template_specialization_ns {
 
-// char* 特化版本 - 专门处理字符串
-struct StringHolder {
-    char* value;
-    int length;
+// 通用类模板
+template <typename T>
+class ValueHolder {
+    T value_;
+public:
+    explicit ValueHolder(T value) : value_(value) {}
+    T get() const { return value_; }
+    const char* describe() const { /* "ValueHolder<T>(generic)" */ }
 };
+
+// 全特化：ValueHolder<std::string>（构造函数私有 + friend StringHolder，
+// 避免被 hicc 直出当作可独立实例化的普通类绑定）
+template <>
+class ValueHolder<std::string> {
+    std::string value_;
+    explicit ValueHolder(std::string value);
+    friend class StringHolder;
+public:
+    const char* get() const { return value_.c_str(); }
+    const char* describe() const { /* 含 length 信息 */ }
+};
+
+// 具体实例化类
+class IntHolder    { ValueHolder<int>         impl_; /* ... */ };
+class DoubleHolder { ValueHolder<double>      impl_; /* ... */ };
+class StringHolder { ValueHolder<std::string> impl_; /* 走特化 */ };
+
+} // namespace template_specialization_ns
 ```
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定 3 个具体类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <iostream>
-    #include <cstring>
-    #include <cstdlib>
-    #include <cstdio>
-
     #include "template_specialization.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntHolder", destroy = "intholder_delete")]
+    #[cpp(class = "template_specialization_ns::IntHolder")]
     pub class IntHolder {
         #[cpp(method = "int get() const")]
-        fn get(&self) -> i32;
-
+        pub fn get(&self) -> i32;
         #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const i8;
+        pub fn describe(&self) -> *const i8;
+
+        pub fn new(value: i32) -> Self { int_holder_new(value) }
     }
 }
 
-hicc::import_class! {
-    #[cpp(class = "DoubleHolder", destroy = "doubleholder_delete")]
-    pub class DoubleHolder {
-        #[cpp(method = "double get() const")]
-        fn get(&self) -> f64;
-
-        #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const i8;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "StringHolder", destroy = "stringholder_delete")]
-    pub class StringHolder {
-        #[cpp(method = "const char* get() const")]
-        fn get(&self) -> *const i8;
-
-        #[cpp(method = "const char* describe() const")]
-        fn describe(&self) -> *const i8;
-    }
-}
+// DoubleHolder / StringHolder 同理
 
 hicc::import_lib! {
     #![link_name = "template_specialization"]
 
-    class IntHolder;
-    class DoubleHolder;
-    class StringHolder;
-
-    #[cpp(func = "IntHolder* intholder_new(int)")]
-    fn intholder_new(value: i32) -> IntHolder;
-
-    #[cpp(func = "DoubleHolder* doubleholder_new(double)")]
-    fn doubleholder_new(value: f64) -> DoubleHolder;
-
-    #[cpp(func = "StringHolder* stringholder_new(const char*)")]
-    unsafe fn stringholder_new(value: *const i8) -> StringHolder;
+    #[cpp(func = "std::unique_ptr<template_specialization_ns::IntHolder> hicc::make_unique<template_specialization_ns::IntHolder, int>(int&&)")]
+    pub fn int_holder_new(value: i32) -> IntHolder;
+    // double_holder_new / string_holder_new 同理
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ 模板 | Rust FFI |
-|------|----------|----------|
-| 通用版本 | `ValueHolder<T>` | `IntHolder`, `DoubleHolder` |
-| 偏特化 | `ValueHolder<char*>` | `StringHolder` |
-| 特化检测 | 编译器自动选择 | 手动区分 |
-| 字符串处理 | 特殊实现 | 独立结构处理 |
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 通用模板 | `ValueHolder<T>` | 暴露为 `IntHolder` / `DoubleHolder` |
+| 全特化 | `ValueHolder<std::string>` | 暴露为 `StringHolder` |
+| 行为差异 | 特化版 `describe()` 含 length | 调用结果不同 |
+| 构造 | `IntHolder(int)` | `IntHolder::new(i32)`（`make_unique` 工厂） |
 
 ## 运行结果
 
 ```
-=== 026_template_specialization - 模板偏特化 ===
+=== 026_template_specialization - 模板特化 ===
 
-IntHolder(value=42)
+ValueHolder<T>(generic)
   get(): 42
 
-DoubleHolder(value=3.14159)
+ValueHolder<T>(generic)
   get(): 3.14159
 
-StringHolder(value="Hello, World!", length=13)
+ValueHolder<std::string>(value="Hello, World!", length=13)
   get(): Hello, World!
 
-Rust FFI: 每个模板特化是独立的结构
-通用版本: IntHolder, DoubleHolder
-偏特化: StringHolder (处理 char*)
+Rust FFI: 通用模板与特化各自暴露为独立的具体类
+通用版本: IntHolder, DoubleHolder（ValueHolder<T>）
+全特化:  StringHolder（ValueHolder<std::string>）
 ```
 
 ## 冒烟测试
 
 本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
-可链接 C++ 实现，且基本行为正确。
+可链接 C++ 实现，且通用/特化行为差异正确。
 
 ### 测试用例
 
 | 测试函数 | 验证内容 |
 |---------|---------|
-| `smoke_int_holder_get` | `int_holder_new(42)` 后 `get()` 返回 42 |
-| `smoke_int_holder_describe` | `describe()` 返回非空字符串 |
-| `smoke_double_holder_get` | `double_holder_new(3.14)` 后 `get()` ≈ 3.14 |
-| `smoke_double_holder_describe` | `describe()` 返回非空字符串 |
-| `smoke_string_holder_get` | `string_holder_new("hello")` 后 `get()` 返回非空字符串 |
+| `smoke_int_holder_get` / `smoke_double_holder_get` | 通用模板取值 |
+| `smoke_int_holder_describe` / `smoke_double_holder_describe` | 通用模板 describe 标注 generic |
+| `smoke_string_holder_get` | 特化版本取值 |
+| `smoke_string_holder_specialized_describe` | 特化版本 describe 含 std::string / length |
 
 ### 运行方式
 
@@ -137,12 +131,11 @@ cargo test --test smoke
 | 平台 | 状态 | 备注 |
 |------|------|------|
 | Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
-| macOS | ✅ | 支持 |
 | Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- 模板偏特化在 FFI 中需要为每个特化创建独立结构
-- char* 特化通常需要特殊处理（内存管理）
-- 命名约定用于区分不同版本
-- 每个特化版本的内部实现可能完全不同
+- C++ 模板特化无法直接 FFI 导出（模板/特化本身没有可链接符号）
+- 策略：将通用模板与特化各自的具体实例化暴露为 idiomatic 命名空间类
+- hicc 直出按普通类绑定方法与 `make_unique` 工厂，无需 extern-C shim
+- 特化类的私有构造 + friend 写法可避免工具误绑定带模板实参的类名

@@ -1,35 +1,17 @@
-//! 015_virtual_basic 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 015_virtual_basic 冒烟测试：虚函数覆写。
 
 use virtual_basic::*;
 
 #[test]
-fn smoke_circle_radius() {
-    let circle = circle_new(5.0);
-    assert!((circle.get_radius() - 5.0).abs() < 1e-10, "Circle::getRadius() 应返回构造时传入的半径");
+fn base_area_is_zero() {
+    let s = Shape::new();
+    assert_eq!(s.area(), 0.0);
 }
 
 #[test]
-fn smoke_circle_area() {
-    let circle = circle_new(5.0);
-    let expected = std::f64::consts::PI * 25.0;
-    assert!((circle.area() - expected).abs() < 1e-6, "Circle::area() 应等于 π * r²");
-}
-
-#[test]
-fn smoke_circle_get_name() {
-    let circle = circle_new(3.0);
-    let name = unsafe { std::ffi::CStr::from_ptr(circle.get_name()) };
-    let s = name.to_str().unwrap();
-    assert!(!s.is_empty(), "Circle::getName() 不应返回空字符串");
-}
-
-#[test]
-fn smoke_shape_new() {
-    // Shape 基类 area() 返回 0.0
-    let shape = shape_new();
-    assert!((shape.area() - 0.0).abs() < 1e-10, "Shape::area() 应返回 0.0");
-    let name = unsafe { std::ffi::CStr::from_ptr(shape.get_name()) };
-    assert!(!name.to_bytes().is_empty(), "Shape::getName() 不应返回空字符串");
+fn derived_overrides_area() {
+    let c = Circle::new(2.0);
+    assert_eq!(c.radius(), 2.0);
+    let expect = std::f64::consts::PI * 4.0;
+    assert!((c.area() - expect).abs() < 1e-9, "area={}", c.area());
 }

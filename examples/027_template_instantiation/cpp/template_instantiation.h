@@ -1,48 +1,13 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// 显式实例化声明示例
-// 使用 extern template 声明，模板实例化在另外的 .cpp 文件中
-
-// Matrix<int> 声明
-class IntMatrix;
-
-IntMatrix* intmatrix_new(int rows, int cols);
-void intmatrix_delete(IntMatrix* self);
-
-int intmatrix_get(IntMatrix* self, int row, int col);
-void intmatrix_set(IntMatrix* self, int row, int col, int value);
-
-int intmatrix_rows(IntMatrix* self);
-int intmatrix_cols(IntMatrix* self);
-
-void intmatrix_print(IntMatrix* self);
-
-// Matrix<double> 声明
-class DoubleMatrix;
-
-DoubleMatrix* doublematrix_new(int rows, int cols);
-void doublematrix_delete(DoubleMatrix* self);
-
-double doublematrix_get(DoubleMatrix* self, int row, int col);
-void doublematrix_set(DoubleMatrix* self, int row, int col, double value);
-
-int doublematrix_rows(DoubleMatrix* self);
-int doublematrix_cols(DoubleMatrix* self);
-
-void doublematrix_print(DoubleMatrix* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 #include <vector>
 #include <iostream>
 #include <iomanip>
-template<typename T>
+
+namespace template_instantiation_ns {
+
+// 类模板 Matrix<T>：使用点按具体类型实例化（Matrix<int>、Matrix<double> …）。
+template <typename T>
 class Matrix {
     int rows_;
     int cols_;
@@ -63,28 +28,30 @@ public:
     }
 };
 
+// 显式实例化为具体类：每个具体类型暴露一个 idiomatic 命名空间类。
 class IntMatrix {
-    Matrix<int>* impl_;
+    Matrix<int> impl_;
 public:
-    IntMatrix(int rows, int cols) : impl_(new Matrix<int>(rows, cols)) {}
-    ~IntMatrix() { delete impl_; }
-    int rows() const { return impl_->rows(); }
-    int cols() const { return impl_->cols(); }
-    int get(int row, int col) const { return impl_->get(row, col); }
-    void set(int row, int col, int value) { impl_->set(row, col, value); }
-    void print() const { impl_->print(); }
+    IntMatrix(int rows, int cols) : impl_(rows, cols) {}
+    int rows() const { return impl_.rows(); }
+    int cols() const { return impl_.cols(); }
+    int get(int row, int col) const { return impl_.get(row, col); }
+    void set(int row, int col, int value) { impl_.set(row, col, value); }
+    void print() const { impl_.print(); }
 };
 
 class DoubleMatrix {
-    Matrix<double>* impl_;
+    Matrix<double> impl_;
 public:
-    DoubleMatrix(int rows, int cols) : impl_(new Matrix<double>(rows, cols)) {}
-    ~DoubleMatrix() { delete impl_; }
-    int rows() const { return impl_->rows(); }
-    int cols() const { return impl_->cols(); }
-    double get(int row, int col) const { return impl_->get(row, col); }
-    void set(int row, int col, double value) { impl_->set(row, col, value); }
-    void print() const { impl_->print(); }
+    DoubleMatrix(int rows, int cols) : impl_(rows, cols) {}
+    int rows() const { return impl_.rows(); }
+    int cols() const { return impl_.cols(); }
+    double get(int row, int col) const { return impl_.get(row, col); }
+    void set(int row, int col, double value) { impl_.set(row, col, value); }
+    void print() const { impl_.print(); }
 };
 
-#endif
+// 锚点：本单元可链接的非模板符号。
+int template_instantiation_anchor();
+
+} // namespace template_instantiation_ns

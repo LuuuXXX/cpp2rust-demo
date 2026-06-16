@@ -1,49 +1,58 @@
 //! 034_vector_basic 冒烟测试
 //!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且容器操作行为正确。
 
 use vector_basic::*;
 
 #[test]
-fn smoke_int_vector_new() {
-    let vec = int_vector_new();
-    assert!(vec.empty(), "新建 IntVector 应为空");
-    assert_eq!(vec.size(), 0, "新建 IntVector size 应为 0");
+fn smoke_int_vector_push_and_sum() {
+    let mut v = IntVector::new();
+    assert_eq!(v.empty(), 1);
+    for i in 0..5 {
+        v.push_back(i * 10);
+    }
+    assert_eq!(v.size(), 5);
+    assert_eq!(v.sum(), 0 + 10 + 20 + 30 + 40);
+    assert_eq!(v.empty(), 0);
 }
 
 #[test]
-fn smoke_int_vector_push_get() {
-    let mut vec = int_vector_new();
-    vec.push_back(10);
-    vec.push_back(20);
-    vec.push_back(30);
-    assert_eq!(vec.size(), 3, "push_back 3 次后 size 应为 3");
-    assert_eq!(vec.get(0), 10, "get(0) 应等于第一个元素");
-    assert_eq!(vec.get(1), 20, "get(1) 应等于第二个元素");
-    assert_eq!(vec.get(2), 30, "get(2) 应等于第三个元素");
+fn smoke_int_vector_get_set() {
+    let mut v = IntVector::new();
+    v.push_back(1);
+    v.push_back(2);
+    v.push_back(3);
+    assert_eq!(v.get(1), 2);
+    v.set(1, 999);
+    assert_eq!(v.get(1), 999);
 }
 
 #[test]
-fn smoke_int_vector_set() {
-    let mut vec = int_vector_new();
-    vec.push_back(100);
-    vec.set(0, 999);
-    assert_eq!(vec.get(0), 999, "set(0, 999) 后 get(0) 应为 999");
+fn smoke_int_vector_pop_clear() {
+    let mut v = IntVector::new();
+    v.push_back(1);
+    v.push_back(2);
+    v.pop_back();
+    assert_eq!(v.size(), 1);
+    v.clear();
+    assert_eq!(v.size(), 0);
 }
 
 #[test]
-fn smoke_int_vector_clear() {
-    let mut vec = int_vector_new();
-    vec.push_back(1);
-    vec.push_back(2);
-    assert!(!vec.empty(), "push_back 后不应为空");
-    vec.clear();
-    assert!(vec.empty(), "clear 后应为空");
-    assert_eq!(vec.size(), 0, "clear 后 size 应为 0");
+fn smoke_int_vector_reserve_capacity() {
+    let mut v = IntVector::new();
+    v.reserve(8);
+    assert!(v.capacity() >= 8, "reserve 后容量应至少为 8");
 }
 
 #[test]
-fn smoke_string_vector_type_available() {
-    // 验证 StringVector 类型可用（编译期类型检查）
-    let _ = string_vector_new();
+fn smoke_string_vector() {
+    let mut sv = StringVector::new();
+    for s in ["alpha", "beta"] {
+        let cs = std::ffi::CString::new(s).expect("CString::new failed");
+        sv.push_back(cs.as_ptr());
+    }
+    assert_eq!(sv.size(), 2);
+    let g0 = unsafe { std::ffi::CStr::from_ptr(sv.get(0)).to_string_lossy().into_owned() };
+    assert_eq!(g0, "alpha");
 }

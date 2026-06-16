@@ -26,35 +26,6 @@ macro_rules! run_test {
     };
 }
 
-// 涉及虚函数的示例在 macOS ARM64 上通过 hicc 成员函数指针机制调用时会崩溃
-// （hicc 0.2 的 union 类型双关在 Apple Clang/arm64 下行为异常），暂时在 macOS 上跳过。
-macro_rules! run_test_skip_macos_virtual {
-    ($name:ident, $example:literal) => {
-        #[test]
-        #[cfg_attr(
-            not(feature = "full-test"),
-            ignore = "Requires full runtime environment; run with --features full-test"
-        )]
-        #[cfg(not(target_os = "macos"))]
-        fn $name() {
-            common::ensure_cpp_lib($example);
-            let dir = concat!("examples/", $example, "/rust_hicc");
-            let readme = concat!("examples/", $example, "/README.md");
-            let output = common::cargo_run(dir);
-            let expected = common::parse_readme_run_result(readme);
-            let actual = output.trim().to_string();
-            let expected_trimmed = expected.trim().to_string();
-            assert!(
-                common::compare_run_output(&actual, &expected_trimmed),
-                "cargo run output mismatch for {}\n\n=== actual ===\n{}\n\n=== expected ===\n{}",
-                $example,
-                actual,
-                expected_trimmed
-            );
-        }
-    };
-}
-
 run_test!(run_001_hello_world, "001_hello_world");
 run_test!(run_002_function_overload, "002_function_overload");
 run_test!(run_003_default_args, "003_default_args");
@@ -67,17 +38,17 @@ run_test!(run_009_class_move, "009_class_move");
 run_test!(run_010_class_static, "010_class_static");
 run_test!(run_011_class_const, "011_class_const");
 run_test!(run_012_class_volatile, "012_class_volatile");
-run_test_skip_macos_virtual!(run_013_inheritance_single, "013_inheritance_single");
+run_test!(run_013_inheritance_single, "013_inheritance_single");
 run_test!(run_014_inheritance_multiple, "014_inheritance_multiple");
-run_test_skip_macos_virtual!(run_015_virtual_basic, "015_virtual_basic");
-run_test_skip_macos_virtual!(run_016_virtual_pure, "016_virtual_pure");
-run_test_skip_macos_virtual!(run_017_virtual_override, "017_virtual_override");
+run_test!(run_015_virtual_basic, "015_virtual_basic");
+run_test!(run_016_virtual_pure, "016_virtual_pure");
+run_test!(run_017_virtual_override, "017_virtual_override");
 run_test!(run_018_virtual_diamond, "018_virtual_diamond");
 run_test!(run_019_operator_overload, "019_operator_overload");
 run_test!(run_020_friend_function, "020_friend_function");
 run_test!(run_021_explicit_ctor, "021_explicit_ctor");
 run_test!(run_022_mutable_member, "022_mutable_member");
-run_test_skip_macos_virtual!(run_023_typeid_rtti, "023_typeid_rtti");
+run_test!(run_023_typeid_rtti, "023_typeid_rtti");
 run_test!(run_024_template_function, "024_template_function");
 run_test!(run_025_template_class, "025_template_class");
 run_test!(

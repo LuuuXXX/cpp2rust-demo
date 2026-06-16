@@ -393,7 +393,7 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 /// - 首次运行：`src/` → rename → `src.1/`；复制 `src.1/` → `src.2/`（暂存）；rename `src.2` → `src`
 /// - 重复运行：删除旧 `src/`；重新复制 `src.1/` → `src.2/`（暂存）；rename `src.2` → `src`
 ///
-/// `src` 始终是真实目录（非 symlink），跨 Linux / macOS / Windows 三平台行为一致。
+/// `src` 始终是真实目录（非 symlink），跨 Linux / Windows 平台行为一致。
 pub fn merge_in_place(rust_dir: &Path) -> Result<()> {
     let src = rust_dir.join("src");
     let src1 = rust_dir.join("src.1");

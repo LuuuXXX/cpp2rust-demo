@@ -1,88 +1,82 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <vector>
+#include <new>
+#include <cstddef>
 
-// Placement new 示例
-// 展示如何在预分配内存中构造对象
+namespace placement_new_ns {
 
-#include <stddef.h>
-
-// 缓冲区结构
-class Buffer;
-
-// 创建预分配缓冲区
-Buffer* buffer_new(size_t capacity);
-
-// 销毁缓冲区（但不调用对象的析构函数）
-void buffer_delete(Buffer* self);
-
-// 获取缓冲区起始地址
-void* buffer_data(Buffer* self);
-
-// 获取缓冲区容量
-size_t buffer_capacity(Buffer* self);
-
-// 在缓冲区中构造对象
-// 返回构造的对象指针
-void* buffer_construct(Buffer* self, size_t offset);
-
-// 获取已构造对象的大小（模拟）
-size_t buffer_size(Buffer* self);
-
-// 模拟 std::vector 风格的内存管理
-class VectorBuffer;
-
-// 创建 vector 缓冲区
-VectorBuffer* vector_buffer_new(size_t capacity);
-
-// 销毁 vector 缓冲区（调用所有对象的析构函数）
-void vector_buffer_delete(VectorBuffer* self);
-
-// 获取数据指针
-void* vector_buffer_data(VectorBuffer* self);
-
-// 获取元素大小
-size_t vector_buffer_element_size(VectorBuffer* self);
-
-#ifdef __cplusplus
-}
-
-// SimpleValue type used for placement new examples
+// 用于 placement new 演示的简单 POD（平凡可析构）。
 struct SimpleValue {
     int value;
 };
 
-// Full class definition - for hicc code generation
+// Buffer：持有一段原始存储，演示在预分配内存的指定偏移处用 placement new 构造对象。
+// hicc 直出无需手写 *_delete，存储由 Rust Drop 自动回收。
 class Buffer {
-    char* data_;
-    size_t capacity_;
-    size_t constructed_size_;
+    std::vector<char> storage_;
+    std::size_t constructed_size_;
 public:
-    explicit Buffer(size_t capacity);
-    ~Buffer();
-    Buffer(const Buffer&) = delete;
-    Buffer& operator=(const Buffer&) = delete;
-    void* data();
-    size_t capacity() const;
-    size_t size() const;
-    void* construct(size_t offset);
+    explicit Buffer(int capacity)
+        : storage_(capacity > 0 ? static_cast<std::size_t>(capacity) : 0, 0),
+          constructed_size_(0) {}
+
+    int capacity() const { return static_cast<int>(storage_.size()); }
+    int size() const { return static_cast<int>(constructed_size_); }
+
+    // 在 offset 处用 placement new 构造 SimpleValue(v)，返回读回的值（越界返回 -1）。
+    int construct_at(int offset, int v) {
+        if (offset < 0 ||
+            static_cast<std::size_t>(offset) + sizeof(SimpleValue) > storage_.size()) {
+            return -1;
+        }
+        SimpleValue* p = new (storage_.data() + offset) SimpleValue{v};
+        constructed_size_ = static_cast<std::size_t>(offset) + sizeof(SimpleValue);
+        return p->value;
+    }
+
+    // 读回 offset 处已构造对象的值（越界返回 -1）。
+    int value_at(int offset) const {
+        if (offset < 0 ||
+            static_cast<std::size_t>(offset) + sizeof(SimpleValue) > storage_.size()) {
+            return -1;
+        }
+        const SimpleValue* p =
+            reinterpret_cast<const SimpleValue*>(storage_.data() + offset);
+        return p->value;
+    }
 };
 
-class VectorBuffer {
-    char* data_;
-    size_t capacity_;
-    size_t size_;
-    size_t element_size_;
+// ObjectArray：以「元素槽位」的方式在连续存储中逐个 placement new 构造对象，
+// 模拟 std::vector 的底层内存管理风格。
+class ObjectArray {
+    std::vector<char> storage_;
+    int count_;
 public:
-    explicit VectorBuffer(size_t capacity, size_t elem_size);
-    ~VectorBuffer();
-    VectorBuffer(const VectorBuffer&) = delete;
-    VectorBuffer& operator=(const VectorBuffer&) = delete;
-    void* data();
-    size_t element_size() const;
-    void destroy_all();
+    explicit ObjectArray(int count)
+        : storage_((count > 0 ? count : 0) * sizeof(SimpleValue), 0),
+          count_(count > 0 ? count : 0) {}
+
+    int count() const { return count_; }
+    int element_size() const { return static_cast<int>(sizeof(SimpleValue)); }
+
+    // 在第 i 个槽位用 placement new 构造 SimpleValue(v)，返回读回的值（越界返回 -1）。
+    int emplace(int i, int v) {
+        if (i < 0 || i >= count_) return -1;
+        SimpleValue* p =
+            new (storage_.data() + i * sizeof(SimpleValue)) SimpleValue{v};
+        return p->value;
+    }
+
+    int at(int i) const {
+        if (i < 0 || i >= count_) return -1;
+        const SimpleValue* p = reinterpret_cast<const SimpleValue*>(
+            storage_.data() + i * sizeof(SimpleValue));
+        return p->value;
+    }
 };
 
-#endif
+// 锚点：本单元可链接的非模板符号。
+int placement_new_anchor();
+
+} // namespace placement_new_ns

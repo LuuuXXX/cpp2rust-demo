@@ -1,81 +1,39 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// std::string 基本操作示例
-
-#include <stddef.h>
-
-// Forward declaration (opaque pointer)
-struct String;
-
-// Creation and destruction
-struct String* string_new(void);
-struct String* string_new_from(const char* str);
-struct String* string_new_from_len(const char* str, size_t len);
-void string_delete(struct String* self);
-
-// Basic operations
-size_t string_size(const struct String* self);
-size_t string_length(const struct String* self);
-int string_empty(const struct String* self);
-const char* string_c_str(const struct String* self);
-
-// Comparison operations
-int string_compare(const struct String* self, const char* other);
-int string_equals(const struct String* self, const char* other);
-int string_starts_with(const struct String* self, const char* prefix);
-int string_ends_with(const struct String* self, const char* suffix);
-
-// Concatenation operations
-struct String* string_concat(const struct String* self, const char* other);
-void string_append(struct String* self, const char* other);
-void string_append_len(struct String* self, const char* other, size_t len);
-
-// Modification operations
-void string_clear(struct String* self);
-void string_trim(struct String* self);
-
-// Substring operations
-struct String* string_substr(const struct String* self, size_t pos, size_t len);
-int string_find(const struct String* self, const char* substr);
-
-// Case conversion
-void string_to_upper(struct String* self);
-void string_to_lower(struct String* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+#include <algorithm>
+#include <cctype>
+#include <cstddef>
 #include <string>
 
-class StringImpl {
+namespace string_basic_ns {
+
+// MyString：直接持有 std::string，演示基本字符串操作。
+// hicc 直出无需 extern-C 不透明指针 + *_delete，析构由 Rust Drop 自动完成。
+class MyString {
+    std::string data_;
 public:
-    std::string data;
-    StringImpl();
-    explicit StringImpl(const char* str);
-    explicit StringImpl(const char* str, size_t len);
-    ~StringImpl();
+    explicit MyString(const char* s) : data_(s ? s : "") {}
+
+    int length() const { return static_cast<int>(data_.length()); }
+    int empty() const { return data_.empty() ? 1 : 0; }
+    void append(const char* s) { if (s) data_ += s; }
+    char at(int i) const {
+        return (i >= 0 && static_cast<std::size_t>(i) < data_.size()) ? data_[i] : 0;
+    }
+    const char* c_str() const { return data_.c_str(); }
+    int compare(const char* other) const { return data_.compare(other ? other : ""); }
+    void to_upper() {
+        std::transform(data_.begin(), data_.end(), data_.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    }
+    int find(const char* sub) const {
+        if (!sub) return -1;
+        std::size_t pos = data_.find(sub);
+        return pos == std::string::npos ? -1 : static_cast<int>(pos);
+    }
 };
 
-struct String {
-    StringImpl* impl;
-    explicit String();
-    explicit String(const char* str);
-    explicit String(const char* str, size_t len);
-    ~String();
-    const char* c_str() const { return impl->data.c_str(); }
-    size_t size() const { return impl->data.size(); }
-    size_t length() const { return impl->data.length(); }
-    bool empty() const { return impl->data.empty(); }
-    int compare(const char* str) const { return impl->data.compare(str ? str : ""); }
-    bool equals(const char* str) const { return impl->data == (str ? str : ""); }
-    void append(const char* str) { if (str) impl->data += str; }
-    void to_upper() { for (auto& c : impl->data) c = std::toupper((unsigned char)c); }
-    void to_lower() { for (auto& c : impl->data) c = std::tolower((unsigned char)c); }
-};
+// 锚点：本单元可链接的非模板符号。
+int string_basic_anchor();
 
-#endif
+} // namespace string_basic_ns

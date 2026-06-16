@@ -6,7 +6,7 @@ use template_class::*;
 
 #[test]
 fn smoke_int_stack_basic() {
-    let mut s = intstack_new();
+    let mut s = IntStack::new();
     assert!(s.empty(), "新建栈应为空");
     assert_eq!(s.size(), 0);
 
@@ -25,7 +25,7 @@ fn smoke_int_stack_basic() {
 
 #[test]
 fn smoke_double_stack_basic() {
-    let mut s = doublestack_new();
+    let mut s = DoubleStack::new();
     assert!(s.empty(), "新建栈应为空");
 
     s.push(1.1);

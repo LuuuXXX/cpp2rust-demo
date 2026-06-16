@@ -1,25 +1,23 @@
 use custom_deleter::*;
 
 fn main() {
-    println!("=== 031_custom_deleter - 自定义删除器 ===\n");
+    println!("=== 031_custom_deleter - 自定义删除器（hicc 直出）===\n");
 
-    // 使用默认删除器
-    let filename = std::ffi::CString::new("test_default.txt").expect("CString::new failed");
-    let mode = std::ffi::CString::new("w").expect("CString::new failed");
+    let before = cleanup_count();
 
-    let mut handle = unsafe { file_open_default(filename.as_ptr(), mode.as_ptr()) };
+    {
+        let name = std::ffi::CString::new("logfile.txt").expect("CString::new failed");
+        let mut res = ManagedResource::new(name.as_ptr());
 
-    // 写入数据
-    let data = std::ffi::CString::new("Hello, custom deleter!").expect("CString::new failed");
-    let written = handle.write(data.as_ptr(), data.to_bytes().len() as i32);
-    println!("Written {} bytes", written);
+        let nm = unsafe { std::ffi::CStr::from_ptr(res.name()).to_string_lossy().into_owned() };
+        println!("name={} released={}", nm, res.released());
 
-    // 关闭文件
-    handle.close_file();
+        res.release();
+        println!("after release released={}", res.released());
+    }
 
-    println!("\nRust FFI: 自定义删除器模式");
-    println!("1. C++ 允许传递函数指针作为删除器");
-    println!("2. 删除器在对象销毁时自动调用");
-    println!("3. Rust 可以传入自己的清理函数");
-    println!("4. 适用于文件、内存、网络连接等资源");
+    println!("cleanup_count delta={}", cleanup_count() - before);
+
+    println!("\nRust FFI: hicc 绑定内部使用 unique_ptr<T, Deleter> 的类，");
+    println!("自定义删除器在对象析构（Rust Drop）时被自动调用");
 }

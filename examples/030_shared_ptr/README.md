@@ -1,167 +1,134 @@
-# 030_shared_ptr - std::shared_ptr + weak_ptr
+# 030_shared_ptr - std::shared_ptr（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `std::shared_ptr`（共享所有权的智能指针）和 `std::weak_ptr`（非拥有性引用）的 FFI 处理方式。
+本示例展示 C++ **共享所有权**（`std::shared_ptr` 语义）的 FFI 处理方式。采用 idiomatic
+命名空间风格（`shared_ptr_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` 桥接；
+`SharedData` 内部以 `std::shared_ptr` 持有负载，`Cache` 用 `vector<shared_ptr>` 缓存，
+演示引用计数增长。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
-### shared_ptr.cpp
+### shared_ptr.h
 
 ```cpp
-// 模拟 std::shared_ptr
-template<typename T>
-class SharedPtr {
-    T* ptr_;
-    int* ref_count_;
+namespace shared_ptr_ns {
+
+class SharedData {
+    std::shared_ptr<std::string> data_;
 public:
-    SharedPtr(T* p) : ptr_(p), ref_count_(new int(1)) {}
+    explicit SharedData(const char* name)
+        : data_(std::make_shared<std::string>(name ? name : "")) {}
+    const char* name() const { return data_->c_str(); }
+    int use_count() const { return (int)data_.use_count(); }
+    void reset() { data_.reset(); }
+    int expired() const { return data_ ? 0 : 1; }
+};
 
-    // 拷贝构造 - 增加引用计数
-    SharedPtr(const SharedPtr& other)
-        : ptr_(other.ptr_), ref_count_(other.ref_count_) {
-        ++(*ref_count_);
+class Cache {
+    std::vector<std::shared_ptr<std::string>> entries_;
+public:
+    Cache() = default;
+    int store(const char* name) {
+        auto sp = std::make_shared<std::string>(name ? name : "");
+        entries_.push_back(sp);
+        return (int)sp.use_count(); // 本地 sp + 缓存副本 = 2
     }
-
-    int use_count() const { return *ref_count_; }
-    T* get() const { return ptr_; }
+    int size() const { return (int)entries_.size(); }
+    void clear() { entries_.clear(); }
 };
+
+} // namespace shared_ptr_ns
 ```
-
-## shared_ptr vs unique_ptr
-
-| 特性 | shared_ptr | unique_ptr |
-|------|------------|------------|
-| 所有权 | 共享（引用计数） | 独占 |
-| 拷贝 | 支持 | 不支持 |
-| 移动 | 支持 | 支持 |
-| use_count | 可获取 | 始终 1 |
-| 线程安全 | 可配置 | 是 |
-
-## weak_ptr 作用
-
-```cpp
-// 解决循环引用问题
-class B;
-class A {
-    std::shared_ptr<B> b;
-};
-class B {
-    std::weak_ptr<A> a;  // 不增加引用计数
-};
-```
-
-## Rust FFI 方案
-
-### main.rs
-
-```rust
-// 策略: C++ 侧管理引用计数
-#[cpp(func = "int shareddata_use_count(struct SharedData*)")]
-unsafe fn shareddata_use_count(self_: *mut SharedData) -> i32;
-
-#[cpp(func = "struct SharedData* shareddata_clone(struct SharedData*)")]
-unsafe fn shareddata_clone(self_: *mut SharedData) -> *mut SharedData;
-
-#[cpp(func = "int shareddata_expired(struct SharedData*)")]
-unsafe fn shareddata_expired(self_: *mut SharedData) -> i32;
-```
-
-## FFI 对比分析
-
-| 方面 | C++ shared_ptr | Rust FFI |
-|------|----------------|----------|
-| 引用计数 | 编译器管理 | 需导出函数查询 |
-| 拷贝 | 自动增加计数 | `clone()` 函数 |
-| 释放 | 计数为 0 时 | Rust 仍需显式 delete |
-| weak_ptr | `lock()` 获取 shared_ptr | `expired()` 检查 + 创建新 |
-
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <string>
-    #include <iostream>
-    #include <memory>
-    #include <cstring>
-    #include <unordered_map>
-
     #include "shared_ptr.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "SharedData", destroy = "shareddata_delete")]
+    #[cpp(class = "shared_ptr_ns::SharedData")]
     pub class SharedData {
-        #[cpp(method = "int useCount() const")]
-        fn use_count(&self) -> i32;
+        #[cpp(method = "const char* name() const")]
+        pub fn name(&self) -> *const i8;
+        #[cpp(method = "int use_count() const")]
+        pub fn use_count(&self) -> i32;
+        // reset / expired 略
 
-        #[cpp(method = "const char* getName() const")]
-        fn get_name(&self) -> *const i8;
-
-        #[cpp(method = "SharedData* clone() const")]
-        fn clone(&self) -> *mut SharedData;
-
-        #[cpp(method = "void reset()")]
-        fn reset(&mut self);
+        pub fn new(name: *const i8) -> Self { shared_data_new(name) }
     }
 }
 
-hicc::import_class! {
-    #[cpp(class = "Cache", destroy = "cache_delete")]
-    pub class Cache {
-        #[cpp(method = "SharedData* get(const char* name)")]
-        fn get(&mut self, name: *const i8) -> *mut SharedData;
-    }
-}
+// Cache 同理（store / size / clear）
 
 hicc::import_lib! {
     #![link_name = "shared_ptr"]
 
-    class SharedData;
-    class Cache;
-
-    #[cpp(func = "SharedData* shareddata_new(const char*)")]
-    unsafe fn shareddata_new(name: *const i8) -> SharedData;
-
-    #[cpp(func = "Cache* cache_new()")]
-    fn cache_new() -> Cache;
-
-    #[cpp(func = "SharedData* cache_get(Cache* c, const char*)")]
-    unsafe fn cache_get(c: *mut Cache, name: *const i8) -> *mut SharedData;
+    #[cpp(func = "std::unique_ptr<shared_ptr_ns::SharedData> hicc::make_unique<shared_ptr_ns::SharedData, const char*>(const char*&&)")]
+    pub fn shared_data_new(name: *const i8) -> SharedData;
+    // cache_new 同理
 }
 ```
+
+## FFI 对比分析
+
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 共享所有权 | `std::shared_ptr<T>` 引用计数 | hicc 包装，相当于 `Arc<T>` |
+| 构造 | `SharedData("x")` | `SharedData::new(*const i8)`（`make_unique`） |
+| 引用计数 | `use_count()` | `use_count()` 返回 i32 |
+| 释放 | `shared_ptr::reset()` | `reset()` + `expired()` |
+| 析构 | 计数归零自动 | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 030_shared_ptr - std::shared_ptr + weak_ptr ===
+=== 030_shared_ptr - std::shared_ptr（hicc 直出）===
 
-Created SharedData: TestData
-Use count: 1
+name=TestData use_count=1 expired=0
+after reset expired=1
 
-Cloned SharedData: TestData
-Use count (shared): 1
+store use_count=2,2 size=2
+after clear size=0
 
-After reset, data1 is cleared
-
-
-Cache demo:
-cached1a and cached1b point to same cache entry
-
-Rust FFI: shared_ptr 的处理方式
-1. C++ 侧管理引用计数
-2. Rust 侧通过 FFI 函数操作
-3. 相当于 Rust 的 Arc<T>
-
-weak_ptr 用于缓存，避免循环引用
-相当于 Rust 的 Weak<T>
+Rust FFI: hicc 用 shared_ptr 表达共享所有权，相当于 Rust 的 Arc<T>
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_shared_data_name` | name() 返回正确 |
+| `smoke_shared_data_use_count` | 独立对象计数为 1 |
+| `smoke_shared_data_reset_expired` | reset 后 expired |
+| `smoke_cache_store` | 缓存后计数为 2 |
+| `smoke_cache_clear` | clear 清空 |
+
+### 运行方式
+
+```bash
+cd examples/030_shared_ptr/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- `shared_ptr` 的 FFI 需要导出引用计数操作函数
-- `weak_ptr` 用于缓存和循环引用解决
-- Rust 等价物：`Arc<T>` 和 `Weak<T>`
-- 跨平台推荐使用 C++ 侧自定义包装类；在 Linux/Windows 上也可使用 hicc-std 提供的安全包装
-  （hicc-std 0.2 在 macOS Apple Clang 下存在编译问题，暂不支持 macOS）
+- C++ 共享所有权可通过 hicc 绑定内部使用 `std::shared_ptr` 的类来表达
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- 语义上相当于 Rust 的 `Arc<T>`

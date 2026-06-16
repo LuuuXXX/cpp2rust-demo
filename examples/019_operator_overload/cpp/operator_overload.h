@@ -1,50 +1,33 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace operator_overload_ns {
 
-struct Number;
-
-struct Number* number_new(int value);
-void number_delete(struct Number* self);
-
-int number_getValue(struct Number* self);
-
-struct Number* number_add(struct Number* self, struct Number* other);
-struct Number* number_sub(struct Number* self, struct Number* other);
-struct Number* number_mul(struct Number* self, struct Number* other);
-struct Number* number_div(struct Number* self, struct Number* other);
-
-int number_compare(struct Number* self, struct Number* other);
-
-struct Number* number_negate(struct Number* self);
-struct Number* number_increment(struct Number* self);
-struct Number* number_decrement(struct Number* self);
-
-void number_add_assign(struct Number* self, struct Number* other);
-void number_sub_assign(struct Number* self, struct Number* other);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 运算符重载：算术、比较、一元、自增/自减、复合赋值
 class Number {
-    int value;
 public:
-    Number(int v);
+    explicit Number(int v);
     ~Number();
-    int getValue() const;
+
+    int value() const;
+
     Number operator+(const Number& other) const;
     Number operator-(const Number& other) const;
     Number operator*(const Number& other) const;
     Number operator/(const Number& other) const;
-    int compare(const Number& other) const;
-    Number operator-() const;
-    Number& operator++();
-    Number& operator--();
+
+    int compare(const Number& other) const;   // 普通方法（非运算符）
+
+    Number operator-() const;                  // 一元负号
+    Number& operator++();                      // 前置 ++
+    Number& operator--();                      // 前置 --
     Number& operator+=(const Number& other);
     Number& operator-=(const Number& other);
+
+private:
+    int value_;
 };
 
-#endif
+// 锚点：让 detect_idiomatic_mode 走直出路径。
+int operator_overload_anchor();
+
+} // namespace operator_overload_ns

@@ -1,184 +1,142 @@
-# 032_placement_new - Placement New
+# 032_placement_new - 定位 new（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 中 placement new 的用法，以及如何在预分配内存中构造对象。
+本示例展示 C++ **定位 new**（placement new）的 FFI 处理方式。采用 idiomatic 命名空间风格
+（`placement_new_ns`），不再使用 extern-C 不透明指针 + `void*` + `*_new`/`*_delete` 桥接；
+`Buffer` 在预分配存储的指定偏移处用 placement new 构造 `SimpleValue`，`ObjectArray` 以
+元素槽位逐个构造，模拟 `std::vector` 底层内存管理。存储由 Rust 的 `Drop` 自动回收。
 
 ## C++ 代码
 
 ### placement_new.h
 
 ```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace placement_new_ns {
 
-struct Buffer;
-struct VectorBuffer;
+struct SimpleValue { int value; };
 
-struct Buffer* buffer_new(size_t capacity);
-void buffer_delete(struct Buffer* self);
-void* buffer_data(struct Buffer* self);
-size_t buffer_capacity(struct Buffer* self);
-
-// 在缓冲区中构造对象
-void* buffer_construct(struct Buffer* self, size_t offset);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### placement_new.cpp
-
-```cpp
-#include "placement_new.h"
-#include <new>
-
-struct SimpleValue {
-    int id;
-    double value;
-    SimpleValue(int i, double v) : id(i), value(v) {}
-};
-
-struct Buffer {
-    char* data;
-    size_t capacity;
-    Buffer(size_t cap) : capacity(cap) {
-        data = new char[capacity];
+class Buffer {
+    std::vector<char> storage_;
+    std::size_t constructed_size_;
+public:
+    explicit Buffer(int capacity)
+        : storage_(capacity > 0 ? (std::size_t)capacity : 0, 0), constructed_size_(0) {}
+    int capacity() const { return (int)storage_.size(); }
+    int size() const { return (int)constructed_size_; }
+    int construct_at(int offset, int v) {           // placement new
+        SimpleValue* p = new (storage_.data() + offset) SimpleValue{v};
+        constructed_size_ = offset + sizeof(SimpleValue);
+        return p->value;
     }
+    int value_at(int offset) const { /* 读回 */ }
 };
 
-void* buffer_construct(Buffer* self, size_t offset) {
-    // placement new：在指定地址构造对象
-    void* location = self->data + offset;
-    return new (location) SimpleValue(1, 2.5);
-}
-```
+class ObjectArray {                                  // 模拟 vector 底层内存
+    std::vector<char> storage_;
+    int count_;
+public:
+    explicit ObjectArray(int count) : storage_(count * sizeof(SimpleValue), 0), count_(count) {}
+    int count() const { return count_; }
+    int element_size() const { return (int)sizeof(SimpleValue); }
+    int emplace(int i, int v) {                      // 第 i 槽位 placement new
+        SimpleValue* p = new (storage_.data() + i * sizeof(SimpleValue)) SimpleValue{v};
+        return p->value;
+    }
+    int at(int i) const { /* 读回 */ }
+};
 
-## Placement New 原理
-
-### 标准 new vs Placement new
-
-```cpp
-// 普通 new：分配 + 构造
-T* p = new T(args);
-
-// Placement new：仅构造（内存已分配）
-void* buffer = malloc(sizeof(T));
-T* p = new (buffer) T(args);
-```
-
-### 语法
-
-```cpp
-new (address) Constructor(args)
+} // namespace placement_new_ns
 ```
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <cstring>
-    #include <new>
-
     #include "placement_new.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "Buffer", destroy = "buffer_delete")]
+    #[cpp(class = "placement_new_ns::Buffer")]
     pub class Buffer {
-        #[cpp(method = "void* data()")]
-        fn data(&mut self) -> *mut u8;
+        #[cpp(method = "int construct_at(int offset, int v)")]
+        pub fn construct_at(&mut self, offset: i32, v: i32) -> i32;
+        #[cpp(method = "int value_at(int offset) const")]
+        pub fn value_at(&self, offset: i32) -> i32;
+        // capacity / size 略
 
-        #[cpp(method = "size_t capacity() const")]
-        fn capacity(&self) -> usize;
-
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-
-        #[cpp(method = "void* construct(size_t offset)")]
-        fn construct(&mut self, offset: usize) -> *mut u8;
+        pub fn new(capacity: i32) -> Self { buffer_new(capacity) }
     }
 }
 
-hicc::import_class! {
-    #[cpp(class = "VectorBuffer", destroy = "vector_buffer_delete")]
-    pub class VectorBuffer {
-        #[cpp(method = "void* data()")]
-        fn data(&mut self) -> *mut u8;
-
-        #[cpp(method = "size_t element_size() const")]
-        fn element_size(&self) -> usize;
-
-        #[cpp(method = "void destroy_all()")]
-        fn destroy_all(&mut self);
-    }
-}
+// ObjectArray 同理（emplace / at / count / element_size）
 
 hicc::import_lib! {
     #![link_name = "placement_new"]
 
-    class Buffer;
-    class VectorBuffer;
-
-    #[cpp(func = "Buffer* buffer_new(size_t)")]
-    fn buffer_new(capacity: usize) -> Buffer;
-
-    #[cpp(func = "VectorBuffer* vector_buffer_new(size_t)")]
-    fn vector_buffer_new(capacity: usize) -> VectorBuffer;
+    #[cpp(func = "std::unique_ptr<placement_new_ns::Buffer> hicc::make_unique<placement_new_ns::Buffer, int>(int&&)")]
+    pub fn buffer_new(capacity: i32) -> Buffer;
+    // object_array_new 同理
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ Placement New | Rust FFI |
-|------|-------------------|----------|
-| 内存分配 | 预分配或 malloc | 手动管理 |
-| 对象构造 | new (addr) T() | C++ 侧处理 |
-| 析构函数 | 手动调用 | C++ 侧处理 |
-| 内存布局 | 由类型决定 | 需要协商 |
-
-## 关键点
-
-1. **内存预先分配**：Rust 侧提供原始内存
-2. **C++ 侧构造**：在指定地址调用构造函数
-3. **析构函数**：需要显式调用或使用 RAII
-4. **内存对齐**：需要考虑类型对齐要求
-
-## 使用场景
-
-- **内存池**：预先分配大块内存，按需构造
-- **STL 容器**：vector/map 的内部实现
-- **嵌入式系统**：避免动态分配
-- **游戏开发**：对象池管理
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 预分配存储 | `std::vector<char>` | hicc 绑定内部持有，对外透明 |
+| 定位构造 | `new (ptr) SimpleValue{v}` | `construct_at` / `emplace` 返回读回值 |
+| 读回 | `reinterpret_cast<SimpleValue*>` | `value_at` / `at` |
+| 析构 | `~Buffer` 释放存储 | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 032_placement_new - Placement New ===
+=== 032_placement_new - 定位 new（hicc 直出）===
 
-Buffer created with capacity: 1024
-Buffer data at: 0x...
-Buffer capacity: 1024
-Buffer constructed size: 0
-Buffer delete called
+capacity=64
+construct_at(0,42)=42 value_at(0)=42 size=4
+construct_at(8,7)=7 value_at(8)=7
 
---- VectorBuffer Demo ---
-VectorBuffer element size: 4
+count=3 element_size=4
+at(0)=10 at(1)=20 at(2)=30
 
-Rust FFI: Placement New 模式
-1. 在预分配内存中构造对象
-2. 使用 placement new: new (address) Constructor(args)
-3. 适用于内存池、STL 容器实现
-4. Rust 需要手动管理内存布局
+Rust FFI: hicc 绑定在预分配存储中用 placement new 构造对象的类
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_buffer_capacity` | capacity() 返回正确 |
+| `smoke_buffer_construct_and_read` | construct_at 后能读回值 |
+| `smoke_buffer_out_of_range` | 越界 offset 返回 -1 |
+| `smoke_object_array_emplace` | 逐槽位构造并读回 |
+| `smoke_object_array_out_of_range` | 越界索引返回 -1 |
+
+### 运行方式
+
+```bash
+cd examples/032_placement_new/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- Placement new 允许在指定内存地址构造对象
-- FFI 边界需要协调内存分配和构造责任
-- 通常 C++ 侧负责构造，Rust 侧负责分配
-- 适用于高性能和实时系统场景
+- C++ 定位 new 可通过 hicc 绑定内部管理原始存储的类来表达
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim 或 `void*` 暴露
+- placement new 在预分配存储中按偏移/槽位构造对象，行为可由 `value_at` / `at` 观测

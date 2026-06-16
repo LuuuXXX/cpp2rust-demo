@@ -1,171 +1,119 @@
-# 047_noexcept_basic - noexcept
+# 047_noexcept_basic - noexcept（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `noexcept` 异常规格说明如何在 FFI 中体现。`noexcept` 声明函数不会抛出异常，允许编译器进行优化。
+本示例展示 C++ **noexcept** 基本函数、内部捕获异常的安全包装，以及 move-only 类型的 FFI 处理方式。采用 idiomatic 命名空间风格（`noexcept_basic_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；`NoexceptMover` 直接持有 `int` 状态。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### noexcept_basic.h
 
 ```cpp
-#pragma once
+namespace noexcept_basic_ns {
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+inline int noexcept_add(int a, int b) noexcept { return a + b; }
+inline int noexcept_multiply(int a, int b) noexcept { return a * b; }
+inline int conditional_abs(int x) noexcept { return x < 0 ? -x : x; }
 
-// noexcept 函数
-int noexcept_add(int a, int b) noexcept;
-int noexcept_multiply(int a, int b) noexcept;
-
-// 可能抛出异常的函数
-int throwing_divide(int a, int b);
-
-// 移动构造函数标记为 noexcept
-struct NoexceptMover;
-struct NoexceptMover* noexcept_mover_move(struct NoexceptMover* other) noexcept;
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### noexcept_basic.cpp
-
-```cpp
-#include "noexcept_basic.h"
-
-// noexcept 移动构造函数
-struct NoexceptMover {
-    int value;
-
-    NoexceptMover(NoexceptMover&& other) noexcept : value(other.value) {
-        other.value = 0;
-    }
+class NoexceptMover {
+    int value_;
+public:
+    explicit NoexceptMover(int v) noexcept : value_(v) {}
+    NoexceptMover(const NoexceptMover&) = delete;
+    NoexceptMover& operator=(const NoexceptMover&) = delete;
+    NoexceptMover(NoexceptMover&& o) noexcept : value_(o.value_) { o.value_ = 0; }
+    NoexceptMover& operator=(NoexceptMover&&) noexcept = default;
+    int get_value() const noexcept { return value_; }
 };
+
+int throwing_divide(int a, int b);
+int safe_divide(int a, int b) noexcept;
+
+} // namespace noexcept_basic_ns
 ```
-
-## noexcept 的作用
-
-1. **编译优化**：编译器知道函数不会抛异常，可以进行更多优化
-2. **移动语义**：STL 容器在重新分配内存时使用 `noexcept` 移动
-3. **析构函数**：C++11 起所有析构函数隐式 `noexcept`
-
-## noexcept 运算符
-
-```cpp
-// C++17
-static_assert(noexcept(some_func()));  // 编译期检查
-```
-
-## 构建方法
-
-### C++ 编译
-
-```bash
-cd cpp
-g++ -c noexcept_basic.cpp -o noexcept_basic.o
-g++ -shared -fPIC noexcept_basic.cpp -o libnoexcept_basic.so
-```
-
-### Rust 编译
-
-```bash
-cd rust_hicc
-cargo build
-```
-
-## FFI 对比分析
-
-| 方面 | C++ | Rust |
-|------|-----|------|
-| 异常规格 | `noexcept` | `panic = "abort"` 或 `Result` |
-| 移动语义 | `noexcept MoveConstr` | `impl Drop` + `mem::forget` |
-| ABI 影响 | 否（仅优化提示） | 不适用 |
-
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类、`make_unique` 工厂与命名空间自由函数：
+
 ```rust
 hicc::cpp! {
-    #include <cstddef>
-    #include <iostream>
-    #include <stdexcept>
-    #include <utility>
-
     #include "noexcept_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "NoexceptMover", destroy = "noexcept_mover_delete")]
+    #[cpp(class = "noexcept_basic_ns::NoexceptMover")]
     pub class NoexceptMover {
         #[cpp(method = "int get_value() const")]
-        fn get_value(&self) -> i32;
+        pub fn get_value(&self) -> i32;
+
+        pub fn new(v: i32) -> Self { noexcept_mover_new(v) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "noexcept_basic"]
 
-    class NoexceptMover;
+    #[cpp(func = "std::unique_ptr<noexcept_basic_ns::NoexceptMover> hicc::make_unique<noexcept_basic_ns::NoexceptMover, int>(int&&)")]
+    pub fn noexcept_mover_new(v: i32) -> NoexceptMover;
 
-    #[cpp(func = "NoexceptMover* noexcept_mover_new(int)")]
-    fn noexcept_mover_new(value: i32) -> NoexceptMover;
-
-    #[cpp(func = "int noexcept_add(int, int)")]
-    fn noexcept_add(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int noexcept_multiply(int, int)")]
-    fn noexcept_multiply(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int throwing_divide(int, int)")]
-    fn throwing_divide(a: i32, b: i32) -> i32;
-
-    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "int check_noexcept(int (*)(int, int))")]
-    unsafe fn check_noexcept(fn_: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
-
-    #[cpp(func = "int conditional_abs(int)")]
-    fn conditional_abs(value: i32) -> i32;
-
-    #[cpp(func = "NoexceptMover* noexcept_mover_move(NoexceptMover* other)")]
-    unsafe fn noexcept_mover_move(other: *mut NoexceptMover) -> *mut NoexceptMover;
-
-    // cpp2rust-todo[FP]: 含函数指针参数，需确保回调符合 extern "C" 调用约定
-    #[cpp(func = "int is_noexcept(int (*)(int, int))")]
-    unsafe fn is_noexcept(fn_: unsafe extern "C" fn(i32, i32) -> i32) -> i32;
+    #[cpp(func = "int noexcept_basic_ns::safe_divide(int, int)")]
+    pub fn safe_divide(a: i32, b: i32) -> i32;
+    // noexcept_add / noexcept_multiply / conditional_abs 同理
 }
 ```
+
+## FFI 对比分析
+
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 异常规格 | `noexcept` | 绑定为普通安全函数 |
+| 异常处理 | `safe_divide` 内部 catch | 只接收 `i32` 结果 |
+| 移动类型 | copy deleted / noexcept move | hicc 绑定内部持有，对外透明 |
+| 析构 | C++ 默认析构 | Rust `Drop` 自动触发 |
+| 跨 FFI 数据 | `int` | `i32` |
 
 ## 运行结果
 
 ```
-=== 047_noexcept_basic - noexcept ===
+=== 047_noexcept_basic - noexcept（hicc 直出）===
 
---- noexcept Functions ---
-noexcept_add(10, 20) = 30
-noexcept_multiply(6, 7) = 42
-conditional_abs(-42) = 42
+noexcept_add(2,3)=5
+noexcept_multiply(4,5)=20
+conditional_abs(-7)=7 conditional_abs(7)=7
+safe_divide(10,2)=5 safe_divide(10,0)=-1
+mover value=42
 
---- noexcept Move Semantics ---
-Original mover created, value = 100
-noexcept_mover_move: transferred ownership
-Mover moved (noexcept), new value = 100
-
---- Summary ---
-1. noexcept declares function won't throw
-2. Move constructors and move assignment operators often use noexcept
-3. noexcept move operations have better performance in STL containers
-4. noexcept functions cannot call potentially throwing functions
-5. In FFI, noexcept is part of function signature
+Rust FFI: hicc 直接绑定 noexcept 命名空间函数与 move-only 类，析构由 Rust Drop 自动完成
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、链接并正确调用。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_noexcept_functions` | noexcept_add / noexcept_multiply / conditional_abs / safe_divide |
+| `smoke_noexcept_mover_is_per_object` | NoexceptMover::new / get_value 的对象内状态 |
+
+### 运行方式
+
+```bash
+cd examples/047_noexcept_basic/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-1. `noexcept` 声明函数不抛出异常
-2. 移动构造函数和移动赋值运算符常用 `noexcept`
-3. `noexcept` 移动操作在 STL 容器中有更好的性能
-4. `noexcept` 函数不能调用可能抛出异常的函数
-5. FFI 中 `noexcept` 是函数签名的一部分
-6. C++17 引入了 `noexcept(expr)` 运算符可在运行时检查
+- C++ `noexcept` 命名空间函数可通过 hicc 直接绑定，无需 extern-C shim
+- `throwing_divide` 的异常在 C++ `safe_divide` 内部捕获，跨 FFI 只返回标量
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim

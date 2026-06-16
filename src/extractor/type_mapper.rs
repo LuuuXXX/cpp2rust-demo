@@ -1,7 +1,7 @@
 //! C++ → Rust 类型映射
 //!
 //! ## 平台说明
-//! 本模块的整数类型映射遵循 **LP64** 约定（Linux/macOS 64-bit）：
+//! 本模块的整数类型映射遵循 **LP64** 约定（Linux 64-bit）：
 //! - `long` / `unsigned long` → `i64` / `u64`（64 位）
 //!
 //! 在 **Windows（LLP64）** 下，MSVC 编译器中 `long` 仍为 32 位。
@@ -146,7 +146,7 @@ fn try_map_primitive(s: &str) -> Option<String> {
         "unsigned short" | "unsigned short int" => "u16".to_string(),
         "int" | "signed int" | "signed" => "i32".to_string(),
         "unsigned int" | "unsigned" => "u32".to_string(),
-        // LP64（Linux / macOS 64 位）: long = 64 位
+        // LP64（Linux 64 位）: long = 64 位
         // LLP64（Windows MSVC）: long = 32 位
         #[cfg(not(target_os = "windows"))]
         "long" | "long int" | "signed long" => "i64".to_string(),

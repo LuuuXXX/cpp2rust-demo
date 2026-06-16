@@ -1,8 +1,10 @@
-# 006_class_basic - 基础类
+# 006_class_basic - 基础类（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示如何将 C++ 类通过 FFI 导出为 Rust 使用。使用"构造/销毁函数对"模式模拟构造函数和析构函数。
+本示例展示如何用 **hicc 直出** 方式把地道的 C++ 命名空间类绑定到 Rust：
+直接绑定真实类 `class_basic_ns::Counter`，构造走 `hicc::make_unique` 工厂，
+析构交给 hicc 的 `Drop`，**不再编写任何 `extern "C"` 桥接函数或 opaque 指针**。
 
 ## C++ 代码
 
@@ -10,163 +12,127 @@
 
 ```cpp
 #pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// Opaque 指针：不暴露类内部结构
-struct Counter;
-
-// 工厂函数（模拟构造函数）
-struct Counter* counter_new(void);
-
-// 销毁函数（模拟析构函数）
-void counter_delete(struct Counter* self);
-
-// 成员函数
-int counter_get(struct Counter* self);
-void counter_increment(struct Counter* self);
-void counter_decrement(struct Counter* self);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### class_basic.cpp
-
-```cpp
-#include "class_basic.h"
+#include <string>
 #include <iostream>
 
-struct Counter {
-    int value;
+namespace class_basic_ns {
+
+class Counter {
+public:
+    Counter() : count_(0), name_("anon") {}
+    explicit Counter(const std::string& name) : count_(0), name_(name) {}
+
+    void inc() { ++count_; }
+    void inc_by(int delta) { count_ += delta; }
+    void reset() { count_ = 0; }
+
+    int count() const { return count_; }
+    const std::string& name() const { return name_; }
+
+private:
+    int count_;
+    std::string name_;
 };
 
-struct Counter* counter_new(void) {
-    std::cout << "Counter created" << std::endl;
-    return new Counter{0};
-}
-
-void counter_delete(struct Counter* self) {
-    if (self) {
-        std::cout << "Counter deleted (value was " << self->value << ")" << std::endl;
-        delete self;
-    }
-}
-
-int counter_get(struct Counter* self) {
-    return self->value;
-}
-
-void counter_increment(struct Counter* self) {
-    ++self->value;
-}
-
-void counter_decrement(struct Counter* self) {
-    --self->value;
-}
+} // namespace class_basic_ns
 ```
 
-## Opaque 指针模式
+地道 C++：真实命名空间类、真实成员（含 `std::string`），无 opaque 指针、无桥接函数。
+配套 `standalone.sh` / `Makefile` / `CMakeLists.txt` 三种纯 C++ 构建方式。
 
-### 什么是 Opaque 指针
-
-Opaque（不透明）指针是指针类型前向声明，但不暴露其实际结构：
-
-```cpp
-struct Counter;  // 前向声明，不完整类型
-```
-
-外部代码只能通过函数操作该类型，无法访问其内部成员。
-
-### 优势
-
-1. **封装**：隐藏内部实现
-2. **ABI 稳定**：内部结构变化不影响 FFI
-3. **内存安全**：由库负责内存分配/释放
-
-## Rust FFI 代码
+## Rust FFI 代码（hicc 直出）
 
 ```rust
 hicc::cpp! {
-    #include <iostream>
-
     #include "class_basic.h"
+    #include <hicc/std/string.hpp>
 }
 
 hicc::import_class! {
-    #[cpp(class = "Counter", destroy = "counter_delete")]
+    class string = hicc_std::string;
+
+    #[cpp(class = "class_basic_ns::Counter")]
     pub class Counter {
-        #[cpp(method = "int get() const")]
-        fn get(&self) -> i32;
+        #[cpp(method = "void inc()")]
+        pub fn inc(&mut self);
 
-        #[cpp(method = "void increment()")]
-        fn increment(&mut self);
+        #[cpp(method = "void inc_by(int)")]
+        pub fn inc_by(&mut self, delta: i32);
 
-        #[cpp(method = "void decrement()")]
-        fn decrement(&mut self);
+        #[cpp(method = "void reset()")]
+        pub fn reset(&mut self);
+
+        #[cpp(method = "int count() const")]
+        pub fn count(&self) -> i32;
+
+        #[cpp(method = "const std::string& name() const")]
+        pub fn name(&self) -> &string;
+
+        pub fn new() -> Self { counter_new() }
+        pub fn with_name(name: &string) -> Self { counter_with_name(name) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "class_basic"]
 
-    class Counter;
+    #[cpp(func = "std::unique_ptr<class_basic_ns::Counter> hicc::make_unique<class_basic_ns::Counter>()")]
+    pub fn counter_new() -> Counter;
 
-    #[cpp(func = "Counter* counter_new()")]
-    fn counter_new() -> Counter;
+    #[cpp(func = "std::unique_ptr<class_basic_ns::Counter> hicc::make_unique<class_basic_ns::Counter, const std::string&>(const std::string&)")]
+    pub fn counter_with_name(name: &hicc_std::string) -> Counter;
 }
 ```
+
 ## 关键点
 
-### C++ 类到 hicc FFI 的映射
+### C++ 类到 hicc 直出的映射
 
-| C++ 概念 | hicc 映射方式 |
+| C++ 概念 | hicc 直出映射 |
 |----------|--------------|
-| 构造函数 | `import_lib!` 中 `fn counter_new() -> Counter`（返回 owned 类型） |
-| 析构函数 | `import_class!` 的 `destroy = "counter_delete"` 属性自动管理 |
-| const 成员函数 | `fn get(&self) -> i32`（`&self`） |
-| 非 const 成员函数 | `fn increment(&mut self)`（`&mut self`） |
-| 访问控制 | FFI 边界不可见，hicc 通过 opaque pointer 封装 |
+| 命名空间类 | `#[cpp(class = "class_basic_ns::Counter")]` 直接绑定真实类 |
+| 公有构造函数 | `import_lib!` 中 `hicc::make_unique<T, Args...>` 工厂，`import_class!` body 内 `pub fn new(...) -> Self { factory(...) }` 转发 |
+| 析构函数 | 由 hicc 的 `Drop` 自动负责，**无需 `destroy =` 或 `*_delete`** |
+| const 成员函数 | `fn count(&self) -> i32`（`&self`） |
+| 非 const 成员函数 | `fn inc(&mut self)`（`&mut self`） |
+| 返回 `const std::string&` | `fn name(&self) -> &string`，配 `class string = hicc_std::string;`（`ClassRef`） |
 
-### hicc 内存管理
+### 与旧版（C ABI shim）的区别
 
-1. **owned 类型**：`counter_new() -> Counter` 返回 hicc 管理的 owned 对象（非原始指针）
-2. **自动析构**：`destroy = "counter_delete"` 使 hicc 在 Drop 时自动调用 `counter_delete`
-3. **安全引用**：`&self` / `&mut self` 保证 borrow checker 的安全性
+- 旧版用 `struct Counter` opaque 指针 + `counter_new`/`counter_delete`/`counter_get` 等
+  手写 `extern "C"` 桥接；本版**全部删除**，直接绑定真实命名空间类。
+- 构造由 `hicc::make_unique` 工厂直出，析构由 hicc `Drop` 接管。
 
 ## 构建方法
 
-### C++ 编译
+### C++ 独立验证（任选其一）
 
 ```bash
 cd cpp
-g++ -c class_basic.cpp -o class_basic.o
-g++ -shared -fPIC class_basic.cpp -o libclass_basic.so
+./standalone.sh          # 直接编译运行
+make run                 # 或 Makefile
+cmake -B build && cmake --build build   # 或 CMake
 ```
 
-### Rust 编译
+### Rust 编译与测试
 
 ```bash
 cd rust_hicc
-cargo build
-cargo run
+cargo test               # 运行 tests/smoke.rs 行为级断言
+cargo run                # 运行 src/main.rs 演示
 ```
 
 ## 运行结果
 
 ```
-Initial value: 0
-After 3 increments: 3
-After 1 decrement: 2
-
-Rust FFI: Basic class operations completed!
+[rust] name=demo count=12
+[rust] after reset, count=0
 ```
 
 ## 总结
 
-1. **Opaque 指针模式**：hicc 通过 `class Counter;` 前向声明隐藏 C++ 类内部结构
-2. **owned 返回**：`fn counter_new() -> Counter` 返回 hicc owned 对象，析构时自动调用 `counter_delete`
-3. **安全方法绑定**：`import_class!` 将 C++ 成员方法映射为 `&self`/`&mut self` 的 Rust 方法
-4. **零 unsafe 调用**：hicc 将不安全的 FFI 封装为安全 Rust API
+1. **去 shim**：直接绑定 `class_basic_ns::Counter`，无 opaque 指针、无 `extern "C"` 桥接。
+2. **make_unique 工厂**：每个公有构造派生一条 `hicc::make_unique` 工厂，替代 `*_new` shim。
+3. **Drop 析构**：hicc 自动管理对象生命周期，替代 `*_delete` shim。
+4. **ClassRef 引用返回**：`const std::string&` → `&string`（`hicc_std::string`）。
+5. **零 unsafe 调用**：hicc 将 FFI 封装为安全 Rust API。

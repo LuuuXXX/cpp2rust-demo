@@ -7,12 +7,9 @@ edition = "2021"
 name = "operator_overload"
 path = "src/lib.rs"
 
-[[bin]]
-name = "operator_overload"
-path = "src/main.rs"
-
 [dependencies]
 hicc = { version = "0.2" }
+hicc-std = { version = "0.2" }
 
 [build-dependencies]
 cc = "1.0"

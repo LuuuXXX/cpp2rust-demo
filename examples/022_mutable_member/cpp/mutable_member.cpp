@@ -1,32 +1,18 @@
 #include "mutable_member.h"
-#include <iostream>
-#include <cstring>
 
-struct DataFetcher* datafetcher_new(const char* name) {
-    return new DataFetcher(name);
+namespace mutable_member_ns {
+
+DataFetcher::DataFetcher(int seed) : seed_(seed), access_count_(0) {}
+DataFetcher::~DataFetcher() = default;
+
+// const 方法修改 mutable 成员：合法，因为 access_count_ 被 mutable 修饰。
+int DataFetcher::fetch() const {
+    ++access_count_;
+    return seed_ + access_count_;
 }
 
-void datafetcher_delete(struct DataFetcher* self) {
-    delete self;
-}
+int DataFetcher::accessCount() const { return access_count_; }
 
-const char* datafetcher_getName(struct DataFetcher* self) {
-    return self->getName();
-}
+int mutable_member_anchor() { return 0; }
 
-int datafetcher_getCacheCount(struct DataFetcher* self) {
-    return self->getCacheCount();
-}
-
-void datafetcher_refresh(struct DataFetcher* self) {
-    self->refresh();
-}
-
-// DataFetcher class implementation
-DataFetcher::DataFetcher(const char* n) : cache_count(0) {
-    name = n;
-}
-DataFetcher::~DataFetcher() {}
-const char* DataFetcher::getName() const { return name; }
-int DataFetcher::getCacheCount() const { return cache_count; }
-void DataFetcher::refresh() { cache_count++; }
+} // namespace mutable_member_ns

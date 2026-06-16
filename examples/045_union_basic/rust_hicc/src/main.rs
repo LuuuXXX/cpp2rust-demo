@@ -1,41 +1,25 @@
 use union_basic::*;
-use hicc::AbiClass;
 
 fn main() {
-    println!("=== 045_union_basic - Unions ===\n");
+    use std::ffi::{CStr, CString};
 
-    // Variant example
-    println!("--- Variant Demo ---");
+    println!("=== 045_union_basic - union（hicc 直出）===\n");
 
-    let v_int = variant_new_int(42);
-    println!("Type: {}, Value: {}", variant_type_name(v_int.get_type()), v_int.get_int());
+    let mut v = Variant::new();
+    v.set_int(42);
+    println!("variant int type={} value={}", v.get_type(), v.get_int());
+    v.set_float(2.5);
+    println!("variant float type={} value={}", v.get_type(), v.get_float());
+    let hi = CString::new("hi").expect("CString::new failed");
+    v.set_string(hi.as_ptr());
+    let s = unsafe { CStr::from_ptr(v.get_string()).to_string_lossy().into_owned() };
+    println!("variant string type={} value={}", v.get_type(), s);
 
-    let v_float = variant_new_float(3.14);
-    println!("Type: {}, Value: {}", variant_type_name(v_float.get_type()), v_float.get_float());
+    let mut u = IntFloatUnion::new();
+    u.set_int(7);
+    println!("union int={}", u.get_int());
+    u.set_float(1.5);
+    println!("union float={}", u.get_float());
 
-    let v_string = unsafe { variant_new_string("Hello, Union!\0".as_ptr() as *const i8) };
-    let s = unsafe { std::ffi::CStr::from_ptr(v_string.get_string()) };
-    println!("Type: {}, Value: {}", variant_type_name(v_string.get_type()), s.to_str().unwrap());
-
-    // Memory overlay demo
-    println!("\n--- Memory Overlay Demo ---");
-    println!("sizeof(int) = {}, sizeof(float) = {}", std::mem::size_of::<i32>(), std::mem::size_of::<f32>());
-
-    let mut union_ptr = union_new();
-
-    // Set int value
-    unsafe { union_set_int(&union_ptr.as_mut_ptr(), 0x41414141); }  // 'AAAA' in ASCII
-    let int_val = union_get_int(&union_ptr.as_mut_ptr());
-    println!("Set as int: {} (0x{:08x})", int_val, int_val as u32);
-
-    // Read same memory as float
-    let float_bits = union_get_float(&union_ptr.as_mut_ptr());
-    println!("Read as float: {} (bits: 0x{:08x})", float_bits, float_bits.to_bits());
-
-    println!("\n--- Summary ---");
-    println!("1. union all members share the same memory");
-    println!("2. Modifying one member affects other members");
-    println!("3. union size equals the largest member size");
-    println!("4. Often used to save memory or for type punning");
-    println!("5. FFI passes union via variant wrapper");
+    println!("\nRust FFI: hicc 直接绑定持有 union 的类，析构由 Rust Drop 自动完成");
 }

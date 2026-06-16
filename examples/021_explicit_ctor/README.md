@@ -1,90 +1,85 @@
-# 021_explicit_ctor - explicit 构造函数
+# 021_explicit_ctor - 显式构造函数（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 中 `explicit` 关键字的作用：防止单参数构造函数的隐式类型转换。
+本示例展示**显式构造函数**的地道 C++ 命名空间类 `Widget`：含两个公有构造
+`Widget(int)`（非 `explicit`，允许隐式转换）与 `explicit Widget(double)`（禁止隐式转换）。
+用 hicc 直出绑定，**无 opaque 指针、无 `extern "C"` 桥接、无 `*_new`/`*_delete` shim**。
 
-## C++ 代码
-
-### explicit_ctor.h
-
-```cpp
-struct Widget* widget_fromInt(int value);  // explicit 构造
-struct Widget* widget_fromDouble(double value);  // explicit 构造
-```
-
-### explicit_ctor.cpp
+## C++ 代码（节选）
 
 ```cpp
-// implicit 构造函数
-Widget* widget_new(int value) {
-    // 可以隐式调用: Widget w = 42;
-}
+namespace explicit_ctor_ns {
 
-// explicit 构造函数
-Widget* widget_fromInt(int value) {
-    // 必须显式调用: Widget w(42) 或 Widget w = Widget(42);
-}
+class Widget {
+public:
+    Widget(int v);             // 非 explicit：int 可隐式转换为 Widget
+    explicit Widget(double v); // explicit：double 必须显式构造
+    ~Widget();
+    int getValue() const;
+private:
+    int value_;
+};
+
+} // namespace explicit_ctor_ns
 ```
 
-## Rust FFI 代码
+配套 `standalone.sh` / `Makefile` 两种纯 C++ 构建方式。
+
+## Rust FFI 代码（hicc 直出 + 多构造工厂）
+
+hicc 直出为**每个公有构造**各派生一条 `hicc::make_unique` 工厂与关联函数：第一个构造
+映射为 `new`，后续构造映射为 `new_2`、`new_3` …… 本例即 `new(i32)` 与 `new_2(f64)`：
 
 ```rust
-hicc::cpp! {
-    #include <iostream>
-
-    #include "explicit_ctor.h"
-}
-
 hicc::import_class! {
-    #[cpp(class = "Widget", destroy = "widget_delete")]
+    #[cpp(class = "explicit_ctor_ns::Widget")]
     pub class Widget {
         #[cpp(method = "int getValue() const")]
-        fn get_value(&self) -> i32;
+        pub fn get_value(&self) -> i32;
+
+        pub fn new(v: i32) -> Self { widget_new(v) }
+        pub fn new_2(v: f64) -> Self { widget_new_2(v) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "explicit_ctor"]
-
-    class Widget;
-
-    #[cpp(func = "Widget* widget_new(int)")]
-    fn widget_new(value: i32) -> Widget;
-
-    #[cpp(func = "Widget* widget_fromInt(int)")]
-    fn widget_from_int(value: i32) -> Widget;
-
-    #[cpp(func = "Widget* widget_fromDouble(double)")]
-    fn widget_from_double(value: f64) -> Widget;
+    #[cpp(func = "std::unique_ptr<explicit_ctor_ns::Widget> hicc::make_unique<explicit_ctor_ns::Widget, int>(int&&)")]
+    pub fn widget_new(v: i32) -> Widget;
+    #[cpp(func = "std::unique_ptr<explicit_ctor_ns::Widget> hicc::make_unique<explicit_ctor_ns::Widget, double>(double&&)")]
+    pub fn widget_new_2(v: f64) -> Widget;
 }
 ```
-## FFI 对比分析
 
-| 方面 | C++ | Rust FFI |
-|------|-----|----------|
-| explicit 作用 | 编译时防止隐式转换 | 无影响，FFI 调用都是显式的 |
-| 函数调用 | 可能隐式：`Widget w = 42;` | 始终显式：`widget_fromInt(42)` |
-| FFI 签名 | `Widget* widget_fromInt(int)` | `fn widget_fromInt(value: i32) -> *mut Widget` |
+## 关键点
+
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| 多个公有构造 | 逐个派生 `make_unique` 工厂：`new`、`new_2` …… |
+| `Widget(int)` | `new(i32)` |
+| `explicit Widget(double)` | `new_2(f64)` |
+| `explicit` 关键字 | 只约束 C++ 隐式转换；Rust 侧两者都是显式关联函数调用，不影响绑定 |
+| 析构 | 交给 hicc 的 `Drop`，无 `*_delete` shim |
+
+## 构建方法
+
+```bash
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
+```
 
 ## 运行结果
 
 ```
-=== 021_explicit_ctor - explicit 构造函数 ===
-
-C++ explicit 关键字防止隐式类型转换
-
-Created with implicit ctor: value = 42
-
-Created with explicit int ctor: value = 100
-Created with explicit double ctor: value = 3
-
-Rust FFI: explicit 不影响 FFI - 只是禁止隐式转换
-在 FFI 中，所有构造函数都是显式调用的
+a.get_value()=42
+b.get_value()=3
+--- end main ---
 ```
 
 ## 总结
 
-- `explicit` 是编译时检查，不影响运行时 FFI 调用
-- 在 FFI 边界，所有调用都是显式的
-- FFI 层不需要特别处理 explicit 关键字
+1. **多构造工厂**：每个公有构造各对应一条 `make_unique` 工厂与关联函数。
+2. **命名规则**：首个构造为 `new`，其余为 `new_2`/`new_3`……
+3. **explicit 无关**：`explicit` 只影响 C++ 隐式转换，不改变直出绑定。
+4. **去 shim**：无 `*_new`/`*_delete`、无 opaque 指针、无 `extern "C"` 桥接。

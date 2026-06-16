@@ -1,43 +1,65 @@
 #pragma once
+#include <cstring>
+#include <iostream>
+#include <utility>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace class_move_ns {
 
-struct UniqueVector;
-
-// 构造函数
-struct UniqueVector* unique_vector_new(void);
-struct UniqueVector* unique_vector_newWithData(int* data, int size);
-
-// 析构函数
-void unique_vector_delete(struct UniqueVector* self);
-
-// 操作
-int unique_vector_get(const struct UniqueVector* self, int index);
-void unique_vector_set(struct UniqueVector* self, int index, int value);
-int unique_vector_size(const struct UniqueVector* self);
-
-// 移动语义
-void unique_vector_move(struct UniqueVector* dest, struct UniqueVector* src);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 拥有动态数组的「只移动」向量，演示移动语义：移动构造/移动赋值「窃取」源对象的
+// 内存指针并把源置空，因此移动是 O(1) 资源转移而非深拷贝。析构释放内存
+// （交由 hicc 的 Drop 调用）。
 class UniqueVector {
-    int* data;
-    int size;
 public:
-    UniqueVector();
-    UniqueVector(int* data, int size);
-    ~UniqueVector();
-    UniqueVector(UniqueVector&& other) noexcept;
-    UniqueVector& operator=(UniqueVector&& other) noexcept;
-    int get(int index) const;
-    void set(int index, int value);
-    int getSize() const;
-    void moveFrom(UniqueVector& src);
+    UniqueVector() : data_(nullptr), size_(0) {
+        std::cout << "UniqueVector() ctor" << std::endl;
+    }
+    explicit UniqueVector(int size) : data_(new int[size]()), size_(size) {
+        std::cout << "UniqueVector(int) ctor, size=" << size << std::endl;
+    }
+    // 移动构造：窃取 other 的指针并把 other 置空。
+    UniqueVector(UniqueVector&& other) noexcept
+        : data_(other.data_), size_(other.size_) {
+        other.data_ = nullptr;
+        other.size_ = 0;
+        std::cout << "UniqueVector(UniqueVector&&) move ctor" << std::endl;
+    }
+    // 移动赋值：释放自身内存，窃取 other 的指针并把 other 置空。
+    UniqueVector& operator=(UniqueVector&& other) noexcept {
+        if (this != &other) {
+            delete[] data_;
+            data_ = other.data_;
+            size_ = other.size_;
+            other.data_ = nullptr;
+            other.size_ = 0;
+        }
+        return *this;
+    }
+    ~UniqueVector() {
+        delete[] data_;
+        std::cout << "~UniqueVector() dtor, size=" << size_ << std::endl;
+    }
+
+    void set(int index, int value) {
+        if (index >= 0 && index < size_) {
+            data_[index] = value;
+        }
+    }
+    int get(int index) const {
+        if (index >= 0 && index < size_) {
+            return data_[index];
+        }
+        return 0;
+    }
+    int size() const { return size_; }
+
+    // 从 src 移动资源到自身（src 被置空），演示成员级移动操作。
+    void move_from(UniqueVector& src) {
+        *this = std::move(src);
+    }
+
+private:
+    int* data_;
+    int size_;
 };
 
-#endif
+} // namespace class_move_ns

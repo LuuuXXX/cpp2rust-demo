@@ -1,66 +1,48 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace typeid_rtti_ns {
 
-struct Shape;
-
-enum ShapeType {
-    SHAPE_TYPE_CIRCLE = 0,
-    SHAPE_TYPE_RECTANGLE = 1,
-    SHAPE_TYPE_TRIANGLE = 2
-};
-
-struct Shape* shape_new_circle(double radius);
-struct Shape* shape_new_rectangle(double width, double height);
-struct Shape* shape_new_triangle(double base, double height);
-
-void shape_delete(struct Shape* self);
-
-int shape_getType(struct Shape* self);
-const char* shape_getTypeName(struct Shape* self);
-double shape_area(struct Shape* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 多态抽象基类（含虚函数 → 启用 RTTI）。无公有构造，不可实例化。
 class Shape {
 public:
     virtual ~Shape() = default;
-    virtual int getType() const = 0;
-    virtual const char* getTypeName() const = 0;
     virtual double area() const = 0;
 };
 
+// 具体实现：圆
 class Circle : public Shape {
-    double radius;
 public:
-    Circle(double r);
-    int getType() const override;
-    const char* getTypeName() const override;
+    explicit Circle(double r);
+    ~Circle() override;
     double area() const override;
+    double radius() const;
+private:
+    double radius_;
 };
 
+// 具体实现：矩形
 class Rectangle : public Shape {
-    double width;
-    double height;
 public:
     Rectangle(double w, double h);
-    int getType() const override;
-    const char* getTypeName() const override;
+    ~Rectangle() override;
     double area() const override;
+private:
+    double width_;
+    double height_;
 };
 
+// 具体实现：三角形
 class Triangle : public Shape {
-    double base;
-    double height;
 public:
     Triangle(double b, double h);
-    int getType() const override;
-    const char* getTypeName() const override;
+    ~Triangle() override;
     double area() const override;
+private:
+    double base_;
+    double height_;
 };
 
-#endif
+// 锚点：触发 detect_idiomatic_mode 走直出路径。
+int typeid_rtti_anchor();
+
+} // namespace typeid_rtti_ns

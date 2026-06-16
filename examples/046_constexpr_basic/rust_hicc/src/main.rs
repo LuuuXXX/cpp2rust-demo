@@ -1,36 +1,19 @@
 use constexpr_basic::*;
 
 fn main() {
-    println!("=== 046_constexpr_basic - constexpr ===\n");
+    println!("=== 046_constexpr_basic - constexpr（hicc 直出）===\n");
 
-    // Compile-time computed fibonacci number
-    println!("--- Compile-time Fibonacci ---");
-    let fib_10 = get_fibonacci_10();
-    println!("fibonacci<10>() = {} (computed at compile time)", fib_10);
-    println!("Rust equivalent: fib(10) = {} (also compile time)", FIB_RUST);
+    let p = ConstexprPoint::new(3, 4);
+    println!(
+        "p x={} y={} manhattan={}",
+        p.x(),
+        p.y(),
+        p.manhattan_distance()
+    );
 
-    // Runtime manhattan distance
-    println!("\n--- Runtime Manhattan Distance ---");
-    println!("manhattan_distance(3, 4) = {}", manhattan_distance(3, 4));
-    println!("manhattan_distance(-3, -4) = {}", manhattan_distance(-3, -4));
-    println!("manhattan_distance(10, -5) = {}", manhattan_distance(10, -5));
+    let neg = ConstexprPoint::new(-2, -5);
+    println!("neg manhattan={}", neg.manhattan_distance());
+    println!("fibonacci<10>()={} array_size={}", fibonacci_10(), array_size());
 
-    // Array operations
-    println!("\n--- Array Operations ---");
-    let arr = [1, 5, 3, 9, 2, 8, 4, 7, 6, 0];
-    let size = get_array_size();
-    println!("Array: {:?}", &arr[..size as usize]);
-
-    let sum = constexpr_sum_array(arr.as_ptr(), size);
-    println!("Sum: {}", sum);
-
-    let max = constexpr_find_max(arr.as_ptr(), size);
-    println!("Max: {}", max);
-
-    println!("\n--- Summary ---");
-    println!("1. constexpr specifies expression computed at compile time");
-    println!("2. constexpr functions must satisfy compile-time evaluation conditions");
-    println!("3. constexpr variables have determined values at compile time");
-    println!("4. FFI constexpr values passed via preprocessor macros");
-    println!("5. Rust const fn can achieve similar functionality");
+    println!("\nRust FFI: hicc 直接绑定 constexpr 类与命名空间自由函数，析构由 Rust Drop 自动完成");
 }

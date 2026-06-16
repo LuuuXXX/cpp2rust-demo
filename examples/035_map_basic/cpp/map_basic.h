@@ -1,92 +1,51 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// std::map 基本操作示例
-
-#include <stddef.h>
-
-// Forward declarations (opaque pointers)
-struct StringIntMap;
-struct IntStringMap;
-
-// StringIntMap operations
-struct StringIntMap* string_int_map_new(void);
-void string_int_map_delete(struct StringIntMap* self);
-
-size_t string_int_map_size(const struct StringIntMap* self);
-int string_int_map_empty(const struct StringIntMap* self);
-
-// Insert key-value pair (returns 1 on success, 0 if key exists)
-int string_int_map_insert(struct StringIntMap* self, const char* key, int value);
-
-// Find value (returns 1 if found, 0 if not)
-int string_int_map_find(struct StringIntMap* self, const char* key, int* out_value);
-
-// Access element (inserts default if not exists)
-int string_int_map_get(const struct StringIntMap* self, const char* key);
-void string_int_map_set(struct StringIntMap* self, const char* key, int value);
-
-// Erase key-value pair (returns 1 on success, 0 if key not found)
-int string_int_map_erase(struct StringIntMap* self, const char* key);
-
-// Clear all elements
-void string_int_map_clear(struct StringIntMap* self);
-
-// Contains check
-int string_int_map_contains(const struct StringIntMap* self, const char* key);
-
-// IntStringMap operations
-struct IntStringMap* int_string_map_new(void);
-void int_string_map_delete(struct IntStringMap* self);
-
-size_t int_string_map_size(const struct IntStringMap* self);
-
-int int_string_map_insert_int(struct IntStringMap* self, int key, const char* value);
-int int_string_map_find_int(struct IntStringMap* self, int key, const char** out_value);
-int int_string_map_erase_int(struct IntStringMap* self, int key);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
 #include <map>
 #include <string>
+#include <unordered_map>
 
-class StringIntMapImpl {
+namespace map_basic_ns {
+
+// StringIntMap：直接持有 std::map<std::string, int>，演示有序映射的基本操作。
+// hicc 直出无需 extern-C 不透明指针 + *_delete，析构由 Rust Drop 自动完成。
+class StringIntMap {
+    std::map<std::string, int> data_;
 public:
-    std::map<std::string, int> data;
-    StringIntMapImpl();
-    ~StringIntMapImpl();
+    StringIntMap() = default;
+
+    void insert(const char* key, int value) { data_[key ? key : ""] = value; }
+    int get(const char* key) const {
+        auto it = data_.find(key ? key : "");
+        return it == data_.end() ? -1 : it->second;
+    }
+    int contains(const char* key) const { return data_.count(key ? key : "") ? 1 : 0; }
+    int size() const { return static_cast<int>(data_.size()); }
+    int erase(const char* key) { return static_cast<int>(data_.erase(key ? key : "")); }
+    void clear() { data_.clear(); }
+    const char* first_key() const { return data_.empty() ? "" : data_.begin()->first.c_str(); }
 };
 
-class IntStringMapImpl {
+// Counter：直接持有 std::unordered_map<std::string, int>，演示词频计数。
+class Counter {
+    std::unordered_map<std::string, int> counts_;
+    std::string last_;
 public:
-    std::map<int, std::string> data;
-    IntStringMapImpl();
-    ~IntStringMapImpl();
+    Counter() = default;
+
+    void add(const char* word) {
+        last_ = word ? word : "";
+        ++counts_[last_];
+    }
+    int count(const char* word) const {
+        auto it = counts_.find(word ? word : "");
+        return it == counts_.end() ? 0 : it->second;
+    }
+    int unique_words() const { return static_cast<int>(counts_.size()); }
+    const char* last_word() const { return last_.c_str(); }
+    void clear() { counts_.clear(); last_.clear(); }
 };
 
-struct StringIntMap {
-    StringIntMapImpl* impl;
-    explicit StringIntMap();
-    ~StringIntMap();
-    bool insert(const char* key, int val) { return impl->data.insert({key, val}).second; }
-    int get(const char* key) const { return impl->data.count(key) ? impl->data.at(key) : 0; }
-    void set(const char* key, int val) { impl->data[key] = val; }
-    bool erase(const char* key) { return impl->data.erase(key) > 0; }
-    size_t size() const { return impl->data.size(); }
-    bool empty() const { return impl->data.empty(); }
-    void clear() { impl->data.clear(); }
-};
+// 锚点：本单元可链接的非模板符号。
+int map_basic_anchor();
 
-struct IntStringMap {
-    IntStringMapImpl* impl;
-    explicit IntStringMap();
-    ~IntStringMap();
-    size_t size() const { return impl->data.size(); }
-};
-
-#endif
+} // namespace map_basic_ns

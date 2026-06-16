@@ -1,29 +1,22 @@
 #pragma once
-#include <cstdint>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace summary_ns {
 
-struct Counter;
-
-struct Counter* counter_new();
-void counter_delete(struct Counter* self);
-int safe_add(int a, int b);
-int get_max_size();
-
-#ifdef __cplusplus
-}
-#endif
-
-#ifdef __cplusplus
 class Counter {
-    int value = 0;
+    int count_;
 public:
-    Counter() = default;
-    ~Counter() = default;
-    int get() const { return value; }
-    void increment() { value++; }
-    void decrement() { value--; }
+    Counter() : count_(0) {}
+
+    void increment() { ++count_; }
+    void decrement() { --count_; }
+    int get() const { return count_; }
+    void reset() { count_ = 0; }
 };
-#endif
+
+int safe_add(int a, int b);
+int max_size();
+
+// 锚点：本单元可链接的非模板符号。
+int summary_anchor();
+
+} // namespace summary_ns

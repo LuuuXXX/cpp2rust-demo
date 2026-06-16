@@ -7,6 +7,7 @@ pub mod type_mapper;
 mod class_spec;
 mod cpp_block;
 mod dynamic_cast_spec;
+mod hicc_direct;
 mod lib_spec;
 mod proxy_spec;
 mod template_spec;
@@ -82,6 +83,35 @@ pub fn extract(
     let namespace_class_mode =
         detect_namespace_mode(has_any_classes, &used_classes, &eligible_functions);
 
+    // ── hicc 直出（idiomatic 命名空间类）模式 ──────────────
+    // 去 shim 核心：真实命名空间类 + make_unique 工厂直出，替代 extern-C opaque 桥接。
+    // 仅当不存在任何 extern "C" 函数、且存在带公有构造的命名空间类时启用；
+    // 现有 extern-C 示例不受影响，仍走下方旧路径。
+    if hicc_direct::detect_idiomatic_mode(ast) {
+        let cpp_block_lines = if let Some(hdr) = project_header {
+            vec![format!("#include \"{}\"", hdr)]
+        } else {
+            Vec::new()
+        };
+        let class_specs = hicc_direct::build_hicc_direct_specs(ast);
+        // 绑定命名空间自由函数（排除仅用于产生链接符号的 `<unit>_anchor` 锚点函数）
+        let free_fns: Vec<&FunctionInfo> = functions
+            .iter()
+            .copied()
+            .filter(|f| !f.name.ends_with("_anchor"))
+            .collect();
+        let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
+        let mut lib_spec = lib_spec::build_lib_spec_namespaced(&free_fns, unit_name, &class_names);
+        lib_spec.link_name = unit_name.to_string();
+        return FfiSpec {
+            unit_name: unit_name.to_string(),
+            cpp_block_lines,
+            class_specs,
+            lib_spec,
+            ..Default::default()
+        };
+    }
+
     // ── hicc::cpp! 块内容 ──────────────────────
     let cpp_block_lines = if namespace_class_mode {
         // 命名空间类模式：只生成项目头文件 include，不内联类体
@@ -130,12 +160,18 @@ pub fn extract(
     };
 
     // ── import_lib! 块 ────────────────────────
-    // 始终调用 build_lib_spec：其内部的 is_mappable_rust_type 过滤器会自动排除
-    // 含 `::` 的命名空间类型（如 std::string*、example::OperationResult*），
-    // 而 void* → *mut u8 等可映射类型则正常生成绑定。
+    // 始终调用 build_lib_spec_namespaced：其内部的 is_mappable_rust_type 过滤器会自动
+    // 排除含 `::` 的命名空间类型（如 std::string*、example::OperationResult*），而
+    // void* → *mut u8 等可映射类型则正常生成绑定。
+    //
+    // 命名空间自由函数（如模板示例的 `<unit>_ns::<unit>_anchor()`）必须以 `ns::name`
+    // 限定其 C++ 签名：本路径的 hicc `cpp!` 块仅含 `#include`，不带 `using namespace`，
+    // 裸函数名会在全局作用域解析失败（实测 024/028 生成产物 cargo build 报
+    // “was not declared in this scope”）。限定仅对 `fi.namespace` 为 Some 的函数生效，
+    // 旧式 extern-C 全局桥接函数（namespace 为 None）保持裸函数名不变。
     let lib_spec = {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        lib_spec::build_lib_spec(&functions, unit_name, &class_names)
+        lib_spec::build_lib_spec_namespaced(&functions, unit_name, &class_names)
     };
 
     let mut spec = FfiSpec {
@@ -895,6 +931,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         }
     }
 
@@ -1225,6 +1262,7 @@ mod tests {
     fn make_class(name: &str, methods: Vec<MethodInfo>) -> ClassInfo {
         ClassInfo {
             name: name.to_string(),
+            simple_name: name.to_string(),
             is_struct: false,
             is_abstract: false,
             template_args: vec![],
@@ -1232,6 +1270,7 @@ mod tests {
             methods,
             fields: vec![],
             is_in_namespace: false,
+            namespace: None,
             is_from_current_file: true,
         }
     }
@@ -1305,6 +1344,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         }
     }
 
@@ -1434,6 +1474,7 @@ mod tests {
             friend_of: None,
             body_offset,
             is_from_current_file: true,
+            namespace: None,
         }
     }
 
@@ -1603,6 +1644,7 @@ mod tests {
     #[test]
     fn compute_used_classes_no_substring_false_positive() {
         let classes = vec![ClassInfo {
+            simple_name: "Foo".to_string(),
             name: "Foo".to_string(),
             is_struct: false,
             is_abstract: false,
@@ -1611,6 +1653,7 @@ mod tests {
             methods: vec![],
             fields: vec![],
             is_in_namespace: false,
+            namespace: None,
             is_from_current_file: true,
         }];
         let fi = FunctionInfo {
@@ -1623,6 +1666,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         };
         let result = compute_used_classes(&classes, &[fi]);
         assert!(
@@ -1636,6 +1680,7 @@ mod tests {
     #[test]
     fn compute_used_classes_correct_match() {
         let classes = vec![ClassInfo {
+            simple_name: "Foo".to_string(),
             name: "Foo".to_string(),
             is_struct: false,
             is_abstract: false,
@@ -1644,6 +1689,7 @@ mod tests {
             methods: vec![],
             fields: vec![],
             is_in_namespace: false,
+            namespace: None,
             is_from_current_file: true,
         }];
         let fi = FunctionInfo {
@@ -1656,6 +1702,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         };
         let result = compute_used_classes(&classes, &[fi]);
         assert!(
@@ -1690,6 +1737,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: false,
+            namespace: None,
         };
         // 正常的当前文件函数
         let current_fn = make_fn("my_func", "int", &["int"]);

@@ -1,140 +1,90 @@
-# 023_typeid_rtti - typeid 与 RTTI
+# 023_typeid_rtti - RTTI / typeid（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ RTTI（运行时类型信息）的使用，通过 `typeid` 在运行时确定对象实际类型。
+本示例展示 **RTTI（运行期类型识别）/ `typeid`** 的地道 C++ 命名空间多态体系：抽象基类
+`Shape`（含纯虚 `area()`）与具体实现 `Circle`/`Rectangle`/`Triangle`。经**基类引用**对对象
+施加 `typeid(...)`，可在运行期取回其**动态类型**。用 hicc 直出绑定，**无 opaque 指针、
+无 `extern "C"` 桥接、无 `*_new`/`*_delete` shim**。
 
-## C++ 代码
-
-### typeid_rtti.cpp
+## C++ 代码（节选）
 
 ```cpp
-// 使用 typeid 确定实际类型
-const std::type_info& ti = typeid(*self);
+namespace typeid_rtti_ns {
 
-if (ti == typeid(Circle)) {
-    return SHAPE_TYPE_CIRCLE;
-} else if (ti == typeid(Rectangle)) {
-    return SHAPE_TYPE_RECTANGLE;
-}
+class Shape {
+public:
+    virtual ~Shape() = default;
+    virtual double area() const = 0;   // 纯虚 → 多态，启用 RTTI
+};
+
+class Circle : public Shape {
+public:
+    explicit Circle(double r);
+    double area() const override;
+    double radius() const;
+private:
+    double radius_;
+};
+// Rectangle / Triangle 同理
+
+} // namespace typeid_rtti_ns
 ```
 
-## Rust FFI 方案
+配套 `standalone.sh` / `Makefile` 两种纯 C++ 构建方式。
 
-### main.rs
+## Rust FFI 代码（hicc 直出 + typeid 命名包装）
 
-```rust
-// FFI 策略：在 C++ 侧导出类型枚举
-#[cpp(func = "int shape_getType(struct Shape*)")]
-unsafe fn shape_getType(self_: *mut Shape) -> i32;
-
-// 类型检查变成枚举值比较
-match shape_getType(shape) {
-    SHAPE_TYPE_CIRCLE => { /* Circle 逻辑 */ }
-    SHAPE_TYPE_RECTANGLE => { /* Rectangle 逻辑 */ }
-    _ => { /* Unknown */ }
-}
-```
-
-## FFI 对比分析
-
-| 方面 | C++ | Rust FFI |
-|------|-----|----------|
-| 运行时类型检测 | `typeid(*obj)` | 导出类型枚举函数 |
-| 类型名称 | `ti.name()` | 编译器特定，无法可靠传递 |
-| 类型比较 | `ti == typeid(Circle)` | 枚举值比较 |
-
-
-## Rust FFI 代码
+抽象基类 `Shape` 无公有构造、不可实例化，被工具跳过；具体类各自直接绑定（默认支架见
+`lib_scaffold.rs`）。RTTI 不在直出范围内，故在手写 `lib.rs` 中以 `hicc::cpp!` 命名包装
+对每个对象经**基类引用**调用 `typeid(...).name()`，再绑定为关联方法 `runtime_type_name`：
 
 ```rust
 hicc::cpp! {
-    #include <iostream>
-    #include <typeinfo>
-    #include <cmath>
-
     #include "typeid_rtti.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "Shape", destroy = "shape_delete")]
-    pub class Shape {
-        #[cpp(method = "int getType() const")]
-        fn get_type(&self) -> i32;
-
-        #[cpp(method = "const char* getTypeName() const")]
-        fn get_type_name(&self) -> *const i8;
-
-        #[cpp(method = "double area() const")]
-        fn area(&self) -> f64;
+    #include <typeinfo>
+    using typeid_rtti_ns::Shape;
+    using typeid_rtti_ns::Circle;
+    const char* circle_runtime_type(const Circle* self) {
+        const Shape& s = *self;      // 上行为基类引用
+        return typeid(s).name();     // RTTI 取回动态类型名
     }
 }
 
-hicc::import_lib! {
-    #![link_name = "typeid_rtti"]
+// import_class! 内：
+#[cpp(func = "const char* circle_runtime_type(const typeid_rtti_ns::Circle*)")]
+pub fn runtime_type_name(&self) -> *const i8;
+```
 
-    class Shape;
+## 关键点
 
-    #[cpp(func = "Shape* shape_new_circle(double)")]
-    fn shape_new_circle(radius: f64) -> Shape;
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| 抽象基类 `Shape`（纯虚） | 无公有构造 → 工具跳过，不生成绑定 |
+| 具体类 `Circle`/`Rectangle`/`Triangle` | 各自 `import_class!` 直接绑定 + `make_unique` 工厂 |
+| `typeid(基类引用).name()` | 跳过自动绑定 → `hicc::cpp!` 命名包装 + `#[cpp(func)]` `runtime_type_name` |
+| 动态类型识别 | 包装内经 `const Shape&` 取回派生类的动态类型 |
+| `const char*` 返回 | Rust `*const i8`，测试侧用 `CStr` 转字符串（断言 `contains` 类名以跨平台稳定） |
 
-    #[cpp(func = "Shape* shape_new_rectangle(double, double)")]
-    fn shape_new_rectangle(width: f64, height: f64) -> Shape;
+## 构建方法
 
-    #[cpp(func = "Shape* shape_new_triangle(double, double)")]
-    fn shape_new_triangle(base: f64, height: f64) -> Shape;
-}
+```bash
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
 ## 运行结果
 
 ```
-=== 023_typeid_rtti - typeid 与 RTTI ===
-
-
-Using typeid to determine runtime type:
-Circle: type=0, name=Circle, area=78.54
-Rectangle: type=1, area=24.00
-Triangle: type=2, area=6.00
-Deleting Circle
-Deleting Rectangle
-Deleting Triangle
-
-Rust FFI: typeid 变成类型枚举或字符串比较
-RTTI 信息在 FFI 边界丢失，需在 C++ 侧导出类型信息
+circle area=12.5664 typeid=Circle
+rect   area=12.0000 typeid=Rectangle
+tri    area=6.0000 typeid=Triangle
+--- end main ---
 ```
-
-## 冒烟测试
-
-本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
-可链接 C++ 实现，且基本行为正确。
-
-### 测试用例
-
-| 测试函数 | 验证内容 |
-|---------|---------|
-| `smoke_circle_type_and_area` | `shape_new_circle(5.0)` 后 `get_type()` = 0（`SHAPE_TYPE_CIRCLE`），面积约 78.5 |
-| `smoke_rectangle_type_and_area` | `shape_new_rectangle(4.0, 6.0)` 后 `get_type()` = 1，面积 = 24.0 |
-| `smoke_triangle_type_and_area` | `shape_new_triangle(3.0, 4.0)` 后 `get_type()` = 2，面积 = 6.0 |
-| `smoke_get_type_name` | `get_type_name()` 返回 `"Circle"` 字符串 |
-
-### 运行方式
-
-```bash
-cd examples/023_typeid_rtti/rust_hicc
-cargo test --test smoke
-```
-
-### 各平台支持
-
-| 平台 | 状态 | 备注 |
-|------|------|------|
-| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
-| macOS | ✅ | 支持 |
-| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- C++ RTTI 信息无法直接传递到 Rust
-- 解决方案：在 C++ 侧导出类型枚举
-- 使用工厂函数创建对象，返回时携带类型信息
+1. **多态 + RTTI**：含虚函数的类启用 RTTI，`typeid` 可取动态类型。
+2. **抽象基类跳过**：无公有构造的抽象基类不被直出绑定。
+3. **typeid 命名包装**：以 `hicc::cpp!` 经基类引用调用 `typeid().name()`。
+4. **去 shim**：无 `*_new`/`*_delete`、无 opaque 指针、无 `extern "C"` 桥接。

@@ -1,35 +1,42 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <iostream>
 
-struct MyClass;
+namespace friend_function_ns {
 
-struct MyClass* myclass_new(int secret_value);
-void myclass_delete(struct MyClass* self);
-
-int myclass_getValue(struct MyClass* self);
-void myclass_setValue(struct MyClass* self, int value);
-
-int friend_function_getSum(const struct MyClass* a, const struct MyClass* b);
-int friend_function_getProduct(const struct MyClass* a, const struct MyClass* b);
-int friend_function_compare(const struct MyClass* a, const struct MyClass* b);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 友元函数：在类体内内联定义的非成员友元，可访问私有成员 value_。
 class MyClass {
-    int secret_value;
-    friend int friend_function_getSum(const MyClass* a, const MyClass* b);
-    friend int friend_function_getProduct(const MyClass* a, const MyClass* b);
-    friend int friend_function_compare(const MyClass* a, const MyClass* b);
 public:
-    MyClass(int v);
+    explicit MyClass(int v);
     ~MyClass();
+
     int getValue() const;
     void setValue(int v);
+
+    friend int getSum(const MyClass& a, const MyClass& b) {
+        int sum = a.value_ + b.value_;
+        std::cout << "Friend getSum: " << a.value_ << " + " << b.value_
+                  << " = " << sum << std::endl;
+        return sum;
+    }
+    friend int getProduct(const MyClass& a, const MyClass& b) {
+        int product = a.value_ * b.value_;
+        std::cout << "Friend getProduct: " << a.value_ << " * " << b.value_
+                  << " = " << product << std::endl;
+        return product;
+    }
+    friend int compare(const MyClass& a, const MyClass& b) {
+        if (a.value_ < b.value_) { std::cout << "Friend compare: a < b\n"; return -1; }
+        if (a.value_ > b.value_) { std::cout << "Friend compare: a > b\n"; return 1; }
+        std::cout << "Friend compare: a == b\n";
+        return 0;
+    }
+
+private:
+    int value_;
 };
 
-#endif
+// 锚点：触发 detect_idiomatic_mode 走直出路径。
+int friend_function_anchor();
+
+} // namespace friend_function_ns

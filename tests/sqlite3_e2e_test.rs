@@ -15,7 +15,7 @@ use cpp2rust_demo::{generator::project_generator, merger};
 use std::path::Path;
 use tempfile::TempDir;
 
-/// 系统 sqlite3 头文件路径（Linux/macOS 通用）
+/// 系统 sqlite3 头文件路径（Linux）
 const SQLITE3_HEADER: &str = "/usr/include/sqlite3.h";
 
 /// 测试用的临时 C++ wrapper 文件内容

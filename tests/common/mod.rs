@@ -91,19 +91,23 @@ pub fn generate_from_source(unit_name: &str, cpp_source: &str) -> Option<String>
 
 fn find_cpp_file(dir: &str) -> Option<std::path::PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("cpp") {
-            return Some(path);
-        }
-    }
-    None
+    // 收集全部 .cpp，按文件名排序以保证确定性；排除示例驱动 `main.cpp`
+    // （它仅是独立运行的 demo，不是待绑定的实现单元）。
+    let mut cpps: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("cpp"))
+        .collect();
+    cpps.sort();
+    cpps.iter()
+        .find(|p| p.file_name().and_then(|s| s.to_str()) != Some("main.cpp"))
+        .or_else(|| cpps.first())
+        .cloned()
 }
 
 /// 对 C++ 源文件运行预处理器（-E -C），输出到 `out`。
 ///
-/// - Linux / macOS：优先尝试 `clang++`（macOS Xcode CLI 默认可用；Linux 也常见），
-///   回退到 `g++`（Linux 默认编译器；macOS Homebrew GCC）。
+/// - Linux：优先尝试 `clang++`，回退到 `g++`（Linux 默认编译器）。
 /// - Windows：优先尝试 `clang++`（LLVM for Windows），
 ///   回退到 `g++`（MinGW/MSYS2），再回退到 `cl.exe /P /C`（MSVC）。
 fn run_preprocess(src: &std::path::Path, out: &std::path::Path) -> bool {
@@ -505,8 +509,15 @@ pub fn assert_valid_hicc_format(code: &str, unit_name: &str) {
             "unit '{}': import_class! 块缺少类注解 (#[cpp(class...)] 或 #[interface])",
             unit_name
         );
-        // 仅在当前 import_class! 块内检查方法绑定
-        if block.contains("fn ") {
+        // 仅在当前 import_class! 块内检查方法绑定。
+        // 注意：构造工厂形如 `pub fn new(...) -> Self { ... }`，是 Rust 端辅助函数，
+        // 并非 C++ 方法，不需要 #[cpp(method = "...")]。只有「非工厂」的方法绑定才要求该注解。
+        // 某些平台的 libclang 可能丢弃全部不可映射方法，使得块内仅剩构造工厂，
+        // 这种「仅工厂」的 import_class! 块是合法 hicc，不应判为缺少方法注解。
+        let has_non_factory_fn = block
+            .lines()
+            .any(|l| l.contains("fn ") && !l.contains("-> Self"));
+        if has_non_factory_fn {
             assert!(
                 block.contains("#[cpp(method = \""),
                 "unit '{}': import_class! 块包含方法但缺少 #[cpp(method = \"...\")]",
@@ -570,9 +581,7 @@ pub fn ensure_cpp_lib(example: &str) {
     // 去掉形如 "013_" 的数字前缀，得到库的短名称
     let short_name = example.split_once('_').map(|(_, s)| s).unwrap_or(example);
 
-    let lib_name = if cfg!(target_os = "macos") {
-        format!("lib{}.dylib", short_name)
-    } else if cfg!(windows) {
+    let lib_name = if cfg!(windows) {
         format!("{}.dll", short_name)
     } else {
         format!("lib{}.so", short_name)
@@ -595,11 +604,7 @@ pub fn ensure_cpp_lib(example: &str) {
         panic!("ensure_cpp_lib: {} 中没有找到 .cpp 文件", cpp_dir);
     }
 
-    let (compiler, shared_flag): (&str, &[&str]) = if cfg!(target_os = "macos") {
-        // 使用系统 Apple Clang，避免 KyleMayes/install-llvm-action 安装的 LLVM clang++
-        // 覆盖 PATH 后使用 LLVM 自带 libc++ 头文件导致与 macOS SDK 不兼容的问题
-        ("/usr/bin/clang++", &["-dynamiclib"])
-    } else if cfg!(windows) {
+    let (compiler, shared_flag): (&str, &[&str]) = if cfg!(windows) {
         ("g++", &["-shared"])
     } else {
         ("g++", &["-shared", "-fPIC"])

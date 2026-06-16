@@ -50,12 +50,6 @@
 #   sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev \
 #                           binutils git curl
 #   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-#
-# 系统要求（macOS / Homebrew）：
-#   brew install llvm cmake git
-#   export LIBCLANG_PATH=$(brew --prefix llvm)/lib
-#   export PATH="$(brew --prefix llvm)/bin:$PATH"
-#   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # =============================================================================
 
 set -euo pipefail
@@ -65,7 +59,7 @@ FEATURE="${FEATURE:-rapidjson_shim}"
 NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 SKIP_INSTALL="${SKIP_INSTALL:-0}"   # 置 1 可跳过 cargo install 步骤（已安装时使用）
 CXX_STD="c++11"                     # C++ 标准版本（shim 文件要求 C++11 以上）
-TMPDIR="${TMPDIR:-/tmp}"            # 系统临时目录（macOS/Linux 均适用）
+TMPDIR="${TMPDIR:-/tmp}"            # 系统临时目录（Linux）
 
 # ─── 颜色 / 辅助函数 ──────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'

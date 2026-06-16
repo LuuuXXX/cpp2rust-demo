@@ -1,29 +1,22 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace explicit_ctor_ns {
 
-struct Widget;
-
-struct Widget* widget_new(int value);
-struct Widget* widget_fromInt(int value);
-struct Widget* widget_fromDouble(double value);
-void widget_delete(struct Widget* self);
-
-int widget_getValue(struct Widget* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// 显式构造函数：Widget(int) 允许隐式转换，explicit Widget(double) 禁止隐式转换。
 class Widget {
-    int value;
 public:
-    Widget(int v);
-    explicit Widget(double v);
+    Widget(int v);             // 非 explicit：int 可隐式转换为 Widget
+    explicit Widget(double v); // explicit：double 必须显式构造
+
     ~Widget();
+
     int getValue() const;
+
+private:
+    int value_;
 };
 
-#endif
+// 锚点：触发 detect_idiomatic_mode 走直出路径。
+int explicit_ctor_anchor();
+
+} // namespace explicit_ctor_ns

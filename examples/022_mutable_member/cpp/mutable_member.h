@@ -1,33 +1,23 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace mutable_member_ns {
 
-struct DataFetcher;
-
-struct DataFetcher* datafetcher_new(const char* name);
-void datafetcher_delete(struct DataFetcher* self);
-
-const char* datafetcher_getName(struct DataFetcher* self);
-int datafetcher_getCacheCount(struct DataFetcher* self);
-
-void datafetcher_refresh(struct DataFetcher* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
+// mutable 成员：被 mutable 修饰的成员即使在 const 方法中也可被修改。
 class DataFetcher {
-    const char* name;
-    mutable int cache_count;
-    char cache_data[256];
 public:
-    DataFetcher(const char* n);
+    explicit DataFetcher(int seed);
     ~DataFetcher();
-    const char* getName() const;
-    int getCacheCount() const;
-    void refresh();
+
+    // const 方法：逻辑上不改变对象「可见状态」，但更新 mutable 的访问计数缓存。
+    int fetch() const;
+    int accessCount() const;
+
+private:
+    int seed_;
+    mutable int access_count_;
 };
 
-#endif
+// 锚点：触发 detect_idiomatic_mode 走直出路径。
+int mutable_member_anchor();
+
+} // namespace mutable_member_ns

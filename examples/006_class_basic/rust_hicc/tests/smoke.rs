@@ -1,33 +1,29 @@
-//! 006_class_basic 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
-
 use class_basic::*;
 
 #[test]
-fn smoke_counter_initial() {
-    let counter = counter_new();
-    assert_eq!(counter.get(), 0, "初始值应为 0");
+fn counter_basic() {
+    let mut c = Counter::new();
+    c.inc();
+    c.inc();
+    c.inc_by(10);
+    assert_eq!(c.count(), 12);
 }
 
 #[test]
-fn smoke_counter_increment() {
-    let mut counter = counter_new();
-    counter.increment();
-    assert_eq!(counter.get(), 1, "increment 一次后应为 1");
-    counter.increment();
-    counter.increment();
-    assert_eq!(counter.get(), 3, "increment 三次后应为 3");
+fn counter_named() {
+    let n = hicc_std::string::from(c"named");
+    let mut c = Counter::with_name(&n);
+    c.inc();
+    assert_eq!(c.count(), 1);
+    let nm = c.name();
+    let cs = unsafe { std::ffi::CStr::from_ptr(nm.c_str()) };
+    assert_eq!(cs.to_str().unwrap(), "named");
 }
 
 #[test]
-fn smoke_counter_decrement() {
-    let mut counter = counter_new();
-    counter.increment();
-    counter.increment();
-    counter.increment();
-    counter.increment();
-    counter.increment();
-    counter.decrement();
-    assert_eq!(counter.get(), 4, "5 次 increment + 1 次 decrement = 4");
+fn counter_reset() {
+    let mut c = Counter::new();
+    for _ in 0..5 { c.inc(); }
+    c.reset();
+    assert_eq!(c.count(), 0);
 }
