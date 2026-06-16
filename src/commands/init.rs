@@ -76,7 +76,7 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
     // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
     project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
     let lib_name = feature.replace('-', "_");
-    project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
+    project_generator::write_build_rs(&lo.rust_dir, &lib_name, &unit_paths)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
     // 生成冒烟测试 tests/smoke.rs（"生成即验证"）；v7 起默认生成、不再受环境变量开关控制，

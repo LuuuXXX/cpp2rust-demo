@@ -275,11 +275,33 @@ pub fn write_smoke_test(rust_dir: &Path, content: &str) -> Result<bool> {
 ///
 /// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，
 /// 必须有对应的 `build.rs` 才能触发构建脚本。
-pub fn write_build_rs(rust_dir: &Path, lib_name: &str) -> Result<()> {
+///
+/// # 为什么逐文件注册 `unit_paths`
+///
+/// `hicc-build` 的 `rust_file` 只解析**传入文件的顶层宏**（`hicc::cpp!` /
+/// `import_class!` / `import_lib!`），既不跟随 `mod foo;` 外部文件，也不进入内联
+/// `mod { ... }`。本工具生成的多单元项目中，`src/lib.rs` 仅含 `pub mod ...;` 模块
+/// 声明而不含任何 hicc 宏，真正的三段式 FFI 代码分散在各 `src/<unit>.rs` 子模块文件
+/// 里。因此必须对**每个**单元文件调用 `.rust_file("src/<unit>.rs")`，否则
+/// `import_lib!` 在 C++ 侧需要的 `_hicc_export_methods_*` 方法表导出函数不会被生成，
+/// 链接二进制（如 `cargo test` 的测试目标）时会出现 `undefined reference`。
+///
+/// `unit_paths` 为相对 `src/` 的单元路径（`/` 分隔、不含扩展名），与
+/// [`write_lib_rs`] 接收的列表一致。为空时回退为 `src/lib.rs`（保持向后兼容）。
+pub fn write_build_rs(rust_dir: &Path, lib_name: &str, unit_paths: &[String]) -> Result<()> {
+    let mut chain = String::new();
+    if unit_paths.is_empty() {
+        chain.push_str("        .rust_file(\"src/lib.rs\")\n");
+    } else {
+        for unit_path in unit_paths {
+            chain.push_str(&format!("        .rust_file(\"src/{}.rs\")\n", unit_path));
+        }
+    }
     let content = format!(
         "\
 fn main() {{
-    hicc_build::Build::new().rust_file(\"src/lib.rs\").compile(\"{lib_name}\");
+    hicc_build::Build::new()
+{chain}        .compile(\"{lib_name}\");
 }}
 "
     );
@@ -371,19 +393,41 @@ pub fn write_multi_feature_lib_rs(rust_dir: &Path, feature_names: &[&str]) -> Re
 
 /// 为多 feature 合并项目写出 `build.rs`。
 ///
-/// 每个 feature 对应一个条件编译的 `hicc_build` 调用：
+/// 每个 feature 对应一个条件编译块，**逐文件**注册该 feature 下所有含 hicc 宏的单元
+/// 文件（理由见 [`write_build_rs`]：`hicc-build` 只解析顶层宏、不递归子模块，因此
+/// 不能只注册 `mod.rs`）：
 /// ```rust
 /// if cfg!(feature = "feat") {
-///     hicc_build::Build::new().rust_file("src/feat/mod.rs").compile("feat");
+///     hicc_build::Build::new()
+///         .rust_file("src/feat/foo.rs")
+///         .rust_file("src/feat/bar.rs")
+///         .compile("feat");
 /// }
 /// ```
-pub fn write_multi_feature_build_rs(rust_dir: &Path, feature_names: &[&str]) -> Result<()> {
+///
+/// `feature_units` 中每项为 `(feature_name, unit_rel_paths)`，`unit_rel_paths` 为相对
+/// 合并项目根目录的单元文件路径（如 `"src/feat/foo.rs"`）。某 feature 无单元文件时
+/// 回退为 `"src/<feature>/mod.rs"`（保持向后兼容）。
+pub fn write_multi_feature_build_rs(
+    rust_dir: &Path,
+    feature_units: &[(&str, Vec<String>)],
+) -> Result<()> {
     let mut body = String::new();
-    for feature in feature_names {
+    for (feature, unit_rel_paths) in feature_units {
         let lib_name = feature.replace('-', "_");
+        let mut chain = String::new();
+        if unit_rel_paths.is_empty() {
+            chain.push_str(&format!("            .rust_file(\"src/{feature}/mod.rs\")\n"));
+        } else {
+            for rel in unit_rel_paths {
+                chain.push_str(&format!("            .rust_file(\"{rel}\")\n"));
+            }
+        }
         body.push_str(&format!(
             "    if cfg!(feature = \"{feature}\") {{\n\
-             \x20       hicc_build::Build::new().rust_file(\"src/{feature}/mod.rs\").compile(\"{lib_name}\");\n\
+             \x20       hicc_build::Build::new()\n\
+             {chain}\
+             \x20           .compile(\"{lib_name}\");\n\
              \x20   }}\n"
         ));
     }
@@ -709,12 +753,24 @@ mod tests {
     #[test]
     fn write_build_rs_creates_file() {
         let tmp = TempDir::new().unwrap();
-        write_build_rs(tmp.path(), "my_lib").unwrap();
+        let units = vec!["foo".to_string(), "bar/baz".to_string()];
+        write_build_rs(tmp.path(), "my_lib", &units).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
         assert!(content.contains("hicc_build::Build::new()"));
-        assert!(content.contains(".rust_file(\"src/lib.rs\")"));
+        // 逐个单元文件均被注册，而非仅 src/lib.rs
+        assert!(content.contains(".rust_file(\"src/foo.rs\")"));
+        assert!(content.contains(".rust_file(\"src/bar/baz.rs\")"));
         assert!(content.contains(".compile(\"my_lib\")"));
         assert!(content.contains("fn main()"));
+    }
+
+    #[test]
+    fn write_build_rs_empty_units_falls_back_to_lib_rs() {
+        let tmp = TempDir::new().unwrap();
+        write_build_rs(tmp.path(), "my_lib", &[]).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
+        assert!(content.contains(".rust_file(\"src/lib.rs\")"));
+        assert!(content.contains(".compile(\"my_lib\")"));
     }
 
     // ── write_cargo_toml ──────────────────────
@@ -785,19 +841,33 @@ mod tests {
     #[test]
     fn write_multi_feature_build_rs_per_feature_blocks() {
         let tmp = TempDir::new().unwrap();
-        write_multi_feature_build_rs(tmp.path(), &["feat1", "feat2"]).unwrap();
+        let feature_units = vec![
+            ("feat1", vec!["src/feat1/foo.rs".to_string()]),
+            ("feat2", vec!["src/feat2/bar.rs".to_string()]),
+        ];
+        write_multi_feature_build_rs(tmp.path(), &feature_units).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
         assert!(content.contains("cfg!(feature = \"feat1\")"));
-        assert!(content.contains("src/feat1/mod.rs"));
+        assert!(content.contains(".rust_file(\"src/feat1/foo.rs\")"));
         assert!(content.contains("cfg!(feature = \"feat2\")"));
-        assert!(content.contains("src/feat2/mod.rs"));
+        assert!(content.contains(".rust_file(\"src/feat2/bar.rs\")"));
         assert!(content.contains("fn main()"));
+    }
+
+    #[test]
+    fn write_multi_feature_build_rs_empty_units_falls_back_to_mod_rs() {
+        let tmp = TempDir::new().unwrap();
+        let feature_units = vec![("feat1", Vec::<String>::new())];
+        write_multi_feature_build_rs(tmp.path(), &feature_units).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
+        assert!(content.contains(".rust_file(\"src/feat1/mod.rs\")"));
     }
 
     #[test]
     fn write_multi_feature_build_rs_hyphen_to_underscore() {
         let tmp = TempDir::new().unwrap();
-        write_multi_feature_build_rs(tmp.path(), &["my-feat"]).unwrap();
+        let feature_units = vec![("my-feat", vec!["src/my-feat/foo.rs".to_string()])];
+        write_multi_feature_build_rs(tmp.path(), &feature_units).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
         assert!(content.contains(".compile(\"my_feat\")"));
     }
