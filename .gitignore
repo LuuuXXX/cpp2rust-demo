@@ -1,5 +1,7 @@
 **/*/target
 /target
+/examples-target
+examples-target/
 /.cpp2rust
 /examples/**/.cpp2rust/
 /examples/*/rust/
