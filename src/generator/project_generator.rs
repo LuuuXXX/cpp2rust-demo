@@ -271,6 +271,24 @@ pub fn write_smoke_test(rust_dir: &Path, content: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// 生成一段 `.rust_file("<path>")` 链式调用文本（每行一个文件，行尾换行）。
+///
+/// `indent` 为每行前缀缩进；`rel_paths` 为相对项目根目录的 `.rs` 文件路径。
+/// `fallback` 在 `rel_paths` 为空时作为唯一注册项输出（保持向后兼容）。
+///
+/// 详见 [`write_build_rs`]：`hicc-build` 只解析顶层宏，故必须逐文件注册。
+fn rust_file_chain(indent: &str, rel_paths: &[String], fallback: &str) -> String {
+    let mut chain = String::new();
+    if rel_paths.is_empty() {
+        chain.push_str(&format!("{indent}.rust_file(\"{fallback}\")\n"));
+    } else {
+        for rel in rel_paths {
+            chain.push_str(&format!("{indent}.rust_file(\"{rel}\")\n"));
+        }
+    }
+    chain
+}
+
 /// 写出 `build.rs`，调用 `hicc_build::Build::new()` 完成 C++ shim 编译。
 ///
 /// `Cargo.toml` 中已声明 `hicc-build` 为 build-dependency，
@@ -289,14 +307,11 @@ pub fn write_smoke_test(rust_dir: &Path, content: &str) -> Result<bool> {
 /// `unit_paths` 为相对 `src/` 的单元路径（`/` 分隔、不含扩展名），与
 /// [`write_lib_rs`] 接收的列表一致。为空时回退为 `src/lib.rs`（保持向后兼容）。
 pub fn write_build_rs(rust_dir: &Path, lib_name: &str, unit_paths: &[String]) -> Result<()> {
-    let mut chain = String::new();
-    if unit_paths.is_empty() {
-        chain.push_str("        .rust_file(\"src/lib.rs\")\n");
-    } else {
-        for unit_path in unit_paths {
-            chain.push_str(&format!("        .rust_file(\"src/{}.rs\")\n", unit_path));
-        }
-    }
+    let rel_paths: Vec<String> = unit_paths
+        .iter()
+        .map(|unit_path| format!("src/{}.rs", unit_path))
+        .collect();
+    let chain = rust_file_chain("        ", &rel_paths, "src/lib.rs");
     let content = format!(
         "\
 fn main() {{
@@ -415,16 +430,8 @@ pub fn write_multi_feature_build_rs(
     let mut body = String::new();
     for (feature, unit_rel_paths) in feature_units {
         let lib_name = feature.replace('-', "_");
-        let mut chain = String::new();
-        if unit_rel_paths.is_empty() {
-            chain.push_str(&format!(
-                "            .rust_file(\"src/{feature}/mod.rs\")\n"
-            ));
-        } else {
-            for rel in unit_rel_paths {
-                chain.push_str(&format!("            .rust_file(\"{rel}\")\n"));
-            }
-        }
+        let fallback = format!("src/{feature}/mod.rs");
+        let chain = rust_file_chain("            ", unit_rel_paths, &fallback);
         body.push_str(&format!(
             "    if cfg!(feature = \"{feature}\") {{\n\
              \x20       hicc_build::Build::new()\n\
