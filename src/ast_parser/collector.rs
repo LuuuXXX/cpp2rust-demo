@@ -112,8 +112,10 @@ fn collect_namespace_inner(
                 }
             }
             EntityKind::FunctionDecl => {
-                if let Some(fi) = extract_function(&entity, None, cpp_ranges) {
+                if let Some(mut fi) = extract_function(&entity, None, cpp_ranges) {
                     if fi.is_from_current_file {
+                        // 记录函数所属命名空间路径，供 hicc 直出自由函数名限定使用。
+                        fi.namespace = path_opt.clone();
                         ast.functions.push(fi);
                     }
                 }
@@ -540,6 +542,7 @@ pub(super) fn extract_function(
         friend_of: friend_of.map(String::from),
         body_offset,
         is_from_current_file,
+        namespace: None,
     })
 }
 

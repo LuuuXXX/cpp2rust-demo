@@ -42,5 +42,4 @@ fn smoke_top_level_functions() {
     let version = unsafe { CStr::from_ptr(get_version()).to_string_lossy().into_owned() };
     assert_eq!(version, "1.0.0");
     assert_eq!(get_build_number(), 42);
-    assert_eq!(namespace_nested_anchor(), 0);
 }

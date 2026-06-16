@@ -65,7 +65,4 @@ hicc::import_lib! {
 
     #[cpp(func = "std::unique_ptr<map_basic_ns::Counter> hicc::make_unique<map_basic_ns::Counter>()")]
     pub fn counter_new() -> Counter;
-
-    #[cpp(func = "int map_basic_ns::map_basic_anchor()")]
-    pub fn map_basic_anchor() -> i32;
 }

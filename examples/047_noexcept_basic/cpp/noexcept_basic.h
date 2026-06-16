@@ -4,9 +4,9 @@
 
 namespace noexcept_basic_ns {
 
-inline int noexcept_add(int a, int b) noexcept { return a + b; }
-inline int noexcept_multiply(int a, int b) noexcept { return a * b; }
-inline int conditional_abs(int x) noexcept { return x < 0 ? -x : x; }
+int noexcept_add(int a, int b) noexcept;
+int noexcept_multiply(int a, int b) noexcept;
+int conditional_abs(int x) noexcept;
 
 class NoexceptMover {
     int value_;

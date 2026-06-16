@@ -32,6 +32,9 @@ hicc::import_lib! {
     #[cpp(func = "int noexcept_basic_ns::conditional_abs(int)")]
     pub fn conditional_abs(x: i32) -> i32;
 
+    #[cpp(func = "int noexcept_basic_ns::throwing_divide(int, int)")]
+    pub fn throwing_divide(a: i32, b: i32) -> i32;
+
     #[cpp(func = "int noexcept_basic_ns::safe_divide(int, int)")]
     pub fn safe_divide(a: i32, b: i32) -> i32;
 }

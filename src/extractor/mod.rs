@@ -101,7 +101,8 @@ pub fn extract(
             .filter(|f| !f.name.ends_with("_anchor"))
             .collect();
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        let mut lib_spec = lib_spec::build_lib_spec(&free_fns, unit_name, &class_names);
+        let mut lib_spec =
+            lib_spec::build_lib_spec_namespaced(&free_fns, unit_name, &class_names);
         lib_spec.link_name = unit_name.to_string();
         return FfiSpec {
             unit_name: unit_name.to_string(),
@@ -925,6 +926,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         }
     }
 
@@ -1337,6 +1339,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         }
     }
 
@@ -1466,6 +1469,7 @@ mod tests {
             friend_of: None,
             body_offset,
             is_from_current_file: true,
+            namespace: None,
         }
     }
 
@@ -1657,6 +1661,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         };
         let result = compute_used_classes(&classes, &[fi]);
         assert!(
@@ -1692,6 +1697,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         };
         let result = compute_used_classes(&classes, &[fi]);
         assert!(
@@ -1726,6 +1732,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: false,
+            namespace: None,
         };
         // 正常的当前文件函数
         let current_fn = make_fn("my_func", "int", &["int"]);

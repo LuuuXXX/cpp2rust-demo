@@ -42,14 +42,38 @@ pub(super) fn detect_idiomatic_mode(ast: &CppAst) -> bool {
     if has_shim_ctor_dtor {
         return false;
     }
-    // 进一步排除「命名空间类 + 残留 extern "C" 桥接块」的半旧式示例：
-    // 已转换为 idiomatic 的示例除约定的 `*_anchor` 锚点函数（libclang 会把全局
-    // 普通 C++ 函数误标为 `extern "C"`）外，不应再有任何 `extern "C"` 函数。
-    let has_extern_c_bridge = ast
-        .functions
-        .iter()
-        .any(|f| f.is_extern_c && !f.name.ends_with("_anchor"));
+    // 进一步排除「命名空间类 + 残留 extern "C" opaque 指针桥接块」的半旧式示例。
+    //
+    // 注意：libclang 会把**所有**命名空间作用域的普通 C++ 自由函数（如
+    // `int safe_add(int, int)`）误标为 `extern "C"`（get_language()==C），因此不能
+    // 仅凭 `is_extern_c` 判定旧式桥接，否则会把含标量自由函数的 idiomatic 示例
+    // （031/033/043/044/046/047/048 等）误判为旧路径而丢失类绑定。
+    //
+    // 真正的旧式 extern-C 桥接函数一定在签名（返回值或任一参数）中**引用某个类
+    // 类型**（不透明句柄指针，如 `Counter*`/`void*`）。idiomatic 标量自由函数则不会。
+    // 据此区分：仅当存在「引用类类型的 extern-C 非锚点函数」时才认为是旧式桥接。
+    let has_extern_c_bridge = ast.functions.iter().any(|f| {
+        f.is_extern_c
+            && !f.name.ends_with("_anchor")
+            && fn_references_class(f, &class_names)
+    });
     !has_extern_c_bridge
+}
+
+/// 函数签名（返回类型或任一参数类型）是否引用了 `class_names` 中的某个类。
+///
+/// 用于区分「旧式 extern-C 不透明指针桥接函数」（引用类句柄）与「idiomatic 命名
+/// 空间标量自由函数」（仅标量/`const char*` 等可直出类型）。
+fn fn_references_class(f: &crate::ast_parser::FunctionInfo, class_names: &[&str]) -> bool {
+    let in_ret = class_names
+        .iter()
+        .any(|cn| super::type_references_class(&f.return_type, cn));
+    let in_params = f.params.iter().any(|p| {
+        class_names
+            .iter()
+            .any(|cn| super::type_references_class(&p.type_name, cn))
+    });
+    in_ret || in_params
 }
 
 /// 是否存在至少一个公有、非拷贝/移动的构造函数。

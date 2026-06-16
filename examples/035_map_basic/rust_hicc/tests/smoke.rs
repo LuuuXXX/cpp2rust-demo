@@ -70,7 +70,7 @@ fn smoke_counter_counts_words() {
 }
 
 #[test]
-fn smoke_counter_last_word_clear_and_anchor() {
+fn smoke_counter_last_word_clear() {
     let mut c = Counter::new();
     let word = CString::new("last").expect("CString::new failed");
     c.add(word.as_ptr());
@@ -79,5 +79,4 @@ fn smoke_counter_last_word_clear_and_anchor() {
     assert_eq!(last, "last");
     c.clear();
     assert_eq!(c.unique_words(), 0);
-    assert_eq!(map_basic_anchor(), 0);
 }

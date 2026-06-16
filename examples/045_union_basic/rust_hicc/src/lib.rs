@@ -10,13 +10,13 @@ hicc::cpp! {
 hicc::import_class! {
     #[cpp(class = "union_basic_ns::Variant")]
     pub class Variant {
-        #[cpp(method = "void set_int(int)")]
+        #[cpp(method = "void set_int(int v)")]
         pub fn set_int(&mut self, v: i32);
 
-        #[cpp(method = "void set_float(float)")]
+        #[cpp(method = "void set_float(float v)")]
         pub fn set_float(&mut self, v: f32);
 
-        #[cpp(method = "void set_string(const char*)")]
+        #[cpp(method = "void set_string(const char* v)")]
         pub fn set_string(&mut self, v: *const i8);
 
         #[cpp(method = "int get_type() const")]
@@ -38,10 +38,10 @@ hicc::import_class! {
 hicc::import_class! {
     #[cpp(class = "union_basic_ns::IntFloatUnion")]
     pub class IntFloatUnion {
-        #[cpp(method = "void set_int(int)")]
+        #[cpp(method = "void set_int(int v)")]
         pub fn set_int(&mut self, v: i32);
 
-        #[cpp(method = "void set_float(float)")]
+        #[cpp(method = "void set_float(float v)")]
         pub fn set_float(&mut self, v: f32);
 
         #[cpp(method = "int get_int() const")]

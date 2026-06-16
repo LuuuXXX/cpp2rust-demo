@@ -287,6 +287,7 @@ mod tests {
             friend_of: None,
             body_offset: None,
             is_from_current_file: true,
+            namespace: None,
         }
     }
 

@@ -43,11 +43,8 @@ hicc::import_lib! {
     pub fn data_processor_new() -> DataProcessor;
 
     #[cpp(func = "const char* foo::get_version()")]
-    pub fn get_version() -> *const i8;
+    pub unsafe fn get_version() -> *const i8;
 
     #[cpp(func = "int foo::get_build_number()")]
     pub fn get_build_number() -> i32;
-
-    #[cpp(func = "int foo::namespace_nested_anchor()")]
-    pub fn namespace_nested_anchor() -> i32;
 }

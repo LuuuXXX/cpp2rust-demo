@@ -145,6 +145,9 @@ pub struct FunctionInfo {
     /// 函数声明/定义是否位于当前编译单元（.cpp 文件自身），而非被 include 的头文件。
     /// 与 `ClassInfo::is_from_current_file` 语义一致，通过 `cpp_byte_ranges` 判断。
     pub is_from_current_file: bool,
+    /// 函数所属命名空间的 `::` 限定路径（如 `foo`、`foo::bar::config`）。
+    /// 全局作用域函数为 `None`。hicc 直出路径据此对自由函数名做命名空间限定。
+    pub namespace: Option<String>,
 }
 
 /// 模板类声明（`ClassTemplate`）— v6 Phase A
