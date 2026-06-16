@@ -1,206 +1,108 @@
-# 036_string_basic - std::string
+# 036_string_basic - std::string（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `std::string` 的基本操作，以及如何通过 FFI 导出给 Rust 使用。
+本示例展示 C++ **std::string** 基本操作的 FFI 处理方式。采用 idiomatic 命名空间风格
+（`string_basic_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；
+`MyString` 直接持有 `std::string`，演示 length/empty/append/at/c_str/compare/to_upper/find
+等操作。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### string_basic.h
 
 ```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace string_basic_ns {
 
-struct String;
-
-struct String* string_new_from(const char* str);
-void string_delete(struct String* self);
-
-size_t string_size(struct String* self);
-const char* string_c_str(struct String* self);
-
-struct String* string_concat(struct String* self, const char* other);
-void string_append(struct String* self, const char* other);
-
-int string_compare(struct String* self, const char* other);
-int string_equals(struct String* self, const char* other);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### string_basic.cpp
-
-```cpp
-#include "string_basic.h"
-#include <string>
-
-struct String {
-    std::string data;
+class MyString {
+    std::string data_;
+public:
+    explicit MyString(const char* s) : data_(s ? s : "") {}
+    int length() const { return (int)data_.length(); }
+    int empty() const { return data_.empty() ? 1 : 0; }
+    void append(const char* s) { if (s) data_ += s; }
+    char at(int i) const { /* 边界检查 */ }
+    const char* c_str() const { return data_.c_str(); }
+    int compare(const char* other) const { return data_.compare(other ? other : ""); }
+    void to_upper() { /* 原地大写转换 */ }
+    int find(const char* sub) const { /* 返回下标或 -1 */ }
 };
 
-struct String* string_new_from(const char* str) {
-    return new String(str ? str : "");
-}
-
-void string_delete(struct String* self) {
-    delete self;
-}
-
-size_t string_size(struct String* self) {
-    return self->data.size();
-}
-
-const char* string_c_str(struct String* self) {
-    return self->data.c_str();
-}
-
-struct String* string_concat(struct String* self, const char* other) {
-    return new String(self->data + other);
-}
-
-void string_append(struct String* self, const char* other) {
-    self->data += other;
-}
-
-int string_equals(struct String* self, const char* other) {
-    return self->data == other;
-}
+} // namespace string_basic_ns
 ```
-
-## std::string 特点
-
-| 操作 | C++ | Rust 等效 |
-|------|-----|-----------|
-| 创建 | `string s(str)` | `CString::new()` |
-| 大小 | `s.size()` | `s.len()` |
-| C 字符串 | `s.c_str()` | `c_str()` |
-| 连接 | `s + other` | `format!()` |
-| 比较 | `s == other` | `s == other` |
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <string>
-    #include <cstring>
-    #include <algorithm>
-    #include <cctype>
-
     #include "string_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "String", destroy = "string_delete")]
-    pub class String {
+    #[cpp(class = "string_basic_ns::MyString")]
+    pub class MyString {
+        #[cpp(method = "void append(const char* s)")]
+        pub fn append(&mut self, s: *const i8);
         #[cpp(method = "const char* c_str() const")]
-        fn c_str(&self) -> *const i8;
+        pub fn c_str(&self) -> *const i8;
+        #[cpp(method = "int find(const char* sub) const")]
+        pub fn find(&self, sub: *const i8) -> i32;
+        // length / empty / at / compare / to_upper 略
 
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-
-        #[cpp(method = "size_t length() const")]
-        fn length(&self) -> usize;
-
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
-
-        #[cpp(method = "int compare(const char* str) const")]
-        fn compare(&self, str: *const i8) -> i32;
-
-        #[cpp(method = "bool equals(const char* str) const")]
-        fn equals(&self, str: *const i8) -> bool;
-
-        #[cpp(method = "void append(const char* str)")]
-        fn append(&mut self, str: *const i8);
-
-        #[cpp(method = "void to_upper()")]
-        fn to_upper(&mut self);
-
-        #[cpp(method = "void to_lower()")]
-        fn to_lower(&mut self);
+        pub fn new(s: *const i8) -> Self { my_string_new(s) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "string_basic"]
 
-    class String;
-
-    #[cpp(func = "String* string_new()")]
-    fn string_new() -> String;
-
-    #[cpp(func = "String* string_new_from(const char*)")]
-    unsafe fn string_new_from(str: *const i8) -> String;
-
-    #[cpp(func = "String* string_new_from_len(const char*, size_t)")]
-    unsafe fn string_new_from_len(str: *const i8, len: usize) -> String;
+    #[cpp(func = "std::unique_ptr<string_basic_ns::MyString> hicc::make_unique<string_basic_ns::MyString, const char*>(const char*&&)")]
+    pub fn my_string_new(s: *const i8) -> MyString;
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ std::string | Rust FFI |
-|------|-----------------|----------|
-| 内存管理 | 自动 | C++ 侧管理 |
-| 字符串内容 | 内部存储 | `c_str()` 获取 |
-| 可变性 | 可修改 | 通过函数修改 |
-| 编码 | UTF-8（通常） | 字节数组 |
-
-## 关键点
-
-1. **Opaque 指针**：字符串内部结构对 Rust 隐藏
-2. **C 字符串转换**：`c_str()` 返回 const char*
-3. **内存管理**：Rust 侧通过 Drop trait 释放
-4. **CString 转换**：Rust 字符串转为 C 字符串
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 字符串持有 | `std::string` 成员 | hicc 绑定内部持有，对外透明 |
+| 修改 | `append` / `to_upper` | 同名方法 |
+| 访问 | `c_str` / `at` | `*const i8` + `CStr` / `i8` |
+| 查询 | `length` / `empty` / `find` | 同名方法返回 i32 |
+| 析构 | `~MyString` | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 036_string_basic - std::string ===
+=== 036_string_basic - std::string（hicc 直出）===
 
---- Creation Demo ---
-Created: "Hello"
-Size: 5, Length: 5
-Empty: false
+empty=0 length=5
+after append=hello, world length=12
+at(1)=e at(99)=0
+compare hello=7
+find world=7 find missing=-1
+to_upper=HELLO, WORLD
 
---- Comparison Demo ---
-Compare with 'Hello': 0
-Equals 'Hello': true
-
---- Concatenation Demo ---
-After append: "Hello, World!"
-
---- Case Conversion Demo ---
-To upper: "HELLO WORLD"
-To lower: "hello world"
-
-Rust FFI: std::string 映射
-1. C++ 字符串映射为 opaque 指针
-2. 字符串内容通过 c_str() 获取
-3. 修改操作直接在原字符串上进行
-4. CString 用于 Rust 到 C 的转换
+Rust FFI: hicc 直接绑定持有 std::string 的类，析构由 Rust Drop 自动完成
 ```
 
 ## 冒烟测试
 
 本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
-可链接 C++ 实现，且基本行为正确。
+链接并正确调用。
 
 ### 测试用例
 
 | 测试函数 | 验证内容 |
 |---------|---------|
-| `smoke_string_new_empty` | `string_new_empty()` 后 `length()` = 0 |
-| `smoke_string_new_from` | `string_new_from(b"hello")` 后 `c_str()` 内容为 `"hello"` |
-| `smoke_string_equals_compare` | 相同内容的两个字符串 `equals()` 返回 true |
-| `smoke_string_append` | `append("world")` 后 `length()` 增加 |
-| `smoke_string_new_from_len` | `string_new_from_len(ptr, 5)` 创建长度为 5 的字符串 |
+| `smoke_length_and_empty` | length / empty |
+| `smoke_append_and_c_str` | append 后 c_str 内容 |
+| `smoke_at_bounds` | at 边界检查 |
+| `smoke_compare` | compare 相同和字典序结果 |
+| `smoke_to_upper` | to_upper 后 c_str 内容 |
+| `smoke_find` | find 返回下标或 -1 |
 
 ### 运行方式
 
@@ -219,7 +121,6 @@ cargo test --test smoke
 
 ## 总结
 
-- std::string 是 C++ 标准字符串类型
-- FFI 边界使用 `c_str()` 和 `CString`
-- Rust 需要处理 UTF-8 编码
-- 建议封装为安全的 Rust String 类型
+- C++ `std::string` 可通过 hicc 直接绑定持有它的类来表达，无需不透明指针 + impl 间接层
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- length/append/c_str/compare/to_upper/find 等操作语义与 C++ 一致

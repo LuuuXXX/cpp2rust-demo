@@ -1,55 +1,47 @@
 use map_basic::*;
 
 fn main() {
-    use std::ffi::CString;
+    use std::ffi::{CStr, CString};
 
-    println!("=== 035_map_basic - std::map ===\n");
+    println!("=== 035_map_basic - std::map / std::unordered_map（hicc 直出）===\n");
 
-    // StringIntMap demo
-    println!("--- StringIntMap Demo ---");
-    let mut map = string_int_map_new();
-
-    println!("Empty: {}", map.empty());
-
-    // Insert key-value pairs
-    let keys = ["one", "two", "three", "four", "five"];
-    let values = [1, 2, 3, 4, 5];
-
-    for i in 0..keys.len() {
-        let key = CString::new(keys[i]).unwrap();
-        let inserted = map.insert(key.as_ptr(), values[i]);
-        println!("Insert '{}' = {}: {}", keys[i], values[i], inserted);
+    let mut m = StringIntMap::new();
+    for (key, value) in [("apple", 3), ("banana", 5), ("apple", 7)] {
+        let ck = CString::new(key).expect("CString::new failed");
+        m.insert(ck.as_ptr(), value);
     }
+    let apple = CString::new("apple").expect("CString::new failed");
+    let banana = CString::new("banana").expect("CString::new failed");
+    let missing = CString::new("missing").expect("CString::new failed");
+    let first_key = unsafe { CStr::from_ptr(m.first_key()).to_string_lossy().into_owned() };
+    println!(
+        "size={} apple={} banana?={}",
+        m.size(),
+        m.get(apple.as_ptr()),
+        m.contains(banana.as_ptr())
+    );
+    println!("missing={} first_key={}", m.get(missing.as_ptr()), first_key);
+    println!("erase banana={} size={}", m.erase(banana.as_ptr()), m.size());
+    m.clear();
+    println!("after clear size={}", m.size());
 
-    let size = map.size();
-    println!("Size: {}", size);
+    println!();
 
-    // Get value
-    let key = CString::new("one").unwrap();
-    let val = map.get(key.as_ptr());
-    println!("Get 'one': {}", val);
+    let mut c = Counter::new();
+    for word in ["rust", "cpp", "rust"] {
+        let cw = CString::new(word).expect("CString::new failed");
+        c.add(cw.as_ptr());
+    }
+    let rust = CString::new("rust").expect("CString::new failed");
+    let cpp = CString::new("cpp").expect("CString::new failed");
+    let last = unsafe { CStr::from_ptr(c.last_word()).to_string_lossy().into_owned() };
+    println!(
+        "counter rust={} cpp={} unique={} last={}",
+        c.count(rust.as_ptr()),
+        c.count(cpp.as_ptr()),
+        c.unique_words(),
+        last
+    );
 
-    // Set value
-    let key = CString::new("one").unwrap();
-    map.set(key.as_ptr(), 100);
-    let key = CString::new("one").unwrap();
-    let val = map.get(key.as_ptr());
-    println!("Set 'one' = 100, now: {}", val);
-
-    // Erase
-    let key = CString::new("five").unwrap();
-    let erased = map.erase(key.as_ptr());
-    println!("Erase 'five': {}", erased);
-    println!("Size after erase: {}", map.size());
-
-    map.clear();
-    println!("After clear, size: {}", map.size());
-
-    println!("\nRust FFI: std::map 映射");
-    println!("1. map 是有序关联容器（红黑树实现）");
-    println!("2. 插入: insert(key, value) -> bool");
-    println!("3. 查找: find(key) -> iterator 或 end()");
-    println!("4. 删除: erase(key) -> size_t");
-    println!("5. 字符串键需要 CString 转换");
+    println!("\nRust FFI: hicc 直接绑定持有 std::map / std::unordered_map 的类，析构由 Rust Drop 自动完成");
 }
-

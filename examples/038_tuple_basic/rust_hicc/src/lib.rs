@@ -1,74 +1,37 @@
-hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <tuple>
-    #include <string>
-    #include <cstring>
+//! 038_tuple_basic: std::tuple 基本操作（命名空间类直接持有 tuple）。
+//!
+//! `Record` 直接持有 `std::tuple<int, double, std::string>`，演示 id/score/name
+//! 等基本操作。hicc 直出无需 extern-C 不透明指针 + `*_delete`，析构由 Rust `Drop` 自动完成。
 
+hicc::cpp! {
     #include "tuple_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "Tuple2", destroy = "tuple2_delete")]
-    pub class Tuple2 {
-        #[cpp(method = "int get_first() const")]
-        pub fn get_first(&self) -> i32;
+    #[cpp(class = "tuple_basic_ns::Record")]
+    pub class Record {
+        #[cpp(method = "int id() const")]
+        pub fn id(&self) -> i32;
 
-        #[cpp(method = "const char* get_second() const")]
-        pub fn get_second(&self) -> *const i8;
-    }
-}
+        #[cpp(method = "double score() const")]
+        pub fn score(&self) -> f64;
 
-hicc::import_class! {
-    #[cpp(class = "Tuple3", destroy = "tuple3_delete")]
-    pub class Tuple3 {
-        #[cpp(method = "int get_first() const")]
-        pub fn get_first(&self) -> i32;
+        #[cpp(method = "const char* name() const")]
+        pub fn name(&self) -> *const i8;
 
-        #[cpp(method = "double get_second() const")]
-        pub fn get_second(&self) -> f64;
+        #[cpp(method = "void set_id(int id)")]
+        pub fn set_id(&mut self, id: i32);
 
-        #[cpp(method = "const char* get_third() const")]
-        pub fn get_third(&self) -> *const i8;
-    }
-}
+        #[cpp(method = "void set_score(double score)")]
+        pub fn set_score(&mut self, score: f64);
 
-hicc::import_class! {
-    #[cpp(class = "Tuple4", destroy = "tuple4_delete")]
-    pub class Tuple4 {
-        #[cpp(method = "int get_first() const")]
-        pub fn get_first(&self) -> i32;
-
-        #[cpp(method = "double get_second() const")]
-        pub fn get_second(&self) -> f64;
-
-        #[cpp(method = "const char* get_third() const")]
-        pub fn get_third(&self) -> *const i8;
-
-        #[cpp(method = "int get_fourth() const")]
-        pub fn get_fourth(&self) -> i32;
+        pub fn new(id: i32, score: f64, name: *const i8) -> Self { record_new(id, score, name) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "tuple_basic"]
 
-    class Tuple2;
-    class Tuple3;
-    class Tuple4;
-
-    #[cpp(func = "Tuple2* tuple2_new(int, const char*)")]
-    pub unsafe fn tuple2_new(first: i32, second: *const i8) -> Tuple2;
-
-    #[cpp(func = "Tuple3* tuple3_new(int, double, const char*)")]
-    pub unsafe fn tuple3_new(first: i32, second: f64, third: *const i8) -> Tuple3;
-
-    #[cpp(func = "Tuple4* tuple4_new(int, double, const char*, int)")]
-    pub unsafe fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> Tuple4;
-
-    #[cpp(func = "Tuple2* make_int_string_pair(int, const char*)")]
-    pub unsafe fn make_int_string_pair(i: i32, s: *const i8) -> *mut Tuple2;
-
-    #[cpp(func = "Tuple3* make_int_double_string(int, double, const char*)")]
-    pub unsafe fn make_int_double_string(i: i32, d: f64, s: *const i8) -> *mut Tuple3;
+    #[cpp(func = "std::unique_ptr<tuple_basic_ns::Record> hicc::make_unique<tuple_basic_ns::Record, int, double, const char*>(int&&, double&&, const char*&&)")]
+    pub fn record_new(id: i32, score: f64, name: *const i8) -> Record;
 }

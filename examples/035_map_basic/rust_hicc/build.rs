@@ -8,6 +8,7 @@ fn main() {
     cc_build.include(".");
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("map_basic.cpp"));
+
     build.rust_file("src/lib.rs").compile("map_basic");
 
     println!("cargo::rustc-link-lib=map_basic");

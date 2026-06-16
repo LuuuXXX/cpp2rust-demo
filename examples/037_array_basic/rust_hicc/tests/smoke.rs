@@ -1,51 +1,60 @@
 //! 037_array_basic 冒烟测试
 //!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
+//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且固定数组操作行为正确。
 
 use array_basic::*;
 
 #[test]
-fn smoke_int_array5_new() {
-    let arr = int_array5_new();
-    assert_eq!(arr.size(), 5, "IntArray5 固定大小应为 5");
-    assert!(!arr.empty(), "固定大小数组 empty 应为 false");
+fn smoke_int_array_size_and_zero_init() {
+    let a = IntArray::new();
+    assert_eq!(a.size(), 8);
+    assert_eq!(a.sum(), 0);
+    assert_eq!(a.min(), 0);
+    assert_eq!(a.max(), 0);
 }
 
 #[test]
-fn smoke_int_array5_set_get() {
-    let mut arr = int_array5_new();
-    for i in 0..5usize {
-        arr.set(i, (i * 10) as i32);
+fn smoke_int_array_set_get_sum() {
+    let mut a = IntArray::new();
+    for i in 0..a.size() {
+        a.set(i, i + 1);
     }
-    for i in 0..5usize {
-        assert_eq!(arr.get(i), (i * 10) as i32, "get({}) 值应匹配", i);
-    }
+    assert_eq!(a.get(0), 1);
+    assert_eq!(a.get(7), 8);
+    assert_eq!(a.sum(), 36);
 }
 
 #[test]
-fn smoke_int_array5_at() {
-    let mut arr = int_array5_new();
-    arr.set(2, 42);
-    assert_eq!(arr.at(2), 42, "at(2) 应等于 set(2, 42)");
+fn smoke_int_array_fill_min_max() {
+    let mut a = IntArray::new();
+    a.fill(5);
+    assert_eq!(a.sum(), 40);
+    assert_eq!(a.min(), 5);
+    assert_eq!(a.max(), 5);
+    a.set(3, -9);
+    a.set(6, 42);
+    assert_eq!(a.min(), -9);
+    assert_eq!(a.max(), 42);
 }
 
 #[test]
-fn smoke_int_array5_new_from() {
-    let values = [1i32, 2, 3, 4, 5];
-    let arr = int_array5_new_from(values.as_ptr());
-    assert_eq!(arr.size(), 5);
-    assert_eq!(arr.get(0), 1, "第一个元素应为 1");
-    assert_eq!(arr.get(4), 5, "最后一个元素应为 5");
+fn smoke_int_array_oob_is_safe() {
+    let mut a = IntArray::new();
+    a.fill(3);
+    a.set(-1, 99);
+    a.set(8, 99);
+    assert_eq!(a.get(-1), 0);
+    assert_eq!(a.get(8), 0);
+    assert_eq!(a.sum(), 24);
 }
 
 #[test]
-fn smoke_double_array3_type_available() {
-    let arr = double_array3_new();
-    assert_eq!(arr.size(), 3, "DoubleArray3 固定大小应为 3");
-}
-
-#[test]
-fn smoke_string_array4_type_available() {
-    let arr = string_array4_new();
-    assert_eq!(arr.size(), 4, "StringArray4 固定大小应为 4");
+fn smoke_int_array_per_object_state() {
+    let mut a = IntArray::new();
+    let mut b = IntArray::new();
+    a.fill(1);
+    b.fill(2);
+    a.set(0, 10);
+    assert_eq!(a.sum(), 17);
+    assert_eq!(b.sum(), 16);
 }

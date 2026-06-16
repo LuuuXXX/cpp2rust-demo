@@ -1,48 +1,31 @@
 use string_basic::*;
 
 fn main() {
-    use std::ffi::CString;
-    use std::ffi::CStr;
+    use std::ffi::{CStr, CString};
 
-    println!("=== 036_string_basic - std::string ===\n");
+    println!("=== 036_string_basic - std::string（hicc 直出）===\n");
 
-    // Create string
-    println!("--- Creation Demo ---");
-    let mut s = unsafe { string_new_from(CString::new("Hello").unwrap().as_ptr()) };
-    let c_str = unsafe { CStr::from_ptr(s.c_str()) };
-    println!("Created: {:?}", c_str);
-    println!("Size: {}, Length: {}", s.size(), s.length());
-    println!("Empty: {}", s.empty());
+    let hello = CString::new("hello").expect("CString::new failed");
+    let mut s = MyString::new(hello.as_ptr());
+    println!("empty={} length={}", s.empty(), s.length());
 
-    // Comparison
-    println!("\n--- Comparison Demo ---");
-    let cmp = s.compare(CString::new("Hello").unwrap().as_ptr());
-    println!("Compare with 'Hello': {}", cmp);
+    let suffix = CString::new(", world").expect("CString::new failed");
+    s.append(suffix.as_ptr());
+    let content = unsafe { CStr::from_ptr(s.c_str()).to_string_lossy().into_owned() };
+    println!("after append={} length={}", content, s.length());
 
-    let eq = s.equals(CString::new("Hello").unwrap().as_ptr());
-    println!("Equals 'Hello': {}", eq);
+    println!("at(1)={} at(99)={}", s.at(1) as u8 as char, s.at(99));
 
-    // Concatenation
-    println!("\n--- Concatenation Demo ---");
-    s.append(CString::new(", World!").unwrap().as_ptr());
-    let c_str = unsafe { CStr::from_ptr(s.c_str()) };
-    println!("After append: {:?}", c_str);
+    let compare = CString::new("hello").expect("CString::new failed");
+    println!("compare hello={}", s.compare(compare.as_ptr()));
 
-    // Case conversion
-    println!("\n--- Case Conversion Demo ---");
-    let mut s = unsafe { string_new_from(CString::new("Hello World").unwrap().as_ptr()) };
+    let world = CString::new("world").expect("CString::new failed");
+    let missing = CString::new("missing").expect("CString::new failed");
+    println!("find world={} find missing={}", s.find(world.as_ptr()), s.find(missing.as_ptr()));
+
     s.to_upper();
-    let c_str = unsafe { CStr::from_ptr(s.c_str()) };
-    println!("To upper: {:?}", c_str);
+    let upper = unsafe { CStr::from_ptr(s.c_str()).to_string_lossy().into_owned() };
+    println!("to_upper={}", upper);
 
-    s.to_lower();
-    let c_str = unsafe { CStr::from_ptr(s.c_str()) };
-    println!("To lower: {:?}", c_str);
-
-    println!("\nRust FFI: std::string 映射");
-    println!("1. C++ 字符串映射为 opaque 指针");
-    println!("2. 字符串内容通过 c_str() 获取");
-    println!("3. 修改操作直接在原字符串上进行");
-    println!("4. CString 用于 Rust 到 C 的转换");
+    println!("\nRust FFI: hicc 直接绑定持有 std::string 的类，析构由 Rust Drop 自动完成");
 }
-

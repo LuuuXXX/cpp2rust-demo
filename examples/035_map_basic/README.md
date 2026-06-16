@@ -1,207 +1,116 @@
-# 035_map_basic - std::map
+# 035_map_basic - std::map / std::unordered_map（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `std::map`（有序关联容器）的基本操作，以及如何通过 FFI 导出给 Rust 使用。
+本示例展示 C++ **std::map** 与 **std::unordered_map** 基本操作的 FFI 处理方式。采用 idiomatic 命名空间风格（`map_basic_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；`StringIntMap` 直接持有 `std::map<std::string, int>`，`Counter` 直接持有 `std::unordered_map<std::string, int>`。析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### map_basic.h
 
 ```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace map_basic_ns {
 
-struct StringIntMap;
-
-struct StringIntMap* string_int_map_new(void);
-void string_int_map_delete(struct StringIntMap* self);
-
-size_t string_int_map_size(struct StringIntMap* self);
-int string_int_map_empty(struct StringIntMap* self);
-
-// 插入（返回 1 表示成功，0 表示键已存在）
-int string_int_map_insert(struct StringIntMap* self, const char* key, int value);
-
-// 查找（返回 1 表示找到，0 表示未找到）
-int string_int_map_find(struct StringIntMap* self, const char* key, int* out_value);
-
-// 删除（返回 1 表示删除成功，0 表示键不存在）
-int string_int_map_erase(struct StringIntMap* self, const char* key);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### map_basic.cpp
-
-```cpp
-#include "map_basic.h"
-#include <map>
-#include <string>
-
-struct StringIntMap {
-    std::map<std::string, int> data;
+class StringIntMap {
+    std::map<std::string, int> data_;
+public:
+    StringIntMap() = default;
+    void insert(const char* key, int value) { data_[key ? key : ""] = value; }
+    int get(const char* key) const { /* 未命中返回 -1 */ }
+    int contains(const char* key) const { /* 返回 1/0 */ }
+    int size() const { return (int)data_.size(); }
+    int erase(const char* key) { return (int)data_.erase(key ? key : ""); }
+    void clear() { data_.clear(); }
+    const char* first_key() const { /* 返回首个有序 key 的 c_str() */ }
 };
 
-struct StringIntMap* string_int_map_new() {
-    return new StringIntMap();
-}
+class Counter {
+    std::unordered_map<std::string, int> counts_;
+    std::string last_;
+public:
+    Counter() = default;
+    void add(const char* word) { /* 词频 +1 */ }
+    int count(const char* word) const { /* 未命中返回 0 */ }
+    int unique_words() const { return (int)counts_.size(); }
+    const char* last_word() const { return last_.c_str(); }
+    void clear() { counts_.clear(); last_.clear(); }
+};
 
-int string_int_map_insert(struct StringIntMap* self, const char* key, int value) {
-    return self->data.insert({std::string(key), value}).second;
-}
-
-int string_int_map_find(struct StringIntMap* self, const char* key, int* out_value) {
-    auto it = self->data.find(std::string(key));
-    if (it != self->data.end()) {
-        *out_value = it->second;
-        return 1;
-    }
-    return 0;
-}
+} // namespace map_basic_ns
 ```
-
-## std::map 特点
-
-| 操作 | C++ | Rust 等效 |
-|------|-----|-----------|
-| 创建 | `map<K,V> m` | `HashMap::new()` |
-| 插入 | `m.insert(k,v)` | `m.insert(k,v)` |
-| 查找 | `m.find(k)` | `m.get(k)` |
-| 删除 | `m.erase(k)` | `m.remove(k)` |
-| 大小 | `m.size()` | `m.len()` |
-| 空检查 | `m.empty()` | `m.is_empty()` |
-
-### std::map vs std::unordered_map
-
-| 特性 | std::map | std::unordered_map |
-|------|----------|-------------------|
-| 底层结构 | 红黑树 | 哈希表 |
-| 元素顺序 | 有序 | 无序 |
-| 查找复杂度 | O(log n) | O(1) 平均 |
-| 插入复杂度 | O(log n) | O(1) 平均 |
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <map>
-    #include <string>
-    #include <cstring>
-
     #include "map_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "StringIntMap", destroy = "string_int_map_delete")]
+    #[cpp(class = "map_basic_ns::StringIntMap")]
     pub class StringIntMap {
-        #[cpp(method = "bool insert(const char* key, int val)")]
-        fn insert(&mut self, key: *const i8, val: i32) -> bool;
-
+        #[cpp(method = "void insert(const char* key, int value)")]
+        pub fn insert(&mut self, key: *const i8, value: i32);
         #[cpp(method = "int get(const char* key) const")]
-        fn get(&self, key: *const i8) -> i32;
+        pub fn get(&self, key: *const i8) -> i32;
+        // contains / size / erase / clear / first_key 略
 
-        #[cpp(method = "void set(const char* key, int val)")]
-        fn set(&mut self, key: *const i8, val: i32);
-
-        #[cpp(method = "bool erase(const char* key)")]
-        fn erase(&mut self, key: *const i8) -> bool;
-
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-
-        #[cpp(method = "bool empty() const")]
-        fn empty(&self) -> bool;
-
-        #[cpp(method = "void clear()")]
-        fn clear(&mut self);
+        pub fn new() -> Self { string_int_map_new() }
     }
 }
 
-hicc::import_class! {
-    #[cpp(class = "IntStringMap", destroy = "int_string_map_delete")]
-    pub class IntStringMap {
-        #[cpp(method = "size_t size() const")]
-        fn size(&self) -> usize;
-    }
-}
+// Counter 同理（add/count/unique_words/last_word/clear）
 
 hicc::import_lib! {
     #![link_name = "map_basic"]
 
-    class StringIntMap;
-    class IntStringMap;
-
-    #[cpp(func = "StringIntMap* string_int_map_new()")]
-    fn string_int_map_new() -> StringIntMap;
-
-    #[cpp(func = "IntStringMap* int_string_map_new()")]
-    fn int_string_map_new() -> IntStringMap;
+    #[cpp(func = "std::unique_ptr<map_basic_ns::StringIntMap> hicc::make_unique<map_basic_ns::StringIntMap>()")]
+    pub fn string_int_map_new() -> StringIntMap;
+    // counter_new 同理
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ std::map | Rust FFI |
-|------|--------------|----------|
-| 键值对 | `std::pair<const K, V>` | 分离的参数 |
-| 查找结果 | 迭代器 | 返回值 + 输出参数 |
-| 字符串键 | `std::string` | `const char*` |
-| 模板参数 | 编译时确定 | FFI 函数重载 |
-
-## 关键点
-
-1. **有序性**：std::map 保持键的顺序
-2. **唯一键**：每个键最多一个值
-3. **查找语义**：返回 1/0 表示成功/失败
-4. **输出参数**：使用指针返回查找结果
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 容器持有 | `std::map` / `std::unordered_map` 成员 | hicc 绑定内部持有，对外透明 |
+| 插入/更新 | `insert` / `operator[]` | `insert(*const i8, i32)` |
+| 查找 | `find` / `count` | `get` / `contains` / `count` |
+| 删除 | `erase` / `clear` | 同名方法 |
+| 字符串返回 | `const char*` 指向对象内字符串 | Rust 侧用 `CStr::from_ptr` 读取 |
+| 析构 | C++ 默认析构 | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 035_map_basic - std::map ===
+=== 035_map_basic - std::map / std::unordered_map（hicc 直出）===
 
---- StringIntMap Demo ---
-Empty: true
-Insert 'one' = 1: true
-Insert 'two' = 2: true
-Insert 'three' = 3: true
-Insert 'four' = 4: true
-Insert 'five' = 5: true
-Size: 5
-Get 'one': 1
-Set 'one' = 100, now: 100
-Erase 'five': true
-Size after erase: 4
-After clear, size: 0
+size=2 apple=7 banana?=1
+missing=-1 first_key=apple
+erase banana=1 size=1
+after clear size=0
 
-Rust FFI: std::map 映射
-1. map 是有序关联容器（红黑树实现）
-2. 插入: insert(key, value) -> bool
-3. 查找: find(key) -> iterator 或 end()
-4. 删除: erase(key) -> size_t
-5. 字符串键需要 CString 转换
+counter rust=2 cpp=1 unique=2 last=rust
+
+Rust FFI: hicc 直接绑定持有 std::map / std::unordered_map 的类，析构由 Rust Drop 自动完成
 ```
 
 ## 冒烟测试
 
-本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
-可链接 C++ 实现，且基本行为正确。
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、链接并正确调用。
 
 ### 测试用例
 
 | 测试函数 | 验证内容 |
 |---------|---------|
-| `smoke_string_int_map_new` | `string_int_map_new()` 后 `size()` = 0 |
-| `smoke_string_int_map_insert_get` | `insert("key", 42)` 后 `get("key")` = 42 |
-| `smoke_string_int_map_set_overwrite` | `set("key", 99)` 后 `get("key")` = 99 |
-| `smoke_string_int_map_erase` | `erase("key")` 后 `contains("key")` = false |
-| `smoke_string_int_map_clear` | `clear()` 后 `size()` = 0 |
+| `smoke_string_int_map_insert_get_contains` | insert / get / contains / size |
+| `smoke_string_int_map_overwrite_and_first_key` | 覆盖写入与 `std::map` 有序首键 |
+| `smoke_string_int_map_erase_clear` | erase / clear |
+| `smoke_counter_counts_words` | unordered_map 词频计数 |
+| `smoke_counter_last_word_clear_and_anchor` | const char* 返回 / clear / anchor |
 
 ### 运行方式
 
@@ -220,7 +129,6 @@ cargo test --test smoke
 
 ## 总结
 
-- std::map 是有序关联容器
-- FFI 边界使用函数参数传递键值
-- 查找结果通过返回值和输出参数返回
-- 适用于需要有序键的场景
+- C++ `std::map` / `std::unordered_map` 可通过 hicc 直接绑定持有它们的类来表达，无需不透明指针 + impl 间接层
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- insert/get/contains/erase/count 等操作语义与 C++ 一致，跨 FFI 返回字符串时只暴露 `const char*`

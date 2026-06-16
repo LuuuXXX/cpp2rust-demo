@@ -1,231 +1,117 @@
-# 038_tuple_basic - std::tuple
+# 038_tuple_basic - std::tuple（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ `std::tuple`（异构容器）的基本操作。
+本示例展示 C++ **std::tuple** 基本操作的 FFI 处理方式。采用 idiomatic 命名空间风格
+（`tuple_basic_ns`），不再使用 extern-C 不透明指针 + `*_new`/`*_delete` + impl 间接层；
+`Record` 直接持有 `std::tuple<int, double, std::string>`，演示 id/score/name 等操作。
+析构由 Rust 的 `Drop` 自动完成。
 
 ## C++ 代码
 
 ### tuple_basic.h
 
 ```cpp
-#pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace tuple_basic_ns {
 
-struct Tuple2;
-struct Tuple3;
-
-struct Tuple2* tuple2_new(int first, const char* second);
-void tuple2_delete(struct Tuple2* self);
-
-int tuple2_get_first(struct Tuple2* self);
-const char* tuple2_get_second(struct Tuple2* self);
-
-struct Tuple3* tuple3_new(int first, double second, const char* third);
-void tuple3_delete(struct Tuple3* self);
-
-int tuple3_get_first(struct Tuple3* self);
-double tuple3_get_second(struct Tuple3* self);
-const char* tuple3_get_third(struct Tuple3* self);
-
-#ifdef __cplusplus
-}
-#endif
-```
-
-### tuple_basic.cpp
-
-```cpp
-#include "tuple_basic.h"
-#include <tuple>
-#include <string>
-
-struct Tuple2 {
-    std::tuple<int, std::string> data;
+class Record {
+    std::tuple<int, double, std::string> data_;
+public:
+    Record(int id, double score, const char* name);
+    int id() const { return std::get<0>(data_); }
+    double score() const { return std::get<1>(data_); }
+    const char* name() const { return std::get<2>(data_).c_str(); }
+    void set_id(int id) { std::get<0>(data_) = id; }
+    void set_score(double score) { std::get<1>(data_) = score; }
 };
 
-struct Tuple2* tuple2_new(int first, const char* second) {
-    return new Tuple2(first, second ? second : "");
-}
-
-int tuple2_get_first(struct Tuple2* self) {
-    return std::get<0>(self->data);
-}
-
-const char* tuple2_get_second(struct Tuple2* self) {
-    static std::string temp;
-    temp = std::get<1>(self->data);
-    return temp.c_str();
-}
-```
-
-## std::tuple 特点
-
-| 特性 | 说明 |
-|------|------|
-| 异构类型 | 可以包含不同类型的元素 |
-| 固定大小 | 编译时确定大小 |
-| 索引访问 | `std::get<N>(t)` |
-| 解包 | `std::tie` |
-
-### 与 Rust tuple 对比
-
-```cpp
-// C++
-std::tuple<int, double, std::string> t(1, 2.0, "hello");
-int i = std::get<0>(t);
-```
-
-```rust
-// Rust
-let t = (1, 2.0, "hello");
-let i = t.0;
+} // namespace tuple_basic_ns
 ```
 
 ## Rust FFI 代码
 
+hicc 直出无需 extern-C shim，直接绑定类与 `make_unique` 工厂：
+
 ```rust
 hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <tuple>
-    #include <string>
-    #include <cstring>
-
     #include "tuple_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "Tuple2", destroy = "tuple2_delete")]
-    pub class Tuple2 {
-        #[cpp(method = "int get_first() const")]
-        fn get_first(&self) -> i32;
+    #[cpp(class = "tuple_basic_ns::Record")]
+    pub class Record {
+        #[cpp(method = "int id() const")]
+        pub fn id(&self) -> i32;
+        #[cpp(method = "double score() const")]
+        pub fn score(&self) -> f64;
+        #[cpp(method = "const char* name() const")]
+        pub fn name(&self) -> *const i8;
+        // set_id / set_score 略
 
-        #[cpp(method = "const char* get_second() const")]
-        fn get_second(&self) -> *const i8;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "Tuple3", destroy = "tuple3_delete")]
-    pub class Tuple3 {
-        #[cpp(method = "int get_first() const")]
-        fn get_first(&self) -> i32;
-
-        #[cpp(method = "double get_second() const")]
-        fn get_second(&self) -> f64;
-
-        #[cpp(method = "const char* get_third() const")]
-        fn get_third(&self) -> *const i8;
-    }
-}
-
-hicc::import_class! {
-    #[cpp(class = "Tuple4", destroy = "tuple4_delete")]
-    pub class Tuple4 {
-        #[cpp(method = "int get_first() const")]
-        fn get_first(&self) -> i32;
-
-        #[cpp(method = "double get_second() const")]
-        fn get_second(&self) -> f64;
-
-        #[cpp(method = "const char* get_third() const")]
-        fn get_third(&self) -> *const i8;
-
-        #[cpp(method = "int get_fourth() const")]
-        fn get_fourth(&self) -> i32;
+        pub fn new(id: i32, score: f64, name: *const i8) -> Self { record_new(id, score, name) }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "tuple_basic"]
 
-    class Tuple2;
-    class Tuple3;
-    class Tuple4;
-
-    #[cpp(func = "Tuple2* tuple2_new(int, const char*)")]
-    unsafe fn tuple2_new(first: i32, second: *const i8) -> Tuple2;
-
-    #[cpp(func = "Tuple3* tuple3_new(int, double, const char*)")]
-    unsafe fn tuple3_new(first: i32, second: f64, third: *const i8) -> Tuple3;
-
-    #[cpp(func = "Tuple4* tuple4_new(int, double, const char*, int)")]
-    unsafe fn tuple4_new(first: i32, second: f64, third: *const i8, fourth: i32) -> Tuple4;
-
-    #[cpp(func = "Tuple2* make_int_string_pair(int, const char*)")]
-    unsafe fn make_int_string_pair(i: i32, s: *const i8) -> *mut Tuple2;
-
-    #[cpp(func = "Tuple3* make_int_double_string(int, double, const char*)")]
-    unsafe fn make_int_double_string(i: i32, d: f64, s: *const i8) -> *mut Tuple3;
+    #[cpp(func = "std::unique_ptr<tuple_basic_ns::Record> hicc::make_unique<tuple_basic_ns::Record, int, double, const char*>(int&&, double&&, const char*&&)")]
+    pub fn record_new(id: i32, score: f64, name: *const i8) -> Record;
 }
 ```
+
 ## FFI 对比分析
 
-| 方面 | C++ std::tuple | Rust FFI |
-|------|-----------------|----------|
-| 元素访问 | `std::get<N>` | 独立 getter 函数 |
-| 类型参数 | 编译时确定 | 运行时分离类型 |
-| 字符串 | `std::string` | `const char*` |
-| 内存管理 | 自动 | 需要手动释放 |
-
-## 关键点
-
-1. **异构容器**：可包含不同类型的元素
-2. **编译时大小**：大小不能动态改变
-3. **索引访问**：`std::get<index>`
-4. **FFI 映射**：需要为每个位置提供独立的 getter
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| tuple 持有 | `std::tuple<int, double, std::string>` 成员 | hicc 绑定内部持有，对外透明 |
+| 访问 | `std::get<N>` | `id` / `score` / `name` 方法 |
+| 修改 | `std::get<N>(data_) = value` | `set_id` / `set_score` 方法 |
+| 字符串 | `std::string` 存储，`c_str()` 只读暴露 | `*const i8` + `CStr::from_ptr` |
+| 析构 | `~Record` | Rust `Drop` 自动触发 |
 
 ## 运行结果
 
 ```
-=== 038_tuple_basic - std::tuple ===
+=== 038_tuple_basic - std::tuple（hicc 直出）===
 
---- Tuple2 (int, string) Demo ---
-Tuple2: first=42, second=hello
+id=42 score=98.5 name=alice
+after set id=100 score=88.25 name=alice
 
---- Tuple3 (int, double, string) Demo ---
-Tuple3: first=100, second=3.14159, third=world
-
---- Tuple4 (int, double, string, int) Demo ---
-Tuple4 elements:
-  [0] = 1
-  [1] = 2.71828
-  [2] = tuple
-  [3] = 4
-
---- Helper Functions Demo ---
-make_int_string_pair: (10, pair)
-
-Rust FFI: std::tuple 映射
-1. std::tuple 是异构容器的编译时固定版本
-2. 通过 std::get<N>(tuple) 访问元素
-3. FFI 需要为每个元素类型提供独立的 getter 函数
-4. 字符串等复杂类型需要额外的内存管理
+Rust FFI: hicc 直接绑定持有 std::tuple 的类，析构由 Rust Drop 自动完成
 ```
 
 ## 冒烟测试
 
-本示例在 `.cpp2rust/tuple_basic/rust/tests/smoke.rs` 中包含以下冒烟测试，CI 通过 `l-smoke` job 自动运行：
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+链接并正确调用。
+
+### 测试用例
 
 | 测试函数 | 验证内容 |
-|----------|----------|
-| `smoke_tuple2_new` | `tuple2_new()` 分配成功；`get_first` / `get_second` 返回正确值 |
-| `smoke_tuple3_new` | `tuple3_new()` 分配成功；三个元素访问函数均返回正确值 |
-| `smoke_tuple4_new` | `tuple4_new()` 分配成功；四个元素访问函数均返回正确值 |
+|---------|---------|
+| `smoke_record_new_and_getters` | 构造后 id / score / name 正确 |
+| `smoke_record_set_id` | set_id 只修改 id |
+| `smoke_record_set_score` | set_score 只修改 score |
+| `smoke_record_per_object_state` | 多对象状态互不影响 |
 
-运行单个冒烟测试：
+### 运行方式
 
 ```bash
-cd examples/038_tuple_basic/.cpp2rust/tuple_basic/rust
-cargo test smoke_tuple3_new -- --nocapture
+cd examples/038_tuple_basic/rust_hicc
+cargo test --test smoke
 ```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- std::tuple 是固定大小的异构容器
-- FFI 边界需要为每个元素提供独立的访问函数
-- 与 Rust 的 tuple 语义相似
-- 适用于编译时已知结构的数据
+- C++ `std::tuple` 可通过 hicc 直接绑定持有它的类来表达，无需不透明指针 + impl 间接层
+- 构造经 `make_unique` 工厂，析构由 Rust `Drop` 自动完成，无需 `*_delete` shim
+- `std::get<N>` 访问的标量与字符串指针可按方法直接暴露给 Rust

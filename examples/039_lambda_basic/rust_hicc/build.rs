@@ -8,6 +8,7 @@ fn main() {
     cc_build.include(".");
     cc_build.cpp(true);
     cc_build.file(cpp_dir.join("lambda_basic.cpp"));
+
     build.rust_file("src/lib.rs").compile("lambda_basic");
 
     println!("cargo::rustc-link-lib=lambda_basic");

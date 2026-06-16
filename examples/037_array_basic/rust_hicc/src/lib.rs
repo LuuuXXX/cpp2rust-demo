@@ -1,71 +1,43 @@
-hicc::cpp! {
-    #include <stddef.h>
-    #include <iostream>
-    #include <array>
-    #include <string>
-    #include <cstring>
+//! 037_array_basic: std::array 基本操作（命名空间类直接持有容器）。
+//!
+//! `IntArray` 直接持有固定大小 `std::array<int, 8>`，演示 size/set/get/fill/sum/max/min
+//! 等基本操作。hicc 直出无需 extern-C 不透明指针 + `*_delete`，析构由 Rust `Drop` 自动完成。
 
+hicc::cpp! {
     #include "array_basic.h"
 }
 
 hicc::import_class! {
-    #[cpp(class = "IntArray5", destroy = "int_array5_delete")]
-    pub class IntArray5 {
-        #[cpp(method = "size_t size() const")]
-        pub fn size(&self) -> usize;
+    #[cpp(class = "array_basic_ns::IntArray")]
+    pub class IntArray {
+        #[cpp(method = "int size() const")]
+        pub fn size(&self) -> i32;
 
-        #[cpp(method = "bool empty() const")]
-        pub fn empty(&self) -> bool;
+        #[cpp(method = "void set(int i, int v)")]
+        pub fn set(&mut self, i: i32, v: i32);
 
-        #[cpp(method = "void set(size_t i, int val)")]
-        pub fn set(&mut self, i: usize, val: i32);
+        #[cpp(method = "int get(int i) const")]
+        pub fn get(&self, i: i32) -> i32;
 
-        #[cpp(method = "int get(size_t i) const")]
-        pub fn get(&self, i: usize) -> i32;
+        #[cpp(method = "void fill(int v)")]
+        pub fn fill(&mut self, v: i32);
 
-        #[cpp(method = "int at(size_t i) const")]
-        pub fn at(&self, i: usize) -> i32;
+        #[cpp(method = "int sum() const")]
+        pub fn sum(&self) -> i32;
 
-        #[cpp(method = "int* data()")]
-        pub fn data(&mut self) -> *mut i32;
-    }
-}
+        #[cpp(method = "int max() const")]
+        pub fn max(&self) -> i32;
 
-hicc::import_class! {
-    #[cpp(class = "DoubleArray3", destroy = "double_array3_delete")]
-    pub class DoubleArray3 {
-        #[cpp(method = "size_t size() const")]
-        pub fn size(&self) -> usize;
-    }
-}
+        #[cpp(method = "int min() const")]
+        pub fn min(&self) -> i32;
 
-hicc::import_class! {
-    #[cpp(class = "StringArray4", destroy = "string_array4_delete")]
-    pub class StringArray4 {
-        #[cpp(method = "size_t size() const")]
-        pub fn size(&self) -> usize;
+        pub fn new() -> Self { int_array_new() }
     }
 }
 
 hicc::import_lib! {
     #![link_name = "array_basic"]
 
-    class IntArray5;
-    class DoubleArray3;
-    class StringArray4;
-
-    #[cpp(func = "IntArray5* int_array5_new()")]
-    pub fn int_array5_new() -> IntArray5;
-
-    #[cpp(func = "IntArray5* int_array5_new_from(const int*)")]
-    pub fn int_array5_new_from(values: *const i32) -> IntArray5;
-
-    #[cpp(func = "DoubleArray3* double_array3_new()")]
-    pub fn double_array3_new() -> DoubleArray3;
-
-    #[cpp(func = "DoubleArray3* double_array3_new_from(const double*)")]
-    pub fn double_array3_new_from(values: *const f64) -> DoubleArray3;
-
-    #[cpp(func = "StringArray4* string_array4_new()")]
-    pub fn string_array4_new() -> StringArray4;
+    #[cpp(func = "std::unique_ptr<array_basic_ns::IntArray> hicc::make_unique<array_basic_ns::IntArray>()")]
+    pub fn int_array_new() -> IntArray;
 }
