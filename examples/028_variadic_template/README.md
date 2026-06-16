@@ -1,132 +1,120 @@
-# 028_variadic_template - 可变参数模板
+# 028_variadic_template - 可变参数模板（hicc 直出，去 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 可变参数模板（variadic templates）的 FFI 挑战。
+本示例展示 C++ **可变参数模板**的 FFI 处理方式。函数模板 `sum<Args...>`（C++17 折叠
+表达式）可对任意个数/类型的实参求和，但每个具体的「实参个数 + 类型」组合是一次独立
+实例化，无法整体绑定到 Rust。本示例采用 idiomatic 命名空间风格（`variadic_template_ns`），
+不再使用 extern-C 单态化 shim；各具体组合由 `rust_hicc/src/lib.rs` 中的 `hicc::cpp!`
+命名包装函数补全。
 
 ## C++ 代码
 
-### variadic_template.cpp
+### variadic_template.h
 
 ```cpp
-// 可变参数模板
-template<typename... Args>
-int sum(Args... args) {
-    return (args + ...);  // C++17 折叠表达式
+namespace variadic_template_ns {
+
+// 可变参数函数模板：二元右折叠对任意个数实参求和（0 个实参结果为 0）。
+template <typename... Args>
+auto sum(Args... args) {
+    return (args + ... + 0);
 }
 
-// 内部实现
-template<typename... Args>
-int do_sum(int first, Args... rest) {
-    return first + do_sum(rest...);
-}
+// 锚点：本单元可链接的非模板符号。
+int variadic_template_anchor();
+
+} // namespace variadic_template_ns
 ```
-
-## FFI 挑战
-
-### 问题
-
-```
-template<typename... Args>
-int sum(Args... args);  // 无法直接 FFI 导出
-```
-
-- C 可变参数（`va_list`）需要类型信息
-- 可变参数模板在编译时展开，无法动态处理
-- 运行时无法知道参数数量和类型
-
-## FFI 解决方案
-
-### main.rs
-
-```rust
-// 策略：为每个参数数量导出独立函数
-fn sum_1(a: i32) -> i32;
-fn sum_2(a: i32, b: i32) -> i32;
-fn sum_3(a: i32, b: i32, c: i32) -> i32;
-fn sum_4(a: i32, b: i32, c: i32, d: i32) -> i32;
-fn sum_5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32;
-```
-
-## 对比分析
-
-| 方面 | C++ 可变参数模板 | Rust FFI |
-|------|------------------|----------|
-| 参数数量 | 动态（编译时展开） | 固定数量 |
-| 类型安全 | 编译器保证 | 手动保证 |
-| 代码生成 | 自动 | 手动编写每种情况 |
-| 灵活性 | 高 | 低（需预定义最大参数数） |
-
 
 ## Rust FFI 代码
 
+hicc 直出仅绑定可链接的非模板锚点 `variadic_template_anchor()`（见
+`rust_hicc/src/lib_scaffold.rs`）。各「实参个数 + 类型」组合在手写 `lib.rs` 中补全：
+每个 `hicc::cpp!` 包装函数显式实例化模板，再绑定为普通自由函数。
+
 ```rust
 hicc::cpp! {
-    #include <iostream>
-    #include <cstdarg>
-
     #include "variadic_template.h"
+
+    using namespace variadic_template_ns;
+
+    // 显式实例化：固定「实参个数 + 类型」即一次模板实例化。
+    int sum_i32_0() { return sum(); }
+    int sum_i32_2(int a, int b) { return sum(a, b); }
+    int sum_i32_3(int a, int b, int c) { return sum(a, b, c); }
+    int sum_i32_5(int a, int b, int c, int d, int e) { return sum(a, b, c, d, e); }
+    double sum_f64_2(double a, double b) { return sum(a, b); }
+    double sum_f64_3(double a, double b, double c) { return sum(a, b, c); }
 }
 
 hicc::import_lib! {
     #![link_name = "variadic_template"]
 
-    #[cpp(func = "int sum_zero()")]
-    fn sum_zero() -> i32;
-
-    #[cpp(func = "int sum_1(int)")]
-    fn sum_1(a: i32) -> i32;
-
-    #[cpp(func = "int sum_2(int, int)")]
-    fn sum_2(a: i32, b: i32) -> i32;
-
-    #[cpp(func = "int sum_3(int, int, int)")]
-    fn sum_3(a: i32, b: i32, c: i32) -> i32;
-
-    #[cpp(func = "int sum_4(int, int, int, int)")]
-    fn sum_4(a: i32, b: i32, c: i32, d: i32) -> i32;
-
-    #[cpp(func = "int sum_5(int, int, int, int, int)")]
-    fn sum_5(a: i32, b: i32, c: i32, d: i32, e: i32) -> i32;
-
-    #[cpp(func = "double sum_double_2(double, double)")]
-    fn sum_double_2(a: f64, b: f64) -> f64;
-
-    #[cpp(func = "double sum_double_3(double, double, double)")]
-    fn sum_double_3(a: f64, b: f64, c: f64) -> f64;
-
-    #[cpp(func = "double sum_double_4(double, double, double, double)")]
-    fn sum_double_4(a: f64, b: f64, c: f64, d: f64) -> f64;
-
-    #[cpp(func = "const char* sum_getFormat(int)")]
-    unsafe fn sum_get_format(count: i32) -> *const i8;
+    #[cpp(func = "int sum_i32_3(int, int, int)")]
+    pub fn sum_i32_3(a: i32, b: i32, c: i32) -> i32;
+    // 其余实例化与 anchor 同理
 }
 ```
+
+## FFI 对比分析
+
+| 方面 | C++ | Rust FFI |
+|------|-----|----------|
+| 模板定义 | `template<Args...> auto sum(Args...)` | 不可直接导出 |
+| 实例化 | 按实参个数/类型自动生成 | 经 `hicc::cpp!` 包装显式实例化 |
+| 符号 | `sum<int,int,int>` | `sum_i32_3` |
+| 任意元数 | 折叠表达式 | 每个元数一个包装函数 |
 
 ## 运行结果
 
 ```
 === 028_variadic_template - 可变参数模板 ===
 
-Result: sum() = 0
-Result: sum(1) = 1
-Result: sum(1, 2) = 3
-Result: sum(1, 2, 3) = 6
-Result: sum(1, 2, 3, 4) = 10
-Result: sum(1, 2, 3, 4, 5) = 15
+sum_i32_0() = 0
+sum_i32_2(10, 20) = 30
+sum_i32_3(1, 2, 3) = 6
+sum_i32_5(1, 2, 3, 4, 5) = 15
 
-Result: sum(1.5, 2.5) = 4
-Result: sum(1.1, 2.2, 3.3) = 6.6
+sum_f64_2(1.5, 2.5) = 4
+sum_f64_3(1.5, 2.5, 3.0) = 7
 
-Rust FFI: 可变参数模板的 FFI 挑战与解决方案
-挑战: C++ 可变参数模板(...Args) 无法直接映射到 FFI
-解决方案: 导出固定参数版本的函数
-每个参数数量 = 一个独立的函数
+Rust FFI: 可变参数模板按「实参个数 + 类型」逐一实例化
+每个组合（sum<int,int>、sum<double,double,double> …）是一个独立实例
+anchor() = 0
 ```
+
+## 冒烟测试
+
+本示例包含集成冒烟测试（`rust_hicc/tests/smoke.rs`），验证生成的 Rust FFI 绑定可编译、
+可链接 C++ 模板实例化，且基本行为正确。
+
+### 测试用例
+
+| 测试函数 | 验证内容 |
+|---------|---------|
+| `smoke_sum_i32` | 0/2/3/5 个 int 实参求和 |
+| `smoke_sum_f64` | 2/3 个 double 实参求和 |
+| `smoke_anchor` | `variadic_template_anchor()` 返回 0 |
+
+### 运行方式
+
+```bash
+cd examples/028_variadic_template/rust_hicc
+cargo test --test smoke
+```
+
+### 各平台支持
+
+| 平台 | 状态 | 备注 |
+|------|------|------|
+| Linux (Ubuntu) | ✅ | CI `l-smoke` job 已覆盖 |
+| macOS | ✅ | 支持 |
+| Windows MinGW | ✅ | 支持 |
 
 ## 总结
 
-- 可变参数模板是最难 FFI 的 C++ 特性之一
-- 标准解决方案：导出固定参数版本的函数
-- 需要预定义最大参数数量
-- 高级方案：使用 type-erased wrapper（如 `std::function`）
+- C++ 可变参数模板无法直接 FFI 导出（每个元数/类型组合是独立实例化）
+- 策略：为每种需要的「实参个数 + 类型」创建显式实例化的 `hicc::cpp!` 包装函数
+- 折叠表达式 `(args + ... + 0)` 让模板对任意元数（含 0）通用
+- 这是 FFI 处理可变参数模板的标准方法

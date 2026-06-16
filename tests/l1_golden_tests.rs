@@ -125,7 +125,7 @@ golden_test_lib!(
     test_027_template_instantiation,
     "027_template_instantiation"
 );
-golden_test_lib!(test_028_variadic_template, "028_variadic_template");
+golden_test_scaffold!(test_028_variadic_template, "028_variadic_template");
 golden_test_lib!(test_029_unique_ptr, "029_unique_ptr");
 golden_test_lib!(test_030_shared_ptr, "030_shared_ptr");
 golden_test_lib_unix_only!(test_031_custom_deleter, "031_custom_deleter");

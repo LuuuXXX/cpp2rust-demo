@@ -3,40 +3,17 @@ use variadic_template::*;
 fn main() {
     println!("=== 028_variadic_template - 可变参数模板 ===\n");
 
-    // 可变参数模板的 FFI 挑战
-    // C++ 可变参数: template<typename... Args> int sum(Args... args)
-    // FFI 无法直接传递...args
-
-    // 解决方案：导出固定参数版本的函数
-
-    let result0 = sum_zero();
-    println!("Result: sum() = {}", result0);
-
-    let result1 = sum_1(1);
-    println!("Result: sum(1) = {}", result1);
-
-    let result2 = sum_2(1, 2);
-    println!("Result: sum(1, 2) = {}", result2);
-
-    let result3 = sum_3(1, 2, 3);
-    println!("Result: sum(1, 2, 3) = {}", result3);
-
-    let result4 = sum_4(1, 2, 3, 4);
-    println!("Result: sum(1, 2, 3, 4) = {}", result4);
-
-    let result5 = sum_5(1, 2, 3, 4, 5);
-    println!("Result: sum(1, 2, 3, 4, 5) = {}", result5);
+    println!("sum_i32_0() = {}", sum_i32_0());
+    println!("sum_i32_2(10, 20) = {}", sum_i32_2(10, 20));
+    println!("sum_i32_3(1, 2, 3) = {}", sum_i32_3(1, 2, 3));
+    println!("sum_i32_5(1, 2, 3, 4, 5) = {}", sum_i32_5(1, 2, 3, 4, 5));
 
     println!();
 
-    let r2 = sum_double_2(1.5, 2.5);
-    println!("Result: sum(1.5, 2.5) = {}", r2);
+    println!("sum_f64_2(1.5, 2.5) = {}", sum_f64_2(1.5, 2.5));
+    println!("sum_f64_3(1.5, 2.5, 3.0) = {}", sum_f64_3(1.5, 2.5, 3.0));
 
-    let r3 = sum_double_3(1.1, 2.2, 3.3);
-    println!("Result: sum(1.1, 2.2, 3.3) = {}", r3);
-
-    println!("\nRust FFI: 可变参数模板的 FFI 挑战与解决方案");
-    println!("挑战: C++ 可变参数模板(...Args) 无法直接映射到 FFI");
-    println!("解决方案: 导出固定参数版本的函数");
-    println!("每个参数数量 = 一个独立的函数");
+    println!("\nRust FFI: 可变参数模板按「实参个数 + 类型」逐一实例化");
+    println!("每个组合（sum<int,int>、sum<double,double,double> …）是一个独立实例");
+    println!("anchor() = {}", variadic_template_anchor());
 }
