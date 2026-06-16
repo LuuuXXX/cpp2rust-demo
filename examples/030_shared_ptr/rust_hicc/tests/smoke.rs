@@ -1,59 +1,45 @@
 //! 030_shared_ptr 冒烟测试
-//!
-//! 验证生成的 Rust FFI 绑定可编译、可链接 C++ 实现，且基本行为正确。
 
 use shared_ptr::*;
-use hicc::AbiClass;
 
 #[test]
-fn smoke_shareddata_new() {
+fn smoke_shared_data_name() {
     let name = std::ffi::CString::new("TestData").expect("CString::new failed");
-    let data = unsafe { shareddata_new(name.as_ptr()) };
-    let name_str = unsafe {
-        std::ffi::CStr::from_ptr(data.get_name())
-            .to_string_lossy()
-            .into_owned()
-    };
-    assert_eq!(name_str, "TestData", "SharedData 名称应为 TestData");
+    let data = SharedData::new(name.as_ptr());
+    let nm = unsafe { std::ffi::CStr::from_ptr(data.name()).to_string_lossy().into_owned() };
+    assert_eq!(nm, "TestData");
 }
 
 #[test]
-fn smoke_shareddata_use_count() {
-    let name = std::ffi::CString::new("TestData").expect("CString::new failed");
-    let data = unsafe { shareddata_new(name.as_ptr()) };
-    let count = data.use_count();
-    assert!(count >= 1, "新建 SharedData 的 use_count 应 >= 1");
+fn smoke_shared_data_use_count() {
+    let name = std::ffi::CString::new("x").expect("CString::new failed");
+    let data = SharedData::new(name.as_ptr());
+    assert_eq!(data.use_count(), 1, "独立 SharedData 引用计数应为 1");
 }
 
 #[test]
-fn smoke_shareddata_clone() {
-    let name = std::ffi::CString::new("TestData").expect("CString::new failed");
-    let data1 = unsafe { shareddata_new(name.as_ptr()) };
-
-    // clone() 返回 *mut SharedData 原始指针
-    let data2_ptr = data1.clone();
-    assert!(!data2_ptr.is_null(), "clone 不应返回空指针");
-    // clone 返回原始指针，验证非空即可
-}
-
-#[test]
-fn smoke_shareddata_reset() {
-    let name = std::ffi::CString::new("TestData").expect("CString::new failed");
-    let mut data = unsafe { shareddata_new(name.as_ptr()) };
+fn smoke_shared_data_reset_expired() {
+    let name = std::ffi::CString::new("x").expect("CString::new failed");
+    let mut data = SharedData::new(name.as_ptr());
+    assert_eq!(data.expired(), 0);
     data.reset();
-    // reset 不崩溃即可
+    assert_eq!(data.expired(), 1, "reset 后应为已释放");
 }
 
 #[test]
-fn smoke_cache_new() {
-    let _cache = cache_new();
-    // 构造不崩溃即可
-}
-
-#[test]
-fn smoke_cache_get() {
-    let mut cache = cache_new();
+fn smoke_cache_store() {
+    let mut cache = Cache::new();
     let key = std::ffi::CString::new("key1").expect("CString::new failed");
-    let ptr = unsafe { cache_get(&cache.as_mut_ptr(), key.as_ptr()) };
-    assert!(!ptr.is_null(), "cache_get 应返回有效指针");
+    let count = cache.store(key.as_ptr());
+    assert_eq!(count, 2, "缓存后引用计数应为 2");
+    assert_eq!(cache.size(), 1);
+}
+
+#[test]
+fn smoke_cache_clear() {
+    let mut cache = Cache::new();
+    let key = std::ffi::CString::new("key1").expect("CString::new failed");
+    cache.store(key.as_ptr());
+    cache.clear();
+    assert_eq!(cache.size(), 0);
 }
