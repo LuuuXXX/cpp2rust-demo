@@ -1,35 +1,17 @@
-use hicc::AbiClass;
 use typeid_rtti::*;
+use std::ffi::CStr;
 
-fn main() {
-    println!("=== 023_typeid_rtti - typeid 与 RTTI ===\n");
-
-    let circle = unsafe { shape_new_circle(5.0).into_unique() };
-    let rect = unsafe { shape_new_rectangle(4.0, 6.0).into_unique() };
-    let triangle = unsafe { shape_new_triangle(3.0, 4.0).into_unique() };
-
-    println!("\nUsing typeid to determine runtime type:");
-    println!("Circle: type={}, name={}, area={:.2}",
-        circle.get_type(),
-        "Circle",
-        circle.area()
-    );
-
-    println!("Rectangle: type={}, area={:.2}",
-        rect.get_type(),
-        rect.area()
-    );
-
-    println!("Triangle: type={}, area={:.2}",
-        triangle.get_type(),
-        triangle.area()
-    );
-
-    drop(circle);
-    drop(rect);
-    drop(triangle);
-
-    println!("\nRust FFI: typeid 变成类型枚举或字符串比较");
-    println!("RTTI 信息在 FFI 边界丢失，需在 C++ 侧导出类型信息");
+fn type_name<'a>(p: *const i8) -> &'a str {
+    // 安全性：指针来自 typeid(...).name()，指向静态生命周期的 C 字符串。
+    unsafe { CStr::from_ptr(p) }.to_str().unwrap_or("?")
 }
 
+fn main() {
+    let c = Circle::new(2.0);
+    let r = Rectangle::new(3.0, 4.0);
+    let t = Triangle::new(6.0, 2.0);
+    println!("circle area={:.4} typeid={}", c.area(), type_name(c.runtime_type_name()));
+    println!("rect   area={:.4} typeid={}", r.area(), type_name(r.runtime_type_name()));
+    println!("tri    area={:.4} typeid={}", t.area(), type_name(t.runtime_type_name()));
+    println!("--- end main ---");
+}

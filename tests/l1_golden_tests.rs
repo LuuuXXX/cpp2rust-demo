@@ -112,7 +112,9 @@ golden_test_scaffold!(test_019_operator_overload, "019_operator_overload");
 golden_test_scaffold!(test_020_friend_function, "020_friend_function");
 golden_test_lib!(test_021_explicit_ctor, "021_explicit_ctor");
 golden_test_lib!(test_022_mutable_member, "022_mutable_member");
-golden_test_lib!(test_023_typeid_rtti, "023_typeid_rtti");
+// lib.rs 含手写的 typeid/RTTI hicc::cpp! 命名包装（超出工具自动生成范围），
+// 故以独立维护的 lib_scaffold.rs 作为工具默认产物的黄金比对文件。
+golden_test_scaffold!(test_023_typeid_rtti, "023_typeid_rtti");
 golden_test_scaffold!(test_024_template_function, "024_template_function");
 golden_test_lib!(test_025_template_class, "025_template_class");
 golden_test_lib!(
