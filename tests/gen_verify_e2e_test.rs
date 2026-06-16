@@ -533,8 +533,13 @@ hicc::import_lib! {
 
     // lib.rs（仅模块声明，无宏）+ build.rs（被测：逐文件注册）
     project_generator::write_lib_rs(&project_dir, &unit_paths).expect("写 lib.rs 失败");
-    project_generator::write_build_rs(&project_dir, "gv_multi", &unit_paths)
-        .expect("写 build.rs 失败");
+    project_generator::write_build_rs(
+        &project_dir,
+        "gv_multi",
+        &unit_paths,
+        &cpp2rust_demo::build_meta::BuildMeta::default(),
+    )
+    .expect("写 build.rs 失败");
 
     // build.rs 必须为每个含宏单元注册 .rust_file，而非仅 src/lib.rs
     let build_rs = std::fs::read_to_string(project_dir.join("build.rs")).unwrap();

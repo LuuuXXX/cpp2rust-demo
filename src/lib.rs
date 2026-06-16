@@ -1,4 +1,5 @@
 pub mod ast_parser;
+pub mod build_meta;
 pub mod capture;
 pub mod commands;
 pub mod error;

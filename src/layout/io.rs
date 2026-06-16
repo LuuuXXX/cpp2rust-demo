@@ -45,6 +45,15 @@ impl FeatureLayout {
         std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
     }
 
+    /// 写入 `meta/build-meta.json`，记录方案 A 注入 `build.rs` 的编译元数据
+    /// （C++ 标准、include 路径、底层实现 `.cpp`）。便于排查生成的 `build.rs` 来源。
+    pub fn save_build_meta(&self, meta: &crate::build_meta::BuildMeta) -> Result<()> {
+        let json = serde_json::to_string_pretty(meta)
+            .map_err(|e| anyhow!("serialize build_meta: {}", e))?;
+        let path = self.meta_dir.join("build-meta.json");
+        std::fs::write(&path, json).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+    }
+
     /// 写入 `meta/api-manifest.md`，包含 merge 阶段生成的完整 C++ → Rust API 对账清单（Markdown 格式）。
     pub fn save_api_manifest(&self, manifest: &ApiManifest) -> Result<()> {
         let mut out = String::new();

@@ -306,22 +306,79 @@ fn rust_file_chain(indent: &str, rel_paths: &[String], fallback: &str) -> String
 ///
 /// `unit_paths` 为相对 `src/` 的单元路径（`/` 分隔、不含扩展名），与
 /// [`write_lib_rs`] 接收的列表一致。为空时回退为 `src/lib.rs`（保持向后兼容）。
-pub fn write_build_rs(rust_dir: &Path, lib_name: &str, unit_paths: &[String]) -> Result<()> {
+///
+/// # 方案 A：注入捕获的编译元数据
+///
+/// `meta`（[`crate::build_meta::BuildMeta`]）携带 `init` 阶段从 `.opts` 还原的
+/// **C++ 标准** / **include 路径** 与反推出的 **底层实现 `.cpp`**。当 `meta` 非空时，
+/// 生成的 `build.rs` 经由 `cc::Build` 注入 `std(...)` / `include(...)` / `file(...)`，
+/// 使 `hicc-build` 生成的胶水 C++ 能找到第三方库头文件、并链接到实现符号，端到端
+/// `cargo check` / `cargo test` 无需外部脚本就地改写 `build.rs`。`meta` 为空时（黄金 /
+/// `gen-verify` 等直接调用场景）退化为最小化输出，产物逐字节不变。
+pub fn write_build_rs(
+    rust_dir: &Path,
+    lib_name: &str,
+    unit_paths: &[String],
+    meta: &crate::build_meta::BuildMeta,
+) -> Result<()> {
     let rel_paths: Vec<String> = unit_paths
         .iter()
         .map(|unit_path| format!("src/{}.rs", unit_path))
         .collect();
-    let chain = rust_file_chain("        ", &rel_paths, "src/lib.rs");
-    let content = format!(
-        "\
+    let content = if meta.is_empty() {
+        let chain = rust_file_chain("        ", &rel_paths, "src/lib.rs");
+        format!(
+            "\
 fn main() {{
     hicc_build::Build::new()
 {chain}        .compile(\"{lib_name}\");
 }}
 "
-    );
+        )
+    } else {
+        build_rs_with_meta(lib_name, &rel_paths, meta)
+    };
     let path = rust_dir.join("build.rs");
     std::fs::write(&path, content).map_err(|e| anyhow!("write {}: {}", path.display(), e))
+}
+
+/// 生成注入了编译元数据的 `build.rs` 文本（方案 A）。
+///
+/// 输出形态与 `usage/verify-rapidjson-ffi.sh` 此前就地改写的 `build.rs` 等价：
+/// 经 `cc::Build` 设定 C++ 标准、include 路径，编译底层实现 `.cpp`，再逐文件注册
+/// 含 hicc 宏的单元并 `compile`，最后在非 MSVC 平台链接 `stdc++`。
+fn build_rs_with_meta(
+    lib_name: &str,
+    rel_paths: &[String],
+    meta: &crate::build_meta::BuildMeta,
+) -> String {
+    let mut body = String::new();
+    body.push_str("    let mut build = hicc_build::Build::new();\n");
+    body.push_str("    use std::ops::DerefMut;\n");
+    body.push_str("    let cc_build: &mut cc::Build = build.deref_mut();\n");
+    if let Some(std) = &meta.cpp_std {
+        body.push_str(&format!("    cc_build.std({});\n", rust_str_lit(std)));
+    }
+    for inc in &meta.include_dirs {
+        body.push_str(&format!("    cc_build.include({});\n", rust_str_lit(inc)));
+    }
+    for src in &meta.impl_sources {
+        body.push_str(&format!("    cc_build.file({});\n", rust_str_lit(src)));
+    }
+    body.push_str("    build\n");
+    body.push_str(&rust_file_chain("        ", rel_paths, "src/lib.rs"));
+    body.push_str(&format!("        .compile({});\n", rust_str_lit(lib_name)));
+    body.push('\n');
+    body.push_str(
+        "    #[cfg(not(all(target_os = \"windows\", target_env = \"msvc\")))]\n\
+         \x20   println!(\"cargo::rustc-link-lib=stdc++\");\n",
+    );
+    format!("fn main() {{\n{body}}}\n")
+}
+
+/// 将字符串渲染为 Rust 字符串字面量，转义反斜杠与双引号（Windows 路径含 `\`）。
+fn rust_str_lit(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 // ─────────────────────────────────────────────
@@ -516,6 +573,7 @@ fn copy_feature_src_recursive(src: &Path, dst: &Path, feature_name: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build_meta::BuildMeta;
     use tempfile::TempDir;
 
     // ── sanitize_mod_ident ─────────────────────
@@ -763,7 +821,7 @@ mod tests {
     fn write_build_rs_creates_file() {
         let tmp = TempDir::new().unwrap();
         let units = vec!["foo".to_string(), "bar/baz".to_string()];
-        write_build_rs(tmp.path(), "my_lib", &units).unwrap();
+        write_build_rs(tmp.path(), "my_lib", &units, &BuildMeta::default()).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
         assert!(content.contains("hicc_build::Build::new()"));
         // 逐个单元文件均被注册，而非仅 src/lib.rs
@@ -771,15 +829,38 @@ mod tests {
         assert!(content.contains(".rust_file(\"src/bar/baz.rs\")"));
         assert!(content.contains(".compile(\"my_lib\")"));
         assert!(content.contains("fn main()"));
+        // 无元数据时退化为最小化输出，不含 cc::Build 注入。
+        assert!(!content.contains("cc_build.std"));
+        assert!(!content.contains("let cc_build"));
     }
 
     #[test]
     fn write_build_rs_empty_units_falls_back_to_lib_rs() {
         let tmp = TempDir::new().unwrap();
-        write_build_rs(tmp.path(), "my_lib", &[]).unwrap();
+        write_build_rs(tmp.path(), "my_lib", &[], &BuildMeta::default()).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
         assert!(content.contains(".rust_file(\"src/lib.rs\")"));
         assert!(content.contains(".compile(\"my_lib\")"));
+    }
+
+    #[test]
+    fn write_build_rs_injects_meta_when_present() {
+        let tmp = TempDir::new().unwrap();
+        let units = vec!["foo".to_string()];
+        let meta = BuildMeta {
+            cpp_std: Some("c++11".to_string()),
+            include_dirs: vec!["/abs/inc".to_string(), "/abs/shim".to_string()],
+            impl_sources: vec!["/abs/shim/a_ffi.cpp".to_string()],
+        };
+        write_build_rs(tmp.path(), "my_lib", &units, &meta).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("build.rs")).unwrap();
+        assert!(content.contains("cc_build.std(\"c++11\")"));
+        assert!(content.contains("cc_build.include(\"/abs/inc\")"));
+        assert!(content.contains("cc_build.include(\"/abs/shim\")"));
+        assert!(content.contains("cc_build.file(\"/abs/shim/a_ffi.cpp\")"));
+        assert!(content.contains(".rust_file(\"src/foo.rs\")"));
+        assert!(content.contains(".compile(\"my_lib\")"));
+        assert!(content.contains("cargo::rustc-link-lib=stdc++"));
     }
 
     // ── write_cargo_toml ──────────────────────

@@ -77,8 +77,13 @@ fn setup_feature(
         .unwrap_or_else(|e| panic!("write_cargo_toml: {}", e));
     project_generator::write_lib_rs(&rust_dir, &unit_names)
         .unwrap_or_else(|e| panic!("write_lib_rs: {}", e));
-    project_generator::write_build_rs(&rust_dir, feature, &unit_names)
-        .unwrap_or_else(|e| panic!("write_build_rs: {}", e));
+    project_generator::write_build_rs(
+        &rust_dir,
+        feature,
+        &unit_names,
+        &cpp2rust_demo::build_meta::BuildMeta::default(),
+    )
+    .unwrap_or_else(|e| panic!("write_build_rs: {}", e));
 
     // meta/build_cmd.txt：merge 阶段 FeatureLayout::save_merge_report 写入此目录
     std::fs::write(meta_dir.join("build_cmd.txt"), "make").expect("写入 build_cmd.txt 失败");
