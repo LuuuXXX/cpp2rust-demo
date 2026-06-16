@@ -7,7 +7,6 @@
 - **Rust**：stable 工具链（`rustup install stable`）
 - **libclang**：解析 C++ AST 所必需
   - Linux：`sudo apt-get install libclang-dev`
-  - macOS：`brew install llvm`，并设置 `export LIBCLANG_PATH=$(brew --prefix llvm)/lib`
 - **C++ 编译器**：`g++` 或 `clang++`（用于预处理和 L3/L4 测试）
 
 ## 克隆与构建

@@ -57,7 +57,7 @@ fn build_hook_unix() -> Result<PathBuf> {
     let so = hook_dir.join(lib_name);
     let cpp = hook_dir.join("hook.cpp");
 
-    // 快速路径：若 .so/.dylib 比 hook.cpp 更新，则跳过重新编译。
+    // 快速路径：若 .so 比 hook.cpp 更新，则跳过重新编译。
     // 注意：上方的 hook_dir() 已在最终回退路径中调用 ensure_hook_data_dir()，
     // 因此在此检查之前，hook.cpp 已保证存在于数据目录中。
     if so.exists() && cpp.exists() {
