@@ -28,17 +28,22 @@
 
 | 阶段 | 内容 | 状态 | 说明 |
 |------|------|------|------|
-| **Phase 1** | 移除 `CPP2RUST_GEN_SMOKE`，冒烟测试默认幂等生成；冒烟生成器表驱动重构 + 行为级断言 | 🟡 部分完成 | 开关已移除、默认幂等生成已落地；**生成器仍是「类型断言 + 零参调用 + 占位」策略，尚未做表驱动 + 行为级断言重构** |
+| **Phase 1** | 移除 `CPP2RUST_GEN_SMOKE`，冒烟测试默认幂等生成；冒烟生成器表驱动重构 + 行为级断言 | ✅ 已完成 | 开关已移除、默认幂等生成已落地；生成器已引入表驱动 setter/getter 往返检测，对严格配对的标量 `set_<x>`/`<x>` 生成确定性 `assert_eq!` 往返断言（结果不可静态确定者退化为最小化 `cpp2rust-todo[SMOKE]`） |
 | **Phase 2** | 移除 `CPP2RUST_GEN_DYNAMIC_CAST`，`@dynamic_cast` 默认输出；重做黄金 + gen 测试 | ✅ 已完成 | 默认活动绑定输出，黄金与 gen 测试已重做 |
 | **Phase 3** | 移除 `CPP2RUST_GEN_PROXY`，`@make_proxy` 默认输出；重做黄金 + gen 测试 | ✅ 已完成 | 默认活动绑定输出，黄金与 gen 测试已重做 |
 | **Phase 4** | 移除 `CPP2RUST_GEN_TEMPLATES`，模板骨架/别名/工厂默认输出；重做黄金 + gen 测试 | ✅ 已完成 | 默认以注释骨架输出（保证可编译），黄金与 gen 测试已重做 |
 | **Phase 5** | 冒烟测试全特性覆盖：为剩余示例补 `tests/smoke.rs`，48/48 行为级覆盖 | ✅ 已完成 | 48/48 示例均有**手写**行为级 `tests/smoke.rs`（CI `l-smoke` 自动发现全量） |
 | **Phase 6** | 代码去冗余：删除 `env_switch_enabled` 等遗留、清理注释、`emit_*` 去 `enabled` 形参 | 🟡 大部分完成 | 开关基础设施与双路径分支已删除；**§6 可选项「`impl std::ops::*` 运算符骨架增强」未做**；emit_* 仍残留少量 `active`/历史形参（见 §4.6） |
 | **Phase 7** | CI：l-smoke 全量、gen-verify 覆盖三类高级能力；门禁校验无 `CPP2RUST_GEN_*` | ✅ 已完成 | `l-smoke` 自动发现 48 例，gen-verify 覆盖模板/proxy/dynamic_cast，门禁已加 |
-| **Phase 8** | 文档对齐：INTRODUCTION / hicc.md / README / CHANGELOG / DEVELOPMENT | 🟡 大部分完成 | 主文档均已对齐「默认生成、无开关」；本进度文档（development-progress.md）此前缺失，现补齐 |
+| **Phase 8** | 文档对齐：INTRODUCTION / hicc.md / README / CHANGELOG / DEVELOPMENT | ✅ 已完成 | 主文档均已对齐「默认生成、无开关」；001–005 示例 README 改写为命名空间直出形态；CHANGELOG 追加「去 shim 补齐 001–005 / 冒烟生成器行为级 / 仓库瘦身」条目 |
+
+> **本 PR 补记**：完成 001–005 去 shim（`extern "C"` → 命名空间自由函数 + `import_lib!` 直出绑定），
+> 冒烟测试生成器升级为表驱动 + 行为级 `assert_eq!` 往返断言，并将 `examples-target/` 构建产物移出版本控制。
+> 另新增 `scripts/dump_ast.sh` + `scripts/filter_ast.py` 与 `make dump-ast` 目标（AST→hicc 可追溯，产物 gitignore），
+> 并以 `references/README.md` 文档化「`rapidjson-refactoring` 保留 vendored」的决策（无独立上游、E2E 固定取数路径）。
 
 > **一句话结论**：v7 的「移开关 + 默认输出 + 重做黄金 + CI 门禁 + 文档对齐」主体已完成；
-> **真正剩余的核心工作只有一项** —— 把冒烟测试**生成器**升级为方案 §4.2 的「表驱动 + 行为级断言」，
+> 冒烟测试**生成器**已升级为「表驱动 + 行为级断言」（setter/getter 往返 `assert_eq!`），
 > 让 `init` 对**新项目**生成的 `tests/smoke.rs` 也具备示例库已有的行为级断言质量。
 
 ---

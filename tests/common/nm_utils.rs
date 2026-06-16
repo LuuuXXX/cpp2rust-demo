@@ -99,8 +99,9 @@ fn parse_nm_output(output: &str, type_chars: &[char]) -> HashSet<String> {
 ///   the C and POSIX standards.  This also subsumes GCC/Clang `_Z`/`__Z`
 ///   mangling (MinGW) since those prefixes all begin with `_`.
 /// - Names starting with `?` are rejected — MSVC mangling prefix.
-/// - A small explicit denylist (`sprintf_s`, `frexpl`) covers standard C
-///   functions that MSVC/clang++ with MSVC STL defines inline in system headers;
+/// - A small explicit denylist (`sprintf_s`, `frexpl`, `printf`, `vprintf`)
+///   covers standard C functions that MSVC/clang++ with MSVC STL defines inline
+///   in system headers;
 ///   they appear in `.o` files but not in the `cc::Build` archive, causing
 ///   false-positive validation failures (observed: clang++ + MSVC STL 14.4x).
 ///   Extend this list if future toolchain versions add more inline CRT symbols.
@@ -127,9 +128,14 @@ fn is_c_symbol(s: &str) -> bool {
         }
         // MSVC CRT functions inlined into every TU when using clang++ + MSVC STL.
         // This list was derived from observed CI failures (clang++ + MSVC STL 14.4x).
+        // `printf`/`vprintf` are `<cstdio>` wrappers that MSVC's headers define
+        // inline (forwarding to `__stdio_common_v*printf`); they surface as
+        // defined `T`/`W` symbols in any `.o` that calls them (e.g. example 005),
+        // but are CRT-provided rather than example extern-C exports, so they must
+        // not be treated as symbols requiring linkage into the Rust archive.
         // If future MSVC toolchain versions inline additional public-name CRT
         // functions that produce false positives, extend this list accordingly.
-        const MSVC_CRT_INLINE: &[&str] = &["sprintf_s", "frexpl"];
+        const MSVC_CRT_INLINE: &[&str] = &["sprintf_s", "frexpl", "printf", "vprintf"];
         if MSVC_CRT_INLINE.contains(&s) {
             return false;
         }

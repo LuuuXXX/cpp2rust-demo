@@ -1,19 +1,13 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace variadic_functions_ns {
 
-// 可变参数函数
+// 真正的 C 可变参数函数（Rust 无法直接经 FFI 调用，工具会跳过其绑定）。
 int sum(int count, ...);
-
-// 固定参数 + 可变参数
 int print_formatted(const char* format, ...);
 
-// FFI wrapper functions (Rust cannot call variadic functions directly)
+// FFI 固定参数包装函数：无需 extern "C"，由 hicc import_lib! 以 ns::fn() 直出绑定。
 int sum_3(int a, int b, int c);
 int sum_5(int a, int b, int c, int d, int e);
 
-#ifdef __cplusplus
-}
-#endif
+} // namespace variadic_functions_ns

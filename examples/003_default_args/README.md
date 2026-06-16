@@ -1,8 +1,9 @@
-# 003_default_args - 默认参数
+# 003_default_args - 命名空间函数 + C++ 默认参数
 
 ## C++ 特性
 
-本示例展示 C++ 默认参数特性，以及在 FFI 边界如何处理。
+命名空间内自由函数带 C++ 默认参数（`times = 1`）。默认参数是 C++ 源语言特性，
+FFI 边界需显式传入全部实参；函数本身由 hicc `import_lib!` 直出绑定。
 
 ## C++ 代码
 
@@ -10,102 +11,30 @@
 
 ```cpp
 #pragma once
-#ifdef __cplusplus
-extern "C" {
-#endif
 
-// 默认参数：times 默认为 1
+namespace default_args_ns {
+
 int greet(const char* name, int times = 1);
 
-#ifdef __cplusplus
-}
-#endif
-```
-
-### default_args.cpp
-
-```cpp
-#include "default_args.h"
-#include <iostream>
-
-int greet(const char* name, int times) {
-    for (int i = 0; i < times; ++i) {
-        std::cout << "Hello, " << name << "!" << std::endl;
-    }
-    return times;
-}
-```
-
-## 默认参数与 FFI
-
-### 问题
-
-C++ 默认参数是**编译时特性**，在调用点由编译器自动填入默认值。但 FFI 边界是链接时才确定的，无法自动填入默认值。
-
-### 解决方案
-
-在 FFI 边界，必须传递所有参数：
-
-```rust
-#[cpp(func = "int greet(const char*, int)")]
-unsafe fn greet(name: *const i8, times: i32) -> i32;
-```
-
-然后在 Rust 层面用函数封装模拟默认参数：
-
-```rust
-fn greet_with_default(name: *const i8) -> i32 {
-    unsafe { greet(name, 1) }  // 默认 times = 1
-}
+} // namespace default_args_ns
 ```
 
 ## Rust FFI 代码
 
 ```rust
-hicc::cpp! {
-    #include "default_args.h"
-}
-
 hicc::import_lib! {
     #![link_name = "default_args"]
 
-    #[cpp(func = "int greet(const char*, int)")]
-    unsafe fn greet(name: *const i8, times: i32) -> i32;
+    #[cpp(func = "int default_args_ns::greet(const char*, int)")]
+    pub unsafe fn greet(name: *const i8, times: i32) -> i32;
 }
 ```
-## 关键点
-
-### C++ 默认参数限制
-
-以下情况不能使用默认参数：
-1. 参数是引用
-2. 参数是数组
-3. 参数是 lambda
-4. **FFI 边界**（链接时无法填入默认值）
-
-### Rust 模拟方式
-
-| C++ 调用 | Rust 等价 |
-|----------|-----------|
-| `greet("World")` | `greet_with_default(name)` |
-| `greet("World", 5)` | `greet(name, 5)` |
 
 ## 构建方法
 
-### C++ 编译
-
 ```bash
-cd cpp
-g++ -c default_args.cpp -o default_args.o
-g++ -shared -fPIC default_args.cpp -o libdefault_args.so
-```
-
-### Rust 编译
-
-```bash
-cd rust_hicc
-cargo build
-cargo run
+cd cpp && ./standalone.sh    # 独立 C++ 验证
+cd rust_hicc && cargo run    # Rust 端运行
 ```
 
 ## 运行结果
@@ -121,6 +50,5 @@ Rust FFI: Default args simulated in Rust!
 
 ## 总结
 
-C++ 默认参数在 FFI 边界无法直接使用，需要：
-1. 在 FFI 声明时传递所有参数
-2. 在 Rust 层用函数封装模拟默认参数行为
+- 命名空间函数无需 `extern "C"`，以 `ns::fn()` 直出绑定
+- C++ 默认参数仅在 C++ 端生效；Rust 侧需传全部实参，可在 Rust 层封装模拟默认值

@@ -1,17 +1,12 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace function_overload_ns {
 
-// 函数重载：不同的参数类型
+// 命名空间内自由函数（含不同参数类型/个数的重载族）：无需 extern "C"，
+// 由 hicc import_lib! 以 ns::fn() 直出绑定。
 int add_int(int a, int b);
 double add_double(double a, double b);
 const char* add_strings(const char* a, const char* b);
-
-// 重载：不同的参数个数
 int sum3(int a, int b, int c);
 
-#ifdef __cplusplus
-}
-#endif
+} // namespace function_overload_ns

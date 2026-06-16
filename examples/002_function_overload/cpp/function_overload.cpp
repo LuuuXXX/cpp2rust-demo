@@ -1,6 +1,9 @@
 #include "function_overload.h"
 #include <iostream>
 #include <cstring>
+#include <cstdio>
+
+namespace function_overload_ns {
 
 int add_int(int a, int b) {
     std::cout << "add_int(" << a << ", " << b << ")" << std::endl;
@@ -23,3 +26,5 @@ int sum3(int a, int b, int c) {
     std::cout << "sum3(" << a << ", " << b << ", " << c << ")" << std::endl;
     return a + b + c;
 }
+
+} // namespace function_overload_ns

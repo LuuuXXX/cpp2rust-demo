@@ -22,3 +22,9 @@
 [submodule "references/c2rust-demo"]
 	path = references/c2rust-demo
 	url = https://github.com/LuuuXXX/c2rust-demo
+[submodule "references/magic_enum"]
+	path = references/magic_enum
+	url = https://github.com/Neargye/magic_enum.git
+[submodule "references/tomlplusplus"]
+	path = references/tomlplusplus
+	url = https://github.com/marzer/tomlplusplus.git
