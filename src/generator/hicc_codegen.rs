@@ -8,8 +8,8 @@
 //! 使用完整的 Rust 函数名（如 `counter_new`），以匹配 `main()` 中的调用方式。
 
 use crate::ffi_model::{
-    DynamicCastSpec, FfiSpec, FnBinding, ProxyFactorySpec, SelfKind, TemplateClassSpec,
-    TemplateFactorySpec, TemplateFnSpec, TemplateInstanceSpec,
+    DynamicCastSpec, FfiSpec, FnBinding, ProxyFactorySpec, ReprCStructSpec, SelfKind,
+    TemplateClassSpec, TemplateFactorySpec, TemplateFnSpec, TemplateInstanceSpec,
 };
 
 // v7：模板类 / 模板函数 / `@make_proxy` / `@dynamic_cast` 骨架全部**默认生成**：
@@ -38,7 +38,21 @@ pub fn emit_cpp_block(lines: &[String]) -> String {
     out
 }
 
-/// 向 `out` 写出单个函数绑定行（`#[cpp(func = "...")]` 属性 + fn 签名）。
+/// 写出单个头文件 POD 结构体的 `#[repr(C)]` Rust 定义。
+///
+/// 用于被 FFI 函数签名引用、但在头文件中有完整字段定义的纯数据结构（如 SAX 回调表）。
+/// 以 `#[repr(C)]` 保证与 C 端布局一致；`#[derive(Clone, Copy)]` 便于调用方按值构造、传指针。
+fn emit_repr_c_struct(out: &mut String, rc: &ReprCStructSpec) {
+    out.push('\n');
+    out.push_str("#[repr(C)]\n");
+    out.push_str("#[derive(Clone, Copy)]\n");
+    out.push_str(&format!("pub struct {} {{\n", rc.name));
+    for (name, ty) in &rc.fields {
+        out.push_str(&format!("    pub {}: {},\n", name, ty));
+    }
+    out.push_str("}\n");
+}
+
 ///
 /// `ret_override`：若为 `Some(s)`，用 `s` 替换 `fb.ret_type` 作为返回类型（不含 ` -> ` 前缀）。
 fn emit_fn_binding(out: &mut String, fb: &FnBinding, ret_override: Option<&str>) {
@@ -152,6 +166,13 @@ pub fn generate(spec: &FfiSpec) -> String {
 
     // ── hicc::cpp! ─────────────────────────────
     out.push_str(&emit_cpp_block(&spec.cpp_block_lines));
+
+    // ── 头文件 POD 结构体（#[repr(C)] 直出）──────────
+    // 被 FFI 签名引用但有完整字段定义的纯数据结构（如 SAX 回调表），以 Rust 结构体输出，
+    // 供调用方按值构造、按指针传入 import_lib! 中的函数。
+    for rc in &spec.repr_c_structs {
+        emit_repr_c_struct(&mut out, rc);
+    }
 
     // ── hicc::import_class! (所有有方法的类都生成独立块) ────
     for cs in &spec.class_specs {

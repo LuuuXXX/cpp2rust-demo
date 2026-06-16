@@ -10,6 +10,7 @@ mod dynamic_cast_spec;
 mod hicc_direct;
 mod lib_spec;
 mod proxy_spec;
+mod repr_c_spec;
 mod template_spec;
 
 use crate::ast_parser::{CppAst, FunctionInfo, ParamInfo};
@@ -218,6 +219,36 @@ pub fn extract(
             &functions,
             &class_names_ref,
         );
+    }
+
+    // ── 头文件 POD 结构体 → #[repr(C)] 直出 ──────────────
+    // 被 FFI 函数签名引用、但在头文件中有完整字段定义的纯数据结构（如 SAX 回调表
+    // RapidJsonHandlerCallbacks）须以 #[repr(C)] Rust 结构体输出，而非不透明 import_class!，
+    // 否则会与 hicc 的 MethodsType 特化冲突。命中后将其从 fwd_decls 移除，
+    // 使 import_lib! 不再前向声明、跨模块前缀也不再生成不透明句柄。
+    {
+        let local_class_names: Vec<&str> = spec
+            .class_specs
+            .iter()
+            .filter(|cs| !cs.is_empty())
+            .map(|cs| cs.name.as_str())
+            .collect();
+        let (repr_c_structs, to_remove) = repr_c_spec::build_repr_c_structs(
+            &ast.classes,
+            &spec.lib_spec.fwd_decls,
+            &local_class_names,
+        );
+        if !to_remove.is_empty() {
+            spec.lib_spec.fwd_decls.retain(|decl| {
+                let name = decl
+                    .strip_prefix("class ")
+                    .and_then(|s| s.strip_suffix(';'))
+                    .map(str::trim)
+                    .unwrap_or("");
+                !to_remove.iter().any(|r| r == name)
+            });
+        }
+        spec.repr_c_structs = repr_c_structs;
     }
 
     spec

@@ -291,6 +291,18 @@ fn collect_class_map(all_units: &[UnitData]) -> HashMap<String, String> {
                 class_to_module.insert(cs.name.clone(), ud.unit_path.clone());
             }
         }
+        // #[repr(C)] POD 结构体（如 SAX 回调表）同样经 lib.rs 的 glob 重导出，
+        // 其它单元若引用该类型，应生成 `use crate::<module>::<Name>` 而非不透明句柄。
+        for rc in &ud.spec.repr_c_structs {
+            if let Some(existing) = class_to_module.get(&rc.name) {
+                eprintln!(
+                    "  警告：类型 '{}' 同时定义于 '{}' 和 '{}'；跨模块引用将使用第一个定义",
+                    rc.name, existing, ud.unit_path
+                );
+            } else {
+                class_to_module.insert(rc.name.clone(), ud.unit_path.clone());
+            }
+        }
     }
     class_to_module
 }
