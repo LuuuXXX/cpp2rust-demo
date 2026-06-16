@@ -76,9 +76,9 @@ cd rust_hicc && cargo test       # 行为级 smoke 断言
 ## 运行结果
 
 ```
-circle area=12.5664 typeid=N14typeid_rtti_ns6CircleE
-rect   area=12.0000 typeid=N14typeid_rtti_ns9RectangleE
-tri    area=6.0000 typeid=N14typeid_rtti_ns8TriangleE
+circle area=12.5664 typeid=Circle
+rect   area=12.0000 typeid=Rectangle
+tri    area=6.0000 typeid=Triangle
 --- end main ---
 ```
 

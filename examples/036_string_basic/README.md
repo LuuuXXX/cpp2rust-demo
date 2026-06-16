@@ -81,7 +81,7 @@ hicc::import_lib! {
 empty=0 length=5
 after append=hello, world length=12
 at(1)=e at(99)=0
-compare hello=7
+compare hello=1
 find world=7 find missing=-1
 to_upper=HELLO, WORLD
 

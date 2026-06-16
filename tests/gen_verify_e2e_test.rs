@@ -637,6 +637,7 @@ cc = "1.0"
     let cc_build: &mut cc::Build = build.deref_mut();
     cc_build.include(&cpp_dir);
     cc_build.cpp(true);
+    cc_build.std("c++17");
 {cpp_file_lines}
     build.rust_file("src/lib.rs").compile({cpp_stem:?});
 

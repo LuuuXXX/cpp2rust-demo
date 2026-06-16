@@ -17,7 +17,7 @@ fn main() {
     println!("at(1)={} at(99)={}", s.at(1) as u8 as char, s.at(99));
 
     let compare = CString::new("hello").expect("CString::new failed");
-    println!("compare hello={}", s.compare(compare.as_ptr()));
+    println!("compare hello={}", s.compare(compare.as_ptr()).signum());
 
     let world = CString::new("world").expect("CString::new failed");
     let missing = CString::new("missing").expect("CString::new failed");
