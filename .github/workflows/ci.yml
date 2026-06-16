@@ -402,8 +402,12 @@ jobs:
         run: |
           # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
           # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
-          first=$(ls -d examples/*/rust_hicc | head -n1)
-          cargo build --manifest-path "$first"/Cargo.toml
+          # 同时预热「不依赖 hicc-std」与「依赖 hicc-std」的代表示例各一个，
+          # 确保 hicc / hicc-build / hicc-std 等共享 build 脚本（cc-rs）只在串行阶段编译一次。
+          std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
+          for warm in "$(ls -d examples/*/rust_hicc | head -n1)" "$std_first"; do
+            [ -n "$warm" ] && cargo build --manifest-path "$warm"/Cargo.toml
+          done
           ls -d examples/*/rust_hicc | \
             xargs -P$(nproc) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -1020,8 +1024,12 @@ jobs:
         run: |
           # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
           # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
-          first=$(ls -d examples/*/rust_hicc | head -n1)
-          cargo build --manifest-path "$first"/Cargo.toml
+          # 同时预热「不依赖 hicc-std」与「依赖 hicc-std」的代表示例各一个，
+          # 确保 hicc / hicc-build / hicc-std 等共享 build 脚本（cc-rs）只在串行阶段编译一次。
+          std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
+          for warm in "$(ls -d examples/*/rust_hicc | head -n1)" "$std_first"; do
+            [ -n "$warm" ] && cargo build --manifest-path "$warm"/Cargo.toml
+          done
           ls -d examples/*/rust_hicc | \
             xargs -P$(nproc) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -1603,8 +1611,12 @@ jobs:
         run: |
           # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
           # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
-          first=$(ls -d examples/*/rust_hicc | head -n1)
-          cargo build --manifest-path "$first"/Cargo.toml
+          # 同时预热「不依赖 hicc-std」与「依赖 hicc-std」的代表示例各一个，
+          # 确保 hicc / hicc-build / hicc-std 等共享 build 脚本（cc-rs）只在串行阶段编译一次。
+          std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
+          for warm in "$(ls -d examples/*/rust_hicc | head -n1)" "$std_first"; do
+            [ -n "$warm" ] && cargo build --manifest-path "$warm"/Cargo.toml
+          done
           ls -d examples/*/rust_hicc | \
             xargs -P$(sysctl -n hw.logicalcpu) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -1745,8 +1757,12 @@ jobs:
         run: |
           # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
           # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
-          first=$(ls -d examples/*/rust_hicc | head -n1)
-          cargo build --manifest-path "$first"/Cargo.toml
+          # 同时预热「不依赖 hicc-std」与「依赖 hicc-std」的代表示例各一个，
+          # 确保 hicc / hicc-build / hicc-std 等共享 build 脚本（cc-rs）只在串行阶段编译一次。
+          std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
+          for warm in "$(ls -d examples/*/rust_hicc | head -n1)" "$std_first"; do
+            [ -n "$warm" ] && cargo build --manifest-path "$warm"/Cargo.toml
+          done
           ls -d examples/*/rust_hicc | \
             xargs -P$(sysctl -n hw.logicalcpu) -I{} \
               cargo build --manifest-path {}/Cargo.toml
