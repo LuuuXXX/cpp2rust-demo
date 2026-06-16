@@ -12,6 +12,6 @@ hicc::cpp! {
 hicc::import_lib! {
     #![link_name = "variadic_template"]
 
-    #[cpp(func = "int variadic_template_anchor()")]
+    #[cpp(func = "int variadic_template_ns::variadic_template_anchor()")]
     pub fn variadic_template_anchor() -> i32;
 }

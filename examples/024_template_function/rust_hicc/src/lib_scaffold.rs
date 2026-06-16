@@ -12,6 +12,6 @@ hicc::cpp! {
 hicc::import_lib! {
     #![link_name = "template_function"]
 
-    #[cpp(func = "int template_function_anchor()")]
+    #[cpp(func = "int template_function_ns::template_function_anchor()")]
     pub fn template_function_anchor() -> i32;
 }

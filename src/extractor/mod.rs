@@ -161,12 +161,18 @@ pub fn extract(
     };
 
     // ── import_lib! 块 ────────────────────────
-    // 始终调用 build_lib_spec：其内部的 is_mappable_rust_type 过滤器会自动排除
-    // 含 `::` 的命名空间类型（如 std::string*、example::OperationResult*），
-    // 而 void* → *mut u8 等可映射类型则正常生成绑定。
+    // 始终调用 build_lib_spec_namespaced：其内部的 is_mappable_rust_type 过滤器会自动
+    // 排除含 `::` 的命名空间类型（如 std::string*、example::OperationResult*），而
+    // void* → *mut u8 等可映射类型则正常生成绑定。
+    //
+    // 命名空间自由函数（如模板示例的 `<unit>_ns::<unit>_anchor()`）必须以 `ns::name`
+    // 限定其 C++ 签名：本路径的 hicc `cpp!` 块仅含 `#include`，不带 `using namespace`，
+    // 裸函数名会在全局作用域解析失败（实测 024/028 生成产物 cargo build 报
+    // “was not declared in this scope”）。限定仅对 `fi.namespace` 为 Some 的函数生效，
+    // 旧式 extern-C 全局桥接函数（namespace 为 None）保持裸函数名不变。
     let lib_spec = {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        lib_spec::build_lib_spec(&functions, unit_name, &class_names)
+        lib_spec::build_lib_spec_namespaced(&functions, unit_name, &class_names)
     };
 
     let mut spec = FfiSpec {
