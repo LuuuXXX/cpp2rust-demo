@@ -401,13 +401,23 @@ fn resolve_paths(
 /// 与 `Path::with_extension("cpp2rust")` 的语义不同：后者会**替换**扩展名得到
 /// `value_ffi.cpp2rust`，丢失 `.cpp` 后缀。必须保留 `.cpp` 后缀，`init` 才能按
 /// `strip_suffix(".cpp2rust")` 正确反推回原始源文件路径（与 Linux hook 一致）。
+///
+/// 实际调用方传入的始终是带文件名的源文件路径；当路径无文件名分量（如以 `..` 结尾
+/// 或为根）这一不可达分支时，仍坚持「追加」语义——直接在整条路径末尾追加
+/// `.cpp2rust`，绝不退化为 `with_extension` 的「替换」语义。
 fn append_cpp2rust_suffix(p: &Path) -> PathBuf {
-    let mut name = match p.file_name() {
-        Some(n) => n.to_os_string(),
-        None => return p.with_extension("cpp2rust"),
-    };
-    name.push(".cpp2rust");
-    p.with_file_name(name)
+    match p.file_name() {
+        Some(n) => {
+            let mut name = n.to_os_string();
+            name.push(".cpp2rust");
+            p.with_file_name(name)
+        }
+        None => {
+            let mut s = p.as_os_str().to_os_string();
+            s.push(".cpp2rust");
+            PathBuf::from(s)
+        }
+    }
 }
 
 /// 去掉 Windows 扩展路径前缀 `\\?\`，返回普通路径。
