@@ -1611,12 +1611,14 @@ jobs:
         run: |
           # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
           # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
-          # 同时预热「不依赖 hicc-std」与「依赖 hicc-std」的代表示例各一个，
-          # 确保 hicc / hicc-build / hicc-std 等共享 build 脚本（cc-rs）只在串行阶段编译一次。
+          # 不依赖 hicc-std 的代表示例（如 001）正常预热，预编译 hicc / hicc-build 等共享 build 脚本。
+          first=$(ls -d examples/*/rust_hicc | head -n1)
+          [ -n "$first" ] && cargo build --manifest-path "$first"/Cargo.toml
+          # hicc-std 单次构建内含大量重模板翻译单元（如 std_vector.rs.cpp），macOS runner 内存有限，
+          # cc-rs 并发编译多个此类 TU 会触发 OOM，编译进程被杀（exit 1、stderr 为空）致 L3/L5 失败。
+          # 用 --jobs 1 串行编译 hicc-std，消除并发重 TU 的内存峰值；产物供后续并行阶段直接复用。
           std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
-          for warm in "$(ls -d examples/*/rust_hicc | head -n1)" "$std_first"; do
-            [ -n "$warm" ] && cargo build --manifest-path "$warm"/Cargo.toml
-          done
+          [ -n "$std_first" ] && cargo build --jobs 1 --manifest-path "$std_first"/Cargo.toml
           ls -d examples/*/rust_hicc | \
             xargs -P$(sysctl -n hw.logicalcpu) -I{} \
               cargo build --manifest-path {}/Cargo.toml
@@ -1757,12 +1759,14 @@ jobs:
         run: |
           # 串行预热：先构建一个示例，确保共享依赖（如 hicc-std 的 build 脚本/cc-rs）只编译一次，
           # 避免随后并行构建共享 CARGO_TARGET_DIR 时并发编译同一依赖导致的间歇性竞态失败。
-          # 同时预热「不依赖 hicc-std」与「依赖 hicc-std」的代表示例各一个，
-          # 确保 hicc / hicc-build / hicc-std 等共享 build 脚本（cc-rs）只在串行阶段编译一次。
+          # 不依赖 hicc-std 的代表示例（如 001）正常预热，预编译 hicc / hicc-build 等共享 build 脚本。
+          first=$(ls -d examples/*/rust_hicc | head -n1)
+          [ -n "$first" ] && cargo build --manifest-path "$first"/Cargo.toml
+          # hicc-std 单次构建内含大量重模板翻译单元（如 std_vector.rs.cpp），macOS runner 内存有限，
+          # cc-rs 并发编译多个此类 TU 会触发 OOM，编译进程被杀（exit 1、stderr 为空）致 L3/L5 失败。
+          # 用 --jobs 1 串行编译 hicc-std，消除并发重 TU 的内存峰值；产物供后续并行阶段直接复用。
           std_first=$(dirname "$(grep -l 'hicc-std' examples/*/rust_hicc/Cargo.toml | head -n1)" 2>/dev/null)
-          for warm in "$(ls -d examples/*/rust_hicc | head -n1)" "$std_first"; do
-            [ -n "$warm" ] && cargo build --manifest-path "$warm"/Cargo.toml
-          done
+          [ -n "$std_first" ] && cargo build --jobs 1 --manifest-path "$std_first"/Cargo.toml
           ls -d examples/*/rust_hicc | \
             xargs -P$(sysctl -n hw.logicalcpu) -I{} \
               cargo build --manifest-path {}/Cargo.toml
