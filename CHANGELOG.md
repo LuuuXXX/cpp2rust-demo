@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 变更（去 shim 补齐 + 冒烟行为级 + 仓库瘦身）
+
+- **001–005 示例去 shim**：将 `001_hello_world`…`005_variadic_functions` 的头/实现由 `extern "C"` 改为命名空间内自由函数（`namespace <feat>_ns`），`rust_hicc/src/lib.rs` 改用 `#[cpp(func = "ns::fn()")]` 经 `import_lib!` 直出绑定，与 006+ 的 hicc 直出形态对齐；补齐 `cpp/main.cpp`、`cpp/standalone.sh`、`cpp/Makefile`，README 改写为命名空间形态。验证通过 L1（48/48）/L2/L3/L5 与示例行为级冒烟。
+- **冒烟测试生成器升级为行为级**：`src/generator/smoke_test_gen.rs` 新增表驱动的 setter/getter 往返检测——对「含零参构造 + 严格配对的 `set_<x>(标量)` 与 `<x>()`/`get_<x>()`/`is_<x>()` 标量 getter」的类，生成确定性 `assert_eq!` 往返断言（构造→set→断言 get 返回写入值）。断言仅在结果可静态确定（严格命名 + 标量类型）时生成，保证对真实项目 E2E `cargo test` 安全；其余项保留最小化 `cpp2rust-todo[SMOKE]` 占位。
+- **仓库瘦身**：将被 Git 跟踪的 `examples-target/`（cargo 构建产物，915 文件）移出版本控制，并在 `.gitignore` 增补 `examples-target/` 忽略规则；该目录在 CI 中仅作为 `CARGO_TARGET_DIR` 使用，去版本控制不影响功能。
+
 ### 变更（v7：高级映射能力默认生成，移除环境变量开关）
 
 - **移除全部 `CPP2RUST_GEN_*` 生成开关**：删除 `CPP2RUST_GEN_TEMPLATES` / `CPP2RUST_GEN_PROXY` / `CPP2RUST_GEN_DYNAMIC_CAST` / `CPP2RUST_GEN_SMOKE` 四个环境变量及相关的 `*_enabled()` / `*_ENV` 基础设施（`hicc_codegen` 的 `templates_enabled` / `proxy_enabled` / `dynamic_cast_enabled` / `env_switch_enabled`）。生成路径由「开/关双路径」收敛为「IR 非空即输出」单路径。`smoke_test_gen` 模块本身保留，但不再受环境变量控制。
