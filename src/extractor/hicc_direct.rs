@@ -260,12 +260,13 @@ fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> 
     })
 }
 
-/// make_unique 调用实参的 C++ 类型：标量按值参用 `T&&`，引用/指针原样。
+/// make_unique 调用实参的 C++ 类型：左值/右值引用原样（引用折叠），其余（标量、
+/// 指针）一律追加 `T&&`，以匹配 `make_unique(ArgTypes&&...)` 的转发引用形参。
 fn make_unique_arg_type(cpp_ty: &str) -> String {
     let t = super::normalize_ptr_spacing(super::strip_volatile(super::type_mapper::clean_type(
         cpp_ty,
     )));
-    if t.contains('&') || t.contains('*') {
+    if t.contains('&') {
         t
     } else {
         format!("{}&&", t)

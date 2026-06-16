@@ -1,68 +1,71 @@
 #pragma once
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <string>
+#include <cstdio>
+#include <cstring>
 
-// 模板偏特化示例：ValueHolder
-// 通用版本和 char* 特化版本
+namespace template_specialization_ns {
 
-// 通用版本 - 使用类声明
-class IntHolder;
-class DoubleHolder;
-
-// 构造函数和析构函数
-IntHolder* intholder_new(int value);
-void intholder_delete(IntHolder* self);
-
-// 访问器方法
-int intholder_get(IntHolder* self);
-const char* intholder_describe(IntHolder* self);
-
-// DoubleHolder 类声明
-DoubleHolder* doubleholder_new(double value);
-void doubleholder_delete(DoubleHolder* self);
-double doubleholder_get(DoubleHolder* self);
-const char* doubleholder_describe(DoubleHolder* self);
-
-// char* 特化版本 - StringHolder
-class StringHolder;
-
-StringHolder* stringholder_new(const char* value);
-void stringholder_delete(StringHolder* self);
-const char* stringholder_get(StringHolder* self);
-const char* stringholder_describe(StringHolder* self);
-
-#ifdef __cplusplus
-}
-
-// Full class definition - for hicc code generation
-class IntHolder {
-    int value_;
+// 通用类模板：ValueHolder<T> —— 默认实现。
+template <typename T>
+class ValueHolder {
+    T value_;
 public:
-    explicit IntHolder(int value);
-    ~IntHolder();
-    int get() const;
-    const char* describe() const;
+    explicit ValueHolder(T value) : value_(value) {}
+    T get() const { return value_; }
+    const char* describe() const {
+        static char buf[64];
+        std::snprintf(buf, sizeof(buf), "ValueHolder<T>(generic)");
+        return buf;
+    }
+};
+
+// 全特化：ValueHolder<std::string> —— 针对字符串的不同实现。
+// 构造函数设为私有并仅对具体包装类 StringHolder 开放（friend），避免 hicc 直出
+// 将这个「模板特化」当作可独立实例化的普通类来绑定（其类名带模板实参，不可裸用）。
+template <>
+class ValueHolder<std::string> {
+    std::string value_;
+    explicit ValueHolder(std::string value) : value_(std::move(value)) {}
+    friend class StringHolder;
+public:
+    const char* get() const { return value_.c_str(); }
+    const char* describe() const {
+        static char buf[256];
+        std::snprintf(buf, sizeof(buf),
+                      "ValueHolder<std::string>(value=\"%s\", length=%zu)",
+                      value_.c_str(), value_.size());
+        return buf;
+    }
+};
+
+// 具体实例化：每个具体类型暴露一个 idiomatic 命名空间类。
+class IntHolder {
+    ValueHolder<int> impl_;
+public:
+    explicit IntHolder(int value) : impl_(value) {}
+    int get() const { return impl_.get(); }
+    const char* describe() const { return impl_.describe(); }
 };
 
 class DoubleHolder {
-    double value_;
+    ValueHolder<double> impl_;
 public:
-    explicit DoubleHolder(double value);
-    ~DoubleHolder();
-    double get() const;
-    const char* describe() const;
+    explicit DoubleHolder(double value) : impl_(value) {}
+    double get() const { return impl_.get(); }
+    const char* describe() const { return impl_.describe(); }
 };
 
+// StringHolder 走特化版本 ValueHolder<std::string>。
 class StringHolder {
-    char* value_;
-    int length_;
+    ValueHolder<std::string> impl_;
 public:
-    explicit StringHolder(const char* value);
-    ~StringHolder();
-    const char* get() const;
-    const char* describe() const;
+    explicit StringHolder(const char* value) : impl_(std::string(value)) {}
+    const char* get() const { return impl_.get(); }
+    const char* describe() const { return impl_.describe(); }
 };
 
-#endif
+// 锚点：本单元可链接的非模板符号。
+int template_specialization_anchor();
+
+} // namespace template_specialization_ns
