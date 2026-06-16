@@ -340,10 +340,10 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, &mut ast, &cpp_ranges, &user_ranges);
+                collect_namespace(&entity, &mut ast, &cpp_ranges);
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, &mut ast, &user_ranges);
+                collect_typedef(&entity, &mut ast, &cpp_ranges);
             }
             _ => {}
         }
