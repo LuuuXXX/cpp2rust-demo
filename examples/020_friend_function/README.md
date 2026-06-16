@@ -1,188 +1,80 @@
-# 020_friend_function - 友元函数
+# 020_friend_function - 友元函数（hicc 直出，无 shim）
 
 ## C++ 特性
 
-本示例展示 C++ 友元函数的 FFI 映射。
+本示例展示**友元函数**的地道 C++ 命名空间类 `MyClass`：自由函数 `getSum`/`getProduct`/
+`compare` 被声明为 `MyClass` 的友元，因而可以访问其私有成员 `value_`。友元在类体内**内联
+定义**，经 ADL（参数依赖查找）在命名空间内调用。用 hicc 直出绑定，**无 opaque 指针、无
+`extern "C"` 桥接、无 `*_new`/`*_delete` shim**。
 
-## C++ 代码
-
-### friend_function.h
+## C++ 代码（节选）
 
 ```cpp
+namespace friend_function_ns {
+
 class MyClass {
-    int secret_value;  // private 成员
 public:
-    MyClass(int v);
-    int getValue();
+    explicit MyClass(int v);
+    int getValue() const;
     void setValue(int v);
 
-    // 友元函数声明
-    friend int getSum(const MyClass& a, const MyClass& b);
-    friend int getProduct(const MyClass& a, const MyClass& b);
-    friend int compare(const MyClass& a, const MyClass& b);
+    // 非成员友元：可访问私有成员 value_
+    friend int getSum(const MyClass& a, const MyClass& b) {
+        return a.value_ + b.value_;
+    }
+    friend int getProduct(const MyClass& a, const MyClass& b) { /* ... */ }
+    friend int compare(const MyClass& a, const MyClass& b)    { /* ... */ }
+private:
+    int value_;
 };
 
-// 友元函数定义
-inline int getSum(const MyClass& a, const MyClass& b) {
-    return a.secret_value + b.secret_value;  // 可以访问 private
-}
+} // namespace friend_function_ns
 ```
 
-## 友元函数
+配套 `standalone.sh` / `Makefile` 两种纯 C++ 构建方式。
 
-### C++ 友元机制
+## Rust FFI 代码（hicc 直出 + 友元命名包装）
 
-```cpp
-class MyClass {
-    int value;  // private
-public:
-    friend void friendFunc(MyClass* obj);  // 声明友元
-};
-
-void friendFunc(MyClass* obj) {
-    obj->value = 10;  // 可以访问 private 成员
-}
-```
-
-友元的特性：
-1. **访问权限**：友元可以访问类的所有 private 成员
-2. **不是成员**：友元函数不是类的成员
-3. **单向关系**：A 是 B 的友元，不意味着 B 是 A 的友元
-4. **可传递**：A 是 B 的友元，B 是 C 的友元，不意味着 A 是 C 的友元
-
-### 友元的类型
-
-| 类型 | 说明 |
-|------|------|
-| 友元函数 | 普通函数获得访问权限 |
-| 友元类 | 另一个类的所有成员获得访问权限 |
-| 友元成员函数 | 另一个类的特定成员函数获得访问权限 |
-
-## FFI 映射
-
-### 友元函数 vs 普通函数
-
-在 FFI 中，友元函数和普通函数没有区别：
-
-```c
-// C FFI 中，友元函数就是普通函数
-// 结构体定义对 C 是透明的（没有访问控制）
-
-int friend_function_getSum(struct MyClass* a, struct MyClass* b) {
-    return a->secret_value + b->secret_value;  // 直接访问
-}
-```
-
-### C++ 访问控制 vs C FFI
-
-| C++ | C FFI |
-|-----|-------|
-| private 成员 | 结构体成员（可直接访问） |
-| 友元函数 | 普通函数 |
-| protected | 不存在（用 C 结构体模拟） |
-
-## Rust FFI 代码
+hicc 直出只绑定类的公有成员方法 `getValue()`/`setValue()` 与构造工厂：默认支架
+（`lib_scaffold.rs`）即由 `init` 生成。友元是非成员自由函数，不进 `import_class!`；
+在手写 `lib.rs` 中以 `hicc::cpp!` 命名包装函数补全——每个友元包成一个具名 C++ 函数
+（经 ADL 调用真实友元），再用 `#[cpp(func = ...)]` 绑定为 `MyClass` 的关联方法：
 
 ```rust
 hicc::cpp! {
-    #include <iostream>
-
     #include "friend_function.h"
-}
-
-hicc::import_class! {
-    #[cpp(class = "MyClass", destroy = "myclass_delete")]
-    pub class MyClass {
-        #[cpp(method = "int getValue() const")]
-        fn get_value(&self) -> i32;
-
-        #[cpp(method = "void setValue(int v)")]
-        fn set_value(&mut self, v: i32);
+    using friend_function_ns::MyClass;
+    int myclass_friend_sum(const MyClass* self, const MyClass& other) {
+        return getSum(*self, other);   // 经 ADL 调用真实友元
     }
+    // ... product / compare 同理
 }
 
-hicc::import_lib! {
-    #![link_name = "friend_function"]
-
-    class MyClass;
-
-    #[cpp(func = "MyClass* myclass_new(int)")]
-    fn myclass_new(secret_value: i32) -> MyClass;
-
-    #[cpp(func = "int friend_function_getSum(const MyClass* a, const MyClass* b)")]
-    fn friend_function_get_sum(a: *const MyClass, b: *const MyClass) -> i32;
-
-    #[cpp(func = "int friend_function_getProduct(const MyClass* a, const MyClass* b)")]
-    fn friend_function_get_product(a: *const MyClass, b: *const MyClass) -> i32;
-
-    #[cpp(func = "int friend_function_compare(const MyClass* a, const MyClass* b)")]
-    fn friend_function_compare(a: *const MyClass, b: *const MyClass) -> i32;
-}
+// import_class! 内：
+#[cpp(func = "int myclass_friend_sum(const friend_function_ns::MyClass*, const friend_function_ns::MyClass&)")]
+pub fn friend_sum(&self, other: &MyClass) -> i32;
 ```
+
 ## 关键点
 
-### 为什么使用友元
+| C++ 概念 | hicc 直出映射 |
+|----------|--------------|
+| 公有成员方法 `getValue`/`setValue` | 直接绑定（`const` → `&self`，非 `const` → `&mut self`） |
+| 构造函数 `MyClass(int)` | `hicc::make_unique` 工厂 → 关联函数 `MyClass::new` |
+| 友元自由函数 `getSum` 等 | 跳过自动绑定 → `hicc::cpp!` 命名包装 + `#[cpp(func)]` 关联方法 |
+| 访问私有成员 | 由 C++ 侧友元完成；Rust 侧只调用包装函数 |
+| ADL 查找 | 包装函数以 `MyClass` 实参触发命名空间内友元查找 |
 
-1. **封装优于友元**：优先使用 public 接口
-2. **运算符重载**：需要访问 private 成员（如 operator<<）
-3. **类协作**：两个类需要互相访问对方的 private
+## 构建方法
 
-### 示例：运算符重载作为友元
-
-```cpp
-class Number {
-    int value;
-public:
-    Number(int v) : value(v) {}
-    friend Number operator+(const Number& a, const Number& b);
-};
-
-Number operator+(const Number& a, const Number& b) {
-    return Number(a.value + b.value);  // 访问 private
-}
-```
-
-### FFI 中的友元
-
-```c
-// 在 C FFI 中不需要"友元"概念
-// 因为 C 没有访问控制
-struct Number {
-    int value;  // 总是可访问的
-};
-
-struct Number* number_add(struct Number* a, struct Number* b) {
-    return number_new(a->value + b->value);
-}
-```
-
-## 运行结果
-
-```
-=== Friend Function FFI ===
-
-Friend functions in C++ can access private members of a class
-
-Created MyClass objects:
-  a.value = 10
-  b.value = 20
-
-Friend function operations:
-Friend function getSum: 10 + 20 = 30
-  Sum: 30
-Friend function getProduct: 10 * 20 = 200
-  Product: 200
-Friend function compare: a < b
-  Compare: -1
-
-Rust FFI: Friend functions are just regular functions
-In C FFI, we can access struct members directly
-The 'friend' relationship is a C++ access control concept
+```bash
+cd cpp && ./standalone.sh        # 纯 C++ 独立验证（或 make run）
+cd rust_hicc && cargo test       # 行为级 smoke 断言
 ```
 
 ## 总结
 
-1. **友元函数**：获得访问 private 成员的普通函数
-2. **FFI 映射**：在 C FFI 中就是普通函数
-3. **访问控制**：C 没有访问控制，结构体成员都可访问
-4. **Rust 替代**：Rust 没有友元，但可以通过 `pub(in crate)` 控制可见性
+1. **友元跳过**：hicc 直出不自动绑定非成员自由函数（含友元）。
+2. **命名包装**：以 `hicc::cpp!` 具名函数补全友元，绑定为关联方法。
+3. **私有访问**：访问私有成员的逻辑留在 C++ 侧友元，Rust 仅做调用。
+4. **去 shim**：无 `*_new`/`*_delete`、无 opaque 指针、无 `extern "C"` 桥接。
