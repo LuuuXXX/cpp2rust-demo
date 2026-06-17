@@ -1,0 +1,76 @@
+name: Verify Scripts
+
+# 验证脚本 CI：测试 usage/ 目录下的验证脚本本身是否正确运行
+# 与 e2e-*.yml 互补：e2e-*.yml 测试工具核心功能，本 workflow 测试用户脚本
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "usage/verify-*.sh"
+      - "src/**"
+      - "hook/**"
+      - ".github/workflows/verify-scripts.yml"
+  pull_request:
+    branches: ["main", "master"]
+    paths:
+      - "usage/verify-*.sh"
+      - "src/**"
+      - "hook/**"
+      - ".github/workflows/verify-scripts.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  verify-scripts:
+    name: ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - tinyxml2
+          - pugixml
+          - nlohmann-json
+          - magic-enum
+          - tomlplusplus
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: |
+          case "${{ matrix.project }}" in
+            tinyxml2)       git submodule update --init references/tinyxml2 ;;
+            pugixml)        git submodule update --init references/pugixml ;;
+            nlohmann-json)  git submodule update --init references/nlohmann-json ;;
+            magic-enum)     git submodule update --init references/magic_enum ;;
+            tomlplusplus)   git submodule update --init references/tomlplusplus ;;
+          esac
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-verify-${{ matrix.project }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run verify-${{ matrix.project }}-ffi.sh
+        run: bash usage/verify-${{ matrix.project }}-ffi.sh
