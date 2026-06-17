@@ -18,7 +18,7 @@ cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 - 📦 **hicc 直出（无 shim）为默认**：`hicc::import_class!` 直绑真实命名空间类、`hicc::import_lib!` 直绑自由函数与 `make_unique` 工厂；`hicc::cpp!` 仅用于 `#include` 与少数特性的必要内联包装
 - 🏷️ **多 feature 支持**：`--feature <name>` 将不同平台或构建配置的产物隔离到各自目录，`merge` 命令可将多个 feature 合并为带 `[features]` 段的统一 Rust 项目
 - 🤖 **CI / 非交互环境自动全选**：stdin 非 TTY 时自动全选所有捕获到的 `.cpp2rust` 文件，无需人工干预
-- 🧪 **五层测试体系**：L1 黄金文件比对 / L2 编译测试 / L3 运行输出验证 / L4 真实项目 E2E 转换（rapidjson + tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib） / L5 `nm` 符号双向验证
+- 🧪 **五层测试体系**：L1 黄金文件比对 / L2 编译测试 / L3 运行输出验证 / L4 真实项目 E2E 转换（rapidjson + tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib / magic_enum / tomlplusplus） / L5 `nm` 符号双向验证
 - ⚠️ **降级特性内联提示**：无法完全自动化的 C++ 特性（运算符重载、可变参数模板、有状态 Lambda 等）自动降级并在生成代码中插入 `// cpp2rust-todo[TAG]` 注释，精确定位待手动完善的位置
 
 仓库同时包含 **48 个循序渐进的 C++ 特性示例**，每个示例都有对应的 C++ 源码和可运行的 Rust FFI 参考实现，覆盖从基础函数到模板、STL、虚继承等复杂场景。
@@ -213,6 +213,19 @@ cargo install --path .
 
 > **注意**：`hook/hook.cpp` 已内嵌进 binary，无需额外文件。首次执行 `init` 时工具
 > 自动将 hook 源码解压到 `~/.local/share/cpp2rust-demo/hook/`（Linux）并编译；后续调用在 hook 库为最新版时自动跳过重编译。
+
+#### macOS（Homebrew）
+
+```bash
+# 系统依赖（llvm 提供 libclang，cmake 供真实库 E2E / 本地验证脚本使用）
+brew install llvm cmake
+
+# libclang 路径导出（bindgen / clang-sys 定位 libclang.dylib）
+export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
+
+# 从 GitHub 安装（无需克隆仓库）
+cargo install --git https://github.com/LuuuXXX/cpp2rust-demo
+```
 
 #### Windows
 
@@ -582,10 +595,12 @@ hicc::import_lib! {
 | **L2** 编译测试 | `l2_compile_tests.rs` | 仓库中现有的 `rust_hicc/` 能通过 `cargo build` | ✅ **48/48 通过** |
 | **L3** 运行测试 | `l3_run_tests.rs` | `cargo run` 输出与各示例 README 中"运行结果"一致 | ✅ **48/48 通过** |
 | **L_smoke** 冒烟测试 | 各示例 `tests/smoke.rs` | `cargo test` 验证 FFI 绑定行为（48/48 示例均有行为级断言；CI `l-smoke` 自动发现并逐个运行） | ✅ **48/48 通过** |
-| **L4** E2E 测试 | `rapidjson_e2e_test.rs` 等 | 对真实开源项目执行完整 init + merge 转换：①rapidjson（10 子系统 shim）验证 `import_lib!` FFI 绑定；②五大库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）验证工具在不同类型项目上的覆盖率与鲁棒性 | ✅ 通过 |
+| **L4** E2E 测试 | `rapidjson_e2e_test.rs` 等 | 对真实开源项目执行完整 init + merge 转换：①rapidjson（10 子系统 shim）验证 `import_lib!` FFI 绑定；②七大库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib / magic_enum / tomlplusplus）验证工具在不同类型项目上的覆盖率与鲁棒性 | ✅ 通过 |
 | **L5** 符号验证测试 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | ✅ 通过 |
 
-> **每个实际项目独立 CI**：L4 各真实项目（rapidjson / tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib）在 Linux 上各有一个独立 workflow（`.github/workflows/e2e-<project>.yml`），互不阻塞、便于定位；跨平台（Windows MinGW/MSVC）覆盖仍集中在 `ci.yml`。
+> **每个实际项目独立 CI**：L4 各真实项目（rapidjson / tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib / magic_enum / tomlplusplus）在 Linux 上各有一个独立 workflow（`.github/workflows/e2e-<project>.yml`），互不阻塞、便于定位；跨平台（Windows MinGW/MSVC）覆盖仍集中在 `ci.yml`。
+
+> **本地验证脚本**：每个 L4 真实库另有一份可本地直接执行的 FFI 验证脚本，详见 [`usage/`](usage/README.md)（`usage/verify-<lib>-ffi.sh` + 共享库 `usage/lib/verify-common.sh` + 统一入口 `usage/verify-all.sh`），与上述 E2E 工作流形成「CI 集成测试 ↔ 本地验证脚本」的对照关系。
 
 ### 测试命令
 
@@ -602,13 +617,20 @@ cargo test --test l3_run_tests --features full-test -- --test-threads=1
 # 运行 L4 rapidjson E2E 测试（须单线程：避免并行磁盘操作冲突）
 cargo test --test rapidjson_e2e_test -- --test-threads=1
 
-# 运行 L4 五大库 E2E 测试（须先初始化对应子模块）
-# git submodule update --init references/tinyxml2 references/pugixml references/nlohmann-json references/fmtlib
+# 运行 L4 七大库 E2E 测试（须先初始化对应子模块）
+# git submodule update --init references/tinyxml2 references/pugixml references/nlohmann-json references/fmtlib references/magic_enum references/tomlplusplus
 cargo test --test tinyxml2_e2e_test -- --test-threads=1
 cargo test --test pugixml_e2e_test -- --test-threads=1
 cargo test --test sqlite3_e2e_test -- --test-threads=1   # Linux 需安装 libsqlite3-dev
 cargo test --test nlohmann_json_e2e_test -- --test-threads=1
 cargo test --test fmtlib_e2e_test -- --test-threads=1
+cargo test --test magic_enum_e2e_test -- --test-threads=1
+cargo test --test tomlplusplus_e2e_test -- --test-threads=1
+
+# 本地直接执行某真实库的 FFI 验证脚本（init + merge + cargo check/test + 符号汇报）
+bash usage/verify-tinyxml2-ffi.sh
+# 一次性跑全部库并输出 PASS/SKIP/FAIL 矩阵
+bash usage/verify-all.sh
 
 # 运行 L5 nm 符号验证测试
 cargo test --test l5_nm_symbol_tests -- --include-ignored

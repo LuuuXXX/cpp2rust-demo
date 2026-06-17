@@ -1,17 +1,85 @@
 # usage — 本地验证脚本与 SKILL 使用文档
 
-本目录包含对 rapidjson 项目进行 cpp2rust-demo FFI 转换的**所有可用方式**：
+本目录包含对真实 C++ 项目进行 cpp2rust-demo FFI 转换的**所有可用方式**。除针对
+rapidjson 的端到端脚本外，还为 E2E 已覆盖的 7 个真实库各提供了一份**可本地直接执行**的
+验证脚本，并由共享库 `lib/verify-common.sh` 复用七阶段骨架、`verify-all.sh` 统一入口编排。
 
-| 文件 | 说明 |
-|------|------|
-| [`verify-rapidjson-ffi.sh`](verify-rapidjson-ffi.sh) | 全自动 Shell 脚本（CLI 方式，适合批量/CI 场景） |
-| 本文档（README.md） | 脚本用法 + SKILL 交互式工作流完整说明 |
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| [`verify-rapidjson-ffi.sh`](verify-rapidjson-ffi.sh) | 独立脚本 | rapidjson 全自动 Shell 脚本（CLI 方式，CMake + GTest 拦截） |
+| [`verify-tinyxml2-ffi.sh`](verify-tinyxml2-ffi.sh) | 实现 .cpp | tinyxml2，源 `tinyxml2.cpp`（子模块 `references/tinyxml2`） |
+| [`verify-pugixml-ffi.sh`](verify-pugixml-ffi.sh) | 实现 .cpp | pugixml，源 `src/pugixml.cpp`（子模块 `references/pugixml`） |
+| [`verify-sqlite3-ffi.sh`](verify-sqlite3-ffi.sh) | 系统头 | sqlite3，C++ 驱动包装系统 `sqlite3.h`（纯 extern "C" 接口） |
+| [`verify-nlohmann-json-ffi.sh`](verify-nlohmann-json-ffi.sh) | header-only | nlohmann/json，最小驱动 include 库头触发解析 |
+| [`verify-fmtlib-ffi.sh`](verify-fmtlib-ffi.sh) | 实现 .cpp | fmt，源 `src/format.cc`、`src/os.cc`（子模块 `references/fmtlib`） |
+| [`verify-magic-enum-ffi.sh`](verify-magic-enum-ffi.sh) | header-only | magic_enum，最小驱动 include 库头 |
+| [`verify-tomlplusplus-ffi.sh`](verify-tomlplusplus-ffi.sh) | header-only | toml++，最小驱动 include 库头 |
+| [`lib/verify-common.sh`](lib/verify-common.sh) | 共享库 | 七阶段骨架与 `vc_*` 通用函数，由各 per-library 脚本 `source` |
+| [`verify-all.sh`](verify-all.sh) | 统一入口 | 顺序（或按 `LIBS=` 过滤）调用全部 `verify-*-ffi.sh`，汇总通过/跳过/失败矩阵 |
+| 本文档（README.md） | 文档 | 脚本用法 + SKILL 交互式工作流完整说明 |
+
+> **header-only vs. 实现 .cpp 两类**：带真实实现 .cpp 的库（tinyxml2/pugixml/fmtlib）
+> 直接拦截库自身编译单元；header-only 库（nlohmann-json/magic-enum/tomlplusplus）生成
+> 最小驱动 .cpp，`#include` 库头触发解析压测，驱动类方法仅声明、签名只用标量/std。
+> sqlite3 为纯 `extern "C"` 接口，经一层 C++ 驱动包装系统头，工具可能不生成绑定（预期内）。
 
 SKILL 文件本身位于 [`.github/skills/cpp2rust-convert.md`](../.github/skills/cpp2rust-convert.md)，由 GitHub Copilot Agent 自动读取，无需手动调用。
 
 ---
 
-## 一、快速开始（选择其中一种方式）
+## 〇、真实项目本地验证脚本（verify-*-ffi.sh + verify-all.sh）
+
+这 7 份脚本与既有 8 个 `.github/workflows/e2e-*.yml` 形成「CI 集成测试 ↔ 本地验证脚本」
+的对照关系，可在本地 Ubuntu 直接执行，产出 init/merge/cargo check/test 结果与符号汇报。
+
+### 快速开始
+
+```bash
+# 系统依赖（Ubuntu/Debian，首次执行前安装一次）
+sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev cmake \
+                        libsqlite3-dev binutils git curl
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# 跑单个库（子模块缺失时自动 git submodule update --init，失败则 warn 跳过）
+bash usage/verify-tinyxml2-ffi.sh
+
+# 已安装 cpp2rust-demo 时跳过 cargo install 加速
+SKIP_INSTALL=1 bash usage/verify-nlohmann-json-ffi.sh
+
+# 一次性跑全部库，末尾输出 PASS/SKIP/FAIL 矩阵（任一库 FAIL → 非零退出供 CI 捕获）
+bash usage/verify-all.sh
+
+# 仅跑指定库（空格分隔）
+LIBS="tinyxml2 sqlite3" bash usage/verify-all.sh
+```
+
+### 通用环境变量（所有 verify-*-ffi.sh 共享，定义于 lib/verify-common.sh）
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `SKIP_INSTALL` | `0` | 置 `1` 跳过 `cargo install`（已安装时加速，CI 常用） |
+| `FEATURE` | `<lib>_ffi` | cpp2rust-demo feature 名称 |
+| `CXX_STD` | `c++17` | 驱动/源编译与生成 build.rs 注入的 C++ 标准 |
+| `STRICT_CARGO` | `0` | 置 `1` 时 `cargo check`/`cargo test` 失败也计入错误（CI 严格模式） |
+
+> 默认情况下，`cargo check`/`cargo test` 失败仅**软报告**（汇总矩阵标 ⚠），不中断脚本，
+> 因真实库可能触发工具尚未实现的 codegen 路径；结构性失败（未生成任何 FFI 绑定）才计错。
+
+### 每库专属环境变量
+
+| 脚本 | 变量 | 默认值 | 说明 |
+|------|------|--------|------|
+| `verify-sqlite3-ffi.sh` | `REQUIRE_SYSTEM_HEADER` | `/usr/include/sqlite3.h` | 系统 sqlite3 头路径，缺失则跳过 |
+
+### 设计要点
+
+- 脚本只复用现有能力（cpp2rust-demo init/merge、cargo、nm、git 子模块），不引入新依赖、不改 `src/`。
+- 各库默认从对应 `references/<lib>` 子模块取源；子模块未初始化时自动 `git submodule update --init`（与 Makefile `submodules` 目标一致），失败则 `warn` 跳过、不中断。
+- init/merge 在 `/tmp` 下的扁平工作目录执行，保证生成单元名与 `link_name` 为纯文件名，且不污染仓库与子模块。
+
+---
+
+## 一、快速开始（rapidjson — 选择其中一种方式）
 
 ### 方式 A：运行 Shell 脚本（全自动）
 

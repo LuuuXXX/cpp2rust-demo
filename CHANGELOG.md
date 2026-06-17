@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### 新增（工作流 A：实际项目本地验证脚本）
+
+- **新增 7 个实际项目本地验证脚本 + 共享库 `verify-common.sh` + 统一入口 `verify-all.sh`**：为 E2E 已覆盖的 7 个真实库（tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib / magic_enum / tomlplusplus）各补一份可本地直接执行的 FFI 验证脚本 `usage/verify-<lib>-ffi.sh`，复刻 `usage/verify-rapidjson-ffi.sh` 的七阶段骨架（环境检查 → 安装工具 → 定位/编译源 → init → merge → build.rs 校验 → cargo check/test → 符号验证 → 汇报）。脚本只复用现有能力（cpp2rust-demo init/merge、cargo、nm、git 子模块），不引入新依赖、不改 `src/`。
+- **共享库 `usage/lib/verify-common.sh`**：将与库无关的通用逻辑下沉为 `vc_*` 可复用函数（颜色/日志、`need_cmd`、`to_build_path` 跨平台、`SCRIPT_ERRORS` 汇总、EXIT trap 清理，及 `vc_check_env`/`vc_install_tool`/`vc_init`/`vc_merge`/`vc_check_build_rs`/`vc_cargo_check`/`vc_cargo_test`/`vc_verify_ffi`/`vc_report` 九个阶段函数 + `vc_run` 编排入口）；全部参数经环境变量（`LIB_NAME`/`FEATURE`/`SOURCES`/`INCLUDES`/`HEADER_ONLY`/`DRIVER_CPP`/`CXX_STD` 等）传入。子模块缺失时自动 `git submodule update --init`，失败则 `warn` 跳过、不中断。
+- **统一入口 `usage/verify-all.sh`**：顺序（或按 `LIBS=` 过滤）调用全部 `verify-*-ffi.sh`，每库独立计错、末尾汇总通过/跳过/失败矩阵，单库失败不阻断其余库（最终非零退出供 CI 捕获）。
+- **脚本可发现性测试**：新增 `tests/verify_scripts_discoverability_test.rs`，断言 `usage/verify-<lib>-ffi.sh` 集合与 `.github/workflows/e2e-<lib>.yml` 工作流集合一一对应，并校验每份 per-library 脚本均 `source` 共享库且调用 `vc_run`，防止未来新增真实库时漏配脚本或工作流。
+- **文档对齐**：`usage/README.md` 的脚本表由 1 行扩为 11 行（rapidjson + 7 库 + 共享库 + 统一入口 + 本文档），补每库 header-only / 实现 .cpp / 系统头三类说明、通用与每库专属环境变量、`verify-all.sh` 用法；`README.md` 的 L4 真实库列表补全 magic_enum / tomlplusplus、新增「本地验证脚本」指引与 macOS（Homebrew：`llvm`、`cmake`）安装说明。
+
 ### 新增（方案 A：build.rs 自动注入捕获的编译元数据）
 
 - **生成的 `build.rs` 不再需要外部脚本就地改写**：`init` 阶段从 LD_PRELOAD hook 记录的 `.opts`（`-I`/`-isystem`/`-iquote` include 路径与 `-std=`）还原编译选项，并由 `.cpp2rust` 路径反推被绑定符号定义所在的实现 `.cpp`，聚合为编译元数据落盘到 `meta/build-meta.json`（新增模块 `src/build_meta.rs`）。
