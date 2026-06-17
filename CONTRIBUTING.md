@@ -43,3 +43,18 @@ cargo build
 2. 确保 `cargo build` 和 `cargo test` 均通过
 3. PR 描述中说明改动目的和测试覆盖情况
 4. 所有 CI 检查通过后等待 Review
+
+## 添加新的真实项目验证脚本
+
+如果你为新的 C++ 库添加了 E2E 测试（如 `tests/<project>_e2e_test.rs`），建议同步添加验证脚本：
+
+1. **参考模板**：复制 `usage/verify-tinyxml2-ffi.sh` 作为起点（单文件项目最简单）
+2. **调整 § 2**：修改项目源文件定位逻辑（`references/<project>` 路径）
+3. **调整 § 3**：修改编译命令（根据项目构建方式：make / cmake / 单文件 g++）
+4. **调整 § 4**：修改 init 构建命令（确保 LD_PRELOAD 拦截生效）
+5. **测试**：本地运行 `bash usage/verify-<project>-ffi.sh` 确认通过
+6. **更新文档**：在 `usage/README.md` 的"§ 三"章节表格中添加新行
+7. **更新 `verify-all.sh`**：在 `PROJECTS` 数组中追加项目名
+
+验证脚本遵循"7 段式"结构（详见任意现有脚本注释）。
+

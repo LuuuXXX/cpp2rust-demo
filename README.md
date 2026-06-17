@@ -196,7 +196,32 @@ cpp2rust-demo merge --feature linux_x86 --feature arm_embedded --output-dir dist
 
 ## 快速开始
 
-### 安装依赖
+### 方式 A：使用验证脚本（推荐首次体验）
+
+本仓库为 8 个真实 C++ 项目提供了完整的一键验证脚本：
+
+```bash
+# 验证单个项目（示例：tinyxml2）
+bash usage/verify-tinyxml2-ffi.sh
+
+# 一键验证全部 8 个项目
+bash usage/verify-all.sh
+```
+
+脚本自动完成：环境检查 → 安装工具 → 定位源文件 → init → merge → cargo check/test → FFI 验证 → 结果汇报。详见 [usage/README.md](usage/README.md)。
+
+### 方式 B：手动执行两条命令
+
+对于你自己的 C++ 项目：
+
+```bash
+cpp2rust-demo init -- make -j4   # 捕获构建 + 生成 FFI 脚手架
+cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
+```
+
+---
+
+## 安装依赖
 
 #### Linux（Ubuntu / Debian）
 

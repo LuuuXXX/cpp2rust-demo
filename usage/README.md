@@ -138,16 +138,100 @@ grep -rn "cpp2rust-todo" <RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src/
 
 ---
 
-## 三、符号验证说明
+## 三、其他项目验证脚本（8 个真实项目全覆盖）
+
+本目录包含 8 个真实 C++ 项目的完整 FFI 验证脚本，覆盖从简单到复杂的各种场景：
+
+| 脚本 | 项目 | 特点 | 验证重点 |
+|------|------|------|---------|
+| `verify-rapidjson-ffi.sh` | rapidjson | 纯 C++ + shim 层 | extern-C shim 工作流 |
+| `verify-tinyxml2-ffi.sh` | tinyxml2 | 单头 + 单 .cpp | 最简 OOP 类继承 |
+| `verify-pugixml-ffi.sh` | pugixml | header-only XML | header-only 模式 |
+| `verify-sqlite3-ffi.sh` | sqlite3 | 超大单文件 (~23 万行) | 超大文件解析 |
+| `verify-nlohmann-json-ffi.sh` | nlohmann/json | header-only 重度模板 | 模板类提取 + 合并 |
+| `verify-fmtlib-ffi.sh` | fmtlib | 现代 C++ 多文件 + CMake | CMake 构建集成 |
+| `verify-magic-enum-ffi.sh` | magic_enum | constexpr + 模板元编程 | enum class + constexpr |
+| `verify-tomlplusplus-ffi.sh` | toml++ | 大型单头模板库 | 大型 header-only 模板 |
+
+### 快速开始
+
+**运行单个项目验证**：
+```bash
+# 示例 1：验证 tinyxml2
+bash usage/verify-tinyxml2-ffi.sh
+
+# 示例 2：验证 nlohmann/json
+bash usage/verify-nlohmann-json-ffi.sh
+
+# 示例 3：跳过 cargo install（已安装时加速）
+SKIP_INSTALL=1 bash usage/verify-pugixml-ffi.sh
+```
+
+**一键运行全部验证**：
+```bash
+bash usage/verify-all.sh
+```
+
+### 环境依赖
+
+所有脚本共享以下系统依赖（Ubuntu/Debian）：
+
+```bash
+sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev \
+                        binutils git curl
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# fmtlib 脚本额外需要 CMake
+sudo apt-get install -y cmake
+```
+
+### 验证脚本结构说明
+
+每个脚本遵循统一的 7 段式结构（参考 rapidjson 脚本）：
+
+1. **§ 0. 环境检查**：检测 git / g++ / cargo / nm / libclang
+2. **§ 1. 安装工具**：`cargo install cpp2rust-demo`（可通过 `SKIP_INSTALL=1` 跳过）
+3. **§ 2. 定位源文件**：定位或克隆目标项目（使用 `references/` 子模块）
+4. **§ 3. 编译目标文件**：编译 .o 供后续 nm 符号验证
+5. **§ 4-5. init + merge**：捕获构建 → 生成 FFI → 整理输出
+6. **§ 5a-5c. 验证生成项目**：校验 build.rs → cargo check → cargo test
+7. **§ 6. FFI 验证**：nm 符号 / import_class! / import_lib! / link_name / 预处理文件完整性
+8. **§ 7. 结果汇报**：捕获文件数 / 生成文件数 / 降级标记统计
+
+### 常见问题
+
+**Q: 提示"子模块未初始化"**
+```bash
+# 初始化全部子模块
+git submodule update --init --recursive
+
+# 或只初始化特定项目
+git submodule update --init references/tinyxml2
+```
+
+**Q: 如何自定义 feature 名称**
+```bash
+FEATURE=my_custom_name bash usage/verify-tinyxml2-ffi.sh
+```
+
+**Q: 脚本适用场景**
+- ✅ **本地开发验证**：在提交 PR 前验证工具对真实项目的处理能力
+- ✅ **回归测试**：在修改工具核心逻辑后快速验证是否引入 bug
+- ✅ **CI/CD 集成**：作为 GitHub Actions 的验证步骤（见各项目独立 workflow）
+- ✅ **学习样板**：为自己的 C++ 项目编写类似验证脚本的参考
+
+---
+
+## 四、符号验证说明
 
 脚本的 § 6 阶段会执行四步符号验证，帮助确认 FFI 导出是否符合预期：
 
-### 6a — 编译产物符号
+### 四.1 — 编译产物符号
 
 使用 `nm --demangle` 查看 rapidjson 编译产物（`.o`/`.so`/`.a`）中的 C++ mangled 符号，
 确认测试相关类型（如 `BigInteger`、`Document`、`Reader`）已被编译。
 
-### 6b — 生成 Rust 代码 FFI 声明
+### 四.2 — 生成 Rust 代码 FFI 声明
 
 检查 cpp2rust-demo 生成的 `.rs` 文件中的三段式声明：
 
@@ -157,20 +241,20 @@ grep -rn "cpp2rust-todo" <RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src/
 | `hicc::import_class! { ... }` | 类方法绑定（hicc 处理虚表 dispatch） |
 | `hicc::import_lib! { ... }` | 全局/关联函数绑定 |
 
-### 6c — shim 函数名交叉比对
+### 四.3 — shim 函数名交叉比对
 
 从生成代码中提取 `#[cpp(func = "...")]` 标注的 shim 函数名，与 `nm` 符号表交叉比对：
 
 - ✓ **在目标文件中找到**：该 C shim 函数已在编译产物中存在
 - ? **未在目标文件中直接找到**：该 shim 函数由 `hicc::cpp!` 宏在 Rust 构建时展开，正常现象
 
-### 6d — 预处理文件完整性
+### 四.4 — 预处理文件完整性
 
 统计各 `.cpp2rust` 文件行数，确认预处理捕获内容完整（行数越多说明捕获越充分）。
 
 ---
 
-## 四、SKILL 工作流完整说明
+## 五、SKILL 工作流完整说明
 
 ### 什么是 cpp2rust-convert Skill？
 
@@ -243,7 +327,7 @@ grep -rn "cpp2rust-todo" /tmp/rapidjson/.cpp2rust/rapidjson_tests/rust/src/
 
 ---
 
-## 五、常见问题
+## 六、常见问题
 
 **Q: 脚本提示"未找到命令：cpp2rust-demo"**
 

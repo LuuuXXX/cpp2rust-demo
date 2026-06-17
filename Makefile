@@ -42,3 +42,36 @@ l4-test: submodules
 ## 产物写入 <DIR>/../ast/（已被 .gitignore 忽略，绝不入库）。DIR 默认 006_class_basic。
 dump-ast:
 	bash scripts/dump_ast.sh $(or $(DIR),examples/006_class_basic/cpp)
+
+# ─── 真实项目验证脚本 ───────────────────────────────────────────
+.PHONY: verify-tinyxml2 verify-pugixml verify-sqlite3 verify-nlohmann-json \
+        verify-fmtlib verify-magic-enum verify-tomlplusplus verify-rapidjson \
+        verify-all
+
+verify-tinyxml2:
+	bash usage/verify-tinyxml2-ffi.sh
+
+verify-pugixml:
+	bash usage/verify-pugixml-ffi.sh
+
+verify-sqlite3:
+	bash usage/verify-sqlite3-ffi.sh
+
+verify-nlohmann-json:
+	bash usage/verify-nlohmann-json-ffi.sh
+
+verify-fmtlib:
+	bash usage/verify-fmtlib-ffi.sh
+
+verify-magic-enum:
+	bash usage/verify-magic-enum-ffi.sh
+
+verify-tomlplusplus:
+	bash usage/verify-tomlplusplus-ffi.sh
+
+verify-rapidjson:
+	bash usage/verify-rapidjson-ffi.sh
+
+verify-all:
+	bash usage/verify-all.sh
+
