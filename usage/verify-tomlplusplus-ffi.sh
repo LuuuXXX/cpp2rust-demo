@@ -155,11 +155,15 @@ step "§ 3. 创建驱动 .cpp 并编译"
 OBJ_DIR=$(mktemp -d)
 info "目标文件输出目录：${OBJ_DIR}"
 
-# 注册 trap 清理临时目录
-trap 'rm -rf "${OBJ_DIR}" "${NM_CACHE:-}" "${DRIVER_CPP:-}" 2>/dev/null || true' EXIT
+# 驱动 .cpp 必须在 REPO_DIR 下，否则 hook 过滤（仅捕获 CPP2RUST_PROJECT_ROOT 以内的文件）
+DRIVER_TMPDIR="${REPO_DIR}/.cpp2rust_tmp_tomlplusplus_$$"
+mkdir -p "${DRIVER_TMPDIR}"
 
-# 创建驱动 .cpp 文件触发模板实例化
-DRIVER_CPP="${OBJ_DIR}/toml_driver.cpp"
+# 注册 trap 清理临时目录
+trap 'rm -rf "${OBJ_DIR}" "${DRIVER_TMPDIR}" "${NM_CACHE:-}" 2>/dev/null || true' EXIT
+
+# 创建驱动 .cpp 文件触发模板实例化（位于 REPO_DIR 内，确保 hook 能捕获）
+DRIVER_CPP="${DRIVER_TMPDIR}/toml_driver.cpp"
 cat > "${DRIVER_CPP}" << 'EOF'
 #include <toml++/toml.h>
 #include <string>
@@ -188,11 +192,13 @@ void instantiate_toml() {
     auto port = tbl["server"]["port"].value<int64_t>();
     auto enabled = tbl["server"]["enabled"].value<bool>();
     
-    // 访问数组
+    // 访问数组（toml::node 须先转为 toml::table* 才能下标访问）
     if (auto users = tbl["users"].as_array()) {
         for (auto& user : *users) {
-            auto name = user["name"].value<std::string>();
-            auto age = user["age"].value<int64_t>();
+            if (auto user_tbl = user.as_table()) {
+                auto name = (*user_tbl)["name"].value<std::string>();
+                auto age  = (*user_tbl)["age"].value<int64_t>();
+            }
         }
     }
     
@@ -207,10 +213,6 @@ void instantiate_toml() {
     ss << new_tbl;
     std::string output = ss.str();
 }
-
-// 显式实例化常用模板（可选）
-template class toml::table;
-template class toml::array;
 EOF
 
 TOML_OBJ="${OBJ_DIR}/toml_driver.o"

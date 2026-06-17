@@ -152,13 +152,24 @@ step "§ 3. 创建驱动 .cpp 并编译"
 OBJ_DIR=$(mktemp -d)
 info "目标文件输出目录：${OBJ_DIR}"
 
-# 注册 trap 清理临时目录
-trap 'rm -rf "${OBJ_DIR}" "${NM_CACHE:-}" "${DRIVER_CPP:-}" 2>/dev/null || true' EXIT
+# 驱动 .cpp 必须在 REPO_DIR 下，否则 hook 过滤（仅捕获 CPP2RUST_PROJECT_ROOT 以内的文件）
+DRIVER_TMPDIR="${REPO_DIR}/.cpp2rust_tmp_magic_enum_$$"
+mkdir -p "${DRIVER_TMPDIR}"
 
-# 创建驱动 .cpp 文件触发模板实例化
-DRIVER_CPP="${OBJ_DIR}/magic_enum_driver.cpp"
-cat > "${DRIVER_CPP}" << 'EOF'
-#include <magic_enum.hpp>
+# 注册 trap 清理临时目录
+trap 'rm -rf "${OBJ_DIR}" "${DRIVER_TMPDIR}" "${NM_CACHE:-}" 2>/dev/null || true' EXIT
+
+# 根据实际头文件路径确定正确的 #include 写法
+if [ "${MAGIC_ENUM_HPP}" = "${MAGIC_ENUM_INCLUDE}/magic_enum.hpp" ]; then
+    MAGIC_ENUM_INCLUDE_LINE='#include <magic_enum.hpp>'
+else
+    MAGIC_ENUM_INCLUDE_LINE='#include <magic_enum/magic_enum.hpp>'
+fi
+
+# 创建驱动 .cpp 文件触发模板实例化（位于 REPO_DIR 内，确保 hook 能捕获）
+DRIVER_CPP="${DRIVER_TMPDIR}/magic_enum_driver.cpp"
+cat > "${DRIVER_CPP}" << EOF
+${MAGIC_ENUM_INCLUDE_LINE}
 #include <string_view>
 
 // 定义测试枚举
