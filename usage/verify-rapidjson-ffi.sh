@@ -4,11 +4,15 @@
 #
 # 用途：本地验证 cpp2rust-demo 对 rapidjson C++ 库的完整 Rust safe FFI 生成能力
 #
-# 背景说明：
-#   rapidjson 是纯 C++ 库（无 extern "C" 导出）。要用 cpp2rust-demo 为其生成
-#   Rust safe FFI，需要先编写一层 C++ extern-C 包装层（shim files）。
-#   本仓库已提供完整的 shim 参考实现（10 个子系统），本脚本以此为输入演示
-#   完整的工作流：shim 编写 → cpp2rust-demo init → merge → cargo check → cargo test。
+# 背景说明（两类工作流）：
+#   cpp2rust-demo **默认直出**绑定命名空间类与自由函数（import_class! / import_lib!），
+#   对绝大多数 C++ 库（tinyxml2 / pugixml / nlohmann-json / fmtlib 等）无需手写 shim，
+#   参见同目录的 verify-<lib>.sh 直出脚本。
+#
+#   但对「纯 C++、无可导出类」或需精确控制 ABI 的库（如 rapidjson），可走 **shim 工作流**：
+#   先编写一层 C++ extern-C 包装层（shim files），再用 cpp2rust-demo 提取。本仓库已提供
+#   完整的 rapidjson shim 参考实现（10 个子系统），本脚本以此为输入演示 shim 工作流：
+#   shim 编写 → cpp2rust-demo init → merge → cargo check → cargo test。
 #
 # 流程总览：
 #   § 0. 环境检查
@@ -21,11 +25,12 @@
 #   § 7. 生成结果汇报
 #
 # 工作流说明（重要）：
-#   cpp2rust-demo 通过编译拦截捕获 C++ 编译命令，提取 extern "C" 函数后生成
-#   hicc 三段式 Rust FFI（hicc::cpp! + import_class! + import_lib!）。
+#   cpp2rust-demo 通过编译拦截捕获 C++ 编译命令。默认对命名空间类与自由函数直出
+#   hicc 三段式 Rust FFI（hicc::cpp! + import_class! + import_lib!）；对纯 C++、无可
+#   导出类的库，可改走 shim 工作流，从 extern "C" 包装层提取 import_lib! 绑定。
 #
 #   ┌──────────────────────────────────────────────────────────────┐
-#   │  纯 C++ 库（如 rapidjson）的推荐工作流：                    │
+#   │  纯 C++ 无导出类库（如 rapidjson）的 shim 工作流：          │
 #   │                                                              │
 #   │  1. 编写 C++ shim 文件（extern "C" 不透明句柄包装层）       │
 #   │     参考：references/rapidjson-refactoring/rapidjson_sys/shim/ │
@@ -33,8 +38,8 @@
 #   │  3. 运行 cpp2rust-demo merge                                 │
 #   │  4. 在生成的 Rust 项目中使用 import_lib! 绑定               │
 #   │                                                              │
-#   │  ⚠  直接对纯 C++ 测试文件（如 GTest unittest）运行 init，   │
-#   │     因无 extern "C" 函数，只会生成 hicc::cpp! 头文件块。    │
+#   │  其余库（含命名空间类/自由函数）可走默认直出工作流，         │
+#   │  无需 shim，参见同目录 verify-<lib>.sh。                     │
 #   └──────────────────────────────────────────────────────────────┘
 #
 # 本脚本验证的 cpp2rust-demo 特性：
@@ -646,13 +651,15 @@ SKILL 适用场景（shim 工作流）：
   5. 在生成的 Rust 项目中使用 import_lib! 绑定调用 rapidjson API
 
 ────────────────────────────────────────────────────────────────
-⚠  重要提示：
-  cpp2rust-demo 只处理含 extern "C" 函数的 C++ 文件。
-  直接对纯 C++ 文件（如 rapidjson 的 GTest unittest）运行 init，
-  因无 extern "C" 函数，只会生成 hicc::cpp! 头文件块，
-  不会生成 import_lib! FFI 绑定。
+⚠  重要提示（两类工作流的边界）：
+  · 默认直出：cpp2rust-demo 默认直出绑定命名空间类与自由函数
+    （import_class! / import_lib!），无需 extern "C" shim。对大多数 C++ 库
+    （tinyxml2 / pugixml / nlohmann-json / fmtlib 等）直接对其实现 .cpp 运行 init
+    即可生成绑定，参见同目录 verify-<lib>.sh。
+  · shim 工作流：对纯 C++、无可导出类或需精确控制 ABI 的库（如 rapidjson），
+    先编写 extern "C" 包装层（shim），再运行 init，从 shim 提取 import_lib! 绑定。
 
-  这是预期行为，不是 bug。
+  本脚本演示的是 rapidjson 的 shim 工作流。两条路径均为预期设计，不是 bug。
 ────────────────────────────────────────────────────────────────
 
 EOF

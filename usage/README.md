@@ -1,11 +1,50 @@
 # usage — 本地验证脚本与 SKILL 使用文档
 
-本目录包含对 rapidjson 项目进行 cpp2rust-demo FFI 转换的**所有可用方式**：
+本目录提供 cpp2rust-demo 的**可本地直接执行**端到端验证脚本，覆盖两类工作流：
 
-| 文件 | 说明 |
-|------|------|
-| [`verify-rapidjson-ffi.sh`](verify-rapidjson-ffi.sh) | 全自动 Shell 脚本（CLI 方式，适合批量/CI 场景） |
-| 本文档（README.md） | 脚本用法 + SKILL 交互式工作流完整说明 |
+- **直出工作流（默认）**：cpp2rust-demo 默认对命名空间类与自由函数「直出」safe FFI
+  （`import_class!` / `import_lib!`），**无需手写 extern-C shim**。绝大多数 C++ 库
+  （tinyxml2 / pugixml / nlohmann-json / fmtlib / magic_enum / tomlplusplus）以及纯
+  C 接口库（sqlite3）走这条路径。
+- **shim 工作流**：对「纯 C++、无可导出类」或需要精确控制 ABI 的场景，可先手写一层
+  extern-C 包装（shim），再用 cpp2rust-demo 提取。rapidjson 即以此为例。
+
+> 何时直出、何时写 shim 的决策表见 [`../docs/WORKFLOW.md`](../docs/WORKFLOW.md)。
+
+## 脚本清单
+
+| 脚本 | 工作流 | 库 / 说明 | 关键环境变量 |
+|------|--------|-----------|--------------|
+| [`lib/common.sh`](lib/common.sh) | — | 公共函数库（日志 / 安装 / init+merge / cargo check / 统计 / 汇报），被各脚本 `source` | — |
+| [`verify-tinyxml2.sh`](verify-tinyxml2.sh) | 直出 | tinyxml2（编译 `tinyxml2.cpp` 触发拦截） | `FEATURE` `SKIP_INSTALL` `TINYXML2_DIR` |
+| [`verify-pugixml.sh`](verify-pugixml.sh) | 直出 | pugixml（编译 `src/pugixml.cpp`） | `FEATURE` `SKIP_INSTALL` `PUGIXML_DIR` |
+| [`verify-nlohmann-json.sh`](verify-nlohmann-json.sh) | 直出 | nlohmann/json（header-only 最小驱动） | `FEATURE` `SKIP_INSTALL` `NLOHMANN_DIR` |
+| [`verify-fmtlib.sh`](verify-fmtlib.sh) | 直出 | {fmt}（编译 `src/format.cc` `src/os.cc`） | `FEATURE` `SKIP_INSTALL` `FMTLIB_DIR` |
+| [`verify-magic-enum.sh`](verify-magic-enum.sh) | 直出 | magic_enum（header-only 最小驱动） | `FEATURE` `SKIP_INSTALL` `MAGIC_ENUM_DIR` |
+| [`verify-tomlplusplus.sh`](verify-tomlplusplus.sh) | 直出 | toml++（header-only 最小驱动） | `FEATURE` `SKIP_INSTALL` `TOMLPP_DIR` |
+| [`verify-sqlite3.sh`](verify-sqlite3.sh) | C 接口 | sqlite3（系统头 `extern "C"` wrapper） | `FEATURE` `SKIP_INSTALL` `SQLITE3_HEADER` |
+| [`verify-all.sh`](verify-all.sh) | 直出 | 顺序执行上述 7 个脚本并汇总总表 | `ONLY` `SKIP_INSTALL` |
+| [`verify-rapidjson-ffi.sh`](verify-rapidjson-ffi.sh) | shim | rapidjson（基于 references 的 extern-C shim 层） | `FEATURE` `SKIP_INSTALL` |
+| 本文档（README.md） | — | 脚本用法 + SKILL 交互式工作流完整说明 | — |
+
+### 直出工作流脚本示例
+
+```bash
+# 单个库（已安装 cpp2rust-demo 时跳过 cargo install）
+SKIP_INSTALL=1 bash usage/verify-tinyxml2.sh
+
+# 全部 7 个直出/ C 接口库，汇总成总表
+SKIP_INSTALL=1 bash usage/verify-all.sh
+
+# 只跑子集
+SKIP_INSTALL=1 ONLY=tinyxml2,fmtlib bash usage/verify-all.sh
+```
+
+每个直出脚本统一流程：检测/初始化对应子模块 → 安装工具（支持 `SKIP_INSTALL=1`）→
+构造最小构建命令（`g++ -c` 编译该库实现单元或最小驱动 .cpp，触发 LD_PRELOAD 拦截）→
+`init --feature <lib>` → `merge` → 校验生成 `build.rs` → `cargo check` →（若生成
+smoke 测试）`cargo test` → 统计 `import_class!`/`import_lib!`/降级标记 → 结果汇报。
+所有脚本使用 `set -euo pipefail` 并以全局 `SCRIPT_ERRORS` 计数，保证 CI/本地一致失败退出。
 
 SKILL 文件本身位于 [`.github/skills/cpp2rust-convert.md`](../.github/skills/cpp2rust-convert.md)，由 GitHub Copilot Agent 自动读取，无需手动调用。
 
@@ -18,10 +57,13 @@ SKILL 文件本身位于 [`.github/skills/cpp2rust-convert.md`](../.github/skill
 ```bash
 # 系统依赖（Ubuntu/Debian，首次执行前安装一次）
 sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev cmake \
-                        libgtest-dev binutils git curl
+                        libgtest-dev libsqlite3-dev binutils git curl
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# 运行验证脚本
+# 直出工作流：验证 tinyxml2（或 verify-all.sh 批量）
+bash usage/verify-tinyxml2.sh
+
+# shim 工作流：验证 rapidjson
 bash usage/verify-rapidjson-ffi.sh
 ```
 
@@ -36,21 +78,26 @@ Agent 会自动引导你完成 feature 命名 → 构建命令 → init → merg
 
 ---
 
-## 二、脚本详细说明（verify-rapidjson-ffi.sh）
+## 二、脚本详细说明（verify-rapidjson-ffi.sh — shim 工作流）
+
+> **工作流说明**：rapidjson 是纯 C++ 库（无可导出类）。本脚本以仓库内置的
+> extern-C shim 参考实现（`references/rapidjson-refactoring/rapidjson_sys/shim/`）为
+> 输入，演示 **shim 工作流**：编译 shim → init 拦截 → merge → cargo check/test →
+> 符号交叉比对。它**不**克隆 rapidjson、也不调用 CMake——shim 与 rapidjson 头文件
+> 均来自仓库子目录。
 
 ### 可配置环境变量
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `RAPIDJSON_DIR` | `/tmp/rapidjson-ffi-demo` | rapidjson 克隆目录 |
-| `FEATURE` | `rapidjson_tests` | cpp2rust-demo feature 名称 |
+| `FEATURE` | `rapidjson_shim` | cpp2rust-demo feature 名称 |
 | `SKIP_INSTALL` | `0` | 置 `1` 跳过 `cargo install`（已安装时加速） |
 
 示例：
 
 ```bash
-# 指定克隆目录和 feature 名称
-RAPIDJSON_DIR=/opt/rapidjson FEATURE=rj_tests bash usage/verify-rapidjson-ffi.sh
+# 自定义 feature 名称
+FEATURE=rj_shim bash usage/verify-rapidjson-ffi.sh
 
 # 已安装 cpp2rust-demo 时跳过 cargo install
 SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
@@ -59,38 +106,40 @@ SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
 ### 脚本执行阶段
 
 ```
-§ 0. 环境检查 & 依赖安装
-     检测 git / cmake / g++ / cargo / nm / objdump / libclang
-     自动搜索或安装 GTest 源码（FindGTestSrc.cmake 搜索路径）
+§ 0. 环境检查
+     检测 git / g++ / cargo / nm / libclang
 
 § 1. 安装 cpp2rust-demo
      cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked
+     （SKIP_INSTALL=1 时跳过）
 
-§ 2. git clone rapidjson
-     git clone --depth 1 https://github.com/Tencent/rapidjson.git <RAPIDJSON_DIR>
-     （目录已存在则 git pull）
+§ 2. 定位本地 shim 文件
+     references/rapidjson-refactoring/rapidjson_sys/shim/（extern-C 包装层）
+     rapidjson 头文件：references/rapidjson-refactoring/rapidjson_legacy/include
 
-§ 3. 配置构建环境（CMake）
-     cmake -B build -DCMAKE_BUILD_TYPE=Debug
-           -DRAPIDJSON_BUILD_TESTS=ON       ← GTest 存在时
-           -DGTEST_SOURCE_DIR=<gtest>
+§ 3. 编译 shim 目标文件（供后续 nm 符号验证）
+     g++ -c 每个 shim .cpp → .o
 
 § 4. cpp2rust-demo init（编译拦截 + FFI 脚手架生成）
-     LD_PRELOAD 注入 cmake --build，捕获所有 .cpp2rust 预处理文件
-     输出：<RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src/
+     LD_PRELOAD 拦截 g++ 编译 shim，捕获 .cpp2rust 预处理文件
+     输出：<REPO>/.cpp2rust/<FEATURE>/rust/src/
 
 § 5. cpp2rust-demo merge（整理输出目录）
      src/ → src.1/（备份）+ src.2/（模块化）+ src → src.2（symlink）
 
 § 5a. 校验 build.rs（方案 A：工具自动注入头路径 / C++ 标准 / 实现 .cpp）
-     init 已从 .opts 落盘编译元数据（meta/build-meta.json），生成的 build.rs
-     自动注入 cc_build.include/std/file；脚本仅校验，未自包含时才退回就地补全
+      init 已从 .opts 落盘编译元数据（meta/build-meta.json），生成的 build.rs
+      自动注入 cc_build.include/std/file；脚本仅校验，未自包含时才退回就地补全
 
-§ 6. 符号验证（四子步）
-     6a. nm --demangle 查看编译产物 C++ mangled 符号
+§ 5b. cargo check（验证生成的 Rust 项目可编译）
+§ 5c. cargo test（若生成 tests/smoke.rs）
+
+§ 6. 符号验证（多子步）
+     6a. nm 查看 shim 目标文件 extern-C 符号
      6b. 生成 Rust 代码中的 FFI 声明（hicc::cpp! / import_class! / import_lib!）
      6c. shim 函数名 vs. nm 符号交叉比对（nm 结果一次性缓存）
-     6d. .cpp2rust 预处理文件完整性检查（行数统计）
+     6d. .cpp2rust 预处理文件大小统计
+     6e. struct/class 前缀 & restrict 清理验证
 
 § 7. 生成结果汇报
      捕获文件数 / 生成 Rust 文件数 / 降级标记（[OP][VA][LM]）统计
@@ -99,23 +148,24 @@ SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
 ### 输出目录结构
 
 ```
-<RAPIDJSON_DIR>/
+<REPO>/                             # cpp2rust-demo 仓库根目录
 └── .cpp2rust/<FEATURE>/
-    ├── c/                          # 预处理文件（.cpp2rust 后缀）
-    │   └── test/unittest/
-    │       ├── bigintegertest.cpp.cpp2rust
-    │       ├── documenttest.cpp.cpp2rust
+    ├── c/                          # 预处理文件（.cpp2rust 后缀，来自 shim/*.cpp）
+    │   └── ...
+    │       ├── value_ffi.cpp.cpp2rust
+    │       ├── document_ffi.cpp.cpp2rust
     │       └── ...
     ├── meta/
     │   ├── build_cmd.txt           # 原始构建命令
+    │   ├── build-meta.json         # 编译元数据（include/std/实现 .cpp）
     │   └── init-interface-report.md
     └── rust/
         ├── src.1/                  # init 输出原始备份（merge 后生成）
         ├── src.2/                  # merge 整理后的模块化结构
         └── src -> src.2            # symlink（始终指向最新输出）
             ├── lib.rs
-            ├── bigintegertest.rs
-            ├── documenttest.rs
+            ├── value_ffi.rs
+            ├── document_ffi.rs
             └── ...
 ```
 
@@ -123,24 +173,21 @@ SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
 
 ```bash
 # 查看 lib.rs（所有模块入口）
-cat <RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src/lib.rs
-
-# 查看某个文件的 hicc 三段式代码
-cat <RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src/bigintegertest.rs
+cat <REPO>/.cpp2rust/<FEATURE>/rust/src/lib.rs
 
 # 查找所有包含 import_class! / import_lib! 的文件
-find <RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src -name '*.rs' \
+find <REPO>/.cpp2rust/<FEATURE>/rust/src -name '*.rs' \
     | xargs grep -l 'import_class\|import_lib'
 
 # 查看所有降级标记
-grep -rn "cpp2rust-todo" <RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src/
+grep -rn "cpp2rust-todo" <REPO>/.cpp2rust/<FEATURE>/rust/src/
 ```
 
 ---
 
 ## 三、符号验证说明
 
-脚本的 § 6 阶段会执行四步符号验证，帮助确认 FFI 导出是否符合预期：
+脚本的 § 6 阶段会执行多步符号验证，帮助确认 FFI 导出是否符合预期：
 
 ### 6a — 编译产物符号
 
