@@ -92,7 +92,7 @@ if [ "${SKIP_INSTALL}" = "1" ] && command -v cpp2rust-demo &>/dev/null; then
 else
     info "从 GitHub 源码安装 cpp2rust-demo…"
     INSTALL_LOG=$(mktemp)
-    if ! cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked \
+    if ! cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked cpp2rust-demo \
              >"${INSTALL_LOG}" 2>&1; then
         cat "${INSTALL_LOG}"
         rm -f "${INSTALL_LOG}"

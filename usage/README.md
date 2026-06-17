@@ -64,7 +64,7 @@ SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
      自动搜索或安装 GTest 源码（FindGTestSrc.cmake 搜索路径）
 
 § 1. 安装 cpp2rust-demo
-     cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked
+     cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked cpp2rust-demo
 
 § 2. git clone rapidjson
      git clone --depth 1 https://github.com/Tencent/rapidjson.git <RAPIDJSON_DIR>
@@ -265,7 +265,7 @@ FEATURE=my_custom_name bash usage/verify-tinyxml2-ffi.sh
 
 ```bash
 # 1. 安装 cpp2rust-demo
-cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked
+cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked cpp2rust-demo
 
 # 2. 安装系统依赖
 sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev
@@ -333,7 +333,7 @@ grep -rn "cpp2rust-todo" /tmp/rapidjson/.cpp2rust/rapidjson_tests/rust/src/
 
 ```bash
 # 安装
-cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked
+cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked cpp2rust-demo
 # 确认 ~/.cargo/bin 在 PATH 中
 export PATH="$HOME/.cargo/bin:$PATH"
 ```
