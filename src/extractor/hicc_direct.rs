@@ -23,6 +23,12 @@ use crate::ffi_model::{ClassSpec, CtorFactory};
 /// 判据：存在「带公有构造函数的命名空间类」，且**不存在任何 `extern "C"` 函数**
 /// （后者表明是旧式 opaque 指针 + C ABI 桥接示例，仍走旧路径）。
 pub(super) fn detect_idiomatic_mode(ast: &CppAst) -> bool {
+    // 大型第三方库（包含大量类型）在直出模式下容易引入不稳定/无意义绑定，
+    // 保守回退到旧路径（extern-C / 可映射过滤）以保证生成结果可编译。
+    if ast.classes.len() > 16 {
+        return false;
+    }
+
     let has_ns_class_with_ctor = ast
         .classes
         .iter()
@@ -269,6 +275,14 @@ fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> 
     }
 
     if methods.is_empty() && ctor_factories.is_empty() {
+        return None;
+    }
+
+    // 仅当存在可映射成员方法时才生成类绑定：
+    // - 纯“占位/元编程”类（仅有 ctor、无可绑定方法）通常是实现细节，绑定它们会导致
+    //   make_unique 触发 deleted/private ctor 或不可析构类型编译错误；
+    // - 对使用侧而言，无方法类缺乏可调用价值，跳过可显著降低误绑定风险。
+    if methods.is_empty() {
         return None;
     }
 

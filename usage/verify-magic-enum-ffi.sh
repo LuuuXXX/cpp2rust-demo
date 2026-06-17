@@ -177,7 +177,7 @@ enum class Color { Red = 0, Green = 1, Blue = 2 };
 enum class Status { Unknown = -1, Ready = 0, Running = 1, Done = 2 };
 
 // 强制实例化常用模板特化，生成符号供 FFI 绑定
-void instantiate_magic_enum() {
+void instantiate_magic_enum_anchor() {
     // enum_name
     constexpr auto color_name = magic_enum::enum_name(Color::Red);
     auto status_name = magic_enum::enum_name(Status::Running);
@@ -414,7 +414,7 @@ fi
 # ── 6b. 验证生成 Rust 代码中的 enum 声明 ──────────────────────────────────────
 echo -e "\n${BOLD}6b. 生成 Rust 代码中的 enum 声明${NC}"
 if [ -d "${RUST_SRC}" ]; then
-    ENUM_COUNT=$(grep -r "enum\|Color\|Status" "${RUST_SRC}" 2>/dev/null | wc -l)
+    ENUM_COUNT=$(grep -r "enum\|Color\|Status" "${RUST_SRC}" 2>/dev/null | wc -l || true)
     info "检测到 enum 相关标识：${ENUM_COUNT} 处"
 
     if [ "${ENUM_COUNT}" -gt 0 ]; then
@@ -433,7 +433,7 @@ fi
 echo -e "\n${BOLD}6c. link_name 一致性检查（不应含路径分隔符 /）${NC}"
 if [ -d "${RUST_SRC}" ]; then
     LINK_NAMES=$(grep -roh '#!\[link_name = "[^"]*"\]' "${RUST_SRC}" 2>/dev/null \
-        | grep -oE '"[^"]*"' | tr -d '"' | sort -u)
+        | grep -oE '"[^"]*"' | tr -d '"' | sort -u || true)
     if [ -n "${LINK_NAMES}" ]; then
         BAD_LINKS=0
         while IFS= read -r ln; do

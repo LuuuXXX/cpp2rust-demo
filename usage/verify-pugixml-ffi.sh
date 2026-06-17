@@ -162,13 +162,27 @@ fi
 # =============================================================================
 step "§ 4. cpp2rust-demo init（捕获 FFI 脚手架）"
 
+# 用单独驱动文件触发捕获，避免直接扫描整库实现单元引入不可映射内部符号
+DRIVER_TMPDIR="${REPO_DIR}/.cpp2rust_tmp_pugixml_$$"
+mkdir -p "${DRIVER_TMPDIR}"
+trap 'rm -rf "${OBJ_DIR}" "${DRIVER_TMPDIR}" "${NM_CACHE:-}" 2>/dev/null || true' EXIT
+DRIVER_CPP="${DRIVER_TMPDIR}/pugixml_driver.cpp"
+cat > "${DRIVER_CPP}" << 'EOF'
+#include "pugixml.hpp"
+
+void instantiate_pugixml_anchor() {
+    pugi::xml_document doc;
+    (void)doc.append_child("root");
+}
+EOF
+
 BUILD_SCRIPT=$(mktemp)
 cat > "${BUILD_SCRIPT}" << EOF
 #!/bin/bash
 set -e
 g++ -c -std="${CXX_STD}" \\
     -I"${PUGIXML_SRC_DIR}" \\
-    "${PUGIXML_CPP}" -o /dev/null 2>&1
+    "${DRIVER_CPP}" -o /dev/null 2>&1
 EOF
 chmod +x "${BUILD_SCRIPT}"
 
@@ -293,7 +307,7 @@ fi
 
 echo -e "\n${BOLD}6b. import_class! 验证${NC}"
 if [ -d "${RUST_SRC}" ]; then
-    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l)
+    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
     info "包含 import_class! 文件数：${IMPORT_CLASS_FILES}"
 fi
 

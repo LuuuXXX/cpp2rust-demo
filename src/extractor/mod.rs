@@ -178,11 +178,17 @@ pub fn extract(
     // 中不可见（`pugi::impl` 不由 `pugixml.hpp` 导出），强制绑定只会导致编译失败。
     let lib_spec = {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        let visible_fns: Vec<&FunctionInfo> = functions
+        let mut visible_fns: Vec<&FunctionInfo> = functions
             .iter()
             .copied()
             .filter(|f| !is_impl_namespace_fn(f))
             .collect();
+        // 当存在类但函数签名未引用任何类时，保守仅保留锚点函数：
+        // 这通常是大型三方库实现单元（如 header-only/模板库）的“噪声自由函数”，
+        // 强行绑定易导致歧义重载或不可映射类型编译失败。
+        if has_any_classes && used_classes.is_empty() {
+            visible_fns.clear();
+        }
         lib_spec::build_lib_spec_namespaced(&visible_fns, unit_name, &class_names)
     };
 
