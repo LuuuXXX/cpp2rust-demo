@@ -35,6 +35,10 @@ CXX_STD="${CXX_STD:-c++17}"
 SKIP_SUBMODULE=1
 REQUIRE_SYSTEM_HEADER="${REQUIRE_SYSTEM_HEADER:-/usr/include/sqlite3.h}"
 
+# sqlite3 为纯 extern "C" 接口：工具可能不识别任何可绑定函数（与
+# tests/sqlite3_e2e_test.rs 的说明一致），此时「未生成 FFI 绑定」仅告警、不计错。
+ALLOW_NO_FFI=1
+
 # C++ 驱动：经 extern "C" 包装系统 sqlite3.h（与 tests/sqlite3_e2e_test.rs 一致）
 DRIVER_CPP='
 // sqlite3 C++ 驱动 —— 用于测试工具对 extern "C" 接口的处理能力

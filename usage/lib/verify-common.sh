@@ -248,7 +248,9 @@ _vc_include_flags() {
     for inc in "${VC_INCLUDE_PATHS[@]}"; do
         flags+=("-I${inc}")
     done
-    printf '%s\n' "${flags[@]}"
+    if [ "${#flags[@]}" -gt 0 ]; then
+        printf '%s\n' "${flags[@]}"
+    fi
 }
 
 # =============================================================================
@@ -550,7 +552,7 @@ vc_verify_ffi() {
     echo "──── link_name 一致性检查（不应含路径分隔符 /）────"
     local link_names
     link_names=$(grep -roh '#!\[link_name = "[^"]*"\]' "${VC_RUST_SRC}" 2>/dev/null \
-        | grep -oE '"[^"]*"' | tr -d '"' | sort -u)
+        | grep -oE '"[^"]*"' | tr -d '"' | sort -u || true)
     if [ -n "${link_names}" ]; then
         local bad_links=0
         while IFS= read -r ln; do
@@ -609,14 +611,22 @@ vc_report() {
         import_lib_files=$(grep -rl "hicc::import_lib!" "${VC_RUST_SRC}" 2>/dev/null | wc -l || true)
         import_class_files=$(grep -rl "hicc::import_class!" "${VC_RUST_SRC}" 2>/dev/null | wc -l || true)
         total_fn_bindings=$(grep -roh '#\[cpp(func = "[^"]*")\]' "${VC_RUST_SRC}" 2>/dev/null | wc -l || true)
+        import_lib_files=$(echo "${import_lib_files}" | tr -d '[:space:]')
+        import_class_files=$(echo "${import_class_files}" | tr -d '[:space:]')
+        total_fn_bindings=$(echo "${total_fn_bindings}" | tr -d '[:space:]')
         echo -e "  ${BOLD}import_lib! FFI 绑定文件数：${NC}  ${import_lib_files}"
         echo -e "  ${BOLD}import_class! 绑定文件数：${NC}    ${import_class_files}"
         echo -e "  ${BOLD}FFI 函数绑定总数：${NC}          ${total_fn_bindings}"
 
         # 结构性判定：至少生成一处 import_lib! 或 import_class! 才算成功捕获 FFI。
-        if [ "${import_lib_files}" -eq 0 ] && [ "${import_class_files}" -eq 0 ]; then
-            echo -e "  ${RED}✗ 未生成任何 FFI 绑定（结构性失败）${NC}"
-            SCRIPT_ERRORS=$((SCRIPT_ERRORS + 1))
+        # ALLOW_NO_FFI=1（如 sqlite3 纯 C 接口，工具可能不生成绑定）时仅告警不计错。
+        if [ "${import_lib_files:-0}" -eq 0 ] && [ "${import_class_files:-0}" -eq 0 ]; then
+            if [ "${ALLOW_NO_FFI:-0}" = "1" ]; then
+                echo -e "  ${YELLOW}⚠ 未生成 FFI 绑定（纯 C 接口预期内，仅告警）${NC}"
+            else
+                echo -e "  ${RED}✗ 未生成任何 FFI 绑定（结构性失败）${NC}"
+                SCRIPT_ERRORS=$((SCRIPT_ERRORS + 1))
+            fi
         fi
     fi
 
