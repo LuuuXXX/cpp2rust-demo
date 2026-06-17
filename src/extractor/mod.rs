@@ -89,17 +89,17 @@ pub fn extract(
     // 仅当不存在任何 extern "C" 函数、且存在带公有构造的命名空间类时启用；
     // 现有 extern-C 示例不受影响，仍走下方旧路径。
     if hicc_direct::detect_idiomatic_mode(ast) {
-        let cpp_block_lines = if let Some(hdr) = project_header {
-            vec![format!("#include \"{}\"", hdr)]
-        } else {
-            Vec::new()
-        };
+        let mut cpp_block_lines = system_includes.to_vec();
+        if let Some(hdr) = project_header {
+            cpp_block_lines.push(format!("#include \"{}\"", hdr));
+        }
         let class_specs = hicc_direct::build_hicc_direct_specs(ast);
         // 绑定命名空间自由函数（排除仅用于产生链接符号的 `<unit>_anchor` 锚点函数）
         let free_fns: Vec<&FunctionInfo> = functions
             .iter()
             .copied()
             .filter(|f| !f.name.ends_with("_anchor"))
+            .filter(|f| !is_impl_namespace_fn(f))
             .collect();
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
         let lib_spec = lib_spec::build_lib_spec_namespaced(&free_fns, unit_name, &class_names);
@@ -372,7 +372,6 @@ fn is_impl_namespace_fn(f: &FunctionInfo) -> bool {
         None => false,
     }
 }
-
 
 /// 去重：
 /// - 以 `(name, param_types_joined)` 为键，对具有相同名称**且**相同参数类型签名的函数去重，

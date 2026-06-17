@@ -207,11 +207,6 @@ void instantiate_magic_enum() {
     constexpr auto status_names = magic_enum::enum_names<Status>();
 }
 
-// 显式实例化（可选）
-template auto magic_enum::enum_name<Color>(Color) -> std::string_view;
-template auto magic_enum::enum_cast<Color>(std::string_view) -> std::optional<Color>;
-template auto magic_enum::enum_name<Status>(Status) -> std::string_view;
-template auto magic_enum::enum_cast<Status>(int) -> std::optional<Status>;
 EOF
 
 MAGIC_ENUM_OBJ="${OBJ_DIR}/magic_enum_driver.o"
