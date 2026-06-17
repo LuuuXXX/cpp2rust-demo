@@ -5,6 +5,7 @@
 //! `#[repr(C)]` Rust 结构体输出。否则 hicc 会为其生成 `MethodsType` 特化，与头文件中
 //! 真实的 POD 定义冲突，导致 `cpp!` 块编译失败。
 
+use super::is_rust_keyword;
 use super::type_mapper::{cpp_to_rust, to_snake_case};
 use crate::ast_parser::{ClassInfo, FieldInfo};
 use crate::ffi_model::ReprCStructSpec;
@@ -44,48 +45,6 @@ fn sanitize_field_name(name: &str) -> String {
     } else {
         snake
     }
-}
-
-fn is_rust_keyword(s: &str) -> bool {
-    matches!(
-        s,
-        "as" | "break"
-            | "const"
-            | "continue"
-            | "crate"
-            | "else"
-            | "enum"
-            | "extern"
-            | "false"
-            | "fn"
-            | "for"
-            | "if"
-            | "impl"
-            | "in"
-            | "let"
-            | "loop"
-            | "match"
-            | "mod"
-            | "move"
-            | "mut"
-            | "pub"
-            | "ref"
-            | "return"
-            | "self"
-            | "static"
-            | "struct"
-            | "super"
-            | "trait"
-            | "true"
-            | "type"
-            | "unsafe"
-            | "use"
-            | "where"
-            | "while"
-            | "async"
-            | "await"
-            | "dyn"
-    )
 }
 
 /// 将字段的 C++ 类型映射为可放入 `#[repr(C)]` 结构体的 Rust 类型。
