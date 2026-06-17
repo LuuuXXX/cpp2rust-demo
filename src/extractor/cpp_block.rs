@@ -41,17 +41,21 @@ pub(super) fn build_cpp_block(
         .filter(|c| c.is_from_current_file)
         .collect();
 
-    // 当所有类均来自头文件（local_classes 为空）时：
-    // - include 项目头文件以引入类型定义和函数声明
-    // - 不再重复 emit 枚举（它们已包含在头文件中，重复会导致重复定义错误）
-    // - 不再重复 emit shim 函数体（项目 .cpp 中已有定义，重复会导致 duplicate symbol 链接错误）
-    let use_project_header = local_classes.is_empty() && project_header.is_some();
-    if use_project_header {
-        if let Some(hdr) = project_header {
-            lines.push(format!("#include \"{}\"", hdr));
-        }
-    } else {
-        // 枚举定义（在类定义之前；仅在不使用项目头文件时输出，避免重复定义）
+    // 始终 include 项目头文件（若存在）。即便处于内联模式（存在 .cpp 内定义的本地结构），
+    // 项目头文件仍可能提供本单元函数签名所引用的公共 ABI 类型——例如完整定义在头文件中的
+    // 回调表结构体（如 RapidJsonHandlerCallbacks）。这些类型不在 .cpp 内、也不属于第三方库头，
+    // 若不 include 项目头则在 cpp! 块中无法解析。头文件中对本地结构的不透明前置声明
+    // （typedef struct X X;）与随后内联的完整 struct 定义并不冲突。
+    let mut header_included = false;
+    if let Some(hdr) = project_header {
+        lines.push(format!("#include \"{}\"", hdr));
+        lines.push(String::new());
+        header_included = true;
+    }
+
+    if !header_included {
+        // 枚举定义（在类定义之前；仅在没有项目头文件可 include 时输出，
+        // 否则枚举已包含在头文件中，重复输出会导致重复定义错误）
         for en in &ast.enums {
             if en.name.is_empty() {
                 continue;
@@ -104,9 +108,12 @@ pub(super) fn build_cpp_block(
 
     let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
 
-    // 判断是否使用分离风格（含虚函数的类）
-    let use_separate_style = ast
-        .classes
+    // 判断是否使用分离风格（含虚函数的类）。
+    // 只考虑实际会被内联输出的本地类（is_from_current_file）：来自第三方头文件的类
+    // （如 rapidjson 内部带虚函数的类型）不会在本 cpp! 块中输出，若据其误判为分离风格，
+    // 会把本地句柄结构体的内联构造函数拆成「类内仅声明 + 类外定义」，而类外定义缺少
+    // `ClassName::` 限定且保留 `explicit`，导致 cpp! 块编译失败。
+    let use_separate_style = local_classes
         .iter()
         .any(|c| c.methods.iter().any(|m| m.is_virtual));
 
@@ -166,9 +173,13 @@ pub(super) fn build_cpp_block(
     }
 
     // Ctor/dtor/standalone shim 函数（含静态访问器）
-    // 当使用 project_header 模式时，函数已通过头文件中的 extern "C" 声明引入，
-    // 实现体在项目 .cpp 文件中，不需要（也不应）在 cpp! 块中重复定义。
-    if !use_project_header {
+    // 当 include 了项目头文件时：函数已通过头文件中的 extern "C" 声明引入，
+    // 实现体在项目 .cpp 文件中（经 build.rs 的 cc_build.file 编译），不需要也不应在
+    // cpp! 块中重复内联函数体。内联函数体还会引用 .cpp 内的 static 私有辅助函数
+    // （如 schema_ffi.cpp 的 build_schema_doc），这些辅助函数不被 collector 收集，
+    // 在 cpp! 块中无定义，会导致 “was not declared in this scope” 编译失败。
+    // hicc 仅需类型定义与函数声明即可生成导出表，无需函数体。
+    if !header_included {
         let shim_fns = classify_functions(functions, &class_names);
         for (fn_info, shim_kind) in &shim_fns {
             if !matches!(shim_kind, ShimKind::MethodAccessor) {

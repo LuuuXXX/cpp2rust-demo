@@ -1,0 +1,10 @@
+# 加固 cargo 对 crates.io 的网络容错。
+# CI（尤其 Windows MSVC runner）曾因从 crates.io 下载依赖时出现
+# "[16] Error in the HTTP2 framing layer" 瞬时错误导致作业失败。
+# - net.retry: 提高瞬时网络错误的重试次数（默认 3），取平衡值 5 兼顾容错与真实故障时的耗时。
+# - http.multiplexing=false: 关闭 HTTP/2 多路复用，规避 HTTP/2 framing layer 抖动。
+[net]
+retry = 5
+
+[http]
+multiplexing = false

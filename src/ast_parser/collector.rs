@@ -52,9 +52,8 @@ pub(super) fn collect_namespace(
     ns: &clang::Entity<'_>,
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
-    user_ranges: &[std::ops::Range<u32>],
 ) {
-    collect_namespace_inner(ns, ast, cpp_ranges, user_ranges, "");
+    collect_namespace_inner(ns, ast, cpp_ranges, "");
 }
 
 /// 递归收集命名空间成员；`ns_path` 为已累积的 `::` 限定父路径（如 `foo::bar`）。
@@ -62,7 +61,6 @@ fn collect_namespace_inner(
     ns: &clang::Entity<'_>,
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
-    user_ranges: &[std::ops::Range<u32>],
     parent_path: &str,
 ) {
     let ns_name = ns.get_name().unwrap_or_default();
@@ -126,10 +124,10 @@ fn collect_namespace_inner(
                 }
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, ast, user_ranges);
+                collect_typedef(&entity, ast, cpp_ranges);
             }
             EntityKind::Namespace => {
-                collect_namespace_inner(&entity, ast, cpp_ranges, user_ranges, &cur_path);
+                collect_namespace_inner(&entity, ast, cpp_ranges, &cur_path);
             }
             _ => {}
         }
@@ -191,7 +189,7 @@ pub(super) fn collect_linkage_spec(
                 }
             }
             EntityKind::TypedefDecl => {
-                collect_typedef(&entity, ast, user_ranges);
+                collect_typedef(&entity, ast, cpp_ranges);
             }
             // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
             EntityKind::StructDecl if entity.is_definition() => {
@@ -208,11 +206,15 @@ pub(super) fn collect_linkage_spec(
 pub(super) fn collect_typedef(
     entity: &clang::Entity<'_>,
     ast: &mut CppAst,
-    user_ranges: &[std::ops::Range<u32>],
+    cpp_ranges: &[std::ops::Range<u32>],
 ) {
-    // 收集来自用户代码区间（.cpp 文件本身及用户头文件）的 typedef，
-    // 排除通过 #include 引入的系统/第三方头文件中的 typedef（避免系统类型污染）。
-    if !entity_is_from_current_file(entity, user_ranges) {
+    // 仅收集**当前 .cpp 编译单元自身**定义的 typedef（与 class/enum/function 的
+    // is_from_current_file 判定一致，均基于 cpp_ranges）。
+    // 注意：不能使用 user_ranges（.cpp + 所有引号头文件），否则第三方头（如 rapidjson）
+    // 中的 typedef（`typedef unsigned SizeType;`、`typedef internal::BoolType<true> TrueType;`）
+    // 会被误收集并内联到 cpp! 块，产生 `BoolType` 未声明等编译错误。
+    // 第三方头中的 typedef 应通过重放其 #include 引入，而非逐字内联。
+    if !entity_is_from_current_file(entity, cpp_ranges) {
         return;
     }
     let Some(name) = entity.get_name() else {
@@ -502,6 +504,12 @@ pub(super) fn extract_function(
     // 跳过所有 C++ 操作符命名的自由函数（含 UDL operator""h 等），
     // 这类函数在 C 链接层无法直接表示，且生成的 Rust 名称不合法。
     if name.starts_with("operator") {
+        return None;
+    }
+    // 跳过 static（内部链接）自由函数：它们无外部符号，不能作为 import_lib! 的 FFI
+    // 绑定目标（链接期找不到符号），也不在头文件中声明，无法在 cpp! 块中解析。
+    // 例如 schema_ffi.cpp 的 `static bool build_schema_doc(...)` 私有辅助函数。
+    if entity.get_storage_class() == Some(clang::StorageClass::Static) {
         return None;
     }
     let return_type = entity

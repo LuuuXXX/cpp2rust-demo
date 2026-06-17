@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::ast_parser;
+use crate::build_meta;
 use crate::capture;
 use crate::error::Result;
 use crate::extractor;
@@ -73,10 +74,17 @@ pub fn run_init(feature: &str, build_cmd: &[String]) -> Result<()> {
 
     print_degraded_summary(&sorted_tags);
 
+    // 收集编译元数据（方案 A）：从 .opts 还原 include 路径 / C++ 标准，反推实现 .cpp，
+    // 使生成的 build.rs 自动注入头路径与实现源，无需外部脚本就地改写。
+    let build_meta = build_meta::BuildMeta::collect(&selected, &lo.c_dir, &project_root);
+    if let Err(e) = lo.save_build_meta(&build_meta) {
+        eprintln!("警告：写入 build-meta.json 失败：{}", e);
+    }
+
     // 生成 Cargo.toml、build.rs 和 lib.rs（含中间 mod.rs）
     project_generator::write_cargo_toml(&lo.rust_dir, feature)?;
     let lib_name = feature.replace('-', "_");
-    project_generator::write_build_rs(&lo.rust_dir, &lib_name)?;
+    project_generator::write_build_rs(&lo.rust_dir, &lib_name, &unit_paths, &build_meta)?;
     project_generator::write_lib_rs(&lo.rust_dir, &unit_paths)?;
 
     // 生成冒烟测试 tests/smoke.rs（"生成即验证"）；v7 起默认生成、不再受环境变量开关控制，
@@ -281,6 +289,18 @@ fn collect_class_map(all_units: &[UnitData]) -> HashMap<String, String> {
                 );
             } else {
                 class_to_module.insert(cs.name.clone(), ud.unit_path.clone());
+            }
+        }
+        // #[repr(C)] POD 结构体（如 SAX 回调表）同样经 lib.rs 的 glob 重导出，
+        // 其它单元若引用该类型，应生成 `use crate::<module>::<Name>` 而非不透明句柄。
+        for rc in &ud.spec.repr_c_structs {
+            if let Some(existing) = class_to_module.get(&rc.name) {
+                eprintln!(
+                    "  警告：类型 '{}' 同时定义于 '{}' 和 '{}'；跨模块引用将使用第一个定义",
+                    rc.name, existing, ud.unit_path
+                );
+            } else {
+                class_to_module.insert(rc.name.clone(), ud.unit_path.clone());
             }
         }
     }

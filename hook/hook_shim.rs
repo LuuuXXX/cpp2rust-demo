@@ -380,11 +380,44 @@ fn resolve_paths(
     let normal_feat = strip_verbatim(feature_root);
     // 输出到 feature_root/c/<相对路径>.cpp2rust，与 Linux LD_PRELOAD hook 保持一致。
     // scan_cpp2rust_files() 扫描的是 <feature_root>/c/ 子目录。
-    let out_path = normal_feat.join("c").join(rel).with_extension("cpp2rust");
+    //
+    // 注意：必须**追加** `.cpp2rust` 后缀（如 `value_ffi.cpp` → `value_ffi.cpp.cpp2rust`），
+    // 而非用 `with_extension("cpp2rust")` 替换扩展名（那样会得到 `value_ffi.cpp2rust`，丢失
+    // 原始 `.cpp` 后缀）。`init` 反推原始源文件路径时按追加式 `strip_suffix(".cpp2rust")`
+    // 还原，若丢失 `.cpp` 后缀会导致找不到原始 `.cpp`、`read_source_includes` 读空、
+    // `project_header=None`，进而在 cpp! 块中错误内联 shim 函数体，使生成代码无法编译。
+    // 这与 Linux `hook/hook.cpp`（`"%s/c/%s.cpp2rust"`）保持一致。
+    let joined = normal_feat.join("c").join(rel);
+    let out_path = append_cpp2rust_suffix(&joined);
     if let Some(parent) = out_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     Some((normal_src, out_path))
+}
+
+/// 在路径文件名后**追加** `.cpp2rust` 后缀（保留原始扩展名）。
+///
+/// 例：`.../value_ffi.cpp` → `.../value_ffi.cpp.cpp2rust`。
+/// 与 `Path::with_extension("cpp2rust")` 的语义不同：后者会**替换**扩展名得到
+/// `value_ffi.cpp2rust`，丢失 `.cpp` 后缀。必须保留 `.cpp` 后缀，`init` 才能按
+/// `strip_suffix(".cpp2rust")` 正确反推回原始源文件路径（与 Linux hook 一致）。
+///
+/// 实际调用方传入的始终是带文件名的源文件路径；当路径无文件名分量（如以 `..` 结尾
+/// 或为根）这一不可达分支时，仍坚持「追加」语义——直接在整条路径末尾追加
+/// `.cpp2rust`，绝不退化为 `with_extension` 的「替换」语义。
+fn append_cpp2rust_suffix(p: &Path) -> PathBuf {
+    match p.file_name() {
+        Some(n) => {
+            let mut name = n.to_os_string();
+            name.push(".cpp2rust");
+            p.with_file_name(name)
+        }
+        None => {
+            let mut s = p.as_os_str().to_os_string();
+            s.push(".cpp2rust");
+            PathBuf::from(s)
+        }
+    }
 }
 
 /// 去掉 Windows 扩展路径前缀 `\\?\`，返回普通路径。
@@ -524,6 +557,42 @@ mod tests {
             !kind.is_compile_mode(&["-c".to_string()]),
             "MSVC: GNU 风格的 -c 不应触发 MSVC 编译模式"
         );
+    }
+
+    // ── append_cpp2rust_suffix ───────────────────────────────────────
+
+    #[test]
+    fn append_suffix_preserves_cpp_extension() {
+        // 必须**追加**得到 `<src>.cpp2rust`，保留原始 `.cpp` 后缀（与 Linux hook 一致），
+        // 以便 init 按 strip_suffix(".cpp2rust") 正确反推回原始 `.cpp` 源文件。
+        let out = append_cpp2rust_suffix(Path::new("c/refs/shim/value_ffi.cpp"));
+        assert_eq!(
+            out,
+            PathBuf::from("c/refs/shim/value_ffi.cpp.cpp2rust"),
+            "应追加 .cpp2rust 而非替换扩展名（不得退化为 value_ffi.cpp2rust）"
+        );
+        // 反向校验：init 的反推逻辑应能还原出原始 .cpp
+        let rel = out.to_string_lossy();
+        let recovered = rel.strip_suffix(".cpp2rust").unwrap();
+        assert!(
+            recovered.ends_with("value_ffi.cpp"),
+            "反推应还原 value_ffi.cpp，实际为 {recovered}"
+        );
+    }
+
+    #[test]
+    fn append_suffix_other_extensions() {
+        for (src, want) in [
+            ("a/b.cc", "a/b.cc.cpp2rust"),
+            ("a/b.cxx", "a/b.cxx.cpp2rust"),
+            ("a/b.c", "a/b.c.cpp2rust"),
+        ] {
+            assert_eq!(
+                append_cpp2rust_suffix(Path::new(src)),
+                PathBuf::from(want),
+                "{src} 应追加为 {want}"
+            );
+        }
     }
 
     // ── looks_like_file_path ─────────────────────────────────────────

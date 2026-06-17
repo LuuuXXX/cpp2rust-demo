@@ -10,6 +10,7 @@ mod dynamic_cast_spec;
 mod hicc_direct;
 mod lib_spec;
 mod proxy_spec;
+mod repr_c_spec;
 mod template_spec;
 
 use crate::ast_parser::{CppAst, FunctionInfo, ParamInfo};
@@ -218,6 +219,36 @@ pub fn extract(
             &functions,
             &class_names_ref,
         );
+    }
+
+    // ── 头文件 POD 结构体 → #[repr(C)] 直出 ──────────────
+    // 被 FFI 函数签名引用、但在头文件中有完整字段定义的纯数据结构（如 SAX 回调表
+    // RapidJsonHandlerCallbacks）须以 #[repr(C)] Rust 结构体输出，而非不透明 import_class!，
+    // 否则会与 hicc 的 MethodsType 特化冲突。命中后将其从 fwd_decls 移除，
+    // 使 import_lib! 不再前向声明、跨模块前缀也不再生成不透明句柄。
+    {
+        let local_class_names: Vec<&str> = spec
+            .class_specs
+            .iter()
+            .filter(|cs| !cs.is_empty())
+            .map(|cs| cs.name.as_str())
+            .collect();
+        let (repr_c_structs, to_remove) = repr_c_spec::build_repr_c_structs(
+            &ast.classes,
+            &spec.lib_spec.fwd_decls,
+            &local_class_names,
+        );
+        if !to_remove.is_empty() {
+            spec.lib_spec.fwd_decls.retain(|decl| {
+                let name = decl
+                    .strip_prefix("class ")
+                    .and_then(|s| s.strip_suffix(';'))
+                    .map(str::trim)
+                    .unwrap_or("");
+                !to_remove.iter().any(|r| r == name)
+            });
+        }
+        spec.repr_c_structs = repr_c_structs;
     }
 
     spec
@@ -732,7 +763,14 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
             }
         })
         .collect();
-    // 收集 .cpp 中的系统 include（保序）
+    // 收集 .cpp 中需要在 cpp! 块顶部重放的前置指令（保序）：
+    //   - 系统 include（`<...>`）
+    //   - 第三方/跨单元引用的引号 include（`"..."`）；但**首个**引号 include 视为本单元
+    //     项目头（project_header），由调用方单独处理，不在此重放
+    //   - `using namespace ...;` 指令（使第三方头中未限定的类型在 cpp! 块内可解析）
+    // 背景：以 rapidjson shim 为例，`allocator_ffi.cpp` 含 `#include "rapidjson/allocators.h"`
+    // 与 `using namespace rapidjson;`。若丢失，内联到 cpp! 块的实现会因 `CrtAllocator` 等
+    // 未声明而编译失败。仅保留首个引号 include（旧行为）会漏掉第三方头与跨单元句柄头。
     let mut cpp_includes: Vec<String> = Vec::new();
     let mut cpp_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for line in cpp_content.lines() {
@@ -748,7 +786,18 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
                 let hdr = rest.trim_matches('"');
                 if project.is_none() {
                     project = Some(hdr.to_string());
+                } else {
+                    // 首个引号 include 之外的引号 include（第三方/跨单元头）需重放
+                    let inc = format!("#include \"{}\"", hdr);
+                    if cpp_seen.insert(inc.clone()) {
+                        cpp_includes.push(inc);
+                    }
                 }
+            }
+        } else if t.starts_with("using namespace ") && t.ends_with(';') {
+            // 保留命名空间引入，使第三方未限定类型在内联实现中可解析
+            if cpp_seen.insert(t.to_string()) {
+                cpp_includes.push(t.to_string());
             }
         }
     }
@@ -763,7 +812,7 @@ pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<
         }
     }
 
-    // 2. cpp includes（按 cpp 文件顺序，含同时出现在头文件中的）
+    // 2. cpp 前置指令（按 cpp 文件顺序，含同时出现在头文件中的 include）
     for inc in &cpp_includes {
         if seen.insert(inc.as_str()) {
             system.push(inc.clone());

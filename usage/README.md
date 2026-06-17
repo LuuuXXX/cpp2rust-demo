@@ -82,6 +82,10 @@ SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
 § 5. cpp2rust-demo merge（整理输出目录）
      src/ → src.1/（备份）+ src.2/（模块化）+ src → src.2（symlink）
 
+§ 5a. 校验 build.rs（方案 A：工具自动注入头路径 / C++ 标准 / 实现 .cpp）
+     init 已从 .opts 落盘编译元数据（meta/build-meta.json），生成的 build.rs
+     自动注入 cc_build.include/std/file；脚本仅校验，未自包含时才退回就地补全
+
 § 6. 符号验证（四子步）
      6a. nm --demangle 查看编译产物 C++ mangled 符号
      6b. 生成 Rust 代码中的 FFI 声明（hicc::cpp! / import_class! / import_lib!）

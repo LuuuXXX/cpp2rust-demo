@@ -30,6 +30,24 @@ pub struct FfiSpec {
     /// 用于在 RTTI 场景把多态基类指针向下转换为派生类指针，替代 v5 的整数枚举绕过方案。
     /// v7 起由生成器**默认**在 `import_lib!` 中输出。
     pub dynamic_casts: Vec<DynamicCastSpec>,
+    /// 头文件中完整定义的 POD 结构体（如 SAX 回调表 `RapidJsonHandlerCallbacks`），
+    /// 被 FFI 函数签名以指针引用但不属于不透明句柄。这类类型须以 `#[repr(C)]` Rust 结构体
+    /// 输出（而非不透明 `import_class!`），否则会与 hicc 的 `MethodsType` 特化冲突。
+    pub repr_c_structs: Vec<ReprCStructSpec>,
+}
+
+/// 头文件中完整定义的 POD 结构体规格 — 以 `#[repr(C)]` Rust 结构体输出。
+///
+/// 用于 SAX 回调表等「调用方按值构造、按指针传入」的纯数据结构（如
+/// `RapidJsonHandlerCallbacks`）。这类类型在头文件中有完整字段定义、无成员方法、
+/// 无基类，被 FFI 函数签名引用但不应作为不透明句柄（`import_class!`）处理——
+/// 后者会让 hicc 生成 `MethodsType` 特化，与头文件中真实的 POD 定义冲突。
+#[derive(Debug, Default, Clone)]
+pub struct ReprCStructSpec {
+    /// 结构体名（如 `RapidJsonHandlerCallbacks`）
+    pub name: String,
+    /// 字段列表 `(rust_name, rust_type)`，按声明顺序排列以保持 ABI 布局。
+    pub fields: Vec<(String, String)>,
 }
 
 /// `@dynamic_cast` 下行转换绑定骨架规格 — v6 Phase C（续，高级映射）

@@ -254,13 +254,31 @@ fn run_multi_feature_merge(features: &[String], project_root: &std::path::Path) 
 
     let feature_name_strs: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
 
+    // 为每个 feature 收集含 hicc 宏的单元文件，映射为合并项目内的注册路径
+    // `src/<feature>/<unit_rel>.rs`（复制后 lib.rs→mod.rs 不含宏，故仅取 unit 文件）。
+    // 逐文件注册到 build.rs，避免 hicc-build 漏掉子模块中的 import_lib! 导出函数。
+    let feature_units: Vec<(&str, Vec<String>)> = feature_srcs
+        .iter()
+        .map(|(feature, canonical_src)| {
+            let rel_paths: Vec<String> = merger::collect_unit_rs_files(canonical_src)
+                .iter()
+                .filter_map(|p| p.strip_prefix(canonical_src).ok())
+                .map(|rel| {
+                    let rel = rel.to_string_lossy().replace('\\', "/");
+                    format!("src/{}/{}", feature, rel)
+                })
+                .collect();
+            (*feature, rel_paths)
+        })
+        .collect();
+
     project_generator::write_multi_feature_cargo_toml(
         &combined_rust_dir,
         &combined_name,
         &feature_name_strs,
     )?;
     project_generator::write_multi_feature_lib_rs(&combined_rust_dir, &feature_name_strs)?;
-    project_generator::write_multi_feature_build_rs(&combined_rust_dir, &feature_name_strs)?;
+    project_generator::write_multi_feature_build_rs(&combined_rust_dir, &feature_units)?;
 
     // 将每个 feature 的源文件复制到 src/<feature>/
     for (feature, canonical_src) in &feature_srcs {
