@@ -102,8 +102,7 @@ pub fn extract(
             .filter(|f| !f.name.ends_with("_anchor"))
             .collect();
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        let mut lib_spec = lib_spec::build_lib_spec_namespaced(&free_fns, unit_name, &class_names);
-        lib_spec.link_name = unit_name.to_string();
+        let lib_spec = lib_spec::build_lib_spec_namespaced(&free_fns, unit_name, &class_names);
         return FfiSpec {
             unit_name: unit_name.to_string(),
             cpp_block_lines,
@@ -140,15 +139,18 @@ pub fn extract(
     } else {
         // 导出类名列表：只有在 used_classes 中的类才会真正生成 import_class! 块，
         // 因此只有这些名称才能在方法绑定的类型映射中被视为合法的 FFI 类型。
+        // 旧路径（extern-C shim 模式）仅处理非命名空间类（`is_in_namespace = false`）；
+        // 命名空间实现类（如 pugixml 的 `pugi::impl::xml_allocator`）在匿名命名空间中，
+        // 不能通过简单类名从外部引用，强制生成绑定只会导致编译错误。
         let exported_class_names: Vec<&str> = ast
             .classes
             .iter()
-            .filter(|c| !c.name.is_empty() && used_classes.contains(&c.name))
+            .filter(|c| !c.name.is_empty() && !c.is_in_namespace && used_classes.contains(&c.name))
             .map(|c| c.name.as_str())
             .collect();
         ast.classes
             .iter()
-            .filter(|c| !c.name.is_empty())
+            .filter(|c| !c.name.is_empty() && !c.is_in_namespace)
             .filter(|c| used_classes.contains(&c.name))
             .map(|ci| {
                 class_spec::build_class_spec(ci, &ast.classes, &exported_class_names)
@@ -170,9 +172,18 @@ pub fn extract(
     // 裸函数名会在全局作用域解析失败（实测 024/028 生成产物 cargo build 报
     // “was not declared in this scope”）。限定仅对 `fi.namespace` 为 Some 的函数生效，
     // 旧式 extern-C 全局桥接函数（namespace 为 None）保持裸函数名不变。
+    //
+    // 额外过滤：排除「实现命名空间」函数（`impl` 组件，如 `pugi::impl::*`）。
+    // 此类函数定义在实现文件的匿名/私有命名空间中，在 hicc `cpp!` 块的头文件 include
+    // 中不可见（`pugi::impl` 不由 `pugixml.hpp` 导出），强制绑定只会导致编译失败。
     let lib_spec = {
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        lib_spec::build_lib_spec_namespaced(&functions, unit_name, &class_names)
+        let visible_fns: Vec<&FunctionInfo> = functions
+            .iter()
+            .copied()
+            .filter(|f| !is_impl_namespace_fn(f))
+            .collect();
+        lib_spec::build_lib_spec_namespaced(&visible_fns, unit_name, &class_names)
     };
 
     let mut spec = FfiSpec {
@@ -346,6 +357,22 @@ fn detect_namespace_mode(
             }
         })
 }
+
+/// 判断自由函数是否位于实现命名空间（`impl` 组件），如 `pugi::impl`、`internal::impl`。
+///
+/// 此类函数定义在库的内部实现文件中，不由公有头文件导出，无法在 hicc `cpp!` 块的
+/// 头文件 `#include` 中被找到。将其纳入 `import_lib!` 只会导致 C++ 编译时报
+/// "has not been declared" 错误，需在旧路径中提前过滤。
+///
+/// 注意：`template_function_ns`、`pugi` 等用户可见命名空间不含 `impl` 组件，
+/// 因此不受影响。
+fn is_impl_namespace_fn(f: &FunctionInfo) -> bool {
+    match &f.namespace {
+        Some(ns) => ns.split("::").any(|part| part == "impl"),
+        None => false,
+    }
+}
+
 
 /// 去重：
 /// - 以 `(name, param_types_joined)` 为键，对具有相同名称**且**相同参数类型签名的函数去重，

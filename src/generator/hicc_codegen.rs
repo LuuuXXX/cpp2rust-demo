@@ -175,7 +175,12 @@ pub fn generate(spec: &FfiSpec) -> String {
     }
 
     // ── hicc::import_class! (所有有方法的类都生成独立块) ────
-    for cs in &spec.class_specs {
+    // 拓扑排序：若类 A 的方法签名中引用了类 B（如参数类型 `B*`），
+    // 则 B 的 import_class! 块必须先于 A 输出；否则 hicc 在编译 A 的方法时
+    // 会提前实例化 MethodsType<B> 的基础模板，之后 B 自己的特化出现时
+    // C++ 报 "specialization after instantiation" 错误。
+    let sorted_class_specs = topo_sort_class_specs(&spec.class_specs);
+    for cs in &sorted_class_specs {
         // P2-1：跳过空块（无方法、无关联函数、且无 destroy 属性）
         if cs.is_empty() {
             continue;
@@ -637,6 +642,115 @@ fn strip_mut_ptr(ret_type: &str, class_name: &str) -> String {
     } else {
         ret_type.to_string()
     }
+}
+
+/// 对 `class_specs` 按依赖关系拓扑排序（被引用的类在前，引用方在后）。
+///
+/// 解决"specialization after instantiation"编译错误：
+/// 若类 A 的方法签名中引用了类 B（如 `void foo(B*)` 参数），
+/// hicc 在编译 A 时会提前实例化 `MethodsType<B>` 的基础模板；
+/// 若 B 的 `import_class!` 块在 A 之后才出现，C++ 报
+/// "specialization after instantiation" 错误。
+/// 将 B 排在 A 之前（依赖先行）即可解决。
+///
+/// 使用 Kahn 算法（BFS 拓扑排序）；有环时保持原始顺序（C++ 不允许循环依赖）。
+fn topo_sort_class_specs(
+    class_specs: &[crate::ffi_model::ClassSpec],
+) -> Vec<crate::ffi_model::ClassSpec> {
+    use std::collections::{HashMap, VecDeque};
+
+    let n = class_specs.len();
+    if n <= 1 {
+        return class_specs.to_vec();
+    }
+
+    // 建立简单名 → 索引映射
+    let name_to_idx: HashMap<&str, usize> = class_specs
+        .iter()
+        .enumerate()
+        .map(|(i, cs)| (cs.name.as_str(), i))
+        .collect();
+
+    // 建立入度表和邻接表：edges[j] 保存所有「依赖 j」的节点 i（即 j 必须在 i 之前）
+    let mut in_degree = vec![0usize; n];
+    let mut must_precede: Vec<Vec<usize>> = vec![Vec::new(); n]; // must_precede[j] = 依赖 j 的节点列表
+
+    for (i, cs) in class_specs.iter().enumerate() {
+        let mut deps: Vec<usize> = Vec::new();
+
+        // 扫描方法签名（cpp_sig 含参数类型）
+        for mb in &cs.methods {
+            for (name, &j) in &name_to_idx {
+                if j != i && sig_references_name(&mb.cpp_sig, name) {
+                    deps.push(j);
+                }
+            }
+        }
+        // 扫描 make_unique 工厂签名
+        for cf in &cs.ctor_factories {
+            for (name, &j) in &name_to_idx {
+                if j != i && sig_references_name(&cf.make_unique_sig, name) {
+                    deps.push(j);
+                }
+            }
+        }
+
+        // 去重并建图
+        deps.sort_unstable();
+        deps.dedup();
+        for j in deps {
+            in_degree[i] += 1;
+            must_precede[j].push(i);
+        }
+    }
+
+    // Kahn 算法：从入度为 0 的节点开始
+    let mut queue: VecDeque<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+
+    while let Some(j) = queue.pop_front() {
+        order.push(j);
+        for &i in &must_precede[j] {
+            in_degree[i] -= 1;
+            if in_degree[i] == 0 {
+                queue.push_back(i);
+            }
+        }
+    }
+
+    // 若有环（理论上不会发生），将剩余节点按原始顺序追加
+    if order.len() < n {
+        for i in 0..n {
+            if !order.contains(&i) {
+                order.push(i);
+            }
+        }
+    }
+
+    order.iter().map(|&i| class_specs[i].clone()).collect()
+}
+
+/// 判断签名字符串是否引用了指定名称（词边界匹配）。
+///
+/// 与 `extractor::mod::type_references_class` 类似，但此处仅需判断
+/// 签名中是否出现目标名称作为完整单词（非子串）。
+fn sig_references_name(sig: &str, name: &str) -> bool {
+    let nb = name.as_bytes();
+    let sb = sig.as_bytes();
+    let nl = nb.len();
+    let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut i = 0;
+    while i + nl <= sb.len() {
+        if sb[i..].starts_with(nb) {
+            let pre_ok = i == 0 || !is_ident(sb[i - 1]);
+            let suf_ok = i + nl >= sb.len() || !is_ident(sb[i + nl]);
+            if pre_ok && suf_ok {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 #[cfg(test)]

@@ -100,23 +100,25 @@ fn is_copy_or_move_ctor(m: &MethodInfo) -> bool {
 /// （如 `std::string`、未知类）时，会被保守跳过，留待手写示例补全（与黄金支架一致）。
 pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
     let mut specs = Vec::new();
-    // 已导出的简单类名集合，供方法类型映射合法性检查使用
+    // 已导出的简单类名集合，供方法类型映射合法性检查使用。
+    // 抽象类（纯虚接口）不可被 make_unique 实例化，不纳入工厂导出集合；
+    // 方法类型检查与命名空间限定映射同样跳过抽象类以保持一致性。
     let exported: Vec<&str> = ast
         .classes
         .iter()
-        .filter(|c| c.is_in_namespace && has_public_ctor(c))
+        .filter(|c| c.is_in_namespace && !c.is_abstract && has_public_ctor(c))
         .map(|c| c.simple_name.as_str())
         .collect();
     // 简单名 → 命名空间限定名映射，供方法签名中的类引用补全限定
     let qual_map: Vec<(&str, String)> = ast
         .classes
         .iter()
-        .filter(|c| c.is_in_namespace && has_public_ctor(c))
+        .filter(|c| c.is_in_namespace && !c.is_abstract && has_public_ctor(c))
         .map(|c| (c.simple_name.as_str(), c.qualified_name()))
         .collect();
 
     for ci in ast.classes.iter() {
-        if !ci.is_in_namespace || !has_public_ctor(ci) {
+        if !ci.is_in_namespace || ci.is_abstract || !has_public_ctor(ci) {
             continue;
         }
         if let Some(cs) = build_one(ci, &exported, &qual_map) {
