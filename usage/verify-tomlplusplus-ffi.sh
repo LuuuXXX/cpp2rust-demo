@@ -1,41 +1,43 @@
 #!/usr/bin/env bash
 # =============================================================================
-# verify-sqlite3-ffi.sh
+# verify-tomlplusplus-ffi.sh
 #
-# 用途：本地验证 cpp2rust-demo 对 SQLite3 超大单文件的完整 Rust safe FFI 生成能力
+# 用途：本地验证 cpp2rust-demo 对 toml++ 大型单头模板库的 Rust safe FFI 生成能力
 #
 # 背景说明：
-#   SQLite3 是著名的 amalgamation 单文件数据库实现，sqlite3.c 约 23 万行，
-#   是验证 cpp2rust-demo 超大文件解析能力的最佳项目。包含大量 C API 函数。
+#   toml++ 是大型 header-only TOML 解析库，toml.h 包含大量模板、SFINAE、
+#   C++17/20 特性。与 nlohmann/json 类似，但规模更大，模板更复杂。
+#   本脚本需要创建驱动 .cpp 文件以触发模板实例化。
 #
 # 流程总览：
 #   § 0. 环境检查
 #   § 1. 安装 cpp2rust-demo
-#   § 2. 定位本地 sqlite3 源文件（references/sqlite/sqlite3.c）
-#   § 3. 编译 sqlite3.o（供后续 nm 符号验证）
+#   § 2. 定位本地 toml++ 源文件（references/tomlplusplus/include）
+#   § 3. 创建驱动 .cpp 并编译（触发模板实例化）
 #   § 4. cpp2rust-demo init  —— 编译拦截 & Rust FFI 脚手架生成
 #   § 5. cpp2rust-demo merge —— 整理输出目录结构
-#   § 6. FFI 验证（nm 符号、import_lib!、link_name）
+#   § 6. FFI 验证（符号、import_class!、模板骨架）
 #   § 7. 生成结果汇报
 #
 # 本脚本验证的 cpp2rust-demo 特性：
-#   ① 超大单文件解析   —— 23 万行 amalgamation 文件
-#   ② C API 绑定        —— sqlite3_open/close/exec 等 C 函数
-#   ③ import_lib! 宏    —— 纯 C API 库绑定
-#   ④ 大规模符号导出    —— 数百个公开函数符号
+#   ① header-only 库处理    —— 纯头文件模板库
+#   ② 大型单头模板          —— toml++ 模板类
+#   ③ 模板骨架验证          —— § 6e 增补：模板实例化骨架检查
+#   ④ 现代 C++ 特性         —— C++17/20 特性
 #
 # 系统要求（Ubuntu/Debian）：
-#   sudo apt-get install -y clang libclang-dev gcc binutils git curl
+#   sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev \
+#                           binutils git curl
 #   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # =============================================================================
 
 set -euo pipefail
 
 # ─── 可配置参数 ───────────────────────────────────────────────────────────────
-FEATURE="${FEATURE:-sqlite3_demo}"
+FEATURE="${FEATURE:-tomlplusplus_demo}"
 NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 SKIP_INSTALL="${SKIP_INSTALL:-0}"   # 置 1 可跳过 cargo install 步骤（已安装时使用）
-CXX_STD="c11"                       # C 标准版本
+CXX_STD="c++17"                     # C++ 标准版本（toml++ 需要 C++17）
 
 # ─── 颜色 / 辅助函数 ──────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -69,7 +71,7 @@ SCRIPT_ERRORS=0
 step "§ 0. 环境检查"
 
 need_cmd git
-need_cmd gcc
+need_cmd g++
 need_cmd cargo
 need_cmd nm
 
@@ -107,63 +109,117 @@ fi
 cpp2rust-demo --version 2>/dev/null || true
 
 # =============================================================================
-# § 2. 定位本地 sqlite3 源文件
+# § 2. 定位本地 toml++ 源文件
 # =============================================================================
-step "§ 2. 定位本地 sqlite3 源文件"
+step "§ 2. 定位本地 toml++ 源文件"
 
 # 从脚本所在目录向上找仓库根目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null || echo "${SCRIPT_DIR}/..")"
 REPO_DIR="$(cd "${REPO_DIR}" && pwd)"
 
-SQLITE_DIR="${REPO_DIR}/references/sqlite"
+TOMLPP_DIR="${REPO_DIR}/references/tomlplusplus"
+TOMLPP_INCLUDE="${TOMLPP_DIR}/include"
 
-# 验证 sqlite 目录存在
-if [ ! -d "${SQLITE_DIR}" ]; then
-    warn "sqlite 子模块未初始化：${SQLITE_DIR}"
-    warn "请运行：git submodule update --init references/sqlite"
+# 验证 tomlplusplus 目录存在
+if [ ! -d "${TOMLPP_DIR}" ]; then
+    warn "tomlplusplus 子模块未初始化：${TOMLPP_DIR}"
+    warn "请运行：git submodule update --init references/tomlplusplus"
     info "脚本将跳过验证"
     exit 0
 fi
 
-SQLITE_C="${SQLITE_DIR}/sqlite3.c"
-if [ ! -f "${SQLITE_C}" ]; then
-    fail "未找到 sqlite3.c：${SQLITE_C}"
+TOML_H="${TOMLPP_INCLUDE}/toml++/toml.h"
+if [ ! -f "${TOML_H}" ]; then
+    # 尝试另一个路径
+    TOML_H="${TOMLPP_INCLUDE}/toml.h"
+    if [ ! -f "${TOML_H}" ]; then
+        fail "未找到 toml.h：${TOMLPP_INCLUDE}"
+    fi
 fi
 
 # 统计文件行数
-SQLITE_LINES=$(wc -l < "${SQLITE_C}")
-info "sqlite3 目录：${SQLITE_DIR}"
-info "源文件：${SQLITE_C}"
-info "文件行数：${SQLITE_LINES}"
+TOML_LINES=$(wc -l < "${TOML_H}")
+info "toml++ 目录：${TOMLPP_DIR}"
+info "包含目录：${TOMLPP_INCLUDE}"
+info "源文件：${TOML_H}"
+info "文件行数：${TOML_LINES}"
 
-if [ "${SQLITE_LINES}" -gt 200000 ]; then
-    ok "sqlite3.c 是超大单文件（${SQLITE_LINES} 行）"
-else
-    warn "sqlite3.c 行数少于预期（可能不是完整 amalgamation）"
-fi
-
-ok "sqlite3 源文件就绪"
+ok "toml++ 源文件就绪"
 
 # =============================================================================
-# § 3. 编译 sqlite3.o（供 nm 符号验证）
+# § 3. 创建驱动 .cpp 并编译（触发模板实例化）
 # =============================================================================
-step "§ 3. 编译 sqlite3.o"
+step "§ 3. 创建驱动 .cpp 并编译"
 
 OBJ_DIR=$(mktemp -d)
 info "目标文件输出目录：${OBJ_DIR}"
 
 # 注册 trap 清理临时目录
-trap 'rm -rf "${OBJ_DIR}" "${NM_CACHE:-}" 2>/dev/null || true' EXIT
+trap 'rm -rf "${OBJ_DIR}" "${NM_CACHE:-}" "${DRIVER_CPP:-}" 2>/dev/null || true' EXIT
 
-SQLITE_OBJ="${OBJ_DIR}/sqlite3.o"
-info "编译 sqlite3.c（可能需要 30 秒以上）..."
-if gcc -c -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION \
-       -I"${SQLITE_DIR}" \
-       "${SQLITE_C}" -o "${SQLITE_OBJ}" 2>&1; then
-    ok "编译成功：sqlite3.o"
+# 创建驱动 .cpp 文件触发模板实例化
+DRIVER_CPP="${OBJ_DIR}/toml_driver.cpp"
+cat > "${DRIVER_CPP}" << 'EOF'
+#include <toml++/toml.h>
+#include <string>
+#include <sstream>
+
+// 强制实例化常用模板特化，生成符号供 FFI 绑定
+void instantiate_toml() {
+    // 解析 TOML 字符串
+    toml::table tbl = toml::parse(R"(
+        [server]
+        host = "localhost"
+        port = 8080
+        enabled = true
+        
+        [[users]]
+        name = "Alice"
+        age = 30
+        
+        [[users]]
+        name = "Bob"
+        age = 25
+    )");
+    
+    // 访问字段
+    auto host = tbl["server"]["host"].value<std::string>();
+    auto port = tbl["server"]["port"].value<int64_t>();
+    auto enabled = tbl["server"]["enabled"].value<bool>();
+    
+    // 访问数组
+    if (auto users = tbl["users"].as_array()) {
+        for (auto& user : *users) {
+            auto name = user["name"].value<std::string>();
+            auto age = user["age"].value<int64_t>();
+        }
+    }
+    
+    // 构造 TOML
+    toml::table new_tbl;
+    new_tbl.insert("key", "value");
+    new_tbl.insert("number", 42);
+    new_tbl.insert("flag", true);
+    
+    // 序列化
+    std::stringstream ss;
+    ss << new_tbl;
+    std::string output = ss.str();
+}
+
+// 显式实例化常用模板（可选）
+template class toml::table;
+template class toml::array;
+EOF
+
+TOML_OBJ="${OBJ_DIR}/toml_driver.o"
+if g++ -c -std="${CXX_STD}" \
+       -I"${TOMLPP_INCLUDE}" \
+       "${DRIVER_CPP}" -o "${TOML_OBJ}" 2>&1; then
+    ok "编译成功：toml_driver.o"
 else
-    warn "编译失败：sqlite3.c"
+    warn "编译失败：toml_driver.cpp"
     SCRIPT_ERRORS=$((SCRIPT_ERRORS + 1))
 fi
 
@@ -172,15 +228,15 @@ fi
 # =============================================================================
 step "§ 4. cpp2rust-demo init（捕获 FFI 脚手架）"
 
-# 创建临时构建脚本：gcc -c 编译 sqlite3.c，触发 LD_PRELOAD hook 拦截
+# 创建临时构建脚本：g++ -c 编译驱动文件，触发 LD_PRELOAD hook 拦截
 BUILD_SCRIPT=$(mktemp)
 cat > "${BUILD_SCRIPT}" << EOF
 #!/bin/bash
-# 临时构建脚本：由 cpp2rust-demo init 的 LD_PRELOAD hook 拦截 gcc 调用
+# 临时构建脚本：由 cpp2rust-demo init 的 LD_PRELOAD hook 拦截 g++ 调用
 set -e
-gcc -c -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION \\
-    -I"${SQLITE_DIR}" \\
-    "${SQLITE_C}" -o /dev/null 2>&1
+g++ -c -std="${CXX_STD}" \\
+    -I"${TOMLPP_INCLUDE}" \\
+    "${DRIVER_CPP}" -o /dev/null 2>&1
 EOF
 chmod +x "${BUILD_SCRIPT}"
 
@@ -260,22 +316,21 @@ if [ -f "${BUILD_RS}" ]; then
         done < <(find -L "${RUST_PROJECT}/src" -name "*.rs" \
                      ! -name "lib.rs" ! -name "mod.rs" | sort)
 
-        # sqlite3 源文件路径转换（Windows 兼容）
-        SQLITE_C_BP="$(to_build_path "${SQLITE_C}")"
-        SQLITE_DIR_BP="$(to_build_path "${SQLITE_DIR}")"
+        # 驱动文件路径转换（Windows 兼容）
+        DRIVER_CPP_BP="$(to_build_path "${DRIVER_CPP}")"
+        TOMLPP_INCLUDE_BP="$(to_build_path "${TOMLPP_INCLUDE}")"
 
         cat > "${BUILD_RS}" << EOF
 fn main() {
     let mut build = hicc_build::Build::new();
     use std::ops::DerefMut;
     let cc_build: &mut cc::Build = build.deref_mut();
-    // SQLite3 编译选项
-    cc_build.define("SQLITE_THREADSAFE", "0");
-    cc_build.define("SQLITE_OMIT_LOAD_EXTENSION", None);
-    // ① sqlite3 头文件包含路径
-    cc_build.include("${SQLITE_DIR_BP}");
-    // ② 编译 sqlite3.c，提供 C API 符号
-    cc_build.file("${SQLITE_C_BP}");
+    // 与源文件编译保持一致的 C++ 标准（脚本 CXX_STD=${CXX_STD}）
+    cc_build.std("${CXX_STD}");
+    // ① toml++ 头文件包含路径
+    cc_build.include("${TOMLPP_INCLUDE_BP}");
+    // ② 编译驱动 .cpp，触发模板实例化
+    cc_build.file("${DRIVER_CPP_BP}");
     // 逐文件注册含 hicc 宏的单元
     build
 ${RUST_FILE_LINES}        .compile("${LIB_NAME}");
@@ -287,7 +342,7 @@ EOF
 
         info "兜底补全后的 build.rs："
         sed 's/^/    /' "${BUILD_RS}"
-        ok "build.rs 已就地补全（注入头路径 + 源文件 + 逐文件注册）"
+        ok "build.rs 已就地补全（注入头路径 + 驱动文件 + 逐文件注册）"
     fi
 else
     warn "未找到 ${BUILD_RS}，跳过 build.rs 校验/补全"
@@ -333,7 +388,7 @@ if [ -f "${SMOKE_FILE}" ]; then
         warn "cargo test 失败 — 请检查上方链接日志"
     fi
 else
-    info "未生成 tests/smoke.rs，跳过 cargo test"
+    info "未生成 tests/smoke.rs（header-only 模板库可能无自动测试），跳过 cargo test"
 fi
 
 # =============================================================================
@@ -341,38 +396,38 @@ fi
 # =============================================================================
 step "§ 6. FFI 验证"
 
-# ── 6a. 验证 sqlite3.o 中的符号 ──────────────────────────────────────────────
-echo -e "\n${BOLD}6a. sqlite3.o 符号（nm 验证）${NC}"
+# ── 6a. 验证 toml_driver.o 中的符号 ──────────────────────────────────────────
+echo -e "\n${BOLD}6a. toml_driver.o 符号（nm 验证）${NC}"
 NM_CACHE=$(mktemp)
-if [ -f "${SQLITE_OBJ}" ]; then
-    nm --defined-only -f posix "${SQLITE_OBJ}" 2>/dev/null > "${NM_CACHE}" || true
+if [ -f "${TOML_OBJ}" ]; then
+    nm --defined-only -f posix "${TOML_OBJ}" 2>/dev/null > "${NM_CACHE}" || true
     SYMBOL_COUNT=$(grep -c ' T ' "${NM_CACHE}" 2>/dev/null || echo 0)
-    info "sqlite3.o 中 T 段定义符号数：${SYMBOL_COUNT}"
+    info "toml_driver.o 中 T 段定义符号数：${SYMBOL_COUNT}"
 
     if [ "${SYMBOL_COUNT}" -gt 0 ]; then
-        echo "──── 部分 C API 符号（前 30 条，T 段）────"
-        awk '$2 == "T" { print $1 }' "${NM_CACHE}" | grep '^sqlite3_' | head -30 || true
-        ok "sqlite3.o 包含 C API 符号"
+        echo "──── 部分模板实例化符号（前 30 条，T 段）────"
+        awk '$2 == "T" { print $1 }' "${NM_CACHE}" | head -30 || true
+        ok "toml_driver.o 包含模板实例化符号"
     else
-        warn "未找到 T 段符号（sqlite3.c 是否编译成功？）"
+        warn "未找到 T 段符号（toml_driver.cpp 是否编译成功？）"
     fi
 else
-    warn "未找到 sqlite3.o，跳过符号验证"
+    warn "未找到 toml_driver.o，跳过符号验证"
 fi
 
 # ── 6b. 验证生成 Rust 代码中的 FFI 声明 ──────────────────────────────────────
-echo -e "\n${BOLD}6b. 生成 Rust 代码中的 FFI 声明（import_lib!）${NC}"
+echo -e "\n${BOLD}6b. 生成 Rust 代码中的 FFI 声明（import_class!）${NC}"
 if [ -d "${RUST_SRC}" ]; then
-    IMPORT_LIB_FILES=$(grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null | wc -l)
-    info "包含 import_lib! 绑定的文件数：${IMPORT_LIB_FILES}"
+    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l)
+    info "包含 import_class! 绑定的文件数：${IMPORT_CLASS_FILES}"
 
-    if [ "${IMPORT_LIB_FILES}" -gt 0 ]; then
-        ok "生成代码包含 import_lib! 块（C API 绑定存在）✓"
+    if [ "${IMPORT_CLASS_FILES}" -gt 0 ]; then
+        ok "生成代码包含 import_class! 块（模板类绑定存在）✓"
         echo ""
-        echo "──── import_lib! 函数（前 30 条）────"
-        grep -rn "pub fn " "${RUST_SRC}" 2>/dev/null | grep -v "//\|#\[" | head -30 || true
+        echo "──── import_class! 类（前 20 条）────"
+        grep -rn "class " "${RUST_SRC}" 2>/dev/null | grep -v "//\|#\[" | head -20 || true
     else
-        warn "生成代码中未找到 import_lib! 块"
+        warn "生成代码中未找到 import_class! 块"
     fi
 else
     warn "Rust 源码目录不存在：${RUST_SRC}"
@@ -414,12 +469,24 @@ if [ -d "${C_DIR}" ]; then
     done < <(find "${C_DIR}" -name "*.cpp2rust" 2>/dev/null)
     info "预处理文件总行数：${TOTAL_LINES}"
 
-    if [ "${TOTAL_LINES}" -gt 200000 ]; then
-        ok "成功处理超大文件（${TOTAL_LINES} 行）"
-    fi
-
     echo "──── .cpp2rust 文件大小 ────"
     find "${C_DIR}" -name "*.cpp2rust" -exec wc -l {} \; 2>/dev/null | sort -rn || true
+fi
+
+# ── 6e. 模板骨架验证（header-only 模板库特有）──────────────────────────────
+echo -e "\n${BOLD}6e. 模板骨架验证（检查 toml++ 模板类绑定）${NC}"
+if [ -d "${RUST_SRC}" ]; then
+    TEMPLATE_MARKERS=$(grep -r "table\|array\|toml" "${RUST_SRC}" 2>/dev/null | wc -l)
+    info "检测到 toml++ 模板类相关标识：${TEMPLATE_MARKERS} 处"
+
+    if [ "${TEMPLATE_MARKERS}" -gt 0 ]; then
+        ok "生成代码包含 toml++ 模板骨架"
+        echo ""
+        echo "──── toml++ 模板类引用（前 20 条）────"
+        grep -rn "table\|array\|toml" "${RUST_SRC}" 2>/dev/null | head -20 || true
+    else
+        warn "未检测到 toml++ 模板类骨架（可能需要增强驱动文件）"
+    fi
 fi
 
 # =============================================================================
@@ -429,27 +496,27 @@ step "§ 7. 生成结果汇报"
 
 echo ""
 echo -e "${BOLD}┌─────────────────────────────────────────────────────────┐${NC}"
-echo -e "${BOLD}│             cpp2rust-demo sqlite3 FFI 验证结果          │${NC}"
+echo -e "${BOLD}│           cpp2rust-demo toml++ FFI 验证结果             │${NC}"
 echo -e "${BOLD}└─────────────────────────────────────────────────────────┘${NC}"
 echo ""
-echo -e "  ${BOLD}项目：${NC}      SQLite3（超大单文件 amalgamation ~23 万行）"
+echo -e "  ${BOLD}项目：${NC}      toml++（大型单头模板库）"
 echo -e "  ${BOLD}feature：${NC}   ${FEATURE}"
-echo -e "  ${BOLD}源文件：${NC}    ${SQLITE_C}"
-echo -e "  ${BOLD}文件行数：${NC}  ${SQLITE_LINES}"
+echo -e "  ${BOLD}源文件：${NC}    ${TOML_H}"
+echo -e "  ${BOLD}文件行数：${NC}  ${TOML_LINES}"
 echo -e "  ${BOLD}输出目录：${NC}  ${CPP2RUST_OUTPUT}"
 echo ""
 echo -e "  ${BOLD}捕获预处理文件数：${NC}  ${CAPTURED}"
 echo -e "  ${BOLD}生成 Rust 文件数：${NC}  ${RS_FILES}"
 echo ""
 
-# import_lib! 存在检查
+# import_class! 存在检查
 if [ -d "${RUST_SRC}" ]; then
-    IMPORT_LIB_FILES=$(grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null | wc -l)
-    echo -e "  ${BOLD}import_lib! C API 绑定文件数：${NC}  ${IMPORT_LIB_FILES}"
-    if [ "${IMPORT_LIB_FILES}" -gt 0 ]; then
-        echo -e "  ${GREEN}✓ 成功生成 Rust safe FFI（import_lib! 块存在）${NC}"
+    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l)
+    echo -e "  ${BOLD}import_class! 模板类绑定文件数：${NC}  ${IMPORT_CLASS_FILES}"
+    if [ "${IMPORT_CLASS_FILES}" -gt 0 ]; then
+        echo -e "  ${GREEN}✓ 成功生成 Rust safe FFI（import_class! 块存在）${NC}"
     else
-        echo -e "  ${RED}✗ 未生成 C API 绑定${NC}"
+        echo -e "  ${RED}✗ 未生成模板类绑定${NC}"
         SCRIPT_ERRORS=$((SCRIPT_ERRORS + 1))
     fi
 fi
@@ -467,7 +534,7 @@ fi
 echo ""
 echo -e "  ${BOLD}查看生成的 Rust FFI 脚手架：${NC}"
 echo -e "    find ${CPP2RUST_OUTPUT}/rust/src -name '*.rs' | xargs head -80"
-echo -e "    find ${CPP2RUST_OUTPUT}/rust/src -name '*.rs' | xargs grep -l 'import_lib'"
+echo -e "    find ${CPP2RUST_OUTPUT}/rust/src -name '*.rs' | xargs grep -l 'import_class'"
 echo ""
 
 ok "验证脚本执行完毕！"
