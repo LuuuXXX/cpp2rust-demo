@@ -186,7 +186,9 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
     out.push_str("//!\n");
     out.push_str("//! 目的：验证生成的 Rust FFI 绑定可编译、可链接、可调用。\n");
     out.push_str("//! 运行：在本目录执行 `cargo test`。\n");
-    out.push_str("\n#![allow(unused_imports, unused_variables, unused_mut)]\n\n");
+    out.push_str(
+        "\n#![allow(unused_imports, unused_variables, unused_mut, ambiguous_glob_imports)]\n\n",
+    );
     out.push_str(&format!("use {}::*;\n\n", lib_name));
 
     // ── A. 编译期类型断言 ──────────────────────────────────────

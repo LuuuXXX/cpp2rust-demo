@@ -402,25 +402,18 @@ cpp2rust_output_dir() {
 # 工具链已安装）。在 MSYS2 环境下显式导出 CC=gcc / CXX=g++，让 cc-rs 优先
 # 使用 MinGW 工具链。
 
-# 在 Windows MSYS2 环境下设置 CC/CXX，避免 cc-rs 误用 MSVC cl.exe；
-# 同时设置 CARGO_TARGET_FLAG 让 cargo check/test 使用 GNU 工具链。
-CARGO_TARGET_FLAG=""
+# 在 Windows MSYS2 环境下设置 CC/CXX，避免 cc-rs 误用 MSVC cl.exe。
+#
+# 注意：不设 --target x86_64-pc-windows-gnu。虽然 GNU 工具链可以用 gcc 替代 cl.exe，
+# 但 hicc-std crate 的 build.rs 在 target_os="windows" 时无条件添加 MSVC 风格选项
+# （/we4054、/we4191、/bigobj），g++ 无法识别这些选项导致编译失败。
+# 因此 Windows 上保留 MSVC 工具链（cl.exe），CC/CXX 仅在非 MSYS2 环境设置。
+CARGO_TARGET_FLAG="${CARGO_TARGET_FLAG:-}"
 cpp2rust_set_mingw_compiler() {
-    if cpp2rust_is_windows; then
-        # 仅当 CC/CXX 未被用户显式设置时才覆盖
-        if [ -z "${CC:-}" ]; then
-            export CC=gcc
-        fi
-        if [ -z "${CXX:-}" ]; then
-            export CXX=g++
-        fi
-        # Windows 上 Rust 默认用 MSVC 工具链；即使 GNU target 已安装，
-        # cargo 不加 --target 仍会用 MSVC，导致 cc-rs 调用 cl.exe 而非 gcc。
-        # 传 --target x86_64-pc-windows-gnu 强制使用 GNU 工具链。
-        if [ -z "${CARGO_TARGET_FLAG:-}" ]; then
-            CARGO_TARGET_FLAG="--target x86_64-pc-windows-gnu"
-        fi
-    fi
+    # 空实现：Windows 上保留默认 MSVC 工具链。
+    # hicc-std build.rs 假设 Windows == MSVC，切换到 MinGW 会破坏 hicc-std 编译。
+    # Windows verify 脚本通过 continue-on-error 在 CI 中做 best-effort 验证。
+    :
 }
 
 cpp2rust_cargo_check() {

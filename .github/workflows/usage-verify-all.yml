@@ -5,6 +5,13 @@ name: Usage verify-all (本地验证脚本套件)
 #   - e2e-<lib>.yml 跑的是 Rust 集成测试（cargo test --test <lib>_e2e_test）
 #   - 本 workflow 跑的是用户视角的 Shell 脚本（bash usage/verify-<lib>-ffi.sh）
 # 两者互补：前者是工具内部 API 回归，后者是 CLI 流程端到端验证。
+#
+# 平台策略：
+#   - Linux：严格门禁（失败阻塞合并）
+#   - Windows MinGW：best-effort（continue-on-error，不阻塞合并）。
+#     原因：hicc-std crate 的 build.rs 在 target_os="windows" 时无条件添加 MSVC
+#     风格编译器选项（/we4054 等），在 GNU 工具链下 g++ 无法识别。修复需要
+#     hicc-std 上游更新。Windows 作为信号收集平台，不阻塞 Linux 的合并流程。
 on:
   push:
     branches: ["main", "master"]
@@ -23,7 +30,7 @@ env:
 
 jobs:
   # ════════════════════════════════════════════════════════════════
-  # Linux：逐库 verify job（矩阵）
+  # Linux：逐库 verify job（矩阵）——严格门禁
   # ════════════════════════════════════════════════════════════════
   verify-linux:
     name: verify-${{ matrix.lib }} (Linux)
@@ -92,13 +99,14 @@ jobs:
           fi
 
   # ════════════════════════════════════════════════════════════════
-  # Windows MinGW：逐库 verify job（矩阵）
+  # Windows MinGW：逐库 verify job（矩阵）——best-effort（不阻塞）
   # ════════════════════════════════════════════════════════════════
   verify-windows-mingw:
     name: verify-${{ matrix.lib }} (Windows MinGW)
     runs-on: windows-latest
     permissions:
       contents: read
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
