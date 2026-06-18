@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+### 新增（真实库本地验证脚本套件）
+
+- **`usage/` 新增 7 个真实库的本地验证脚本**：`verify-tinyxml2-ffi.sh` / `verify-pugixml-ffi.sh` / `verify-nlohmann-json-ffi.sh` / `verify-fmtlib-ffi.sh` / `verify-magic-enum-ffi.sh` / `verify-tomlplusplus-ffi.sh` / `verify-sqlite3-ffi.sh`，与既有的 `verify-rapidjson-ffi.sh` 同构（7 段式：环境检查 → 安装 → 子模块/系统头 → init → merge → cargo check/test → FFI 审计 → 报告），可在任意 Linux 终端直接执行。
+- **`usage/lib/common.sh`**：抽取共享 shell 库（环境检查、安装、子模块初始化、init/merge 调度、cargo 校验、FFI 审计、报告生成），消除 80% 复制粘贴；各 verify 脚本只需声明库特有参数（`LIB_NAME` / `SOURCES` / `INCLUDE_DIRS` / `SUBMODULE_REL`）。
+- **`usage/verify-all-ffi.sh`**：聚合入口，循环跑 8 个库的脚本，独立日志写入 `/tmp/cpp2rust-verify-<lib>.log`，任一失败不阻塞其他库，末尾汇总 PASS / FAIL 矩阵。支持库名参数选择子集（如 `bash usage/verify-all-ffi.sh tinyxml2 fmtlib`）。
+- **`.github/workflows/usage-verify-all.yml`**：CI 接入，按库分 job 并行执行 verify 脚本（Linux + Windows MinGW）。
+- **header-only 库（nlohmann-json / magic_enum / tomlplusplus）的 driver cpp 自动生成**：脚本在 PROJECT_ROOT 生成临时 `_cpp2rust_<lib>_driver.cpp`（仅 `#include <header>`）作为预处理拦截入口，trap 自动清理。
+- **工作目录策略**：所有 verify 脚本从 PROJECT_ROOT 运行 init/merge（而非仓库根），使捕获的相对路径只剩 basename，规避 link_name 含 `/` 污染 hicc 命名空间拼接的问题；`.gitignore` 新增 `/references/**/.cpp2rust/` 规则避免污染子模块状态。
+- **`usage/README.md` 重写**：脚本清单表、7 段式流程图、工作目录策略说明、各库当前通过情况基线表（诚实记录 cpp2rust-demo 对各库的支持程度）、环境变量、故障排查。
+
+### 变更
+
+- **`usage/verify-rapidjson-ffi.sh`**：修复 `cargo install` 命令，显式指定包名 `cpp2rust-demo`（upstream 仓库新增多个示例 Cargo.toml 后，`cargo install --git` 不再能确定要装哪个包）。其余逻辑零改动。
+- **`.gitignore`**：新增 `/references/**/.cpp2rust/` 规则，避免 verify 脚本在子模块根运行 init 时污染子模块状态。
+
 ### 新增（方案 A：build.rs 自动注入捕获的编译元数据）
 
 - **生成的 `build.rs` 不再需要外部脚本就地改写**：`init` 阶段从 LD_PRELOAD hook 记录的 `.opts`（`-I`/`-isystem`/`-iquote` include 路径与 `-std=`）还原编译选项，并由 `.cpp2rust` 路径反推被绑定符号定义所在的实现 `.cpp`，聚合为编译元数据落盘到 `meta/build-meta.json`（新增模块 `src/build_meta.rs`）。

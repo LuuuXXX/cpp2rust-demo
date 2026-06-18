@@ -123,7 +123,9 @@ if [ "${SKIP_INSTALL}" = "1" ] && command -v cpp2rust-demo &>/dev/null; then
 else
     info "从 GitHub 源码安装 cpp2rust-demo（首次编译需要几分钟）…"
     INSTALL_LOG=$(mktemp)
-    if ! cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked \
+    # 显式指定包名 cpp2rust-demo：upstream 仓库的 examples/*/rust_hicc/ 也含 Cargo.toml，
+    # 不指定包名时 cargo install 会因「multiple packages with binaries found」失败。
+    if ! cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked cpp2rust-demo \
              >"${INSTALL_LOG}" 2>&1; then
         echo "── cargo install 失败，完整日志：──"
         cat "${INSTALL_LOG}"
