@@ -397,15 +397,42 @@ cpp2rust_output_dir() {
 # 内嵌的 cc_build.file(<stage>/...) 也不同。cargo 的增量编译可能复用上一次的
 # .o 产物（指向旧 stage 路径），导致「No such file」错误。每次 cargo check 前
 # 先 cargo clean 强制完全重建。
+#
+# Windows MinGW 兼容：cc-rs 在 Windows 上可能误用 MSVC cl.exe（即使 Rust GNU
+# 工具链已安装）。在 MSYS2 环境下显式导出 CC=gcc / CXX=g++，让 cc-rs 优先
+# 使用 MinGW 工具链。
+
+# 在 Windows MSYS2 环境下设置 CC/CXX，避免 cc-rs 误用 MSVC cl.exe；
+# 同时设置 CARGO_TARGET_FLAG 让 cargo check/test 使用 GNU 工具链。
+CARGO_TARGET_FLAG=""
+cpp2rust_set_mingw_compiler() {
+    if cpp2rust_is_windows; then
+        # 仅当 CC/CXX 未被用户显式设置时才覆盖
+        if [ -z "${CC:-}" ]; then
+            export CC=gcc
+        fi
+        if [ -z "${CXX:-}" ]; then
+            export CXX=g++
+        fi
+        # Windows 上 Rust 默认用 MSVC 工具链；即使 GNU target 已安装，
+        # cargo 不加 --target 仍会用 MSVC，导致 cc-rs 调用 cl.exe 而非 gcc。
+        # 传 --target x86_64-pc-windows-gnu 强制使用 GNU 工具链。
+        if [ -z "${CARGO_TARGET_FLAG:-}" ]; then
+            CARGO_TARGET_FLAG="--target x86_64-pc-windows-gnu"
+        fi
+    fi
+}
+
 cpp2rust_cargo_check() {
     local rust_project="$1"
     if [ ! -f "${rust_project}/Cargo.toml" ]; then
         cpp2rust_fail "未找到 ${rust_project}/Cargo.toml，cargo check 无法执行"
     fi
+    cpp2rust_set_mingw_compiler
     cpp2rust_info "在 ${rust_project} 中运行 cargo clean + cargo check ..."
     # cargo clean：清掉 stale .o（指向旧 stage 路径）
     (cd "${rust_project}" && cargo clean 2>/dev/null || true)
-    if (cd "${rust_project}" && cargo check 2>&1); then
+    if (cd "${rust_project}" && cargo check ${CARGO_TARGET_FLAG} 2>&1); then
         cpp2rust_ok "cargo check 通过 ✓"
     else
         cpp2rust_fail "cargo check 失败 — 生成的 FFI 代码存在编译错误，请检查上方输出"
@@ -420,8 +447,9 @@ cpp2rust_cargo_test() {
         cpp2rust_info "未生成 tests/smoke.rs（可能 init 阶段无 pub class 类型），跳过 cargo test"
         return 0
     fi
+    cpp2rust_set_mingw_compiler
     cpp2rust_info "检测到冒烟测试文件：${smoke_file}"
-    if (cd "${rust_project}" && cargo test 2>&1); then
+    if (cd "${rust_project}" && cargo test ${CARGO_TARGET_FLAG} 2>&1); then
         cpp2rust_ok "cargo test 通过 ✓（生成的冒烟测试全部通过）"
     else
         cpp2rust_fail "cargo test 失败 — 冒烟测试未通过，请检查上方输出（链接错误可能源于 hicc import_lib! 测试二进制 _hicc_export_methods_* 限制，需要减少 smoke 中对工厂函数的调用或将其改为编译期断言）"

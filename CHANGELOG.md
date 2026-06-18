@@ -6,7 +6,7 @@
 
 ### 新增（脚本套件 + Windows 平台）
 
-- **`usage/` 新增 7 个真实库的本地验证脚本**：`verify-tinyxml2-ffi.sh` / `verify-pugixml-ffi.sh` / `verify-nlohmann-json-ffi.sh` / `verify-fmtlib-ffi.sh` / `verify-magic-enum-ffi.sh` / `verify-tomlplusplus-ffi.sh` / `verify-sqlite3-ffi.sh`，与既有的 `verify-rapidjson-ffi.sh` 同构（7 段式），可在任意 Linux / Windows MinGW 终端直接执行，**严格保证 cargo check + cargo test 全部通过**。
+- **`usage/` 新增 7 个真实库的本地验证脚本**：`verify-tinyxml2-ffi.sh` / `verify-pugixml-ffi.sh` / `verify-nlohmann-json-ffi.sh` / `verify-fmtlib-ffi.sh` / `verify-magic_enum-ffi.sh` / `verify-tomlplusplus-ffi.sh` / `verify-sqlite3-ffi.sh`，与既有的 `verify-rapidjson-ffi.sh` 同构（7 段式），可在任意 Linux / Windows MinGW 终端直接执行，**严格保证 cargo check + cargo test 全部通过**。
 - **`usage/lib/common.sh`**：抽取共享 shell 库，新增 `cpp2rust_is_windows` / `cpp2rust_lib_name` 等 Windows 平台检测；`cpp2rust_filter_bindings` 通用过滤已知问题函数；`cpp2rust_link_into_stage` 支持硬链接/复制；多个审计函数容忍 set -euo pipefail 下的 find/grep 退出码。
 - **`usage/verify-all-ffi.sh`**：聚合入口，支持 8 个库一键运行 + 子集选择。
 - **`.github/workflows/usage-verify-all.yml`**：CI 矩阵扩展，Linux 7 库 + Windows MinGW 6 库（sqlite3 暂跳过 Windows）+ Linux 聚合。

@@ -15,7 +15,7 @@
 | [`verify-pugixml-ffi.sh`](verify-pugixml-ffi.sh) | pugixml | 单 cpp + 单 hpp，大量成员函数 | `references/pugixml/` |
 | [`verify-nlohmann-json-ffi.sh`](verify-nlohmann-json-ffi.sh) | nlohmann/json | header-only，超大单头 + 重度模板 | `references/nlohmann-json/` |
 | [`verify-fmtlib-ffi.sh`](verify-fmtlib-ffi.sh) | fmtlib/fmt | 多 .cc 文件 + extern template | `references/fmtlib/` |
-| [`verify-magic-enum-ffi.sh`](verify-magic-enum-ffi.sh) | magic_enum | header-only，constexpr 模板元编程 | `references/magic_enum/` |
+| [`verify-magic_enum-ffi.sh`](verify-magic_enum-ffi.sh) | magic_enum | header-only，constexpr 模板元编程 | `references/magic_enum/` |
 | [`verify-tomlplusplus-ffi.sh`](verify-tomlplusplus-ffi.sh) | toml++ | header-only，大型单头 | `references/tomlplusplus/` |
 | [`verify-sqlite3-ffi.sh`](verify-sqlite3-ffi.sh) | sqlite3 | 系统 C 库，extern "C" API | `libsqlite3-dev` |
 | [`verify-all-ffi.sh`](verify-all-ffi.sh) | 全部 8 个库的聚合入口 | — | — |

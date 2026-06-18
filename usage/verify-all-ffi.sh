@@ -83,7 +83,7 @@ SCRIPT_MAP_FILES=(
     "verify-pugixml-ffi.sh"
     "verify-nlohmann-json-ffi.sh"
     "verify-fmtlib-ffi.sh"
-    "verify-magic-enum-ffi.sh"
+    "verify-magic_enum-ffi.sh"
     "verify-tomlplusplus-ffi.sh"
     "verify-sqlite3-ffi.sh"
 )
