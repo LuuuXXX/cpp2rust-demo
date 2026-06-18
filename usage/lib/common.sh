@@ -464,10 +464,23 @@ cpp2rust_ensure_build_rs_includes() {
     done
 
     if [ "$has_new_lines" = "1" ]; then
-        # 在 .compile( 之前插入新行
+        # 在 build 链式调用（.rust_file( 或 .compile(）之前插入 cc_build 行。
+        # build.rs 结构为：
+        #   cc_build.std("c++17");           ← cc_build 块
+        #   build                            ← hicc_build 链式调用开始
+        #       .rust_file("...")
+        #       .compile("...");
+        # 必须在 `build` 链之前（cc_build 块的末尾之后）插入，
+        # 否则会把链式调用断开导致语法错误。
         awk -v lines="${new_lines}" '
-            /\.compile\(/ && !inserted {
-                print lines
+            /^[[:space:]]*build[[:space:]]*$/ && !inserted {
+                # 在 build 行之前插入 cc_build 行
+                printf "%s", lines
+                inserted = 1
+            }
+            /^[[:space:]]*build[[:space:]]*\./ && !inserted {
+                # 单行 build.xxx 形式
+                printf "%s", lines
                 inserted = 1
             }
             { print }
