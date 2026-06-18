@@ -7,11 +7,12 @@ name: Usage verify-all (本地验证脚本套件)
 # 两者互补：前者是工具内部 API 回归，后者是 CLI 流程端到端验证。
 #
 # 平台策略：
-#   - Linux：严格门禁（失败阻塞合并）
-#   - Windows MinGW：best-effort（continue-on-error，不阻塞合并）。
+#   - Linux：严格门禁（失败阻塞合并），覆盖全部 8 库 + 聚合入口
+#   - Windows MinGW：暂不在本 workflow 中验证。
 #     原因：hicc-std crate 的 build.rs 在 target_os="windows" 时无条件添加 MSVC
-#     风格编译器选项（/we4054 等），在 GNU 工具链下 g++ 无法识别。修复需要
-#     hicc-std 上游更新。Windows 作为信号收集平台，不阻塞 Linux 的合并流程。
+#     风格编译器选项（/we4054 等），在 GNU 工具链下 g++ 无法识别；且 Windows 上
+#     hook_shim 不保存编译选项到 .opts，导致 build.rs 的 include 路径缺失。
+#     Windows 的 CI 验证仍由 ci.yml 中的 L1/L2/L3/L4/L5/L6 系列覆盖。
 on:
   push:
     branches: ["main", "master"]
@@ -93,96 +94,6 @@ jobs:
           log="/tmp/cpp2rust-verify-${{ matrix.lib }}.log"
           if [ -f "$log" ]; then
             echo "### ${{ matrix.lib }} 日志（最后 30 行）" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 30 "$log" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-
-  # ════════════════════════════════════════════════════════════════
-  # Windows MinGW：逐库 verify job（矩阵）——best-effort（不阻塞）
-  # ════════════════════════════════════════════════════════════════
-  verify-windows-mingw:
-    name: verify-${{ matrix.lib }} (Windows MinGW)
-    runs-on: windows-latest
-    permissions:
-      contents: read
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        # sqlite3 在 Windows MinGW 上无系统包，暂跳过
-        lib: [tinyxml2, pugixml, nlohmann-json, fmtlib, magic_enum, tomlplusplus]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Init submodule
-        run: |
-          $lib = "${{ matrix.lib }}"
-          if ($lib -eq "nlohmann-json") {
-            git submodule update --init references/nlohmann-json
-          } else {
-            git submodule update --init "references/$lib"
-          }
-
-      - name: Setup MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-clang
-            mingw-w64-x86_64-binutils
-            git
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install LLVM (for libclang)
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
-
-      - name: Install Rust toolchain (GNU ABI)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-mingw-cargo-usage-verify-${{ matrix.lib }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-mingw-cargo-usage-verify-${{ matrix.lib }}-
-            ${{ runner.os }}-mingw-cargo-
-
-      - name: Build cpp2rust-demo binary (GNU ABI)
-        run: cargo build --release
-        env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-
-      - name: Run verify-${{ matrix.lib }}-ffi.sh in MSYS2 shell
-        shell: msys2 {0}
-        env:
-          SKIP_INSTALL: "1"
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
-        run: |
-          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
-          bash usage/verify-${{ matrix.lib }}-ffi.sh
-
-      - name: Log tail to step summary
-        if: always()
-        shell: msys2 {0}
-        run: |
-          log="/tmp/cpp2rust-verify-${{ matrix.lib }}.log"
-          if [ -f "$log" ]; then
-            echo "### ${{ matrix.lib }} (Windows MinGW) 日志（最后 30 行）" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             tail -n 30 "$log" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
