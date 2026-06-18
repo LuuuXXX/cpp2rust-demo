@@ -10,12 +10,13 @@ git submodule update --init references/<name>
 
 ## 子模块清单
 
-| 路径 | 用途 |
-|------|------|
-| `hicc` | hicc 运行时/宏库（绑定生成目标） |
-| `hicc-usages` | hicc 用法范例（去 shim 直出形态、行为级冒烟样板、`tools/` AST 辅助脚本来源）。甄别与对照见 [`docs/references/hicc-usages-comparison.md`](../docs/references/hicc-usages-comparison.md) |
-| `c2rust-demo` | C → Rust 迁移参考 |
-| `tinyxml2` / `pugixml` / `nlohmann-json` / `fmtlib` / `sqlite` / `magic_enum` / `tomlplusplus` | 真实库 E2E 依赖（各自有 `tests/<lib>_e2e_test.rs` 与 `.github/workflows/e2e-<lib>.yml`） |
+| 路径 | 用途 | 本地验证脚本 |
+|------|------|-------------|
+| `hicc` | hicc 运行时/宏库（绑定生成目标） | — |
+| `hicc-usages` | hicc 用法范例（去 shim 直出形态、行为级冒烟样板、`tools/` AST 辅助脚本来源）。甄别与对照见 [`docs/references/hicc-usages-comparison.md`](../docs/references/hicc-usages-comparison.md) | — |
+| `c2rust-demo` | C → Rust 迁移参考 | — |
+| `tinyxml2` / `pugixml` / `nlohmann-json` / `fmtlib` / `magic_enum` / `tomlplusplus` | 真实库 E2E 依赖（各自有 `tests/<lib>_e2e_test.rs` 与 `.github/workflows/e2e-<lib>.yml`） | [`usage/verify-<lib>-ffi.sh`](../usage/) |
+| `sqlite` | sqlite 上游镜像（E2E 测试实际使用系统 `sqlite3.h`） | [`usage/verify-sqlite3-ffi.sh`](../usage/verify-sqlite3-ffi.sh) |
 
 ## `rapidjson-refactoring` 为何保留 vendored（不子模块化）
 

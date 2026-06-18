@@ -4,6 +4,7 @@
 examples-target/
 /.cpp2rust
 /examples/**/.cpp2rust/
+/references/**/.cpp2rust/
 /examples/*/rust/
 /examples/*/*/rust/
 Cargo.lock

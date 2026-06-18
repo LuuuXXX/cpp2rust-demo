@@ -1,0 +1,171 @@
+name: Usage verify-all (本地验证脚本套件)
+
+# 跑 usage/verify-<lib>-ffi.sh 系列（与 ci.yml 中的 usage-verify-rapidjson-ffi job 互补）。
+# 与 e2e-<lib>.yml 区别：
+#   - e2e-<lib>.yml 跑的是 Rust 集成测试（cargo test --test <lib>_e2e_test）
+#   - 本 workflow 跑的是用户视角的 Shell 脚本（bash usage/verify-<lib>-ffi.sh）
+# 两者互补：前者是工具内部 API 回归，后者是 CLI 流程端到端验证。
+#
+# 平台策略：
+#   - Linux：严格门禁（失败阻塞合并），覆盖全部 8 库 + 聚合入口
+#   - Windows MinGW：暂不在本 workflow 中验证。
+#     原因：hicc-std crate 的 build.rs 在 target_os="windows" 时无条件添加 MSVC
+#     风格编译器选项（/we4054 等），在 GNU 工具链下 g++ 无法识别；且 Windows 上
+#     hook_shim 不保存编译选项到 .opts，导致 build.rs 的 include 路径缺失。
+#     Windows 的 CI 验证仍由 ci.yml 中的 L1/L2/L3/L4/L5/L6 系列覆盖。
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "src/**"
+      - "hook/**"
+      - "usage/**"
+      - ".github/workflows/usage-verify-all.yml"
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ════════════════════════════════════════════════════════════════
+  # Linux：逐库 verify job（矩阵）——严格门禁
+  # ════════════════════════════════════════════════════════════════
+  verify-linux:
+    name: verify-${{ matrix.lib }} (Linux)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        lib: [tinyxml2, pugixml, nlohmann-json, fmtlib, magic_enum, tomlplusplus, sqlite3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodules (除 sqlite3)
+        if: matrix.lib != 'sqlite3'
+        run: |
+          case "${{ matrix.lib }}" in
+            nlohmann-json) git submodule update --init references/nlohmann-json ;;
+            magic_enum)    git submodule update --init references/magic_enum ;;
+            *)             git submodule update --init references/${{ matrix.lib }} ;;
+          esac
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils \
+            libsqlite3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-usage-verify-${{ matrix.lib }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-usage-verify-${{ matrix.lib }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-${{ matrix.lib }}-ffi.sh
+        env:
+          SKIP_INSTALL: "1"
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          bash usage/verify-${{ matrix.lib }}-ffi.sh
+
+      - name: Log tail to step summary
+        if: always()
+        run: |
+          log="/tmp/cpp2rust-verify-${{ matrix.lib }}.log"
+          if [ -f "$log" ]; then
+            echo "### ${{ matrix.lib }} 日志（最后 30 行）" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 30 "$log" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ════════════════════════════════════════════════════════════════
+  # Linux：聚合入口（依赖所有 verify-linux 完成）
+  # ════════════════════════════════════════════════════════════════
+  verify-aggregator-linux:
+    name: verify-all-ffi.sh (Linux aggregator)
+    runs-on: ubuntu-latest
+    needs: verify-linux
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init all E2E submodules
+        run: |
+          git submodule update --init \
+            references/tinyxml2 \
+            references/pugixml \
+            references/nlohmann-json \
+            references/fmtlib \
+            references/magic_enum \
+            references/tomlplusplus
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils \
+            libsqlite3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-usage-verify-all-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-usage-verify-all-
+            ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-all-ffi.sh (聚合)
+        env:
+          SKIP_INSTALL: "1"
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          bash usage/verify-all-ffi.sh
+
+      - name: Aggregate summary to step summary
+        if: always()
+        run: |
+          echo "### verify-all 聚合结果（Linux）" >> $GITHUB_STEP_SUMMARY
+          for lib in rapidjson tinyxml2 pugixml nlohmann-json fmtlib magic_enum tomlplusplus sqlite3; do
+            log="/tmp/cpp2rust-verify-${lib}.log"
+            if [ -f "$log" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "#### ${lib}" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              tail -n 15 "$log" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
+          done

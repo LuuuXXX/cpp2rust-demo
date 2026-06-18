@@ -435,6 +435,8 @@ cargo build --features linux_x86,arm_embedded
 
 本仓库在 `references/rapidjson-refactoring/rapidjson_sys/shim/` 保留了一套完整的 rapidjson `extern "C"` shim 参考实现（10 个子系统），可用 `bash usage/verify-rapidjson-ffi.sh` 体验完整转换 + 验证流程。
 
+> **本地一键验证**：`usage/` 目录提供 8 个真实库（rapidjson + tinyxml2 / pugixml / nlohmann-json / fmtlib / magic_enum / tomlplusplus / sqlite3）的本地验证脚本，可在终端直接执行，覆盖完整 `init → merge → cargo check → cargo test → FFI 审计` 流程。`bash usage/verify-all-ffi.sh` 一键跑全部；详见 [`usage/README.md`](usage/README.md)。
+
 ---
 
 ## 生成代码格式（三段式）

@@ -325,8 +325,17 @@ fn second_pass_generate(
     let mut degraded_tags: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
 
     for ud in all_units {
-        let preamble = build_cross_module_preamble(&ud.spec, &ud.unit_path, class_to_module);
-        let code = format!("{}{}", preamble, hicc_codegen::generate(&ud.spec));
+        let (use_imports, opaque_decls) =
+            build_cross_module_preamble_split(&ud.spec, &ud.unit_path, class_to_module);
+        let body = hicc_codegen::generate(&ud.spec);
+        // 把 use_imports 放最前（在 generate 自己的 `use crate::*` 之前），
+        // 把 opaque_decls 放到 `hicc::cpp! { ... }` 块之后（hicc 处理 import_class!
+        // 时生成的 C++ 代码需要 cpp! 块的 #include 已生效，否则报「type not declared」）。
+        let code = if opaque_decls.is_empty() {
+            format!("{}{}", use_imports, body)
+        } else {
+            inject_after_cpp_block(&use_imports, &opaque_decls, &body)
+        };
 
         count_degraded_tags(&code, &ud.unit_path, &mut degraded_tags);
 
@@ -361,6 +370,69 @@ fn print_degraded_summary(sorted_tags: &[(String, Vec<(String, usize)>)]) {
         }
     }
     println!("  → 在生成文件中搜索 'cpp2rust-todo' 可定位这些位置。");
+}
+
+/// 把 `use_imports` 放在 `body` 之前，把 `opaque_decls` 插入到 `body` 的第一个
+/// `hicc::cpp! { ... }` 块结束之后。
+///
+/// 背景：opaque_decls 内是 `hicc::import_class! { pub class Foo {} }` 块，hicc 处理
+/// 时会生成引用 C++ 类型 `Foo` 的代码。若这些块出现在 `cpp!` 块（含 `#include "foo.h"`）
+/// 之前，C++ 侧 `Foo` 还未声明，编译报错「type not declared in this scope」。
+/// 因此必须放在 cpp! 块之后。
+fn inject_after_cpp_block(use_imports: &str, opaque_decls: &str, body: &str) -> String {
+    // 找到第一个完整的 `hicc::cpp! { ... }` 块的结束位置
+    let marker = "hicc::cpp! {";
+    let mut out = String::with_capacity(use_imports.len() + body.len() + opaque_decls.len() + 2);
+    out.push_str(use_imports);
+
+    if let Some(start_rel) = body.find(marker) {
+        let start = start_rel + marker.len();
+        // 从 marker 之后开始配对括号
+        let bytes = body.as_bytes();
+        let mut depth = 1i32;
+        let mut in_str = false;
+        let mut esc = false;
+        let mut end = body.len(); // 兜底
+        let mut i = start;
+        while i < bytes.len() {
+            let c = bytes[i] as char;
+            if esc {
+                esc = false;
+                i += 1;
+                continue;
+            }
+            match c {
+                '\\' if in_str => esc = true,
+                '"' => in_str = !in_str,
+                '{' if !in_str => depth += 1,
+                '}' if !in_str => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        out.push_str(&body[..end]);
+        out.push_str("\n\n");
+        out.push_str(opaque_decls);
+        // 保证 opaque_decls 末尾有换行
+        if !opaque_decls.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&body[end..]);
+    } else {
+        // 无 cpp! 块：opaque_decls 退化为放在 body 最前面（极少见）
+        out.push_str(opaque_decls);
+        if !opaque_decls.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(body);
+    }
+    out
 }
 
 /// 使该类型自动实现 `AbiClass`，满足 `import_lib!` 中 `class TypeName;` 的 trait 约束。
@@ -419,6 +491,25 @@ pub fn build_cross_module_preamble(
     current_unit_path: &str,
     class_to_module: &HashMap<String, String>,
 ) -> String {
+    let (use_imports, opaque_decls) =
+        build_cross_module_preamble_split(spec, current_unit_path, class_to_module);
+    if use_imports.is_empty() && opaque_decls.is_empty() {
+        String::new()
+    } else {
+        format!("{}{}\n", use_imports, opaque_decls)
+    }
+}
+
+/// 与 `build_cross_module_preamble` 相同，但返回 `(use_imports, opaque_decls)` 拆分：
+/// - `use_imports`：`use crate::xxx::Foo;` 行，可安全放在 `cpp!` 块之前
+/// - `opaque_decls`：`hicc::import_class! { pub class Foo {} }` 块，**必须**放在
+///   `cpp!` 块之后（hicc 处理 import_class! 时会生成引用 C++ 类型的代码，若
+///   `cpp!` 块的 `#include` 尚未生效，会报「type not declared in this scope」）
+pub fn build_cross_module_preamble_split(
+    spec: &FfiSpec,
+    current_unit_path: &str,
+    class_to_module: &HashMap<String, String>,
+) -> (String, String) {
     // 只计入实际生成了 import_class! 块的类（与 hicc_codegen::generate 的跳过条件一致）
     let local_class_names: HashSet<&str> = spec
         .class_specs
@@ -426,6 +517,13 @@ pub fn build_cross_module_preamble(
         .filter(|cs| !cs.is_empty())
         .map(|cs| cs.name.as_str())
         .collect();
+
+    if std::env::var("CPP2RUST_DEBUG_GEN").is_ok() {
+        eprintln!(
+            "[preamble] unit={} local_class_names={:?} fwd_decls={:?}",
+            current_unit_path, local_class_names, spec.lib_spec.fwd_decls
+        );
+    }
 
     let mut use_imports = String::new();
     let mut opaque_decls = String::new();
@@ -450,11 +548,7 @@ pub fn build_cross_module_preamble(
         }
     }
 
-    if use_imports.is_empty() && opaque_decls.is_empty() {
-        String::new()
-    } else {
-        format!("{}{}\n", use_imports, opaque_decls)
-    }
+    (use_imports, opaque_decls)
 }
 
 /// 扫描生成代码中的 `cpp2rust-todo[TAG]` 标签，按编译单元统计各 tag 出现次数。

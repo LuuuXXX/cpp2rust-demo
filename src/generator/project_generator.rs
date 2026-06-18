@@ -95,10 +95,18 @@ fn insert_path(tree: &mut BTreeMap<String, ModuleNode>, parts: &[&str]) {
 /// `use crate::*;` 访问兄弟模块中定义的类型（如跨文件的 `hicc::import_class!` 类型引用）。
 /// 开头的 `#![allow(unused_imports)]` 抑制空模块（如无 extern-C 函数的 encoding 单元）的
 /// glob 重导出警告，这些警告纯属 lint 噪音，不影响功能。
+///
+/// `#![allow(ambiguous_glob_imports)]` 抑制多 unit 同名类型的 glob 冲突
+/// （Rust 1.89+ 将此从警告变为硬错误，issue #114095）。当多个 .cc 文件
+/// （如 fmtlib 的 format.cc 和 os.cc）都生成了同名的 C++ 类时，
+/// `pub use self::format::*; pub use self::os::*;` 会产生 ambiguous glob import。
+/// 由于 cpp2rust-demo 对每个 unit 生成独立的 import_class! 块，同名类在不同
+/// 模块中是不同类型（各自有独立的 hicc MethodsType 特化），glob 冲突不会导致
+/// 运行时问题——调用方通过完整模块路径消歧即可。
 fn generate_mod_declarations(tree: &BTreeMap<String, ModuleNode>) -> String {
     // 注意：content 始终以 allow 指令开头，因此不能用 `content.is_empty()` 来判断
     // 树是否为空——这里改为直接检查 tree 本身。
-    let mut content = String::from("#![allow(unused_imports)]\n");
+    let mut content = String::from("#![allow(unused_imports, ambiguous_glob_imports)]\n");
     for name in tree.keys() {
         content.push_str(&format!("pub mod {};\n", name));
         content.push_str(&format!("pub use self::{}::*;\n", name));
