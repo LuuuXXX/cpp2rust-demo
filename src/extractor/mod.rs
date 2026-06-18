@@ -61,20 +61,59 @@ pub fn extract(
     let has_classes = ast.classes.iter().any(|c| !c.is_in_namespace);
 
     // 去重：对于同名函数，只保留一个（有 body_offset 的优先；否则 is_extern_c=false 优先）
-    // 只纳入来自当前 .cpp 文件本身或显式 extern "C" 声明的函数，
-    // 过滤掉通过 #include 引入的头文件内部函数（它们不应被导出为 FFI）。
     //
-    // 第三条件：非内联函数且有定义体（body_offset）。
-    // 背景：在 Windows LLVM 17 上，extern "C" 函数有时以顶层 FunctionDecl 出现（而非
-    // LinkageSpec 的子节点），导致 is_extern_c=false；同时 get_file_location().offset 可能
-    // 返回原始源文件偏移量而非预处理文件偏移量，导致 is_from_current_file=false。
-    // 对于有函数体（is_definition=true）的非内联函数，无论以上两个标志是否正确，
-    // 均应将其视为待导出函数。头文件中的函数声明无 body_offset，不受此条影响。
+    // 函数纳入规则（按优先级短路）：
+    //   1. extern-C 全局函数（rapidjson shims / sqlite3 API）：始终纳入。
+    //   2. extern-C **命名空间** 函数 + 在 .cpp body 内（is_from_current_file=true）：
+    //      跳过。libclang 会把 .cpp 内的 C++ 命名空间函数（如 pugixml.cpp 的
+    //      `pugi::impl::default_allocate`）误判为 extern-C，但这些是内部实现，
+    //      外部 TU 无法访问，导出会导致 hicc 编译报错。
+    //   3. C++ 命名空间函数：仅当声明在被 #include 的头文件中（is_from_current_file=false）
+    //      才纳入。
+    //   4. Windows LLVM 17 兼容：当 extern-C 函数的 is_extern_c 与 is_from_current_file
+    //      均被 libclang 错判为 false，但有 body_offset（函数定义存在）时，仍按 extern-C
+    //      处理。
     let eligible_functions: Vec<FunctionInfo> = ast
         .functions
         .iter()
         .filter(|f| {
-            f.is_from_current_file || f.is_extern_c || (f.body_offset.is_some() && !f.is_inline)
+            // 规则 2：extern-C 命名空间函数 + .cpp body 内 + 命名空间是「内部」（detail/impl/...）
+            // 才跳过。libclang 把 .cpp 内的 C++ 命名空间函数（如 pugixml 的
+            // `pugi::impl::default_allocate`）误判为 extern-C，这些是内部实现，
+            // 外部 TU 无法访问，导出会导致 hicc 编译报错。但对于合法的库顶层命名空间
+            // 函数（如 `hello_world_ns::hello_world()` 定义在 .cpp body），仍需保留。
+            if f.is_extern_c && f.namespace.is_some() && f.is_from_current_file {
+                if let Some(ns) = &f.namespace {
+                    if ns.split("::").any(|seg| {
+                        matches!(
+                            seg,
+                            "detail" | "impl" | "internal" | "customize" | "priv" | "private"
+                        )
+                    }) {
+                        return false;
+                    }
+                }
+            }
+            if f.is_extern_c {
+                return true;
+            }
+            if f.body_offset.is_some() && !f.is_inline && !f.is_from_current_file {
+                // Windows LLVM 兼容：有定义体 + 不在 .cpp body 内
+                return true;
+            }
+            // 跳过库内部命名空间内的函数（detail / impl / internal / customize / priv 等）
+            if let Some(ns) = &f.namespace {
+                if ns.split("::").any(|seg| {
+                    matches!(
+                        seg,
+                        "detail" | "impl" | "internal" | "customize" | "priv" | "private"
+                    )
+                }) {
+                    return false;
+                }
+            }
+            // C++ 命名空间函数：从头文件声明
+            !f.is_from_current_file
         })
         .cloned()
         .collect();
@@ -103,7 +142,14 @@ pub fn extract(
             .collect();
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
         let mut lib_spec = lib_spec::build_lib_spec_namespaced(&free_fns, unit_name, &class_names);
-        lib_spec.link_name = unit_name.to_string();
+        // link_name 规范化：仅取末段文件名，避免 unit_name 含路径分隔符 `/` 时
+        // 污染 hicc 命名空间拼接宏（如 references/tinyxml2/tinyxml2 → tinyxml2）。
+        // 与下方 build_lib_spec 的 basename 处理对齐（见 lib_spec.rs:122）。
+        lib_spec.link_name = std::path::Path::new(unit_name)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(unit_name)
+            .to_string();
         return FfiSpec {
             unit_name: unit_name.to_string(),
             cpp_block_lines,
@@ -150,6 +196,11 @@ pub fn extract(
             .iter()
             .filter(|c| !c.name.is_empty())
             .filter(|c| used_classes.contains(&c.name))
+            // 跳过 .cpp 内部定义的类（is_from_current_file=true）：这些类不在任何
+            // 被 #include 的头文件中（如 pugixml.cpp 的 xml_allocator），外部编译单元
+            // 无法访问其完整定义，生成 import_class! 会在 hicc 编译时报
+            // "type not declared in this scope"。详见 hicc_direct 的同款过滤逻辑。
+            .filter(|c| !c.is_from_current_file)
             .map(|ci| {
                 class_spec::build_class_spec(ci, &ast.classes, &exported_class_names)
                     .unwrap_or_else(|| ClassSpec {

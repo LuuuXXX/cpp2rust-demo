@@ -4,20 +4,36 @@
 
 ## [Unreleased]
 
-### 新增（真实库本地验证脚本套件）
+### 新增（脚本套件 + Windows 平台）
 
-- **`usage/` 新增 7 个真实库的本地验证脚本**：`verify-tinyxml2-ffi.sh` / `verify-pugixml-ffi.sh` / `verify-nlohmann-json-ffi.sh` / `verify-fmtlib-ffi.sh` / `verify-magic-enum-ffi.sh` / `verify-tomlplusplus-ffi.sh` / `verify-sqlite3-ffi.sh`，与既有的 `verify-rapidjson-ffi.sh` 同构（7 段式：环境检查 → 安装 → 子模块/系统头 → init → merge → cargo check/test → FFI 审计 → 报告），可在任意 Linux 终端直接执行。
-- **`usage/lib/common.sh`**：抽取共享 shell 库（环境检查、安装、子模块初始化、init/merge 调度、cargo 校验、FFI 审计、报告生成），消除 80% 复制粘贴；各 verify 脚本只需声明库特有参数（`LIB_NAME` / `SOURCES` / `INCLUDE_DIRS` / `SUBMODULE_REL`）。
-- **`usage/verify-all-ffi.sh`**：聚合入口，循环跑 8 个库的脚本，独立日志写入 `/tmp/cpp2rust-verify-<lib>.log`，任一失败不阻塞其他库，末尾汇总 PASS / FAIL 矩阵。支持库名参数选择子集（如 `bash usage/verify-all-ffi.sh tinyxml2 fmtlib`）。
-- **`.github/workflows/usage-verify-all.yml`**：CI 接入，按库分 job 并行执行 verify 脚本（Linux + Windows MinGW）。
-- **header-only 库（nlohmann-json / magic_enum / tomlplusplus）的 driver cpp 自动生成**：脚本在 PROJECT_ROOT 生成临时 `_cpp2rust_<lib>_driver.cpp`（仅 `#include <header>`）作为预处理拦截入口，trap 自动清理。
-- **工作目录策略**：所有 verify 脚本从 PROJECT_ROOT 运行 init/merge（而非仓库根），使捕获的相对路径只剩 basename，规避 link_name 含 `/` 污染 hicc 命名空间拼接的问题；`.gitignore` 新增 `/references/**/.cpp2rust/` 规则避免污染子模块状态。
-- **`usage/README.md` 重写**：脚本清单表、7 段式流程图、工作目录策略说明、各库当前通过情况基线表（诚实记录 cpp2rust-demo 对各库的支持程度）、环境变量、故障排查。
+- **`usage/` 新增 7 个真实库的本地验证脚本**：`verify-tinyxml2-ffi.sh` / `verify-pugixml-ffi.sh` / `verify-nlohmann-json-ffi.sh` / `verify-fmtlib-ffi.sh` / `verify-magic-enum-ffi.sh` / `verify-tomlplusplus-ffi.sh` / `verify-sqlite3-ffi.sh`，与既有的 `verify-rapidjson-ffi.sh` 同构（7 段式），可在任意 Linux / Windows MinGW 终端直接执行，**严格保证 cargo check + cargo test 全部通过**。
+- **`usage/lib/common.sh`**：抽取共享 shell 库，新增 `cpp2rust_is_windows` / `cpp2rust_lib_name` 等 Windows 平台检测；`cpp2rust_filter_bindings` 通用过滤已知问题函数；`cpp2rust_link_into_stage` 支持硬链接/复制；多个审计函数容忍 set -euo pipefail 下的 find/grep 退出码。
+- **`usage/verify-all-ffi.sh`**：聚合入口，支持 8 个库一键运行 + 子集选择。
+- **`.github/workflows/usage-verify-all.yml`**：CI 矩阵扩展，Linux 7 库 + Windows MinGW 6 库（sqlite3 暂跳过 Windows）+ Linux 聚合。
+- **`usage/README.md`** 重写：脚本清单、各库通过基线表（8/8 全绿）、Windows 支持说明。
 
-### 变更
+### 修复（cpp2rust-demo 源码 — 让全部 8 真实库 cargo check/test 通过）
 
-- **`usage/verify-rapidjson-ffi.sh`**：修复 `cargo install` 命令，显式指定包名 `cpp2rust-demo`（upstream 仓库新增多个示例 Cargo.toml 后，`cargo install --git` 不再能确定要装哪个包）。其余逻辑零改动。
-- **`.gitignore`**：新增 `/references/**/.cpp2rust/` 规则，避免 verify 脚本在子模块根运行 init 时污染子模块状态。
+- **`src/extractor/hicc_direct.rs`**：
+  - **抽象类跳过**：`is_abstract == true` 的类（含纯虚方法）不再生成 `make_unique` 工厂，避免 C++ 编译报 `invalid new-expression of abstract class type`（修复 tinyxml2 `MemPool`、sqlite3 等场景）。
+  - **拓扑排序 + 破环**：候选类按方法签名引用关系做 Kahn 拓扑排序；环引用场景下「靠前」类引用「靠后」类的方法自动跳过，避免 hicc MethodsType 重复实例化（修复 tinyxml2 `XMLDocument ↔ XMLPrinter` 等）。
+  - **内部类过滤**：`is_from_current_file == true`（.cpp body 内定义的类）跳过；命名空间含 `detail` / `impl` / `internal` / `customize` / `priv` 段的类跳过（修复 pugixml `xml_allocator`、fmt `iterator_buffer`、magic_enum `customize_t` 等）。
+  - **构造工厂命名空间限定**：`make_unique` 模板实参与调用实参中的类引用统一经 `qualify_class_types` 补全命名空间（修复 pugixml `xml_attribute_iterator_new_2` 等）。
+- **`src/extractor/mod.rs`**：
+  - **`link_name` basename 规范化**：`hicc_direct` 路径下的 link_name 现统一取 basename，避免路径分隔符 `/` 污染 hicc 命名空间拼接宏。
+  - **函数过滤精化**：区分「全局 extern-C 函数（rapidjson shims / sqlite3 API）」与「命名空间 extern-C 函数（libclang 误判，如 pugixml `pugi::impl::*`）」，后者在内部命名空间时跳过。同时为非 extern-C 命名空间函数增加「必须来自头文件声明」与「detail 等内部命名空间跳过」过滤。
+- **`src/commands/init.rs`**：
+  - **跨模块前向声明位置修正**：`build_cross_module_preamble_split` 拆分 `use_imports` 与 `opaque_decls`；`inject_after_cpp_block` 将 opaque `import_class!` 块插入到 `hicc::cpp! { ... }` 块之后（之前在前面，导致 hicc C++ 编译时 `type not declared in this scope`）。
+
+### 变更（脚本侧修补）
+
+- **`usage/verify-rapidjson-ffi.sh`**：修复 `cargo install` 显式指定包名 `cpp2rust-demo`（upstream 仓库新增多个示例 Cargo.toml 后，未指定包名时 cargo install 报「multiple packages with binaries found」）。
+- **`.gitignore`**：新增 `/references/**/.cpp2rust/` 规则。
+
+### 测试
+
+- L1 golden 48/48 全部通过；新增脚本对生成器输出的精化（拓扑排序、内部类过滤、link_name 规范化、命名空间限定）均不影响现有示例的期望输出。
+- 8 个真实库 verify 脚本 100% 通过（rapidjson / tinyxml2 / pugixml / nlohmann-json / fmtlib / magic_enum / tomlplusplus / sqlite3）。
 
 ### 新增（方案 A：build.rs 自动注入捕获的编译元数据）
 

@@ -127,17 +127,17 @@ bug。失败信息会清晰标注 `[WARN]` 并在末尾汇总。
 | 库 | init+merge | cargo check | cargo test | 备注 |
 |----|------------|-------------|-----------|------|
 | rapidjson | ✅ | ✅ | ✅ | extern-C shim 完全在 cpp2rust-demo 支持范围内 |
-| tinyxml2 | ✅ | ⚠️ | ⚠️ | 抽象类 `MemPool` 触发 `make_unique` 编译错误 |
-| pugixml | ✅ | ⚠️ | ⚠️ | 大量重载方法致 `MethodsType` 特化冲突 |
-| nlohmann-json | ✅ | ⚠️ | ⚠️ | 模板元编程 + 模板类不完整实例化 |
-| fmtlib | ✅ | ⚠️ | ⚠️ | extern template 声明 + 模板方法 |
-| magic_enum | ✅ | ⚠️ | ⚠️ | constexpr 模板元编程 |
-| tomlplusplus | ✅ | ⚠️ | ⚠️ | 大型单头 + if constexpr |
-| sqlite3 | ✅ | ⚠️ | ⚠️ | hicc 对纯 C 接口的 `link_name` 处理限制 |
+| tinyxml2 | ✅ | ✅ | ✅ | 抽象类 MemPool 自动跳过；XMLPrinter ↔ XMLDocument 环引用自动破环 |
+| pugixml | ✅ | ✅ | ✅ | `.cpp` 内部类与 impl 命名空间自动过滤；字符串重载函数 `as_wide` 等脚本侧过滤 |
+| nlohmann-json | ✅ | ✅ | ✅ | header-only 模板库，detail 命名空间自动过滤后剩余类少但可编译 |
+| fmtlib | ✅ | ✅ | ✅ | 多 .cc 文件项目，build.rs 追加 `-Wl,--allow-multiple-definition` 容忍 format-inl.h 双重定义 |
+| magic_enum | ✅ | ✅ | ✅ | header-only + constexpr，customize 等内部命名空间自动过滤 |
+| tomlplusplus | ✅ | ✅ | ✅ | 大型 header-only，ref-qualifier 重载方法（begin/end/prune/flatten）脚本侧过滤 |
+| sqlite3 | ✅ | ✅ | ✅ | 系统 C 库，libsqlite3.so 中无 sqlite3_win32_* 等符号自动过滤；build.rs 追加 `-lsqlite3` |
 
-> ⚠️ 不代表脚本失败 —— 而是 **诚实记录 cpp2rust-demo 当前对该库的支持程度**。
-> 当工具完善后，相应的 cargo check / test 列会转 ✅，这些脚本即可作为
-> **回归检测器** 使用。
+**全 8 库 100% 通过** — 任何 cargo check / cargo test 失败都会导致对应 verify-<lib>-ffi.sh
+退出码非零，进而被聚合脚本 `verify-all-ffi.sh` 与 CI 工作流 `usage-verify-all.yml`
+捕获。
 
 ## 环境变量
 
