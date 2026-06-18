@@ -284,6 +284,8 @@ cpp2rust_workdir() {
 }
 
 # 生成临时构建脚本（bash），编译给定源文件，触发 LD_PRELOAD hook 拦截
+# 同时把 include 路径和源文件路径记录到 CPP2RUST_BUILD_INCLUDES / CPP2RUST_BUILD_SOURCES
+# 环境变量，供 merge 后的 cpp2rust_ensure_build_rs_includes 兜底注入 build.rs。
 # 参数：输出脚本路径 INCLUDE_DIR1 [INCLUDE_DIR2...] -- SRC1 [SRC2...]
 cpp2rust_make_build_script() {
     local out_script="$1"; shift
@@ -301,6 +303,30 @@ cpp2rust_make_build_script() {
         fi
         shift
     done
+
+    # 记录绝对路径到全局环境变量（供 cpp2rust_ensure_build_rs_includes 使用）
+    local abs_includes="" abs_sources=""
+    for inc in "${includes[@]}"; do
+        # 将相对路径转为绝对路径
+        local abs_inc
+        if [ -n "${CPP2RUST_REPO_DIR:-}" ]; then
+            abs_inc="${CPP2RUST_REPO_DIR}/${inc}"
+        else
+            abs_inc="$(cd "$(dirname "$inc")" && pwd)/$(basename "$inc")"
+        fi
+        [ -d "$abs_inc" ] && abs_includes="${abs_includes} ${abs_inc}"
+    done
+    for src in "${sources[@]}"; do
+        local abs_src
+        if [ -n "${CPP2RUST_REPO_DIR:-}" ]; then
+            abs_src="${CPP2RUST_REPO_DIR}/${src}"
+        else
+            abs_src="$(cd "$(dirname "$src")" && pwd)/$(basename "$src")"
+        fi
+        [ -f "$abs_src" ] && abs_sources="${abs_sources} ${abs_src}"
+    done
+    export CPP2RUST_BUILD_INCLUDES="${abs_includes# }"
+    export CPP2RUST_BUILD_SOURCES="${abs_sources# }"
 
     {
         echo '#!/bin/bash'
@@ -378,12 +404,76 @@ cpp2rust_run_merge() {
     (cd "${workdir}" && cpp2rust-demo merge --feature "${feature}") \
         || cpp2rust_fail "cpp2rust-demo merge 失败"
     cpp2rust_ok "cpp2rust-demo merge 完成"
+
+    # 兜底：确保 build.rs 包含 cc_build.include/file
+    # （Windows hook_shim 不保存 .opts → build-meta.json 为空 → build.rs 缺路径）
+    local rust_project="${CPP2RUST_REPO_DIR}/.cpp2rust/${feature}/rust"
+    cpp2rust_ensure_build_rs_includes "${rust_project}"
 }
 
 # 返回该 feature 的输出目录
 cpp2rust_output_dir() {
     local feature="$1"
     echo "${CPP2RUST_REPO_DIR}/.cpp2rust/${feature}"
+}
+
+# 确保 build.rs 包含 cc_build.include + cc_build.file。
+#
+# 背景：Windows 上 hook_shim.exe 不保存编译选项到 .opts（与 Linux 的 hook.cpp
+# 不同），导致 build-meta.json 为空，build.rs 不包含 include 路径和 C++ 源文件。
+# cc-rs 编译时找不到头文件。
+#
+# 本函数检测 build.rs 是否已包含 cc_build.include/file；若否则根据脚本声明的
+# INCLUDE_DIRS / SOURCES（通过环境变量 CPP2RUST_BUILD_INCLUDES / CPP2RUST_BUILD_SOURCES
+# 传递）注入对应行。
+#
+# 参数：RUST_PROJECT_DIR
+# 环境变量：
+#   CPP2RUST_BUILD_INCLUDES — 空格分隔的 include 目录绝对路径列表
+#   CPP2RUST_BUILD_SOURCES — 空格分隔的 C++ 源文件绝对路径列表
+cpp2rust_ensure_build_rs_includes() {
+    local rust_project="$1"
+    local build_rs="${rust_project}/build.rs"
+    [ -f "${build_rs}" ] || return 0
+
+    # 如果已有 cc_build.include 则跳过（Linux 正常路径）
+    if grep -q 'cc_build.include' "${build_rs}" 2>/dev/null; then
+        return 0
+    fi
+
+    local has_new_lines=0
+    local new_lines=""
+
+    # 添加 include 路径
+    for inc in ${CPP2RUST_BUILD_INCLUDES:-}; do
+        [ -n "$inc" ] || continue
+        # 转换为 Windows 混合路径（D:/a/...）以兼容 MSVC cl.exe
+        local inc_bp
+        inc_bp="$(cpp2rust_to_build_path "$inc")"
+        new_lines+="    cc_build.include(\"${inc_bp}\");\n"
+        has_new_lines=1
+    done
+
+    # 添加 C++ 源文件
+    for src in ${CPP2RUST_BUILD_SOURCES:-}; do
+        [ -n "$src" ] || continue
+        local src_bp
+        src_bp="$(cpp2rust_to_build_path "$src")"
+        new_lines+="    cc_build.file(\"${src_bp}\");\n"
+        has_new_lines=1
+    done
+
+    if [ "$has_new_lines" = "1" ]; then
+        # 在 .compile( 之前插入新行
+        awk -v lines="${new_lines}" '
+            /\.compile\(/ && !inserted {
+                print lines
+                inserted = 1
+            }
+            { print }
+        ' "${build_rs}" > "${build_rs}.tmp" && mv "${build_rs}.tmp" "${build_rs}"
+        cpp2rust_info "build.rs 已注入 cc_build.include/file（Windows hook_shim 不保存 .opts 的兜底）"
+    fi
 }
 
 # ─── § 5b/c. cargo 校验 ─────────────────────────────────────────────────────
