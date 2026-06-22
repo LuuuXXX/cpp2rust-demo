@@ -243,27 +243,44 @@ fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> 
         }
         if let Some(mb) = build_method_binding(m) {
             // 仅保留参数/返回类型均可直出映射的方法（其余留待手写示例补全）
-            if method_types_simple(&mb, exported) {
+            // 额外过滤：排除「参数或返回值为指向其他已导出类的裸指针」的方法，
+            // 避免 hicc 在生成 C++ 文件时因前向引用而触发
+            // "specialization after instantiation" 错误（循环依赖类如
+            // tinyxml2::XMLDocument ↔ XMLPrinter）。自身类的裸指针（self-ref）
+            // 不受此限，因为当前类的 MethodsType 特化先于方法注册生成。
+            if method_types_simple(&mb, exported)
+                && !has_cross_class_ptr(&mb, exported, &ci.name)
+            {
                 methods.push(mb);
             }
         }
     }
-    // 同名方法去重前先按「非基本类型参数数」降序排列：
-    // libclang 在某些平台（如 Windows LLVM 17）可能因模板参数推断失败把复杂类型
-    // 参数误报为 `int`，从而产生同名方法的低质量重载。排序后 retain 只保留第一个
-    // （参数类型最丰富的版本），使正确签名优先于降质版本。
-    methods.sort_by(|a, b| {
-        let non_primitive = |mb: &crate::ffi_model::MethodBinding| {
-            mb.params
-                .iter()
-                .filter(|(_, t)| !is_primitive_rust_type(t))
-                .count()
-        };
-        non_primitive(b).cmp(&non_primitive(a))
+    // 方法名去重（hicc import_class! 不支持同名方法）：
+    // 对同名重载，优先保留含非基本类型参数最多的版本（libclang 在某些平台（如
+    // Windows LLVM 17）可能因模板参数推断失败把复杂类型参数误报为 `int`，需要
+    // 选出质量更好的那个）；且保持原始方法出现顺序不变（不做整体排序）。
+    let non_primitive_count = |mb: &crate::ffi_model::MethodBinding| -> usize {
+        mb.params
+            .iter()
+            .filter(|(_, t)| !is_primitive_rust_type(t))
+            .count()
+    };
+    // 第一遍：找出每个 rust_name 对应的最大非基本类型参数数
+    let mut max_non_prim: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for mb in &methods {
+        let cnt = non_primitive_count(mb);
+        let e = max_non_prim.entry(mb.rust_name.clone()).or_insert(0);
+        if cnt > *e {
+            *e = cnt;
+        }
+    }
+    // 第二遍：按原顺序保留，每个名字只保留第一个满足「非基本类型数 == 最大值」的版本
+    let mut seen_dedup: std::collections::HashSet<String> = std::collections::HashSet::new();
+    methods.retain(|mb| {
+        let max = *max_non_prim.get(&mb.rust_name).unwrap_or(&0);
+        non_primitive_count(mb) >= max && seen_dedup.insert(mb.rust_name.clone())
     });
-    // 方法名去重（hicc import_class! 不支持同名方法）
-    let mut seen = std::collections::HashSet::new();
-    methods.retain(|mb| seen.insert(mb.rust_name.clone()));
 
     // 方法 C++ 签名中对「其它已导出命名空间类」的裸引用需补全命名空间限定，
     // 否则 hicc 在 `cpp!` 展开处按全局作用域解析类型名会编译失败
@@ -388,6 +405,38 @@ fn method_types_simple(mb: &crate::ffi_model::MethodBinding, exported: &[&str]) 
             .as_deref()
             .map(|t| super::is_mappable_rust_type(t, exported))
             .unwrap_or(true)
+}
+
+/// 检测方法的参数或返回值是否包含指向「其他已导出类（非当前类）」的裸指针。
+///
+/// hicc 在生成 C++ 展开代码时，对每个 `import_class!` 先输出
+/// `MethodsType<T>` 特化，再输出方法注册宏。若某方法的参数类型为
+/// `*mut OtherClass`，hicc 会尝试访问 `MethodsType<OtherClass>` 的
+/// 特化——若 OtherClass 尚未被特化（顺序靠后或循环依赖），编译器就会
+/// 先实例化主模板，导致后续真正的特化报 "specialization after instantiation"
+/// 错误。自身类的裸指针（`*mut SelfClass`）安全，因为特化在方法体前已生成。
+fn has_cross_class_ptr(
+    mb: &crate::ffi_model::MethodBinding,
+    exported: &[&str],
+    self_name: &str,
+) -> bool {
+    let is_cross_ptr = |t: &str| {
+        let inner = t
+            .strip_prefix("*mut ")
+            .or_else(|| t.strip_prefix("*const "));
+        if let Some(inner) = inner {
+            // i8/u8 是 C 字符串，不是导出类
+            if inner == "i8" || inner == "u8" {
+                return false;
+            }
+            // 是其他导出类（非自身）的裸指针
+            inner != self_name && exported.contains(&inner)
+        } else {
+            false
+        }
+    };
+    mb.params.iter().any(|(_, t)| is_cross_ptr(t))
+        || mb.ret_type.as_deref().map(|t| is_cross_ptr(t)).unwrap_or(false)
 }
 
 /// 判断 Rust 类型是否为内置基本类型（不含类/结构体引用）。

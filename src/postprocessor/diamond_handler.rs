@@ -260,7 +260,7 @@ mod tests {
                     body_offset: None,
                     is_override: false,
                     is_default: false,
-            is_ref_qualified: false,
+                    is_ref_qualified: false,
                 })
                 .collect(),
             fields: vec![],
