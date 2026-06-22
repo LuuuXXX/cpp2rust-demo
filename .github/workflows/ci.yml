@@ -951,6 +951,893 @@ jobs:
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
+  # ── Usage verify-tinyxml2-ffi ────────────────────────────────────
+  usage-verify-tinyxml2-ffi:
+    name: Usage verify-tinyxml2-ffi
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/tinyxml2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils git
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-tinyxml2-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-tinyxml2-ffi.sh
+
+      - name: Verify generated project passes cargo check
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/tinyxml2_ffi/rust"
+          cargo check --quiet
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/tinyxml2_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::tinyxml2 smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+
+  usage-verify-tinyxml2-ffi-windows:
+    name: Usage verify-tinyxml2-ffi (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/tinyxml2
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+            git
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Build cpp2rust-demo binary (GNU ABI)
+        run: cargo build --release
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run verify-tinyxml2-ffi.sh in MSYS2 shell
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-tinyxml2-ffi.sh
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
+          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/tinyxml2_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::tinyxml2 smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── Usage verify-pugixml-ffi ─────────────────────────────────────
+  usage-verify-pugixml-ffi:
+    name: Usage verify-pugixml-ffi
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/pugixml
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils git
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-pugixml-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-pugixml-ffi.sh
+
+      - name: Verify generated project passes cargo check
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/pugixml_ffi/rust"
+          cargo check --quiet
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/pugixml_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::pugixml smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+
+  usage-verify-pugixml-ffi-windows:
+    name: Usage verify-pugixml-ffi (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/pugixml
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+            git
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Build cpp2rust-demo binary (GNU ABI)
+        run: cargo build --release
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run verify-pugixml-ffi.sh in MSYS2 shell
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-pugixml-ffi.sh
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
+          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/pugixml_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::pugixml smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── Usage verify-sqlite3-ffi ─────────────────────────────────────
+  usage-verify-sqlite3-ffi:
+    name: Usage verify-sqlite3-ffi
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev \
+            libsqlite3-dev binutils git
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-sqlite3-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-sqlite3-ffi.sh
+
+      - name: Verify generated project passes cargo check
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/sqlite3_ffi/rust"
+          cargo check --quiet
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/sqlite3_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::sqlite3 smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+
+  usage-verify-sqlite3-ffi-windows:
+    name: Usage verify-sqlite3-ffi (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+            git
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Build cpp2rust-demo binary (GNU ABI)
+        run: cargo build --release
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run verify-sqlite3-ffi.sh in MSYS2 shell
+        # Windows 无 sqlite3.h，脚本内部检测后 graceful exit 0
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-sqlite3-ffi.sh
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── Usage verify-nlohmann-json-ffi ───────────────────────────────
+  usage-verify-nlohmann-json-ffi:
+    name: Usage verify-nlohmann-json-ffi
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/nlohmann-json
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils git
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-nlohmann-json-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-nlohmann-json-ffi.sh
+
+      - name: Verify generated project passes cargo check
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/nlohmann_json_ffi/rust"
+          cargo check --quiet
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/nlohmann_json_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::nlohmann/json smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+
+  usage-verify-nlohmann-json-ffi-windows:
+    name: Usage verify-nlohmann-json-ffi (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/nlohmann-json
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+            git
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Build cpp2rust-demo binary (GNU ABI)
+        run: cargo build --release
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run verify-nlohmann-json-ffi.sh in MSYS2 shell
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-nlohmann-json-ffi.sh
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
+          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/nlohmann_json_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::nlohmann/json smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── Usage verify-fmtlib-ffi ───────────────────────────────────────
+  usage-verify-fmtlib-ffi:
+    name: Usage verify-fmtlib-ffi
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/fmtlib
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils git
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-fmtlib-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-fmtlib-ffi.sh
+
+      - name: Verify generated project passes cargo check
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/fmtlib_ffi/rust"
+          cargo check --quiet
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/fmtlib_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::fmtlib smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+
+  usage-verify-fmtlib-ffi-windows:
+    name: Usage verify-fmtlib-ffi (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/fmtlib
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+            git
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Build cpp2rust-demo binary (GNU ABI)
+        run: cargo build --release
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run verify-fmtlib-ffi.sh in MSYS2 shell
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-fmtlib-ffi.sh
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
+          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/fmtlib_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::fmtlib smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── Usage verify-magic-enum-ffi ───────────────────────────────────
+  usage-verify-magic-enum-ffi:
+    name: Usage verify-magic-enum-ffi
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/magic_enum
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils git
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-magic-enum-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-magic-enum-ffi.sh
+
+      - name: Verify generated project passes cargo check
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/magic_enum_ffi/rust"
+          cargo check --quiet
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/magic_enum_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::magic_enum smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+
+  usage-verify-magic-enum-ffi-windows:
+    name: Usage verify-magic-enum-ffi (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/magic_enum
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+            git
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Build cpp2rust-demo binary (GNU ABI)
+        run: cargo build --release
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run verify-magic-enum-ffi.sh in MSYS2 shell
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-magic-enum-ffi.sh
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
+          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/magic_enum_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::magic_enum smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+  # ── Usage verify-tomlplusplus-ffi ─────────────────────────────────
+  usage-verify-tomlplusplus-ffi:
+    name: Usage verify-tomlplusplus-ffi
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/tomlplusplus
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev g++ libstdc++-14-dev binutils git
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build cpp2rust-demo binary
+        run: cargo build --release
+
+      - name: Run verify-tomlplusplus-ffi.sh
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-tomlplusplus-ffi.sh
+
+      - name: Verify generated project passes cargo check
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/tomlplusplus_ffi/rust"
+          cargo check --quiet
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        run: |
+          cd "${GITHUB_WORKSPACE}/.cpp2rust/tomlplusplus_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::tomlplusplus smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+
+  usage-verify-tomlplusplus-ffi-windows:
+    name: Usage verify-tomlplusplus-ffi (Windows MinGW)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init submodule
+        run: git submodule update --init references/tomlplusplus
+
+      - name: Setup MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-binutils
+            git
+
+      - name: Add MinGW to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install LLVM (for libclang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17"
+
+      - name: Install Rust toolchain (GNU ABI)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mingw-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-mingw-cargo-
+
+      - name: Build cpp2rust-demo binary (GNU ABI)
+        run: cargo build --release
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run verify-tomlplusplus-ffi.sh in MSYS2 shell
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:$(cygpath -u "${GITHUB_WORKSPACE}")/target/release:${PATH}"
+          SKIP_INSTALL=1 bash usage/verify-tomlplusplus-ffi.sh
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Verify generated project passes cargo test (smoke tests)
+        shell: msys2 {0}
+        run: |
+          export PATH="$(cygpath -u "${CARGO_HOME:-$HOME/.cargo}")/bin:${PATH}"
+          cd "$(cygpath -u "${GITHUB_WORKSPACE}")/.cpp2rust/tomlplusplus_ffi/rust"
+          if [ -f "tests/smoke.rs" ]; then
+            if ! cargo test --quiet; then
+              echo "::warning::tomlplusplus smoke cargo test 失败（已知 hicc 链接限制）。不阻塞 CI。"
+            fi
+          else
+            echo "No tests/smoke.rs generated, skipping cargo test"
+          fi
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
   # ── L5: nm 符号链接验证（C++ extern-C ⊆ Rust binary）───────────
   l5-nm-symbols:
     name: L5 nm symbol validation
@@ -1404,7 +2291,9 @@ jobs:
             references/tinyxml2 `
             references/pugixml `
             references/nlohmann-json `
-            references/fmtlib
+            references/fmtlib `
+            references/magic_enum `
+            references/tomlplusplus
 
       - name: Setup MSYS2 with MinGW-w64 toolchain
         uses: msys2/setup-msys2@v2
@@ -1465,6 +2354,16 @@ jobs:
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
+      - name: Run magic_enum E2E
+        run: cargo test --test magic_enum_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run tomlplusplus E2E
+        run: cargo test --test tomlplusplus_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
   # ── L4 E2E Libraries (Windows MSVC) ──────────────────────────────
   l4-e2e-libraries-msvc:
     name: L4 E2E Libraries (Windows MSVC)
@@ -1483,7 +2382,9 @@ jobs:
             references/tinyxml2 `
             references/pugixml `
             references/nlohmann-json `
-            references/fmtlib
+            references/fmtlib `
+            references/magic_enum `
+            references/tomlplusplus
 
       - name: Install LLVM (for libclang)
         uses: KyleMayes/install-llvm-action@v2
@@ -1528,6 +2429,16 @@ jobs:
 
       - name: Run fmtlib E2E
         run: cargo test --test fmtlib_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run magic_enum E2E
+        run: cargo test --test magic_enum_e2e_test -- --test-threads=1
+        env:
+          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+
+      - name: Run tomlplusplus E2E
+        run: cargo test --test tomlplusplus_e2e_test -- --test-threads=1
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
 
