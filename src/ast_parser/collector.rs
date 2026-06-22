@@ -493,6 +493,24 @@ pub(super) fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
                     || display_name.trim_end().ends_with(") volatile &&")
             })
             .unwrap_or(false),
+        is_ref_qualified: entity
+            .get_type()
+            .map(|t| {
+                let d = t.get_display_name();
+                let trimmed = d.trim_end();
+                // 引用限定方法尾部为 `) &`、`) &&`、`) const &`、`) const &&`、
+                // `) noexcept &`、`) const noexcept &` 等形式（volatile 组合已由
+                // is_volatile 覆盖，此处不重复计入）。
+                // 统一判断：剥去末尾限定词后以 " &" 或 " &&" 结尾。
+                let without_noexcept = trimmed
+                    .trim_end_matches(" noexcept")
+                    .trim_end_matches(" const");
+                without_noexcept.ends_with(") &")
+                    || without_noexcept.ends_with(") &&")
+                    || without_noexcept.ends_with(" const &")
+                    || without_noexcept.ends_with(" const &&")
+            })
+            .unwrap_or(false),
         is_virtual: entity.is_virtual_method(),
         is_pure_virtual: entity.is_pure_virtual_method(),
         is_static: entity.is_static_method(),

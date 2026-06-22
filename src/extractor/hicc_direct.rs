@@ -106,6 +106,10 @@ fn is_copy_or_move_ctor(m: &MethodInfo) -> bool {
 ///    类名都有对应的 Rust 类型定义，避免被其他类方法引用时出现「类型未定义」错误。
 ///
 /// 抽象类（is_abstract = true，含纯虚函数）不可被 make_unique 实例化，必须排除。
+///
+/// 内联命名空间展开时同一个类可能在 `ast.classes` 中重复出现（例如 `toml::v3::table`
+/// 同时出现在外层 `toml` 命名空间和内层 `v3` 命名空间遍历中），最终生成阶段按限定名
+/// 去重，避免 hicc C++ 侧 `MethodsType<T>` 二次特化导致编译失败。
 pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
     // 候选导出集：非抽象、有公有构造的命名空间类
     let candidate_exported: Vec<&str> = ast
@@ -147,11 +151,16 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
         .map(|(s, q)| (*s, q.clone()))
         .collect();
 
-    // 以最终导出集生成规格
+    // 以最终导出集生成规格；按限定名去重，避免内联命名空间展开导致同一类被注册两次
     let mut specs = Vec::new();
+    let mut seen_qual: std::collections::HashSet<String> = std::collections::HashSet::new();
     for ci in ast.classes.iter() {
         if !ci.is_in_namespace || ci.is_abstract || !has_public_ctor(ci) {
             continue;
+        }
+        let qname = ci.qualified_name();
+        if !seen_qual.insert(qname) {
+            continue; // 跳过重复（内联命名空间二次暴露）
         }
         if let Some(cs) = build_one(ci, &exported, &qual_map) {
             specs.push(cs);
@@ -164,6 +173,11 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
 ///
 /// 以标识符 token 为单位匹配（避免误伤含该名子串的其它标识符），且当 token
 /// 紧跟在 `::` 之后（即已限定）时跳过，避免重复限定。
+///
+/// 额外跳过「参数名/函数名位置」的 token：若 token 之后（跳过空白）紧跟
+/// `)` 或 `,`（参数名位置）或 `(`（函数名位置），则该 token 是标识符而非类型，
+/// 不应被限定。例如 `void set(const key & key)` 中，类型位置的 `key` 被限定为
+/// `toml::v3::key`，而参数名 `key` 在 `)` 之前则不被修改。
 fn qualify_class_types(sig: &str, qual_map: &[(&str, String)]) -> String {
     if qual_map.is_empty() {
         return sig.to_string();
@@ -182,7 +196,14 @@ fn qualify_class_types(sig: &str, qual_map: &[(&str, String)]) -> String {
             let token = &sig[start..i];
             // 已限定（前缀为 `::`）则不再替换
             let already_qualified = start >= 2 && &sig[start - 2..start] == "::";
-            let replacement = if already_qualified {
+            // 参数名/函数名位置：token 之后（跳过空白）紧跟 `)`、`,`、`(` 时，
+            // 该 token 是名称而非类型，不替换。
+            // `)` / `,` → 参数名（最后一个标识符之前），`(` → 函数名。
+            let is_name_position = !already_qualified && {
+                let rest = sig[i..].trim_start();
+                rest.starts_with(')') || rest.starts_with(',') || rest.starts_with('(')
+            };
+            let replacement = if already_qualified || is_name_position {
                 None
             } else {
                 qual_map
@@ -208,7 +229,13 @@ fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> 
     // ── 成员方法（复用通用 MethodBinding 构建）──
     let mut methods = Vec::new();
     for m in ci.methods.iter().filter(|m| {
-        !m.is_constructor && !m.is_destructor && m.accessibility == "public" && !m.is_static
+        !m.is_constructor
+            && !m.is_destructor
+            && m.accessibility == "public"
+            && !m.is_static
+            // 跳过引用限定（`& `/`&&`）方法：其函数指针类型含引用限定符，
+            // 与 hicc export_method 所需的普通成员函数指针不兼容。
+            && !m.is_ref_qualified
     }) {
         // 跳过 operator 重载（由 cpp! 命名包装处理）与 Rust 关键字方法名
         if m.name.starts_with("operator") {
@@ -221,6 +248,19 @@ fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> 
             }
         }
     }
+    // 同名方法去重前先按「非基本类型参数数」降序排列：
+    // libclang 在某些平台（如 Windows LLVM 17）可能因模板参数推断失败把复杂类型
+    // 参数误报为 `int`，从而产生同名方法的低质量重载。排序后 retain 只保留第一个
+    // （参数类型最丰富的版本），使正确签名优先于降质版本。
+    methods.sort_by(|a, b| {
+        let non_primitive = |mb: &crate::ffi_model::MethodBinding| {
+            mb.params
+                .iter()
+                .filter(|(_, t)| !is_primitive_rust_type(t))
+                .count()
+        };
+        non_primitive(b).cmp(&non_primitive(a))
+    });
     // 方法名去重（hicc import_class! 不支持同名方法）
     let mut seen = std::collections::HashSet::new();
     methods.retain(|mb| seen.insert(mb.rust_name.clone()));
@@ -289,6 +329,8 @@ fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> 
             targs = targs,
             sig = call_types.join(", ")
         );
+        // 构造工厂签名中的裸类型名同样需要命名空间限定
+        let make_unique_sig = qualify_class_types(&make_unique_sig, qual_map);
         ctor_factories.push(CtorFactory {
             ctor_fn,
             factory_rust_name,
@@ -348,9 +390,34 @@ fn method_types_simple(mb: &crate::ffi_model::MethodBinding, exported: &[&str]) 
             .unwrap_or(true)
 }
 
+/// 判断 Rust 类型是否为内置基本类型（不含类/结构体引用）。
+///
+/// 用于方法去重前排序：含非基本类型参数的方法优先保留，避免 libclang 在模板参数
+/// 推断失败时将复杂类型误报为 `i32` 所产生的低质量重载覆盖正确签名。
+fn is_primitive_rust_type(t: &str) -> bool {
+    matches!(
+        t,
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "isize"
+            | "usize"
+            | "()"
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::qualify_class_types;
+    use super::{is_primitive_rust_type, qualify_class_types};
 
     #[test]
     fn qualifies_bare_exported_class_param() {
@@ -369,9 +436,10 @@ mod tests {
     #[test]
     fn does_not_touch_substring_identifiers() {
         let map = vec![("Vec", "ns::Vec".to_string())];
-        // `Vector` 含子串 `Vec`，但作为独立 token 不应被替换
-        let got = qualify_class_types("int Vectorize(int Vec)", &map);
-        assert_eq!(got, "int Vectorize(int ns::Vec)");
+        // `Vectorize` 含子串 `Vec`，但整体 token 不同，不应被替换；
+        // `Vec` 作为独立类型 token（后跟参数名 `a`，非名称位置）应正确限定。
+        let got = qualify_class_types("int Vectorize(Vec a)", &map);
+        assert_eq!(got, "int Vectorize(ns::Vec a)");
     }
 
     #[test]
@@ -379,5 +447,42 @@ mod tests {
         let map = vec![("Buffer", "ns::Buffer".to_string())];
         let sig = "int get(int index) const";
         assert_eq!(qualify_class_types(sig, &map), sig);
+    }
+
+    #[test]
+    fn does_not_qualify_parameter_name_same_as_class() {
+        // `const key & key`：类型位置的 key 应被限定，参数名位置的 key（`) `之前）不应被限定
+        let map = vec![("key", "toml::v3::key".to_string())];
+        let sig = "size_t count(const key & key) const";
+        let got = qualify_class_types(sig, &map);
+        assert_eq!(got, "size_t count(const toml::v3::key & key) const");
+    }
+
+    #[test]
+    fn does_not_qualify_method_name() {
+        // 方法名 `key` 出现在 `(` 之前，不应被限定
+        let map = vec![("key", "toml::v3::key".to_string())];
+        let sig = "key_type key() const";
+        // `key` as method name before `(` should not be replaced
+        let got = qualify_class_types(sig, &map);
+        assert_eq!(got, "key_type key() const");
+    }
+
+    #[test]
+    fn qualifies_return_type_named_same_as_class() {
+        // 返回类型 `key` 应被限定
+        let map = vec![("key", "toml::v3::key".to_string())];
+        let sig = "const key & get_key() const";
+        let got = qualify_class_types(sig, &map);
+        assert_eq!(got, "const toml::v3::key & get_key() const");
+    }
+
+    #[test]
+    fn primitive_rust_types_detected() {
+        assert!(is_primitive_rust_type("i32"));
+        assert!(is_primitive_rust_type("bool"));
+        assert!(is_primitive_rust_type("u64"));
+        assert!(!is_primitive_rust_type("&key"));
+        assert!(!is_primitive_rust_type("*const i8"));
     }
 }

@@ -273,6 +273,7 @@ mod tests {
             body_offset: None,
             is_override: false,
             is_default: false,
+            is_ref_qualified: false,
         });
         let fwd = vec!["class NotPod;".to_string()];
         let (specs, removed) = build_repr_c_structs(&[ci], &fwd, &[]);

@@ -144,15 +144,19 @@ DRIVER_TMP=$(mktemp "${REPO_DIR}/tmpXXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // nlohmann/json 驱动文件 — 用于测试模板类提取能力
 #include <nlohmann/json.hpp>
-#include <string>
 
-using json = nlohmann::json;
+namespace json_ns {
 
-class JsonWrapper {
+// 使用显式构造函数与标量方法，以使 cpp2rust-demo 直出模式可以生成 import_class!
+class JsonHelper {
 public:
-    json parse(const std::string& s);
-    void set_int(const std::string& key, int value);
+    JsonHelper();
+    int size() const;
+    bool empty() const;
+    void clear();
 };
+
+}  // namespace json_ns
 EOF
 
 info "nlohmann/json include：${NLOHMANN_INCLUDE}"

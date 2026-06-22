@@ -67,6 +67,10 @@ pub struct MethodInfo {
     pub is_override: bool,
     /// 是否是 `= default` 显式默认函数
     pub is_default: bool,
+    /// 是否有左值/右值引用限定符（`T& method() &` 或 `T& method() &&`）。
+    /// 引用限定方法的函数指针类型包含 `&`/`&&`，与普通成员函数指针不兼容，
+    /// 无法被 hicc `export_method` 正确转换，应从直出绑定中过滤。
+    pub is_ref_qualified: bool,
 }
 
 /// 基类说明符

@@ -355,7 +355,7 @@ fi
 # ── 6c. sqlite3_* 函数名与 link_name 一致性检查 ─────────────────────────────
 echo -e "\n${BOLD}6c. sqlite3_* 函数名与 link_name 一致性检查${NC}"
 GENERATED_FUNS=$(grep -roh '#\[cpp(func = "sqlite3_[^"]*")\]' "${RUST_SRC}" 2>/dev/null \
-    | grep -oE '"[^"]*"' | tr -d '"' | sort -u)
+    | grep -oE '"[^"]*"' | tr -d '"' | sort -u || true)
 if [ -n "${GENERATED_FUNS}" ]; then
     FUN_COUNT=$(echo "${GENERATED_FUNS}" | wc -l)
     info "生成的 sqlite3_* 函数绑定数：${FUN_COUNT}"
@@ -367,7 +367,7 @@ fi
 echo ""
 echo "──── link_name 一致性检查（不应含路径分隔符 /）────"
 LINK_NAMES=$(grep -roh '#!\[link_name = "[^"]*"\]' "${RUST_SRC}" 2>/dev/null \
-    | grep -oE '"[^"]*"' | tr -d '"' | sort -u)
+    | grep -oE '"[^"]*"' | tr -d '"' | sort -u || true)
 if [ -n "${LINK_NAMES}" ]; then
     BAD_LINKS=0
     SQLITE3_LINK=0

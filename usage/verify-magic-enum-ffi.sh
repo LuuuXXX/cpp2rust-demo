@@ -144,7 +144,6 @@ DRIVER_TMP=$(mktemp "${REPO_DIR}/tmpXXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // magic_enum 驱动文件 — 测试重度 constexpr/模板元编程头文件的解析鲁棒性
 #include <magic_enum/magic_enum.hpp>
-#include <string>
 
 namespace enumwrap_ns {
 
@@ -152,8 +151,10 @@ enum class Color { Red, Green, Blue };
 
 class ColorWrapper {
 public:
+    ColorWrapper();
     int count() const;
-    std::string name_of(int idx) const;
+    bool is_valid() const;
+    void reset();
 };
 
 }  // namespace enumwrap_ns

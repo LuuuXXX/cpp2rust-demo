@@ -275,6 +275,10 @@ fn main() {
     cc_build.file("${FORMAT_CC_BP}");
     cc_build.file("${OS_CC_BP}");
     cc_build.define("FMT_HEADER_ONLY", Some("0"));
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        cc_build.flag("/utf-8");
+        cc_build.flag("/EHsc");
+    }
     build
 ${RUST_FILE_LINES}        .compile("${LIB_NAME}");
 
