@@ -365,9 +365,9 @@ fi
 # ── 6b. 生成 Rust 代码中的单元/绑定检查 ──────────────────────────────────────
 echo -e "\n${BOLD}6b. 生成 Rust 代码中的单元/绑定检查${NC}"
 if [ -d "${RUST_SRC}" ]; then
-    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l)
-    IMPORT_LIB_FILES=$(grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null | wc -l)
-    CPP_BLOCK_FILES=$(grep -rl "hicc::cpp!" "${RUST_SRC}" 2>/dev/null | wc -l)
+    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
+    IMPORT_LIB_FILES=$(grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
+    CPP_BLOCK_FILES=$(grep -rl "hicc::cpp!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
     UNIT_RS_FILES=$(find -L "${RUST_SRC}" -name "*.rs" 2>/dev/null | wc -l)
     info "生成 Rust 文件数：${UNIT_RS_FILES}"
     info "包含 import_class! 绑定的文件数：${IMPORT_CLASS_FILES}"
@@ -472,7 +472,7 @@ echo ""
 echo -e "  ${BOLD}捕获预处理文件数：${NC}  ${CAPTURED}"
 echo -e "  ${BOLD}生成 Rust 文件数：${NC}  ${RS_FILES}"
 if [ -d "${RUST_SRC}" ]; then
-    CPP_BLOCK_FILES=$(grep -rl "hicc::cpp!" "${RUST_SRC}" 2>/dev/null | wc -l)
+    CPP_BLOCK_FILES=$(grep -rl "hicc::cpp!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
     echo -e "  ${BOLD}hicc::cpp! 绑定文件数：${NC}  ${CPP_BLOCK_FILES}"
     if [ "${RS_FILES}" -ge 2 ]; then
         echo -e "  ${GREEN}✓ 成功捕获多翻译单元输出（Rust 文件数 ≥ 2）${NC}"

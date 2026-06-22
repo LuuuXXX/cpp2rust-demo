@@ -168,6 +168,147 @@ pub(super) fn entity_presumed_from_user_file(
         .any(|uf| normalized.ends_with(uf.as_str()) || uf.ends_with(normalized.as_str()))
 }
 
+/// 扫描 `g++ -E` 生成的预处理文件，返回属于**本地项目文件**的字节区间。
+///
+/// "本地项目文件"的判断准则：文件路径以 `main_dir/`（主 `.cpp` 所在目录）或
+/// `parent_dir/`（其上一级目录）开头，且不含 flag-3（系统头）。
+///
+/// 这样既能包含同目录的用户头文件（`examples/*/cpp/*.h`、`references/tinyxml2/*.h`），
+/// 也能覆盖"源码与头文件分处不同子目录"的情形（如 fmtlib 的 `src/` 与 `include/`
+/// 同属 `references/fmtlib/`）；同时能排除主 `.cpp` 所在项目树之外的三方库头
+/// （如 `references/magic_enum/include/` 对于临时驱动文件 `.cpp2rust/.../tmpXXX.cpp`）。
+///
+/// **降级行为**：若文件不含任何行号标记，则返回覆盖全文的单一区间（与
+/// `user_content_byte_ranges` 一致）。
+pub fn local_project_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
+    // 1. 找到主 .cpp 文件路径（第一个非虚拟、非头文件的 linemarker）
+    let main_cpp: Option<String> = {
+        let mut found = None;
+        for line in content.split('\n') {
+            let trimmed = line.trim_start();
+            if !trimmed.starts_with("# ") {
+                continue;
+            }
+            if let Some((path, _)) = parse_line_marker(trimmed) {
+                let is_virtual = path.starts_with('<') || path.is_empty();
+                if is_virtual {
+                    continue;
+                }
+                let is_header = path.ends_with(".h")
+                    || path.ends_with(".hpp")
+                    || path.ends_with(".hh");
+                if !is_header {
+                    found = Some(path.replace("\\\\", "\\").replace('\\', "/"));
+                    break;
+                }
+            }
+        }
+        found
+    };
+
+    let Some(main_cpp_path) = main_cpp else {
+        // 无行号标记 → 覆盖全文
+        #[allow(clippy::single_range_in_vec_init)]
+        return vec![0..content.len() as u32];
+    };
+
+    // 2. 计算 main_dir 和 parent_dir（均以 '/' 结尾，便于前缀匹配）
+    let main_dir = {
+        let p = std::path::Path::new(&main_cpp_path);
+        match p.parent() {
+            Some(d) => {
+                let s = d.to_string_lossy().replace('\\', "/");
+                if s.is_empty() {
+                    ".".to_string()
+                } else {
+                    s
+                }
+            }
+            None => ".".to_string(),
+        }
+    };
+    let main_dir_prefix = if main_dir.ends_with('/') {
+        main_dir.clone()
+    } else {
+        format!("{}/", main_dir)
+    };
+    let parent_dir_prefix: String = {
+        let p = std::path::Path::new(&main_dir);
+        match p.parent() {
+            Some(d) => {
+                let s = d.to_string_lossy().replace('\\', "/");
+                if s.len() > 1 {
+                    // 有意义的父目录（不是 "/" 或 "."）
+                    if s.ends_with('/') {
+                        s
+                    } else {
+                        format!("{}/", s)
+                    }
+                } else {
+                    String::new() // 父目录过短，不使用
+                }
+            }
+            None => String::new(),
+        }
+    };
+
+    // 判断给定路径是否属于本地项目
+    let is_local = |path: &str| -> bool {
+        let normalized = path.replace("\\\\", "\\").replace('\\', "/");
+        if normalized.starts_with(&main_dir_prefix) {
+            return true;
+        }
+        if !parent_dir_prefix.is_empty() && normalized.starts_with(&parent_dir_prefix) {
+            return true;
+        }
+        false
+    };
+
+    // 3. 扫描 linemarker，构建本地项目字节区间
+    let mut ranges: Vec<std::ops::Range<u32>> = Vec::new();
+    let mut in_local = false;
+    let mut section_start: u32 = 0;
+    let mut byte_pos: u32 = 0;
+    let mut found_any_marker = false;
+
+    for line in content.split('\n') {
+        let line_byte_len = line.len() as u32 + 1;
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("# ") {
+            if let Some((file_path, flags)) = parse_line_marker(trimmed) {
+                found_any_marker = true;
+                let is_virtual = file_path.starts_with('<') || file_path.is_empty();
+                let is_system = flags.contains(&3) || is_virtual;
+                let file_is_local = !is_system && is_local(file_path);
+
+                match (in_local, file_is_local) {
+                    (true, false) => {
+                        ranges.push(section_start..byte_pos);
+                        in_local = false;
+                    }
+                    (false, true) => {
+                        in_local = true;
+                        section_start = byte_pos + line_byte_len;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        byte_pos += line_byte_len;
+    }
+
+    if in_local && section_start < byte_pos {
+        ranges.push(section_start..content.len() as u32);
+    }
+
+    if !found_any_marker {
+        #[allow(clippy::single_range_in_vec_init)]
+        return vec![0..content.len() as u32];
+    }
+
+    ranges
+}
+
 /// 扫描 `g++ -E`（不带 `-P`）生成的预处理文件，返回属于**用户代码**（非系统头）的字节区间。
 ///
 /// GCC linemarker 格式：`# <行号> "<文件路径>" [标志...]`

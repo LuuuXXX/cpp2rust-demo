@@ -6,7 +6,10 @@
 mod collector;
 pub mod range_scanner;
 
-pub use range_scanner::{cpp_byte_ranges, user_content_byte_ranges, user_file_paths_from_content};
+pub use range_scanner::{
+    cpp_byte_ranges, local_project_byte_ranges, user_content_byte_ranges,
+    user_file_paths_from_content,
+};
 
 use anyhow::{anyhow, Result};
 use clang::{Clang, EntityKind, Index, Language};
@@ -119,6 +122,9 @@ pub struct ClassInfo {
     pub namespace: Option<String>,
     /// 是否定义在当前被解析的 `.cpp2rust` 文件中（false 表示来自被 include 的头文件）
     pub is_from_current_file: bool,
+    /// 是否属于"本地项目文件"（主 `.cpp` 所在目录或其父目录下的文件），
+    /// 用于 hicc 直出模式过滤三方库头文件中的类。
+    pub is_local_project: bool,
 }
 
 impl ClassInfo {
@@ -259,6 +265,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
     let cpp_ranges = cpp_byte_ranges(&file_content);
     let user_ranges = user_content_byte_ranges(&file_content);
     let user_files = user_file_paths_from_content(&file_content);
+    let local_ranges = local_project_byte_ranges(&file_content);
 
     let mut ast = CppAst {
         file: file.to_path_buf(),
@@ -287,7 +294,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         // 解决方案：对两种 kind 都调用 collect_linkage_spec，不做顶层过滤；
         // 内部的精细过滤由 collect_linkage_spec 自行处理（非内联定义不跳过）。
         if kind == EntityKind::LinkageSpec || kind == EntityKind::UnexposedDecl {
-            collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges, &user_files);
+            collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges, &user_files, &local_ranges);
             continue;
         }
 
@@ -296,7 +303,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         }
         match kind {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
-                if let Some(ci) = extract_class(&entity, &cpp_ranges) {
+                if let Some(ci) = extract_class(&entity, &cpp_ranges, &local_ranges) {
                     ast.classes.push(ci);
                 }
             }
@@ -323,7 +330,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
-                if let Some(ci) = extract_class(&entity, &cpp_ranges) {
+                if let Some(ci) = extract_class(&entity, &cpp_ranges, &local_ranges) {
                     ast.classes.push(ci);
                 }
             }
@@ -344,7 +351,7 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
                 }
             }
             EntityKind::Namespace => {
-                collect_namespace(&entity, &mut ast, &cpp_ranges);
+                collect_namespace(&entity, &mut ast, &cpp_ranges, &local_ranges);
             }
             EntityKind::TypedefDecl => {
                 collect_typedef(&entity, &mut ast, &cpp_ranges);

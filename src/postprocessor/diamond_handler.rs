@@ -231,6 +231,7 @@ mod tests {
             is_in_namespace: false,
             namespace: None,
             is_from_current_file: true,
+            is_local_project: true,
         }
     }
 
@@ -267,6 +268,7 @@ mod tests {
             is_in_namespace: false,
             namespace: None,
             is_from_current_file: true,
+            is_local_project: true,
         }
     }
 

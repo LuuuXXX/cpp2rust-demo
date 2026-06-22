@@ -340,9 +340,9 @@ fi
 # ── 6b. 生成 Rust 代码中的 OOP 绑定 ─────────────────────────────────────────
 echo -e "\n${BOLD}6b. 生成 Rust 代码中的 OOP 绑定（import_class! / hicc::cpp!）${NC}"
 if [ -d "${RUST_SRC}" ]; then
-    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l)
-    IMPORT_LIB_FILES=$(grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null | wc -l)
-    CPP_BLOCK_FILES=$(grep -rl "hicc::cpp!" "${RUST_SRC}" 2>/dev/null | wc -l)
+    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
+    IMPORT_LIB_FILES=$(grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
+    CPP_BLOCK_FILES=$(grep -rl "hicc::cpp!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
     info "包含 import_class! 绑定的文件数：${IMPORT_CLASS_FILES}"
     info "包含 import_lib! 绑定的文件数：${IMPORT_LIB_FILES}"
     info "包含 hicc::cpp! 块的文件数：${CPP_BLOCK_FILES}"
@@ -472,7 +472,7 @@ echo ""
 echo -e "  ${BOLD}捕获预处理文件数：${NC}  ${CAPTURED}"
 echo -e "  ${BOLD}生成 Rust 文件数：${NC}  ${RS_FILES}"
 if [ -d "${RUST_SRC}" ]; then
-    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l)
+    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l || true)
     echo -e "  ${BOLD}import_class! 绑定文件数：${NC}  ${IMPORT_CLASS_FILES}"
     if [ "${IMPORT_CLASS_FILES}" -gt 0 ]; then
         echo -e "  ${GREEN}✓ 成功生成 Rust safe FFI（import_class! 块存在）${NC}"

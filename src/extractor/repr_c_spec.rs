@@ -189,6 +189,7 @@ mod tests {
             simple_name: name.to_string(),
             namespace: None,
             is_from_current_file: false,
+            is_local_project: false,
         }
     }
 

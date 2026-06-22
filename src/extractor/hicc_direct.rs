@@ -23,14 +23,14 @@ use crate::ffi_model::{ClassSpec, CtorFactory};
 /// 判据：存在「带公有构造函数的命名空间类」，且**不存在任何 `extern "C"` 函数**
 /// （后者表明是旧式 opaque 指针 + C ABI 桥接示例，仍走旧路径）。
 pub(super) fn detect_idiomatic_mode(ast: &CppAst) -> bool {
-    // 仅当**当前文件**中存在带公有构造的命名空间类时才启用直出模式。
-    // 三方头文件（is_from_current_file=false）中的类不应触发直出路径——
+    // 仅当**本地项目文件**中存在带公有构造的命名空间类时才启用直出模式。
+    // 三方头文件（is_local_project=false）中的类不应触发直出路径——
     // 它们在 build_hicc_direct_specs 中也会被过滤掉，若误触发会导致
     // class_specs 为空却走了直出路径，进而产生无 import_class! 输出的情况。
     let has_ns_class_with_ctor = ast
         .classes
         .iter()
-        .any(|c| c.is_in_namespace && c.is_from_current_file && has_public_ctor(c));
+        .any(|c| c.is_in_namespace && c.is_local_project && has_public_ctor(c));
     if !has_ns_class_with_ctor {
         return false;
     }
@@ -115,15 +115,16 @@ fn is_copy_or_move_ctor(m: &MethodInfo) -> bool {
 /// 同时出现在外层 `toml` 命名空间和内层 `v3` 命名空间遍历中），最终生成阶段按限定名
 /// 去重，避免 hicc C++ 侧 `MethodsType<T>` 二次特化导致编译失败。
 pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
-    // 候选导出集：当前文件中非抽象、有公有构造的命名空间类。
-    // 必须限定 is_from_current_file，否则三方库头文件中的类（如 toml::v3::path）
-    // 会进入候选集，其方法返回类型可能被 libclang 误报（如 const_iterator→int），
-    // 导致 hicc 生成错误的 C++ 方法绑定而编译失败。
+    // 候选导出集：本地项目文件中非抽象、有公有构造的命名空间类。
+    // 使用 is_local_project 而非 is_from_current_file：既包含同目录的用户头文件
+    // （如 examples/*.h），也覆盖"源码与头文件分处不同子目录"的三方库（如 fmtlib
+    // src/ 与 include/ 同属 fmtlib/），同时排除真正的外部三方库头文件（如
+    // magic_enum.hpp 不在驱动文件的项目树下）。
     let candidate_exported: Vec<&str> = ast
         .classes
         .iter()
         .filter(|c| {
-            c.is_in_namespace && c.is_from_current_file && !c.is_abstract && has_public_ctor(c)
+            c.is_in_namespace && c.is_local_project && !c.is_abstract && has_public_ctor(c)
         })
         .map(|c| c.simple_name.as_str())
         .collect();
@@ -131,7 +132,7 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
         .classes
         .iter()
         .filter(|c| {
-            c.is_in_namespace && c.is_from_current_file && !c.is_abstract && has_public_ctor(c)
+            c.is_in_namespace && c.is_local_project && !c.is_abstract && has_public_ctor(c)
         })
         .map(|c| (c.simple_name.as_str(), c.qualified_name()))
         .collect();
@@ -141,7 +142,7 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
         .classes
         .iter()
         .filter(|ci| {
-            ci.is_in_namespace && ci.is_from_current_file && !ci.is_abstract && has_public_ctor(ci)
+            ci.is_in_namespace && ci.is_local_project && !ci.is_abstract && has_public_ctor(ci)
         })
         .filter_map(|ci| {
             if build_one(ci, &candidate_exported, &candidate_qual).is_some() {
@@ -168,8 +169,7 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
     let mut specs = Vec::new();
     let mut seen_qual: std::collections::HashSet<String> = std::collections::HashSet::new();
     for ci in ast.classes.iter() {
-        if !ci.is_in_namespace || !ci.is_from_current_file || ci.is_abstract || !has_public_ctor(ci)
-        {
+        if !ci.is_in_namespace || !ci.is_local_project || ci.is_abstract || !has_public_ctor(ci) {
             continue;
         }
         let qname = ci.qualified_name();
@@ -438,7 +438,11 @@ fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> 
         idx += 1;
     }
 
-    if methods.is_empty() && ctor_factories.is_empty() {
+    // 无可映射方法的类即使有构造工厂也无法安全导出：
+    // hicc 的 MethodsType<T> 特化在方法列表为空时为 void，
+    // make_unique 工厂尝试实例化 AbiClass<T> 时会触发 "incomplete type" 编译错误
+    // （如 pugixml::xpath_node 有默认构造但无可映射成员方法）。
+    if methods.is_empty() {
         return None;
     }
 
@@ -520,7 +524,7 @@ fn has_cross_class_ptr(
         || mb
             .ret_type
             .as_deref()
-            .map(|t| is_cross_ptr(t))
+            .map(is_cross_ptr)
             .unwrap_or(false)
 }
 
