@@ -1,11 +1,17 @@
 # usage — 本地验证脚本与 SKILL 使用文档
 
-本目录包含对 rapidjson 项目进行 cpp2rust-demo FFI 转换的**所有可用方式**：
+本目录包含对多个 C++ 项目进行 cpp2rust-demo FFI 转换的**所有可用方式**：
 
-| 文件 | 说明 |
-|------|------|
-| [`verify-rapidjson-ffi.sh`](verify-rapidjson-ffi.sh) | 全自动 Shell 脚本（CLI 方式，适合批量/CI 场景） |
-| 本文档（README.md） | 脚本用法 + SKILL 交互式工作流完整说明 |
+| 文件 | 库 | 说明 |
+|------|-----|------|
+| [`verify-rapidjson-ffi.sh`](verify-rapidjson-ffi.sh) | rapidjson | extern-C shim 工作流（多 shim 文件，import_lib!） |
+| [`verify-tinyxml2-ffi.sh`](verify-tinyxml2-ffi.sh) | tinyxml2 | 单文件 OOP，直出 import_class!（XMLDocument/XMLElement/XMLNode） |
+| [`verify-pugixml-ffi.sh`](verify-pugixml-ffi.sh) | pugixml | 单文件 OOP，直出 import_class!（xml_document/xml_node/xml_attribute） |
+| [`verify-fmtlib-ffi.sh`](verify-fmtlib-ffi.sh) | {fmt} | 多文件 .cc，fmt:: 命名空间，import_class!/import_lib! |
+| [`verify-nlohmann-json-ffi.sh`](verify-nlohmann-json-ffi.sh) | nlohmann/json | header-only，超大单头 ~23K 行，重度模板，驱动文件 |
+| [`verify-magic-enum-ffi.sh`](verify-magic-enum-ffi.sh) | magic_enum | header-only，重度 constexpr/模板元编程，驱动文件 |
+| [`verify-tomlplusplus-ffi.sh`](verify-tomlplusplus-ffi.sh) | toml++ | header-only，大型单头 C++17 TOML 解析库，驱动文件 |
+| 本文档（README.md） | — | 脚本用法 + SKILL 交互式工作流完整说明 |
 
 SKILL 文件本身位于 [`.github/skills/cpp2rust-convert.md`](../.github/skills/cpp2rust-convert.md)，由 GitHub Copilot Agent 自动读取，无需手动调用。
 
@@ -21,8 +27,16 @@ sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev cmake \
                         libgtest-dev binutils git curl
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# 运行验证脚本
+# 运行 rapidjson 验证脚本（shim 工作流）
 bash usage/verify-rapidjson-ffi.sh
+
+# 运行其他库的验证脚本（直出 OOP / header-only 工作流）
+bash usage/verify-tinyxml2-ffi.sh
+bash usage/verify-pugixml-ffi.sh
+bash usage/verify-fmtlib-ffi.sh
+bash usage/verify-nlohmann-json-ffi.sh
+bash usage/verify-magic-enum-ffi.sh
+bash usage/verify-tomlplusplus-ffi.sh
 ```
 
 ### 方式 B：通过 GitHub Copilot Agent Skill（对话式）
@@ -243,13 +257,120 @@ grep -rn "cpp2rust-todo" /tmp/rapidjson/.cpp2rust/rapidjson_tests/rust/src/
 
 ---
 
+## 二（扩展）、其他库的验证脚本说明
+
+本目录新增了 6 个与 `verify-rapidjson-ffi.sh` 同构的本地验证脚本，覆盖从环境检查到
+`cargo test` 的完整链路，每个脚本均可独立运行。
+
+### verify-tinyxml2-ffi.sh
+
+**库特征**：单 `.cpp` 源文件（tinyxml2.cpp）+ 单头文件，`tinyxml2::` 命名空间，idiomatic C++ OOP。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FEATURE` | `tinyxml2` | cpp2rust-demo feature 名称 |
+| `SKIP_INSTALL` | `0` | 置 `1` 跳过 `cargo install` |
+
+```bash
+bash usage/verify-tinyxml2-ffi.sh
+SKIP_INSTALL=1 FEATURE=my_tinyxml2 bash usage/verify-tinyxml2-ffi.sh
+```
+
+### verify-pugixml-ffi.sh
+
+**库特征**：单 `.cpp`（`src/pugixml.cpp`）+ 头文件，`pugi::` 命名空间，xml_document/xml_node/xml_attribute 类层级。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FEATURE` | `pugixml` | cpp2rust-demo feature 名称 |
+| `SKIP_INSTALL` | `0` | 置 `1` 跳过 `cargo install` |
+
+```bash
+bash usage/verify-pugixml-ffi.sh
+SKIP_INSTALL=1 FEATURE=my_pugixml bash usage/verify-pugixml-ffi.sh
+```
+
+### verify-fmtlib-ffi.sh
+
+**库特征**：多 `.cc` 源文件（`src/format.cc`、`src/os.cc`），`fmt::` 命名空间，C++17，复杂模板格式化系统。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FEATURE` | `fmtlib` | cpp2rust-demo feature 名称 |
+| `SKIP_INSTALL` | `0` | 置 `1` 跳过 `cargo install` |
+| `CXX_STD` | `c++17` | C++ 标准版本 |
+
+```bash
+bash usage/verify-fmtlib-ffi.sh
+CXX_STD=c++14 SKIP_INSTALL=1 bash usage/verify-fmtlib-ffi.sh
+```
+
+### verify-nlohmann-json-ffi.sh
+
+**库特征**：header-only（`include/nlohmann/json.hpp`，~23K 行），超大单头，重度模板。脚本自动创建驱动 `.cpp`。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FEATURE` | `nlohmann_json` | cpp2rust-demo feature 名称 |
+| `SKIP_INSTALL` | `0` | 置 `1` 跳过 `cargo install` |
+| `CXX_STD` | `c++17` | C++ 标准版本 |
+
+```bash
+bash usage/verify-nlohmann-json-ffi.sh
+SKIP_INSTALL=1 FEATURE=my_json bash usage/verify-nlohmann-json-ffi.sh
+```
+
+### verify-magic-enum-ffi.sh
+
+**库特征**：header-only（`include/magic_enum/magic_enum.hpp`），C++17 重度 `constexpr` + 模板元编程，编译期枚举反射。脚本自动创建驱动 `.cpp`。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FEATURE` | `magic_enum` | cpp2rust-demo feature 名称 |
+| `SKIP_INSTALL` | `0` | 置 `1` 跳过 `cargo install` |
+| `CXX_STD` | `c++17` | C++ 标准版本（magic_enum 要求 C++17） |
+
+```bash
+bash usage/verify-magic-enum-ffi.sh
+SKIP_INSTALL=1 FEATURE=my_magic_enum bash usage/verify-magic-enum-ffi.sh
+```
+
+### verify-tomlplusplus-ffi.sh
+
+**库特征**：header-only（`include/toml++/toml.hpp`），C++17，大型单头文件 + 重度模板，TOML 解析库。脚本自动创建驱动 `.cpp`。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FEATURE` | `tomlplusplus` | cpp2rust-demo feature 名称 |
+| `SKIP_INSTALL` | `0` | 置 `1` 跳过 `cargo install` |
+| `CXX_STD` | `c++17` | C++ 标准版本（toml++ 要求 C++17） |
+
+```bash
+bash usage/verify-tomlplusplus-ffi.sh
+SKIP_INSTALL=1 FEATURE=my_toml bash usage/verify-tomlplusplus-ffi.sh
+```
+
+### 脚本对比：工作流差异
+
+| 脚本 | 源文件类型 | 构建方式 | 期望 FFI 类型 |
+|------|-----------|---------|--------------|
+| rapidjson | 多 shim .cpp | BUILD_SCRIPT + cmake | import_lib! |
+| tinyxml2 | 单 .cpp | 直接 g++ -c | import_class! |
+| pugixml | 单 .cpp (src/) | 直接 g++ -c | import_class! |
+| fmtlib | 多 .cc | BUILD_SCRIPT 逐文件 | import_class!/import_lib! |
+| nlohmann-json | header-only | 驱动 .cpp + g++ -c | import_class!（或模板骨架） |
+| magic-enum | header-only | 驱动 .cpp + g++ -c | import_class!（或模板骨架） |
+| tomlplusplus | header-only | 驱动 .cpp + g++ -c | import_class!（或模板骨架） |
+
+---
+
 ## 五、常见问题
 
 **Q: 脚本提示"未找到命令：cpp2rust-demo"**
 
 ```bash
-# 安装
-cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked
+# 安装（注意需要显式指定包名）
+cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked cpp2rust-demo
 # 确认 ~/.cargo/bin 在 PATH 中
 export PATH="$HOME/.cargo/bin:$PATH"
 ```
