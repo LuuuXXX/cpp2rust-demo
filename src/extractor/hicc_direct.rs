@@ -249,7 +249,7 @@ fn build_one(ci: &ClassInfo, exported: &[&str], qual_map: &[(&str, String)]) -> 
             // tinyxml2::XMLDocument ↔ XMLPrinter）。自身类的裸指针（self-ref）
             // 不受此限，因为当前类的 MethodsType 特化先于方法注册生成。
             if method_types_simple(&mb, exported)
-                && !has_cross_class_ptr(&mb, exported, &ci.name)
+                && !has_cross_class_ptr(&mb, exported, &ci.simple_name)
             {
                 methods.push(mb);
             }
@@ -423,13 +423,15 @@ fn has_cross_class_ptr(
     let is_cross_ptr = |t: &str| {
         let inner = t
             .strip_prefix("*mut ")
-            .or_else(|| t.strip_prefix("*const "));
+            .or_else(|| t.strip_prefix("*const "))
+            .or_else(|| t.strip_prefix("&mut "))
+            .or_else(|| t.strip_prefix('&'));
         if let Some(inner) = inner {
             // i8/u8 是 C 字符串，不是导出类
             if inner == "i8" || inner == "u8" {
                 return false;
             }
-            // 是其他导出类（非自身）的裸指针
+            // 是其他导出类（非自身）的裸指针或引用
             inner != self_name && exported.contains(&inner)
         } else {
             false
