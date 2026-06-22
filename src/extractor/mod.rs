@@ -102,8 +102,7 @@ pub fn extract(
             .filter(|f| !f.name.ends_with("_anchor"))
             .collect();
         let class_names: Vec<&str> = ast.classes.iter().map(|c| c.name.as_str()).collect();
-        let mut lib_spec = lib_spec::build_lib_spec_namespaced(&free_fns, unit_name, &class_names);
-        lib_spec.link_name = unit_name.to_string();
+        let lib_spec = lib_spec::build_lib_spec_namespaced(&free_fns, unit_name, &class_names);
         return FfiSpec {
             unit_name: unit_name.to_string(),
             cpp_block_lines,

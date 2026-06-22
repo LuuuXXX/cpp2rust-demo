@@ -137,7 +137,7 @@ step "§ 2. 定位本地源文件"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null || echo "${SCRIPT_DIR}/..")"
 REPO_DIR="$(cd "${REPO_DIR}" && pwd)"
-WRAPPER_TMP=$(mktemp --suffix=.cpp)
+WRAPPER_TMP=$(mktemp -p "${REPO_DIR}" --suffix=.cpp)
 cat > "${WRAPPER_TMP}" << 'EOF'
 // sqlite3 C++ wrapper — 用于测试工具对 extern "C" 接口的处理能力
 extern "C" {

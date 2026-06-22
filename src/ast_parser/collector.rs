@@ -64,6 +64,12 @@ fn collect_namespace_inner(
     parent_path: &str,
 ) {
     let ns_name = ns.get_name().unwrap_or_default();
+    // 跳过约定俗成的「实现内部」命名空间（如 impl、detail、internal），
+    // 避免将三方库不应对外暴露的内部符号收集为 FFI 绑定候选。
+    // 例：pugi::impl（pugixml 内部内存分配）、fmt::v12::detail（fmtlib 模板细节）。
+    if matches!(ns_name.as_str(), "impl" | "detail" | "internal" | "priv" | "private") {
+        return;
+    }
     // 当前命名空间的 `::` 限定路径
     let cur_path = if ns_name.is_empty() {
         parent_path.to_string()
