@@ -442,7 +442,6 @@ if [ -d "${RUST_SRC}" ]; then
 fi
 
 TODO_COUNT=$(grep -r "cpp2rust-todo" "${RUST_SRC}" 2>/dev/null | wc -l | tr -d '[:space:]') || TODO_COUNT=0
-TODO_COUNT="${TODO_COUNT:-0}"
 if [ "${TODO_COUNT}" -gt 0 ]; then
     echo -e "  ${YELLOW}⚠ 降级标记（需手动完善）：${TODO_COUNT} 处${NC}"
     echo "  → 搜索 'cpp2rust-todo' 查看详情：grep -rn cpp2rust-todo ${RUST_SRC}"

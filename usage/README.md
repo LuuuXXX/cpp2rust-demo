@@ -194,8 +194,8 @@ grep -rn "cpp2rust-todo" <RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src/
 ### 前提条件
 
 ```bash
-# 1. 安装 cpp2rust-demo
-cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked
+# 1. 安装 cpp2rust-demo（需显式指定包名，避免多 binary 仓库歧义）
+cargo install --git https://github.com/LuuuXXX/cpp2rust-demo --locked cpp2rust-demo
 
 # 2. 安装系统依赖
 sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev
