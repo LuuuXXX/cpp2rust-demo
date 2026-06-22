@@ -23,10 +23,14 @@ use crate::ffi_model::{ClassSpec, CtorFactory};
 /// 判据：存在「带公有构造函数的命名空间类」，且**不存在任何 `extern "C"` 函数**
 /// （后者表明是旧式 opaque 指针 + C ABI 桥接示例，仍走旧路径）。
 pub(super) fn detect_idiomatic_mode(ast: &CppAst) -> bool {
+    // 仅当**当前文件**中存在带公有构造的命名空间类时才启用直出模式。
+    // 三方头文件（is_from_current_file=false）中的类不应触发直出路径——
+    // 它们在 build_hicc_direct_specs 中也会被过滤掉，若误触发会导致
+    // class_specs 为空却走了直出路径，进而产生无 import_class! 输出的情况。
     let has_ns_class_with_ctor = ast
         .classes
         .iter()
-        .any(|c| c.is_in_namespace && has_public_ctor(c));
+        .any(|c| c.is_in_namespace && c.is_from_current_file && has_public_ctor(c));
     if !has_ns_class_with_ctor {
         return false;
     }
@@ -111,17 +115,24 @@ fn is_copy_or_move_ctor(m: &MethodInfo) -> bool {
 /// 同时出现在外层 `toml` 命名空间和内层 `v3` 命名空间遍历中），最终生成阶段按限定名
 /// 去重，避免 hicc C++ 侧 `MethodsType<T>` 二次特化导致编译失败。
 pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
-    // 候选导出集：非抽象、有公有构造的命名空间类
+    // 候选导出集：当前文件中非抽象、有公有构造的命名空间类。
+    // 必须限定 is_from_current_file，否则三方库头文件中的类（如 toml::v3::path）
+    // 会进入候选集，其方法返回类型可能被 libclang 误报（如 const_iterator→int），
+    // 导致 hicc 生成错误的 C++ 方法绑定而编译失败。
     let candidate_exported: Vec<&str> = ast
         .classes
         .iter()
-        .filter(|c| c.is_in_namespace && !c.is_abstract && has_public_ctor(c))
+        .filter(|c| {
+            c.is_in_namespace && c.is_from_current_file && !c.is_abstract && has_public_ctor(c)
+        })
         .map(|c| c.simple_name.as_str())
         .collect();
     let candidate_qual: Vec<(&str, String)> = ast
         .classes
         .iter()
-        .filter(|c| c.is_in_namespace && !c.is_abstract && has_public_ctor(c))
+        .filter(|c| {
+            c.is_in_namespace && c.is_from_current_file && !c.is_abstract && has_public_ctor(c)
+        })
         .map(|c| (c.simple_name.as_str(), c.qualified_name()))
         .collect();
 
@@ -129,7 +140,9 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
     let confirmed: std::collections::HashSet<&str> = ast
         .classes
         .iter()
-        .filter(|ci| ci.is_in_namespace && !ci.is_abstract && has_public_ctor(ci))
+        .filter(|ci| {
+            ci.is_in_namespace && ci.is_from_current_file && !ci.is_abstract && has_public_ctor(ci)
+        })
         .filter_map(|ci| {
             if build_one(ci, &candidate_exported, &candidate_qual).is_some() {
                 Some(ci.simple_name.as_str())
@@ -155,7 +168,8 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
     let mut specs = Vec::new();
     let mut seen_qual: std::collections::HashSet<String> = std::collections::HashSet::new();
     for ci in ast.classes.iter() {
-        if !ci.is_in_namespace || ci.is_abstract || !has_public_ctor(ci) {
+        if !ci.is_in_namespace || !ci.is_from_current_file || ci.is_abstract || !has_public_ctor(ci)
+        {
             continue;
         }
         let qname = ci.qualified_name();
@@ -169,7 +183,72 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
     specs
 }
 
-/// 把 C++ 方法签名字符串中「裸的已导出类简单名」补全为命名空间限定名。
+/// 为当前文件（is_from_current_file=true）中的命名空间类生成内联 C++ 类声明字符串。
+///
+/// 用于 hicc 直出模式在 `project_header=None` 时（如 header-only 库驱动文件），
+/// 将用户定义的命名空间类以内联声明注入 `hicc::cpp!` 块，使 hicc 在编译生成的
+/// C++ wrapper 时能看到类型定义，从而通过 `cargo check`。
+///
+/// 只生成声明（不含方法体），仅公有成员方法可见，以确保 hicc 能正确解析
+/// `import_class!` 绑定中使用到的构造工厂与成员方法类型。
+pub(super) fn emit_current_file_class_decls(ast: &CppAst) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for ci in &ast.classes {
+        if !ci.is_in_namespace || !ci.is_from_current_file {
+            continue;
+        }
+        let qname = ci.qualified_name();
+        if !seen.insert(qname) {
+            continue; // 去重（内联命名空间可能导致同一类重复出现）
+        }
+        result.push(emit_class_decl_in_ns(ci));
+    }
+    result
+}
+
+/// 将单个 ClassInfo 序列化为带命名空间包裹的 C++ 类声明字符串。
+fn emit_class_decl_in_ns(ci: &ClassInfo) -> String {
+    let ns = ci.namespace.as_deref().unwrap_or("").trim();
+    let kw = if ci.is_struct { "struct" } else { "class" };
+    let mut lines: Vec<String> = Vec::new();
+    if !ns.is_empty() {
+        lines.push(format!("namespace {} {{", ns));
+    }
+    lines.push(format!("{} {} {{", kw, ci.simple_name));
+    if !ci.is_struct {
+        lines.push("public:".to_string());
+    }
+    for m in &ci.methods {
+        if m.accessibility != "public" {
+            continue;
+        }
+        let params: String = m
+            .params
+            .iter()
+            .map(|p| {
+                if p.name.is_empty() {
+                    p.type_name.clone()
+                } else {
+                    format!("{} {}", p.type_name, p.name)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let decl = if m.is_constructor || m.is_destructor {
+            format!("    {}({});", m.name, params)
+        } else {
+            let const_s = if m.is_const { " const" } else { "" };
+            format!("    {} {}({}){};", m.return_type, m.name, params, const_s)
+        };
+        lines.push(decl);
+    }
+    lines.push("};".to_string());
+    if !ns.is_empty() {
+        lines.push("}".to_string());
+    }
+    lines.join("\n")
+}
 ///
 /// 以标识符 token 为单位匹配（避免误伤含该名子串的其它标识符），且当 token
 /// 紧跟在 `::` 之后（即已限定）时跳过，避免重复限定。
@@ -438,7 +517,11 @@ fn has_cross_class_ptr(
         }
     };
     mb.params.iter().any(|(_, t)| is_cross_ptr(t))
-        || mb.ret_type.as_deref().map(|t| is_cross_ptr(t)).unwrap_or(false)
+        || mb
+            .ret_type
+            .as_deref()
+            .map(|t| is_cross_ptr(t))
+            .unwrap_or(false)
 }
 
 /// 判断 Rust 类型是否为内置基本类型（不含类/结构体引用）。

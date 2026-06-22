@@ -95,7 +95,11 @@ pub fn extract(
             // 无项目引号 include（如 header-only 库以系统 include 引入头文件时），
             // 将捕获到的系统 include 注入 hicc::cpp! 块，确保库类型在 hicc 编译
             // 生成的 C++ wrapper 中可见（如 magic_enum、toml++、fmtlib 等）。
-            system_includes.to_vec()
+            // 额外追加当前文件定义的命名空间类的内联声明，使 hicc 能解析
+            // import_class! 绑定中引用的用户类类型，确保 cargo check 通过。
+            let mut lines = system_includes.to_vec();
+            lines.extend(hicc_direct::emit_current_file_class_decls(ast));
+            lines
         };
         let class_specs = hicc_direct::build_hicc_direct_specs(ast);
         // 绑定命名空间自由函数（排除仅用于产生链接符号的 `<unit>_anchor` 锚点函数）
