@@ -153,6 +153,9 @@ class TomlWrapper {
 public:
     int int_value(const std::string& key) const;
     std::string string_value(const std::string& key) const;
+    // has_key 提供 const char* 参数/bool 返回值的可映射方法，
+    // 确保 build_one 不因 methods 全为不可映射类型而跳过此类，
+    // 从而让 import_class! 绑定得以生成（§7 检查依赖此块存在）。
     bool has_key(const char* key) const;
 };
 
