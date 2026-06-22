@@ -140,7 +140,7 @@ if [ ! -d "${SOURCE_DIR}" ] || [ ! -d "${MAGIC_ENUM_INCLUDE}" ]; then
     fail "未找到 magic_enum include 目录：${MAGIC_ENUM_INCLUDE}"
 fi
 
-DRIVER_TMP=$(mktemp -p "${REPO_DIR}" --suffix=.cpp)
+DRIVER_TMP=$(mktemp "${REPO_DIR}/tmpXXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // magic_enum 驱动文件 — 测试重度 constexpr/模板元编程头文件的解析鲁棒性
 #include <magic_enum/magic_enum.hpp>

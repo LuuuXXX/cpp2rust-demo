@@ -140,7 +140,7 @@ if [ ! -d "${SOURCE_DIR}" ] || [ ! -d "${NLOHMANN_INCLUDE}" ]; then
     fail "未找到 nlohmann/json include 目录：${NLOHMANN_INCLUDE}"
 fi
 
-DRIVER_TMP=$(mktemp -p "${REPO_DIR}" --suffix=.cpp)
+DRIVER_TMP=$(mktemp "${REPO_DIR}/tmpXXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // nlohmann/json 驱动文件 — 用于测试模板类提取能力
 #include <nlohmann/json.hpp>

@@ -140,7 +140,7 @@ if [ ! -d "${SOURCE_DIR}" ] || [ ! -d "${TOMLPLUSPLUS_INCLUDE}" ]; then
     fail "未找到 toml++ include 目录：${TOMLPLUSPLUS_INCLUDE}"
 fi
 
-DRIVER_TMP=$(mktemp -p "${REPO_DIR}" --suffix=.cpp)
+DRIVER_TMP=$(mktemp "${REPO_DIR}/tmpXXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // toml++ 驱动文件 — 测试大型单头实库的解析鲁棒性
 #define TOML_HEADER_ONLY 1
