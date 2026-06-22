@@ -98,25 +98,59 @@ fn is_copy_or_move_ctor(m: &MethodInfo) -> bool {
 ///
 /// 仅处理 `is_in_namespace` 且含公有构造的类。方法/构造参数中含暂不可直出映射的类型
 /// （如 `std::string`、未知类）时，会被保守跳过，留待手写示例补全（与黄金支架一致）。
+///
+/// 采用两轮确认策略：
+/// 1. 第一轮用「所有非抽象、有公有构造的命名空间类」作候选导出集，预判哪些类能生成
+///    有效 ClassSpec（build_one 返回 Some）。
+/// 2. 第二轮以「确认能生成规格的类」作最终导出集重新生成规格，保证 exported 中每个
+///    类名都有对应的 Rust 类型定义，避免被其他类方法引用时出现「类型未定义」错误。
+///
+/// 抽象类（is_abstract = true，含纯虚函数）不可被 make_unique 实例化，必须排除。
 pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
-    let mut specs = Vec::new();
-    // 已导出的简单类名集合，供方法类型映射合法性检查使用
-    let exported: Vec<&str> = ast
+    // 候选导出集：非抽象、有公有构造的命名空间类
+    let candidate_exported: Vec<&str> = ast
         .classes
         .iter()
-        .filter(|c| c.is_in_namespace && has_public_ctor(c))
+        .filter(|c| c.is_in_namespace && !c.is_abstract && has_public_ctor(c))
         .map(|c| c.simple_name.as_str())
         .collect();
-    // 简单名 → 命名空间限定名映射，供方法签名中的类引用补全限定
-    let qual_map: Vec<(&str, String)> = ast
+    let candidate_qual: Vec<(&str, String)> = ast
         .classes
         .iter()
-        .filter(|c| c.is_in_namespace && has_public_ctor(c))
+        .filter(|c| c.is_in_namespace && !c.is_abstract && has_public_ctor(c))
         .map(|c| (c.simple_name.as_str(), c.qualified_name()))
         .collect();
 
+    // 确认集合：候选中能通过 build_one 生成非空 ClassSpec 的类
+    let confirmed: std::collections::HashSet<&str> = ast
+        .classes
+        .iter()
+        .filter(|ci| ci.is_in_namespace && !ci.is_abstract && has_public_ctor(ci))
+        .filter_map(|ci| {
+            if build_one(ci, &candidate_exported, &candidate_qual).is_some() {
+                Some(ci.simple_name.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // 最终导出集与 qual_map：仅含确认能生成规格的类
+    let exported: Vec<&str> = candidate_exported
+        .iter()
+        .copied()
+        .filter(|s| confirmed.contains(*s))
+        .collect();
+    let qual_map: Vec<(&str, String)> = candidate_qual
+        .iter()
+        .filter(|(simple, _)| confirmed.contains(*simple))
+        .map(|(s, q)| (*s, q.clone()))
+        .collect();
+
+    // 以最终导出集生成规格
+    let mut specs = Vec::new();
     for ci in ast.classes.iter() {
-        if !ci.is_in_namespace || !has_public_ctor(ci) {
+        if !ci.is_in_namespace || ci.is_abstract || !has_public_ctor(ci) {
             continue;
         }
         if let Some(cs) = build_one(ci, &exported, &qual_map) {

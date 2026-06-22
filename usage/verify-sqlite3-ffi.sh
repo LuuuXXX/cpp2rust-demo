@@ -335,8 +335,8 @@ fi
 # ── 6b. 生成 Rust 代码中的 extern-C 绑定（import_lib!） ─────────────────────
 echo -e "\n${BOLD}6b. 生成 Rust 代码中的 extern-C 绑定（import_lib!）${NC}"
 if [ -d "${RUST_SRC}" ]; then
-    IMPORT_LIB_FILES=$(grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null | wc -l)
-    IMPORT_CLASS_FILES=$(grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null | wc -l)
+    IMPORT_LIB_FILES=$((grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null || true) | wc -l)
+    IMPORT_CLASS_FILES=$((grep -rl "hicc::import_class!" "${RUST_SRC}" 2>/dev/null || true) | wc -l)
     info "包含 import_lib! 绑定的文件数：${IMPORT_LIB_FILES}"
     info "包含 import_class! 绑定的文件数：${IMPORT_CLASS_FILES}"
 
@@ -459,8 +459,8 @@ echo ""
 echo -e "  ${BOLD}捕获预处理文件数：${NC}  ${CAPTURED}"
 echo -e "  ${BOLD}生成 Rust 文件数：${NC}  ${RS_FILES}"
 if [ -d "${RUST_SRC}" ]; then
-    IMPORT_LIB_FILES=$(grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null | wc -l)
-    TOTAL_FN_BINDINGS=$(grep -roh '#\[cpp(func = "sqlite3_[^"]*")\]' "${RUST_SRC}" 2>/dev/null | wc -l)
+    IMPORT_LIB_FILES=$((grep -rl "hicc::import_lib!" "${RUST_SRC}" 2>/dev/null || true) | wc -l)
+    TOTAL_FN_BINDINGS=$((grep -roh '#\[cpp(func = "sqlite3_[^"]*")\]' "${RUST_SRC}" 2>/dev/null || true) | wc -l)
     echo -e "  ${BOLD}import_lib! FFI 绑定文件数：${NC}  ${IMPORT_LIB_FILES}"
     echo -e "  ${BOLD}sqlite3_* 函数绑定总数：${NC}      ${TOTAL_FN_BINDINGS}"
     if [ "${IMPORT_LIB_FILES}" -gt 0 ]; then

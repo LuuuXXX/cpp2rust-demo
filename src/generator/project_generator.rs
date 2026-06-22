@@ -359,6 +359,12 @@ fn build_rs_with_meta(
     if let Some(std) = &meta.cpp_std {
         body.push_str(&format!("    cc_build.std({});\n", rust_str_lit(std)));
     }
+    // MSVC 需要 /utf-8 才能正确处理 UTF-8 源码（如 fmtlib base.h 的静态断言）
+    body.push_str(
+        "    if std::env::var(\"CARGO_CFG_TARGET_ENV\").as_deref() == Ok(\"msvc\") {\n\
+         \x20       cc_build.flag(\"/utf-8\");\n\
+         \x20   }\n",
+    );
     for inc in &meta.include_dirs {
         body.push_str(&format!("    cc_build.include({});\n", rust_str_lit(inc)));
     }

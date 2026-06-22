@@ -67,7 +67,10 @@ fn collect_namespace_inner(
     // 跳过约定俗成的「实现内部」命名空间（如 impl、detail、internal），
     // 避免将三方库不应对外暴露的内部符号收集为 FFI 绑定候选。
     // 例：pugi::impl（pugixml 内部内存分配）、fmt::v12::detail（fmtlib 模板细节）。
-    if matches!(ns_name.as_str(), "impl" | "detail" | "internal" | "priv" | "private") {
+    if matches!(
+        ns_name.as_str(),
+        "impl" | "detail" | "internal" | "priv" | "private"
+    ) {
         return;
     }
     // 当前命名空间的 `::` 限定路径
@@ -118,9 +121,14 @@ fn collect_namespace_inner(
             EntityKind::FunctionDecl => {
                 if let Some(mut fi) = extract_function(&entity, None, cpp_ranges) {
                     if fi.is_from_current_file {
-                        // 记录函数所属命名空间路径，供 hicc 直出自由函数名限定使用。
-                        fi.namespace = path_opt.clone();
-                        ast.functions.push(fi);
+                        // 仅收集有头文件声明的函数：若规范实体（首个声明）也在 cpp_ranges
+                        // 内，说明该函数只有实现没有对应头文件声明（如 fmtlib 的
+                        // convert_rwcount），hicc 无法在生成的 C++ wrapper 中调用它，跳过。
+                        let canonical = entity.get_canonical_entity();
+                        if !entity_is_from_current_file(&canonical, cpp_ranges) {
+                            fi.namespace = path_opt.clone();
+                            ast.functions.push(fi);
+                        }
                     }
                 }
             }

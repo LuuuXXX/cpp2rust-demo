@@ -92,7 +92,10 @@ pub fn extract(
         let cpp_block_lines = if let Some(hdr) = project_header {
             vec![format!("#include \"{}\"", hdr)]
         } else {
-            Vec::new()
+            // 无项目引号 include（如 header-only 库以系统 include 引入头文件时），
+            // 将捕获到的系统 include 注入 hicc::cpp! 块，确保库类型在 hicc 编译
+            // 生成的 C++ wrapper 中可见（如 magic_enum、toml++、fmtlib 等）。
+            system_includes.to_vec()
         };
         let class_specs = hicc_direct::build_hicc_direct_specs(ast);
         // 绑定命名空间自由函数（排除仅用于产生链接符号的 `<unit>_anchor` 锚点函数）
