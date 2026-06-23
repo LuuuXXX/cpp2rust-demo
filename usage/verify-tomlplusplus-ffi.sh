@@ -165,10 +165,6 @@ mkdir -p "${DRIVER_SUBDIR}"
 DRIVER_TMP=$(mktemp "${DRIVER_SUBDIR}/tmpXXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // toml++ 驱动文件 — 测试大型单头实库的解析鲁棒性
-// TOML_ENABLE_WINDOWS_COMPAT=0：禁用 Windows 专属 std::wstring 兼容层，
-// 避免 MSVC 编译时因找不到 WideCharToMultiByte/MultiByteToWideChar 而报 C2065。
-// 本驱动只使用 std::string API，不需要宽字符支持。
-#define TOML_ENABLE_WINDOWS_COMPAT 0
 #define TOML_HEADER_ONLY 1
 #include <toml++/toml.hpp>
 #include <string>
@@ -177,6 +173,10 @@ namespace tomlwrap_ns {
 
 class TomlWrapper {
 public:
+    // 显式声明默认构造函数：libclang 不报告编译器隐式合成的构造函数，
+    // 须有显式声明 has_public_ctor 才能返回 true，
+    // 进而令 detect_idiomatic_mode 为 true 并生成 import_class! 绑定。
+    TomlWrapper() = default;
     int int_value(const std::string& key) const;
     std::string string_value(const std::string& key) const;
     // has_key 提供 const char* 参数/bool 返回值的可映射方法，
@@ -302,7 +302,14 @@ fn main() {
     cc_build.std("${CXX_STD}");
     cc_build.include("${TOMLPLUSPLUS_INCLUDE_BP}");
     cc_build.define("TOML_HEADER_ONLY", Some("1"));
-    cc_build.define("TOML_ENABLE_WINDOWS_COMPAT", Some("0"));
+    // MSVC 上 toml++ std_string.inl 的 narrow()/widen() 实现始终会被编译（受
+    // TOML_WINDOWS 控制，非 TOML_ENABLE_WINDOWS_COMPAT），并调用 WideCharToMultiByte /
+    // MultiByteToWideChar。若 _WINDOWS_ 已被其他头文件定义但未附带完整 Win32 API 声明，
+    // 会出现 C2065（undeclared identifier）。/FIwindows.h 强制预包含 <windows.h>，
+    // 保证 WideChar 函数在整个编译单元中均已声明。
+    if cfg!(all(target_os = "windows", target_env = "msvc")) {
+        cc_build.flag("/FIwindows.h");
+    }
     build
 ${RUST_FILE_LINES}        .compile("${LIB_NAME}");
 
