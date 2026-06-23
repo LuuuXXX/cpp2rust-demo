@@ -52,12 +52,19 @@ impl BuildMeta {
     /// `.opts` 会被静默跳过（退化为不注入该单元的选项），不影响其余单元。
     pub fn collect(selected: &[PathBuf], c_dir: &Path, project_root: &Path) -> Self {
         let mut meta = BuildMeta::default();
+        // 用 HashSet 维护已见集合，保证 Vec 顺序不变但 contains 查询为 O(1)
+        let mut seen_sources: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut seen_includes: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         for cpp2rust_path in selected {
             // ① 还原原始 .cpp 路径（与 init::first_pass_parse 的反推规则一致）。
             let original_cpp = original_cpp_path(cpp2rust_path, c_dir, project_root);
             if let Some(src) = canonicalize_lossy(&original_cpp) {
-                push_unique(&mut meta.impl_sources, src);
+                if seen_sources.insert(src.clone()) {
+                    meta.impl_sources.push(src);
+                }
             }
 
             // ② 解析 <file>.opts 中的 include 路径与 -std。
@@ -76,7 +83,9 @@ impl BuildMeta {
                 let resolved = canonicalize_lossy(Path::new(&inc))
                     .or_else(|| canonicalize_lossy(&project_root.join(&inc)))
                     .unwrap_or(inc);
-                push_unique(&mut meta.include_dirs, resolved);
+                if seen_includes.insert(resolved.clone()) {
+                    meta.include_dirs.push(resolved);
+                }
             }
         }
 

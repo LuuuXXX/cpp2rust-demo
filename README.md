@@ -18,7 +18,7 @@ cpp2rust-demo merge              # 备份并整理编译单元输出（可选）
 - 📦 **hicc 直出（无 shim）为默认**：`hicc::import_class!` 直绑真实命名空间类、`hicc::import_lib!` 直绑自由函数与 `make_unique` 工厂；`hicc::cpp!` 仅用于 `#include` 与少数特性的必要内联包装
 - 🏷️ **多 feature 支持**：`--feature <name>` 将不同平台或构建配置的产物隔离到各自目录，`merge` 命令可将多个 feature 合并为带 `[features]` 段的统一 Rust 项目
 - 🤖 **CI / 非交互环境自动全选**：stdin 非 TTY 时自动全选所有捕获到的 `.cpp2rust` 文件，无需人工干预
-- 🧪 **五层测试体系**：L1 黄金文件比对 / L2 编译测试 / L3 运行输出验证 / L4 真实项目 E2E 转换（rapidjson + tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib） / L5 `nm` 符号双向验证
+- 🧪 **六层测试体系**：L1 黄金文件比对 / L2 编译测试 / L3 运行输出验证 / L_smoke 冒烟测试（`init` 自动生成）/ L4 真实项目 E2E 转换（rapidjson + tinyxml2 / pugixml / sqlite3 / nlohmann-json / fmtlib） / L5 `nm` 符号双向验证
 - ⚠️ **降级特性内联提示**：无法完全自动化的 C++ 特性（运算符重载、可变参数模板、有状态 Lambda 等）自动降级并在生成代码中插入 `// cpp2rust-todo[TAG]` 注释，精确定位待手动完善的位置
 
 仓库同时包含 **48 个循序渐进的 C++ 特性示例**，每个示例都有对应的 C++ 源码和可运行的 Rust FFI 参考实现，覆盖从基础函数到模板、STL、虚继承等复杂场景。
@@ -574,7 +574,7 @@ hicc::import_lib! {
 
 ## 测试体系
 
-测试分五层，位于 `tests/` 目录：
+测试分六层，位于 `tests/` 目录：
 
 | 层 | 文件 | 验证内容 | 当前状态 |
 |----|------|---------|---------|
@@ -753,7 +753,7 @@ cpp2rust-demo/
 ├── hook/              # LD_PRELOAD 拦截器（hook.cpp + Makefile）
 ├── src/               # 工具源码（Rust）
 ├── examples/          # 48 个示例，每个含 cpp/ 和 rust_hicc/ 子目录
-├── tests/             # 五层测试体系（L1–L5）
+├── tests/             # 六层测试体系（L1–L5 + L_smoke）
 ├── docs/
 │   ├── plans/v7/      # 精炼设计说明（automated-cpp2rust-ffi-v7.md）
 │   └── references/    # hicc、c2rust-demo 等参考文档
