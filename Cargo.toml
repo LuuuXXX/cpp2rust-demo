@@ -1,6 +1,6 @@
 [package]
 name = "cpp2rust-demo"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.82"
 description = "C++ to Rust Safe FFI scaffolding generator — auto-generates hicc-based FFI bindings from C++ source via LD_PRELOAD build capture and libclang AST analysis"
