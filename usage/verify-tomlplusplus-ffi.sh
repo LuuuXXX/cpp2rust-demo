@@ -140,10 +140,29 @@ if [ ! -d "${SOURCE_DIR}" ] || [ ! -d "${TOMLPLUSPLUS_INCLUDE}" ]; then
     fail "未找到 toml++ include 目录：${TOMLPLUSPLUS_INCLUDE}"
 fi
 
-# 将驱动文件创建在 /tmp 而非仓库根目录：local_project_byte_ranges 以驱动文件
-# 所在目录为"本地项目"边界，若放在 REPO_DIR 则 references/tomlplusplus/ 下所有
-# 头文件都会被误判为本地类并生成无效绑定（begin/end 重载、iterator 返回类型）。
-DRIVER_TMP=$(mktemp "/tmp/cpp2rust-toml-XXXXXX.cpp")
+# 将驱动文件创建在 REPO_DIR/.cpp2rust/${FEATURE}/driver/ 子目录下：
+#
+# 要求 ①  文件必须在 project_root（REPO_DIR）内：
+#   Linux LD_PRELOAD hook（hook.cpp::preprocess_cppfile）与 Windows hook_shim
+#   （resolve_paths）均通过 strip_prefix(cppfile, project_root) 检测文件归属；
+#   project_root 外的文件会被静默跳过，导致捕获 0 个 .cpp2rust 文件，
+#   init 提前返回不创建 rust/src，merge 随即以 "rust/src not found" 失败。
+#
+# 要求 ②  目录路径不能是 references/tomlplusplus/ 的祖先目录：
+#   local_project_byte_ranges 以"主 .cpp 所在目录（main_dir）及其父目录
+#   （parent_dir）"为本地项目边界；若驱动文件直接放在 REPO_DIR 或
+#   REPO_DIR 的单层子目录，parent_dir 便会覆盖整个 REPO_DIR/，将
+#   references/tomlplusplus/include/ 误判为本地文件并生成无效绑定
+#   （begin/end 重载、iterator 返回类型等）。
+#
+# .cpp2rust/${FEATURE}/driver/ 同时满足两个要求：
+#   - 在 REPO_DIR 内（hook 可捕获）
+#   - main_dir  = .cpp2rust/${FEATURE}/driver/
+#     parent_dir = .cpp2rust/${FEATURE}/
+#     两者均不覆盖 references/tomlplusplus/，三方头文件不被误提取。
+DRIVER_SUBDIR="${REPO_DIR}/.cpp2rust/${FEATURE}/driver"
+mkdir -p "${DRIVER_SUBDIR}"
+DRIVER_TMP=$(mktemp "${DRIVER_SUBDIR}/tmpXXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // toml++ 驱动文件 — 测试大型单头实库的解析鲁棒性
 #define TOML_HEADER_ONLY 1
@@ -176,7 +195,7 @@ step "§ 3. 编译源文件（供 nm 符号验证）"
 
 OBJ_DIR=$(mktemp -d)
 info "目标文件输出目录：${OBJ_DIR}"
-trap 'rm -rf "${OBJ_DIR}" "${NM_CACHE:-}" "${DRIVER_TMP:-}" "${WRAPPER_TMP:-}" "${BUILD_SCRIPT:-}" 2>/dev/null || true' EXIT
+trap 'rm -rf "${OBJ_DIR}" "${NM_CACHE:-}" "${DRIVER_SUBDIR:-}" "${WRAPPER_TMP:-}" "${BUILD_SCRIPT:-}" 2>/dev/null || true' EXIT
 if g++ -c -std="${CXX_STD}" -I"${TOMLPLUSPLUS_INCLUDE}" -DTOML_HEADER_ONLY=1 "${DRIVER_TMP}" -o "${OBJ_DIR}/tomlplusplus_driver.o" 2>&1; then
     ok "toml++ driver 编译成功"
 else
