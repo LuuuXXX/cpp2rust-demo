@@ -3,7 +3,8 @@
 //! Rust 关键字检查、参数名/函数名清理、C++ 参数列表格式化。
 //! 这些工具在多个 extractor 子模块中共用，集中维护以避免重复。
 
-use super::type_mapper::to_snake_case;
+use super::normalize_ptr_spacing;
+use super::type_mapper::{clean_type, to_snake_case};
 use crate::ast_parser::ParamInfo;
 
 /// 判断是否为 Rust 关键字（Rust 2021 严格关键字 + 保留关键字）。
@@ -48,8 +49,6 @@ pub(super) fn sanitize_fn_name(name: &str) -> String {
 
 /// 格式化 C++ 参数列表字符串
 pub(super) fn format_params_cpp(params: &[ParamInfo]) -> String {
-    use super::type_mapper::clean_type;
-    use super::normalize_ptr_spacing;
     params
         .iter()
         .map(|p| {
