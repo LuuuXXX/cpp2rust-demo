@@ -53,10 +53,8 @@ impl BuildMeta {
     pub fn collect(selected: &[PathBuf], c_dir: &Path, project_root: &Path) -> Self {
         let mut meta = BuildMeta::default();
         // 用 HashSet 维护已见集合，保证 Vec 顺序不变但 contains 查询为 O(1)
-        let mut seen_sources: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
-        let mut seen_includes: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut seen_sources: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_includes: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for cpp2rust_path in selected {
             // ① 还原原始 .cpp 路径（与 init::first_pass_parse 的反推规则一致）。

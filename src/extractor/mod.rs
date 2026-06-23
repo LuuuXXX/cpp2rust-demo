@@ -22,9 +22,9 @@ use std::fs;
 use type_mapper::cpp_to_rust;
 
 // 从子模块重导出公用符号，使 sub-module 的 `super::fn_name` 路径继续可用
-pub use source_reader::read_source_includes;
 use ident_util::{format_params_cpp, is_rust_keyword, sanitize_fn_name, sanitize_param_name};
 use shim_classifier::{assign_associated_fns, classify_fn, classify_functions, ShimKind};
+pub use source_reader::read_source_includes;
 pub use type_mapper::{
     extract_range_text, normalize_ptr_spacing, strip_struct_class_keyword, strip_volatile,
 };
@@ -388,7 +388,9 @@ fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
         std::collections::HashMap::new();
 
     for (fi, sig_key) in &keyed {
-        let entry = map.entry((fi.name.as_str(), sig_key.as_str())).or_insert(fi);
+        let entry = map
+            .entry((fi.name.as_str(), sig_key.as_str()))
+            .or_insert(fi);
         let new_score = score(fi);
         let old_score = score(entry);
         if new_score > old_score {
@@ -661,7 +663,11 @@ mod tests {
         let fi2 = make_fn("compute", "int", &["int", "int"]);
         let funcs = vec![&fi0, &fi1, &fi2];
         let spec = build_lib_spec(&funcs, "test", &[]);
-        assert_eq!(spec.fn_bindings.len(), 3, "三个不同签名的重载各应生成一条绑定");
+        assert_eq!(
+            spec.fn_bindings.len(),
+            3,
+            "三个不同签名的重载各应生成一条绑定"
+        );
         // 第一个无后缀
         assert_eq!(spec.fn_bindings[0].rust_name, "compute");
         // 第二个追加 _1
@@ -709,7 +715,10 @@ mod tests {
         let result = dedup_functions(&fns);
         assert_eq!(result.len(), 1, "同名同签名只保留一条");
         // score 高者（body_offset=Some, is_extern_c=false）胜出
-        assert!(!result[0].is_extern_c, "应保留 score 更高（非 extern-C）的版本");
+        assert!(
+            !result[0].is_extern_c,
+            "应保留 score 更高（非 extern-C）的版本"
+        );
     }
 
     /// 同名不同参数签名的两条函数各自保留
