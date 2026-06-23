@@ -187,7 +187,10 @@ pub fn generate_smoke_test(lib_name: &str, specs: &[&FfiSpec]) -> String {
     out.push_str("//! 目的：验证生成的 Rust FFI 绑定可编译、可链接、可调用。\n");
     out.push_str("//! 运行：在本目录执行 `cargo test`。\n");
     out.push_str("\n#![allow(unused_imports, unused_variables, unused_mut)]\n\n");
-    out.push_str(&format!("use {}::*;\n\n", lib_name));
+    // 使用 `::lib_name` 绝对路径前缀，避免 crate 名与其导出的同名模块产生 E0659 歧义。
+    // 例：crate `tomlplusplus_ffi` 导出模块 `tomlplusplus_ffi` 时，`use tomlplusplus_ffi::*`
+    // 会报"ambiguous name"，而 `use ::tomlplusplus_ffi::*` 明确指向外部 crate。
+    out.push_str(&format!("use ::{}::*;\n\n", lib_name));
 
     // ── A. 编译期类型断言 ──────────────────────────────────────
     if !class_names.is_empty() {
@@ -512,7 +515,7 @@ mod tests {
         let spec = spec_with(vec![class_with_method("Counter")], vec![]);
         let code = generate_smoke_test("my_lib", &[&spec]);
         assert!(
-            code.contains("use my_lib::*;"),
+            code.contains("use ::my_lib::*;"),
             "应包含 crate 导入\n{}",
             code
         );

@@ -165,6 +165,10 @@ mkdir -p "${DRIVER_SUBDIR}"
 DRIVER_TMP=$(mktemp "${DRIVER_SUBDIR}/tmpXXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // toml++ 驱动文件 — 测试大型单头实库的解析鲁棒性
+// TOML_ENABLE_WINDOWS_COMPAT=0：禁用 Windows 专属 std::wstring 兼容层，
+// 避免 MSVC 编译时因找不到 WideCharToMultiByte/MultiByteToWideChar 而报 C2065。
+// 本驱动只使用 std::string API，不需要宽字符支持。
+#define TOML_ENABLE_WINDOWS_COMPAT 0
 #define TOML_HEADER_ONLY 1
 #include <toml++/toml.hpp>
 #include <string>
@@ -298,6 +302,7 @@ fn main() {
     cc_build.std("${CXX_STD}");
     cc_build.include("${TOMLPLUSPLUS_INCLUDE_BP}");
     cc_build.define("TOML_HEADER_ONLY", Some("1"));
+    cc_build.define("TOML_ENABLE_WINDOWS_COMPAT", Some("0"));
     build
 ${RUST_FILE_LINES}        .compile("${LIB_NAME}");
 
@@ -427,11 +432,11 @@ if [ -d "${C_DIR}" ]; then
     while IFS= read -r f; do
         lines=$(wc -l < "${f}")
         TOTAL_LINES=$((TOTAL_LINES + lines))
-    done < <(find "${C_DIR}" -name "*.cpp2rust" 2>/dev/null)
+    done < <(find "${C_DIR}" -type f -name "*.cpp2rust" 2>/dev/null)
     info "预处理文件总行数：${TOTAL_LINES}"
 
     echo "──── 各 .cpp2rust 文件大小（前 15 条）────"
-    find "${C_DIR}" -name "*.cpp2rust" -exec wc -l {} \; 2>/dev/null \
+    find "${C_DIR}" -type f -name "*.cpp2rust" -exec wc -l {} \; 2>/dev/null \
         | sort -rn | head -15 || true
 fi
 
