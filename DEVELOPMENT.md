@@ -43,10 +43,11 @@ cpp2rust-demo (bin)
     │   ├── mod.rs
     │   ├── operator_handler.rs  # 运算符重载 [OP]
     │   └── diamond_handler.rs   # 菱形继承路径检测与命名 shim 生成
+    ├── build_meta.rs            # 编译元数据落盘与解析（init 方案 A：还原 include 路径与 C++ 标准）
+    ├── metrics.rs               # 生成产物指标统计（import_lib 数、cpp2rust-todo 标记等）
     ├── merger/                  # Phase 6：merge 命令核心逻辑
     │   ├── mod.rs               # merge_units()：多 unit .rs 文件合并为 MergedSpec，去重 + 冲突检测
     │   └── block_parser.rs      # parse_unit_rs()：解析单个 .rs 文件中的 hicc 块
-    ├── metrics.rs               # merge 命令辅助模块：源码行数统计、cpp2rust-todo 标签解析（非独立 phase）
     └── generator/               # Phase 5：FfiSpec → Rust 代码
         ├── mod.rs
         ├── hicc_codegen.rs      # hicc 三段式代码生成
@@ -61,6 +62,10 @@ Phase 1              Phase 2                 Phase 3              Phase 4       
 LD_PRELOAD           ast_parser/             extractor/           postprocessor/      generator/           merger/
 → g++ -E -C          clang crate 解析        CppAst → FfiSpec     FfiSpec 特殊情况    FfiSpec → hicc       merge_in_place()
 → .cpp2rust   →      .cpp2rust → CppAst →   FfiSpec IR       →   处理（菱形继承）→   三段式 Rust 代码  →  src/ 整理 + 报告
+→ .cpp2rust.opts                                                                      ↑ 同时收集编译元数据
+                                                                                      build_meta.rs 解析 .opts
+                                                                                      → meta/build-meta.json
+                                                                                      → 注入生成的 build.rs
 ```
 
 ### 2.2 输出目录结构
@@ -109,7 +114,7 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 | functional_bind / 异常 | 041–042 | ✅ |
 | 高级特性 | 043–048 | ✅ |
 
-### 3.1 降级特性说明（6 项）
+### 3.1 降级特性说明（7 项）
 
 | TAG | 编号 | C++ 特性 | 不能完全自动的原因 | 自动降级策略 |
 |-----|------|---------|-----------------|------------|
@@ -141,6 +146,7 @@ LD_PRELOAD           ast_parser/             extractor/           postprocessor/
 | L4 | `fmtlib_e2e_test.rs` | fmtlib 多文件项目 init 阶段 + merge 阶段（`cargo check`）验证 | `cargo test --test fmtlib_e2e_test -- --test-threads=1` |
 | L4 | `multi_feature_e2e_test.rs` | 多 feature 合并 & output-dir 导出完整流程验证 | `cargo test --test multi_feature_e2e_test -- --test-threads=1` |
 | L5 | `l5_nm_symbol_tests.rs` | 用 `nm` 双向验证 C++ 导出符号均已链接进 Rust FFI 二进制 | `cargo test --test l5_nm_symbol_tests -- --ignored` |
+| L6 | `gen_verify_e2e_test.rs` | 验证工具实际生成的代码可被 Rust 编译器接受（`cargo build`）；对模板函数/模板类/接口虚函数等代表性示例运行完整生成流水线 | `cargo test --test gen_verify_e2e_test -- --include-ignored` |
 
 **L1/L3 测试控制**：L1 和 L3 测试通过 `full-test` feature flag 控制。不加 `--features full-test` 时，这两类测试会被自动跳过（ignored）；加上后则正常运行。这比 `--include-ignored` 语义更清晰，也不会误触其他被标记为 ignored 的测试。
 

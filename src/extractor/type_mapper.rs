@@ -385,6 +385,72 @@ pub fn to_snake_case(s: &str) -> String {
     result
 }
 
+/// 规范化 C++ 类型中的指针空格：`T *` → `T*`，`const T *` → `const T*`
+pub fn normalize_ptr_spacing(ty: &str) -> String {
+    let mut result = String::with_capacity(ty.len());
+    let mut chars = ty.chars().peekable();
+    while let Some(c) = chars.next() {
+        // 跳过 '*' 前的空格，避免 byte-level 迭代在 UTF-8 多字节字符时出错
+        if c == ' ' && chars.peek() == Some(&'*') {
+            continue;
+        }
+        result.push(c);
+    }
+    result
+}
+
+/// 剥除 C++ 类型的 `volatile` 前缀（volatile 在 C++ 方法签名中不影响 FFI）
+pub fn strip_volatile(ty: &str) -> &str {
+    ty.strip_prefix("volatile ").map(str::trim).unwrap_or(ty)
+}
+
+/// 从 C++ 类型字符串中删除作为类型限定符出现的 `struct ` 和 `class ` 关键字。
+///
+/// 不同平台/版本的 libclang 对同一类型的 elaborated type 处理方式不同：
+///   - Linux libclang：`const struct MyClass *`（保留 struct 关键字）
+///   - Windows LLVM 17：`const MyClass *`（省略 struct 关键字）
+///
+/// 本函数统一删除这些类型限定符，确保跨平台生成的 cpp_sig 一致。
+/// 仅删除 `struct ` / `class `（关键字后跟空格），且前一字符必须为非标识符字符
+/// （空格、`(`、`*` 等），以避免误删标识符中包含的 "struct"/"class" 子串（如
+/// `my_struct_type` 中的 `struct`）。
+pub fn strip_struct_class_keyword(ty: &str) -> String {
+    let bytes = ty.as_bytes();
+    let mut result = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        // 判断当前位置是否为单词边界（前一字符不是标识符字符）
+        let is_boundary = i == 0 || {
+            let prev = bytes[i - 1];
+            !prev.is_ascii_alphanumeric() && prev != b'_'
+        };
+        if is_boundary {
+            if bytes[i..].starts_with(b"struct ") {
+                i += 7; // "struct ".len()
+                continue;
+            }
+            if bytes[i..].starts_with(b"class ") {
+                i += 6; // "class ".len()
+                continue;
+            }
+        }
+        result.push(bytes[i]);
+        i += 1;
+    }
+    // SAFETY: 仅删除 ASCII 子序列，剩余字节仍为有效 UTF-8
+    String::from_utf8(result).unwrap_or_else(|_| ty.to_string())
+}
+
+/// 从源文件字节数组中读取范围文本
+pub fn extract_range_text(source_bytes: &[u8], start: u32, end: u32) -> String {
+    let s = start as usize;
+    let e = (end as usize).min(source_bytes.len());
+    if s >= e {
+        return String::new();
+    }
+    String::from_utf8_lossy(&source_bytes[s..e]).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

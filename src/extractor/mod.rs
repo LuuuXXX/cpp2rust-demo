@@ -8,15 +8,26 @@ mod class_spec;
 mod cpp_block;
 mod dynamic_cast_spec;
 mod hicc_direct;
+mod ident_util;
 mod lib_spec;
 mod proxy_spec;
 mod repr_c_spec;
+mod shim_classifier;
+mod source_reader;
 mod template_spec;
 
-use crate::ast_parser::{CppAst, FunctionInfo, ParamInfo};
+use crate::ast_parser::{CppAst, FunctionInfo};
 use crate::ffi_model::{ClassSpec, FfiSpec};
 use std::fs;
-use type_mapper::{clean_type, cpp_to_rust, to_snake_case};
+use type_mapper::cpp_to_rust;
+
+// 从子模块重导出公用符号，使 sub-module 的 `super::fn_name` 路径继续可用
+use ident_util::{format_params_cpp, is_rust_keyword, sanitize_fn_name, sanitize_param_name};
+use shim_classifier::{assign_associated_fns, classify_fn, classify_functions, ShimKind};
+pub use source_reader::read_source_includes;
+pub use type_mapper::{
+    extract_range_text, normalize_ptr_spacing, strip_struct_class_keyword, strip_volatile,
+};
 
 // ─────────────────────────────────────────────
 //  公共入口
@@ -341,13 +352,12 @@ fn detect_namespace_mode(
         && used_classes.is_empty()
         && eligible_functions.iter().any(|f| {
             f.is_extern_c && {
-                let rt = &f.return_type;
+                let rt = normalize_ptr_spacing(f.return_type.as_str());
                 rt.contains("::")
-                    || rt.contains("void *")
                     || rt.contains("void*")
                     || f.params.iter().any(|p| {
-                        let t = &p.type_name;
-                        t.contains("::") || t.contains("void *") || t.contains("void*")
+                        let t = normalize_ptr_spacing(p.type_name.as_str());
+                        t.contains("::") || t.contains("void*")
                     })
             }
         })
@@ -359,18 +369,28 @@ fn detect_namespace_mode(
 /// - 具有相同名称但不同参数类型签名的函数（C++ 重载）分别保留，
 ///   下游代码负责为其生成带数字后缀的不同 Rust 名称。
 fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
+    // 预先计算每个函数的签名键，避免在两次循环中重复拼接
+    let keyed: Vec<(&FunctionInfo, String)> = functions
+        .iter()
+        .map(|fi| {
+            let sig_key = fi
+                .params
+                .iter()
+                .map(|p| p.type_name.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            (fi, sig_key)
+        })
+        .collect();
+
     // 键：(函数名, 参数类型字符串拼接)
-    let mut map: std::collections::HashMap<(&str, String), &'a FunctionInfo> =
+    let mut map: std::collections::HashMap<(&str, &str), &'a FunctionInfo> =
         std::collections::HashMap::new();
 
-    for fi in functions {
-        let sig_key = fi
-            .params
-            .iter()
-            .map(|p| p.type_name.as_str())
-            .collect::<Vec<_>>()
-            .join(",");
-        let entry = map.entry((fi.name.as_str(), sig_key.clone())).or_insert(fi);
+    for (fi, sig_key) in &keyed {
+        let entry = map
+            .entry((fi.name.as_str(), sig_key.as_str()))
+            .or_insert(fi);
         let new_score = score(fi);
         let old_score = score(entry);
         if new_score > old_score {
@@ -380,16 +400,10 @@ fn dedup_functions<'a>(functions: &'a [FunctionInfo]) -> Vec<&'a FunctionInfo> {
 
     // 按原始顺序输出，同一签名键只出现一次
     let mut result: Vec<&'a FunctionInfo> = Vec::new();
-    let mut seen: std::collections::HashSet<(&str, String)> = std::collections::HashSet::new();
-    for fi in functions {
-        let sig_key = fi
-            .params
-            .iter()
-            .map(|p| p.type_name.as_str())
-            .collect::<Vec<_>>()
-            .join(",");
-        if seen.insert((fi.name.as_str(), sig_key.clone())) {
-            if let Some(&best) = map.get(&(fi.name.as_str(), sig_key)) {
+    let mut seen: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
+    for (fi, sig_key) in &keyed {
+        if seen.insert((fi.name.as_str(), sig_key.as_str())) {
+            if let Some(&best) = map.get(&(fi.name.as_str(), sig_key.as_str())) {
                 result.push(best);
             }
         }
@@ -407,110 +421,7 @@ fn score(fi: &FunctionInfo) -> u8 {
 }
 
 // ─────────────────────────────────────────────
-//  hicc::cpp! 块构建
-// ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
-//  Shim 分类
-// ─────────────────────────────────────────────
-
-#[derive(Debug, PartialEq)]
-pub(crate) enum ShimKind {
-    Ctor,
-    Dtor,
-    MethodAccessor,
-    Standalone,
-    StaticAccessor,
-}
-
-fn classify_functions<'a>(
-    functions: &[&'a FunctionInfo],
-    class_names: &[&str],
-) -> Vec<(&'a FunctionInfo, ShimKind)> {
-    functions
-        .iter()
-        .map(|fi| (*fi, classify_fn(fi, class_names)))
-        .collect()
-}
-
-fn classify_fn(fi: &FunctionInfo, class_names: &[&str]) -> ShimKind {
-    let name_lower = fi.name.to_lowercase();
-
-    let ret_is_class_ptr = class_names
-        .iter()
-        .any(|cn| type_references_class(&fi.return_type, cn));
-
-    let first_param_is_class_ptr = fi
-        .params
-        .first()
-        .map(|p| {
-            class_names
-                .iter()
-                .any(|cn| type_references_class(&p.type_name, cn))
-        })
-        .unwrap_or(false);
-
-    // 识别构造函数命名模式（使用原始大小写以正确处理驼峰变体）：
-    //   foo_new          — ends_with("_new")
-    //   foo_new_variant  — contains("_new_")
-    //   foo_newCamelCase — _new 后紧跟大写字母（驼峰，如 foo_newWithSize）
-    let name_has_new = fi.name == "new"
-        || fi.name.ends_with("_new")
-        || fi.name.contains("_new_")
-        || fi.name.find("_new").is_some_and(|p| {
-            fi.name
-                .get(p + 4..)
-                .is_some_and(|rest| rest.starts_with(|c: char| c.is_uppercase()))
-        });
-
-    if ret_is_class_ptr && name_has_new {
-        return ShimKind::Ctor;
-    }
-    if first_param_is_class_ptr
-        && (name_lower.ends_with("_delete")
-            || name_lower.ends_with("_deleter")
-            || name_lower == "delete"
-            || name_lower.ends_with("_free")
-            || name_lower == "free"
-            || name_lower.ends_with("_destroy")
-            || name_lower == "destroy"
-            || name_lower.ends_with("_release")
-            || name_lower == "release")
-    {
-        return ShimKind::Dtor;
-    }
-    // 只有当第一个参数是类指针且参数名为约定的 self/this/thiz（表示对象接收者）时，
-    // 才归类为 MethodAccessor（会被跳过，不出现在 import_lib/import_class 中）。
-    // 若第一个参数名是其他名称（如 other/src/input），则该参数只是普通的类指针参数，
-    // 函数应归类为 Standalone，出现在 import_lib 中。
-    let first_param_name_is_self = fi
-        .params
-        .first()
-        .map(|p| matches!(p.name.as_str(), "self" | "this" | "thiz"))
-        .unwrap_or(false);
-    // volatile 限定的指针参数无法作为 hicc 类方法接收者，应归为 Standalone
-    let first_param_is_volatile = fi
-        .params
-        .first()
-        .map(|p| p.type_name.split_whitespace().any(|w| w == "volatile"))
-        .unwrap_or(false);
-    if first_param_is_class_ptr && first_param_name_is_self && !first_param_is_volatile {
-        return ShimKind::MethodAccessor;
-    }
-
-    let is_static_accessor = class_names.iter().any(|cn| {
-        let prefix = format!("{}_", cn.to_lowercase());
-        name_lower.starts_with(&prefix)
-    }) && !first_param_is_class_ptr;
-
-    if is_static_accessor {
-        ShimKind::StaticAccessor
-    } else {
-        ShimKind::Standalone
-    }
-}
-
-// ─────────────────────────────────────────────
-//  辅助工具
+//  辅助工具（类型映射）
 // ─────────────────────────────────────────────
 
 /// 将 C++ 返回类型字符串转换为 Rust `Option<String>`（`None` 表示 void 或空）。
@@ -600,334 +511,6 @@ fn is_mappable_rust_type(rust_ty: &str, class_names: &[&str]) -> bool {
         return class_names.contains(&inner);
     }
     false
-}
-
-/// 从源文件字节数组中读取范围文本
-pub(crate) fn extract_range_text(source_bytes: &[u8], start: u32, end: u32) -> String {
-    let s = start as usize;
-    let e = (end as usize).min(source_bytes.len());
-    if s >= e {
-        return String::new();
-    }
-    String::from_utf8_lossy(&source_bytes[s..e]).to_string()
-}
-
-/// 判断是否为 Rust 关键字（Rust 2021 严格关键字 + 保留关键字）。
-///
-/// 用于参数名、函数名、方法名的消歧处理，防止生成的 Rust 代码出现关键字冲突。
-fn is_rust_keyword(s: &str) -> bool {
-    matches!(
-        s,
-        // 严格关键字（Rust 2021）
-        "as" | "async" | "await" | "break" | "const" | "continue" | "crate" | "dyn"
-        | "else" | "enum" | "extern" | "false" | "fn" | "for" | "if" | "impl" | "in"
-        | "let" | "loop" | "match" | "mod" | "move" | "mut" | "pub" | "ref" | "return"
-        | "self" | "Self" | "static" | "struct" | "super" | "trait" | "true" | "type"
-        | "union" | "unsafe" | "use" | "where" | "while"
-        // 保留关键字
-        | "abstract" | "become" | "box" | "do" | "final" | "gen" | "macro" | "override"
-        | "priv" | "try" | "typeof" | "unsized" | "virtual" | "yield"
-    )
-}
-
-/// 参数名称清理（避免 Rust 关键字）
-fn sanitize_param_name(name: &str, idx: usize) -> String {
-    match name {
-        "" | "_" => format!("arg{}", idx),
-        _ if is_rust_keyword(name) => format!("{}_", name),
-        _ => name.to_string(),
-    }
-}
-
-/// 函数/方法名清理：先转 snake_case，再对关键字加 `_` 后缀。
-///
-/// 用于 `build_method_binding` 和 `build_fn_binding` 生成 `rust_name`，
-/// 确保结果不与 Rust 关键字冲突。
-fn sanitize_fn_name(name: &str) -> String {
-    let snake = to_snake_case(name);
-    if is_rust_keyword(&snake) {
-        format!("{}_", snake)
-    } else {
-        snake
-    }
-}
-
-/// 格式化 C++ 参数列表字符串
-fn format_params_cpp(params: &[ParamInfo]) -> String {
-    params
-        .iter()
-        .map(|p| {
-            let ty = normalize_ptr_spacing(clean_type(&p.type_name));
-            if p.name.is_empty() || p.name == "_" {
-                ty.to_string()
-            } else {
-                format!("{} {}", ty, p.name)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// 从 C++ 类型字符串中删除作为类型限定符出现的 `struct ` 和 `class ` 关键字。
-///
-/// 不同平台/版本的 libclang 对同一类型的 elaborated type 处理方式不同：
-///   - Linux libclang：`const struct MyClass *`（保留 struct 关键字）
-///   - Windows LLVM 17：`const MyClass *`（省略 struct 关键字）
-///
-/// 本函数统一删除这些类型限定符，确保跨平台生成的 cpp_sig 一致。
-/// 仅删除 `struct ` / `class `（关键字后跟空格），且前一字符必须为非标识符字符
-/// （空格、`(`、`*` 等），以避免误删标识符中包含的 "struct"/"class" 子串（如
-/// `my_struct_type` 中的 `struct`）。
-fn strip_struct_class_keyword(ty: &str) -> String {
-    let bytes = ty.as_bytes();
-    let mut result = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        // 判断当前位置是否为单词边界（前一字符不是标识符字符）
-        let is_boundary = i == 0 || {
-            let prev = bytes[i - 1];
-            !prev.is_ascii_alphanumeric() && prev != b'_'
-        };
-        if is_boundary {
-            if bytes[i..].starts_with(b"struct ") {
-                i += 7; // "struct ".len()
-                continue;
-            }
-            if bytes[i..].starts_with(b"class ") {
-                i += 6; // "class ".len()
-                continue;
-            }
-        }
-        result.push(bytes[i]);
-        i += 1;
-    }
-    // SAFETY: 仅删除 ASCII 子序列，剩余字节仍为有效 UTF-8
-    String::from_utf8(result).unwrap_or_else(|_| ty.to_string())
-}
-
-/// 规范化 C++ 类型中的指针空格：`T *` → `T*`，`const T *` → `const T*`
-pub fn normalize_ptr_spacing(ty: &str) -> String {
-    let mut result = String::with_capacity(ty.len());
-    let mut chars = ty.chars().peekable();
-    while let Some(c) = chars.next() {
-        // 跳过 '*' 前的空格，避免 byte-level 迭代在 UTF-8 多字节字符时出错
-        if c == ' ' && chars.peek() == Some(&'*') {
-            continue;
-        }
-        result.push(c);
-    }
-    result
-}
-
-/// 剥除 C++ 类型的 `volatile` 前缀（volatile 在 C++ 方法签名中不影响 FFI）
-fn strip_volatile(ty: &str) -> &str {
-    ty.strip_prefix("volatile ").map(str::trim).unwrap_or(ty)
-}
-
-/// 读取原始 .cpp 和 .h 文件的 include 行
-///
-/// 返回 (system_includes, project_header)
-/// 顺序规则：
-///   1. header-only includes（只在头文件中出现、不在 .cpp 中出现）按头文件顺序排前
-///   2. cpp includes（.cpp 中出现的系统 include）按 .cpp 文件中出现的顺序排后
-///
-/// 头文件扩展名按 `.h` → `.hpp` → `.hxx` 顺序探测，取第一个存在的文件，
-/// 以便兼容同时使用 `.hpp`（如 rapidjson、Eigen）的项目。
-pub fn read_source_includes(cpp_path: &std::path::Path) -> (Vec<String>, Option<String>) {
-    let cpp_content = match fs::read_to_string(cpp_path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!(
-                "warning: cpp2rust: failed to read source file '{}': {}",
-                cpp_path.display(),
-                e
-            );
-            String::new()
-        }
-    };
-
-    // 按优先级探测对应头文件（.h → .hpp → .hxx）
-    let h_content = ["h", "hpp", "hxx"]
-        .iter()
-        .map(|ext| cpp_path.with_extension(ext))
-        .find_map(|p| fs::read_to_string(&p).ok())
-        .unwrap_or_default();
-
-    let mut project: Option<String> = None;
-
-    // 收集头文件中的系统 include（保序）
-    let h_includes: Vec<String> = h_content
-        .lines()
-        .filter_map(|line| {
-            let t = line.trim();
-            let rest = t.strip_prefix("#include ")?;
-            let rest = rest.trim();
-            if rest.starts_with('<') {
-                Some(format!("#include {}", rest))
-            } else {
-                None
-            }
-        })
-        .collect();
-    // 收集 .cpp 中需要在 cpp! 块顶部重放的前置指令（保序）：
-    //   - 系统 include（`<...>`）
-    //   - 第三方/跨单元引用的引号 include（`"..."`）；但**首个**引号 include 视为本单元
-    //     项目头（project_header），由调用方单独处理，不在此重放
-    //   - `using namespace ...;` 指令（使第三方头中未限定的类型在 cpp! 块内可解析）
-    // 背景：以 rapidjson shim 为例，`allocator_ffi.cpp` 含 `#include "rapidjson/allocators.h"`
-    // 与 `using namespace rapidjson;`。若丢失，内联到 cpp! 块的实现会因 `CrtAllocator` 等
-    // 未声明而编译失败。仅保留首个引号 include（旧行为）会漏掉第三方头与跨单元句柄头。
-    let mut cpp_includes: Vec<String> = Vec::new();
-    let mut cpp_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for line in cpp_content.lines() {
-        let t = line.trim();
-        if let Some(rest) = t.strip_prefix("#include ") {
-            let rest = rest.trim();
-            if rest.starts_with('<') {
-                let inc = format!("#include {}", rest);
-                if cpp_seen.insert(inc.clone()) {
-                    cpp_includes.push(inc);
-                }
-            } else if rest.starts_with('"') {
-                let hdr = rest.trim_matches('"');
-                if project.is_none() {
-                    project = Some(hdr.to_string());
-                } else {
-                    // 首个引号 include 之外的引号 include（第三方/跨单元头）需重放
-                    let inc = format!("#include \"{}\"", hdr);
-                    if cpp_seen.insert(inc.clone()) {
-                        cpp_includes.push(inc);
-                    }
-                }
-            }
-        } else if t.starts_with("using namespace ") && t.ends_with(';') {
-            // 保留命名空间引入，使第三方未限定类型在内联实现中可解析
-            if cpp_seen.insert(t.to_string()) {
-                cpp_includes.push(t.to_string());
-            }
-        }
-    }
-    // 合并：header-only 优先（按头文件顺序），然后 cpp 中的按顺序
-    let mut system: Vec<String> = Vec::new();
-    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-
-    // 1. header-only includes
-    for inc in &h_includes {
-        if !cpp_seen.contains(inc) && seen.insert(inc.as_str()) {
-            system.push(inc.clone());
-        }
-    }
-
-    // 2. cpp 前置指令（按 cpp 文件顺序，含同时出现在头文件中的 include）
-    for inc in &cpp_includes {
-        if seen.insert(inc.as_str()) {
-            system.push(inc.clone());
-        }
-    }
-
-    (system, project)
-}
-
-// ─────────────────────────────────────────────
-//  关联函数归属
-// ─────────────────────────────────────────────
-
-/// 将 LibSpec::fn_bindings 中属于某个类的 ctor/dtor/StaticAccessor 函数
-/// 移至对应 ClassSpec::associated_fns，使代码生成器可输出 class body 格式。
-///
-/// 匹配规则：函数名前缀与类名匹配（如 `counter_new` → 归属 `Counter`）；
-/// 仅处理 `ShimKind::Ctor`、`ShimKind::Dtor`、`ShimKind::StaticAccessor`。
-/// 不属于任何已知类（或类无对应 ClassSpec）的函数保留在 fn_bindings 中。
-fn assign_associated_fns(
-    class_specs: &mut [crate::ffi_model::ClassSpec],
-    lib_spec: &mut crate::ffi_model::LibSpec,
-    functions: &[&FunctionInfo],
-    class_names: &[&str],
-) {
-    // 预先分类所有 shim 函数
-    let shims = classify_functions(functions, class_names);
-
-    // 建立 rust_name → ShimKind 映射（去重；同名取第一个）
-    let mut kind_map: std::collections::HashMap<String, &ShimKind> =
-        std::collections::HashMap::new();
-    for (fi, kind) in &shims {
-        kind_map.entry(to_snake_case(&fi.name)).or_insert(kind);
-    }
-
-    // 预先构建 rust_name → FunctionInfo 映射，避免在循环中重复计算 to_snake_case
-    let fn_by_rust_name: std::collections::HashMap<String, &FunctionInfo> = functions
-        .iter()
-        .map(|fi| (to_snake_case(&fi.name), *fi))
-        .collect();
-
-    let mut remaining = Vec::new();
-    for fb in lib_spec.fn_bindings.drain(..) {
-        let kind = kind_map.get(&fb.rust_name).copied();
-        let should_move = matches!(
-            kind,
-            Some(ShimKind::Ctor | ShimKind::Dtor | ShimKind::StaticAccessor)
-        );
-
-        if should_move {
-            // 通过函数签名中的类型（返回类型 / 第一个参数类型）确定归属类。
-            // 这比名称前缀匹配更可靠，可正确处理 RapidJsonBigIntegerHandle 这类
-            // 类名与函数名前缀不一致的情况。
-            let matching_function = fn_by_rust_name.get(&fb.rust_name).copied();
-            let owning: Option<&str> = matching_function.and_then(|fi| {
-                if matches!(kind, Some(ShimKind::Ctor)) {
-                    // Ctor：返回类型中含类名（优先最长匹配，避免子串误匹配）
-                    class_names
-                        .iter()
-                        .filter(|cn| fi.return_type.contains(*cn))
-                        .max_by_key(|cn| cn.len())
-                        .copied()
-                } else if matches!(kind, Some(ShimKind::Dtor)) {
-                    // Dtor：第一个参数类型含类名（优先最长匹配，避免子串误匹配）
-                    fi.params.first().and_then(|p| {
-                        class_names
-                            .iter()
-                            .filter(|cn| p.type_name.contains(*cn))
-                            .max_by_key(|cn| cn.len())
-                            .copied()
-                    })
-                } else {
-                    // StaticAccessor：退回名称前缀匹配
-                    class_names
-                        .iter()
-                        .filter(|cn| {
-                            let prefix = format!("{}_", cn.to_lowercase());
-                            fb.rust_name.starts_with(&prefix)
-                        })
-                        .max_by_key(|cn| cn.len())
-                        .copied()
-                }
-            });
-
-            if let Some(cn) = owning {
-                if let Some(cs) = class_specs.iter_mut().find(|c| c.name == cn) {
-                    // Dtor：记录 destroy_fn 名称（不放入 associated_fns，dtor 不在 Rust 端显式调用）
-                    if matches!(kind, Some(ShimKind::Dtor)) {
-                        cs.destroy_fn = Some(fb.rust_name.clone());
-                    } else {
-                        cs.associated_fns.push(fb);
-                    }
-                    continue;
-                }
-            }
-        }
-        remaining.push(fb);
-    }
-    lib_spec.fn_bindings = remaining;
-
-    // 确保有 associated_fns 的类在 fwd_decls 中有前向声明
-    for cs in class_specs.iter() {
-        if !cs.associated_fns.is_empty() {
-            let decl = format!("class {};", cs.name);
-            if !lib_spec.fwd_decls.contains(&decl) {
-                lib_spec.fwd_decls.push(decl);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -1052,6 +635,100 @@ mod tests {
             spec.fn_bindings.is_empty(),
             "返回 C++ 成员函数指针的函数应被过滤，但仍出现在 fn_bindings 中"
         );
+    }
+
+    // ── lib_spec 去重逻辑测试 ─────────────────────────────────────────
+
+    /// `struct T*` 与 `T*` 规范化后 cpp_sig 相同时只生成一条绑定（cpp_sig 去重）
+    #[test]
+    fn build_lib_spec_dedup_struct_prefix() {
+        // 两个函数仅在参数类型写法上不同（"struct Foo*" vs "Foo*"），
+        // build_fn_binding 会规范化为相同 cpp_sig，应只保留一条绑定
+        let fi1 = make_fn("foo_run", "void", &["struct Foo*"]);
+        let fi2 = make_fn("foo_run", "void", &["Foo*"]);
+        let funcs = vec![&fi1, &fi2];
+        let spec = build_lib_spec(&funcs, "test", &["Foo"]);
+        assert_eq!(
+            spec.fn_bindings.len(),
+            1,
+            "struct Foo* 与 Foo* 规范化后 cpp_sig 相同，应只生成一条绑定"
+        );
+    }
+
+    /// C++ 重载（同名不同参数）应生成 `foo` / `foo_1` / `foo_2` 三条绑定
+    #[test]
+    fn build_lib_spec_overload_suffix() {
+        let fi0 = make_fn("compute", "int", &[]);
+        let fi1 = make_fn("compute", "int", &["int"]);
+        let fi2 = make_fn("compute", "int", &["int", "int"]);
+        let funcs = vec![&fi0, &fi1, &fi2];
+        let spec = build_lib_spec(&funcs, "test", &[]);
+        assert_eq!(
+            spec.fn_bindings.len(),
+            3,
+            "三个不同签名的重载各应生成一条绑定"
+        );
+        // 第一个无后缀
+        assert_eq!(spec.fn_bindings[0].rust_name, "compute");
+        // 第二个追加 _1
+        assert_eq!(spec.fn_bindings[1].rust_name, "compute_1");
+        // 第三个追加 _2
+        assert_eq!(spec.fn_bindings[2].rust_name, "compute_2");
+    }
+
+    /// 同名同参数签名的两条函数经 dedup_functions 只保留一条
+    #[test]
+    fn dedup_functions_same_sig_keeps_one() {
+        let fi1 = FunctionInfo {
+            name: "foo".to_string(),
+            return_type: "void".to_string(),
+            params: vec![ParamInfo {
+                name: "x".to_string(),
+                type_name: "int".to_string(),
+                has_default: false,
+            }],
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: false,
+            friend_of: None,
+            body_offset: Some((0, 0)),
+            is_from_current_file: true,
+            namespace: None,
+        };
+        let fi2 = FunctionInfo {
+            name: "foo".to_string(),
+            return_type: "void".to_string(),
+            params: vec![ParamInfo {
+                name: "x".to_string(),
+                type_name: "int".to_string(),
+                has_default: false,
+            }],
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true, // 低 score
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+            namespace: None,
+        };
+        let fns = vec![fi1, fi2];
+        let result = dedup_functions(&fns);
+        assert_eq!(result.len(), 1, "同名同签名只保留一条");
+        // score 高者（body_offset=Some, is_extern_c=false）胜出
+        assert!(
+            !result[0].is_extern_c,
+            "应保留 score 更高（非 extern-C）的版本"
+        );
+    }
+
+    /// 同名不同参数签名的两条函数各自保留
+    #[test]
+    fn dedup_functions_different_sig_both_kept() {
+        let fi1 = make_fn("bar", "void", &["int"]);
+        let fi2 = make_fn("bar", "void", &["float"]);
+        let fns = vec![fi1, fi2];
+        let result = dedup_functions(&fns);
+        assert_eq!(result.len(), 2, "同名不同签名（重载）应各自保留");
     }
 
     /// 参数含 C 函数指针的方法现在应生成 MethodBinding（不再跳过）
@@ -1821,5 +1498,88 @@ mod tests {
             eligible.iter().any(|f| f.name == "my_func"),
             "当前文件函数应保留在 eligible_functions 中"
         );
+    }
+
+    // ── detect_namespace_mode 场景测试 ──────────────────────────────────────
+
+    fn make_fn_extern_c(name: &str, return_type: &str, param_types: &[&str]) -> FunctionInfo {
+        FunctionInfo {
+            name: name.to_string(),
+            return_type: return_type.to_string(),
+            params: param_types
+                .iter()
+                .enumerate()
+                .map(|(i, t)| ParamInfo {
+                    name: format!("arg{}", i),
+                    type_name: t.to_string(),
+                    has_default: false,
+                })
+                .collect(),
+            is_inline: false,
+            is_variadic: false,
+            is_extern_c: true,
+            friend_of: None,
+            body_offset: None,
+            is_from_current_file: true,
+            namespace: None,
+        }
+    }
+
+    #[test]
+    fn detect_namespace_mode_false_when_no_classes() {
+        // has_any_classes=false → 无论 eligible_functions 内容如何，均返回 false
+        let fi = make_fn_extern_c("foo", "void*", &[]);
+        let result = detect_namespace_mode(false, &Default::default(), &[fi]);
+        assert!(!result);
+    }
+
+    #[test]
+    fn detect_namespace_mode_false_when_used_classes_nonempty() {
+        // used_classes 非空时不触发命名空间模式
+        let fi = make_fn_extern_c("foo", "void*", &[]);
+        let used = std::collections::HashSet::from(["MyClass".to_string()]);
+        let result = detect_namespace_mode(true, &used, &[fi]);
+        assert!(!result);
+    }
+
+    #[test]
+    fn detect_namespace_mode_true_on_void_ptr_return() {
+        // 返回类型为 `void*`（规范化后）→ 触发命名空间模式
+        let fi = make_fn_extern_c("get_ctx", "void *", &[]);
+        let result = detect_namespace_mode(true, &Default::default(), &[fi]);
+        assert!(result, "返回 void* 的 extern-C 函数应触发命名空间模式");
+    }
+
+    #[test]
+    fn detect_namespace_mode_true_on_namespaced_return_type() {
+        // 返回类型含 `::` → 触发命名空间模式
+        let fi = make_fn_extern_c("make_it", "std::string", &[]);
+        let result = detect_namespace_mode(true, &Default::default(), &[fi]);
+        assert!(result, "返回含 :: 类型的 extern-C 函数应触发命名空间模式");
+    }
+
+    #[test]
+    fn detect_namespace_mode_true_on_void_ptr_param() {
+        // 参数类型规范化后含 `void*` → 触发命名空间模式
+        let fi = make_fn_extern_c("process", "int", &["void *"]);
+        let result = detect_namespace_mode(true, &Default::default(), &[fi]);
+        assert!(result, "参数含 void* 的 extern-C 函数应触发命名空间模式");
+    }
+
+    #[test]
+    fn detect_namespace_mode_false_non_extern_c() {
+        // 函数非 extern-C，不触发命名空间模式
+        let mut fi = make_fn_extern_c("foo", "void*", &[]);
+        fi.is_extern_c = false;
+        let result = detect_namespace_mode(true, &Default::default(), &[fi]);
+        assert!(!result, "非 extern-C 函数不应触发命名空间模式");
+    }
+
+    #[test]
+    fn detect_namespace_mode_false_plain_types() {
+        // 普通类型（int、MyClass*）不触发命名空间模式
+        let fi = make_fn_extern_c("do_thing", "MyClass*", &["int"]);
+        let result = detect_namespace_mode(true, &Default::default(), &[fi]);
+        assert!(!result, "普通类类型不应触发命名空间模式");
     }
 }

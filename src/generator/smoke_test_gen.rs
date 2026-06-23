@@ -40,13 +40,14 @@ pub const SMOKE_TEST_PATH: &str = "tests/smoke.rs";
 
 /// 收集所有会经 `lib.rs` 重导出的 `pub class` 类型名。
 fn collect_pub_class_names(specs: &[&FfiSpec]) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut names: Vec<String> = Vec::new();
     for spec in specs {
         for cs in &spec.class_specs {
             if cs.is_empty() {
                 continue;
             }
-            if !names.contains(&cs.name) {
+            if seen.insert(cs.name.clone()) {
                 names.push(cs.name.clone());
             }
         }
@@ -56,22 +57,23 @@ fn collect_pub_class_names(specs: &[&FfiSpec]) -> Vec<String> {
 
 /// 收集所有 FFI 函数名（工厂函数、方法、全局函数），用于 SMOKE 占位说明。
 fn collect_all_fn_names(specs: &[&FfiSpec]) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut names: Vec<String> = Vec::new();
     for spec in specs {
         for cs in &spec.class_specs {
             for fb in &cs.associated_fns {
-                if !names.contains(&fb.rust_name) {
+                if seen.insert(fb.rust_name.clone()) {
                     names.push(fb.rust_name.clone());
                 }
             }
             for mb in &cs.methods {
-                if !names.contains(&mb.rust_name) {
+                if seen.insert(mb.rust_name.clone()) {
                     names.push(mb.rust_name.clone());
                 }
             }
         }
         for fb in &spec.lib_spec.fn_bindings {
-            if !names.contains(&fb.rust_name) {
+            if seen.insert(fb.rust_name.clone()) {
                 names.push(fb.rust_name.clone());
             }
         }
