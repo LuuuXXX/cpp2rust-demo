@@ -294,7 +294,14 @@ pub fn parse_preprocessed(file: &Path) -> Result<CppAst> {
         // 解决方案：对两种 kind 都调用 collect_linkage_spec，不做顶层过滤；
         // 内部的精细过滤由 collect_linkage_spec 自行处理（非内联定义不跳过）。
         if kind == EntityKind::LinkageSpec || kind == EntityKind::UnexposedDecl {
-            collect_linkage_spec(&entity, &mut ast, &cpp_ranges, &user_ranges, &user_files, &local_ranges);
+            collect_linkage_spec(
+                &entity,
+                &mut ast,
+                &cpp_ranges,
+                &user_ranges,
+                &user_files,
+                &local_ranges,
+            );
             continue;
         }
 

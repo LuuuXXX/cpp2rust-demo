@@ -194,9 +194,8 @@ pub fn local_project_byte_ranges(content: &str) -> Vec<std::ops::Range<u32>> {
                 if is_virtual {
                     continue;
                 }
-                let is_header = path.ends_with(".h")
-                    || path.ends_with(".hpp")
-                    || path.ends_with(".hh");
+                let is_header =
+                    path.ends_with(".h") || path.ends_with(".hpp") || path.ends_with(".hh");
                 if !is_header {
                     found = Some(path.replace("\\\\", "\\").replace('\\', "/"));
                     break;

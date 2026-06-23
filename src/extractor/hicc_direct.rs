@@ -123,17 +123,13 @@ pub(super) fn build_hicc_direct_specs(ast: &CppAst) -> Vec<ClassSpec> {
     let candidate_exported: Vec<&str> = ast
         .classes
         .iter()
-        .filter(|c| {
-            c.is_in_namespace && c.is_local_project && !c.is_abstract && has_public_ctor(c)
-        })
+        .filter(|c| c.is_in_namespace && c.is_local_project && !c.is_abstract && has_public_ctor(c))
         .map(|c| c.simple_name.as_str())
         .collect();
     let candidate_qual: Vec<(&str, String)> = ast
         .classes
         .iter()
-        .filter(|c| {
-            c.is_in_namespace && c.is_local_project && !c.is_abstract && has_public_ctor(c)
-        })
+        .filter(|c| c.is_in_namespace && c.is_local_project && !c.is_abstract && has_public_ctor(c))
         .map(|c| (c.simple_name.as_str(), c.qualified_name()))
         .collect();
 
@@ -521,11 +517,7 @@ fn has_cross_class_ptr(
         }
     };
     mb.params.iter().any(|(_, t)| is_cross_ptr(t))
-        || mb
-            .ret_type
-            .as_deref()
-            .map(is_cross_ptr)
-            .unwrap_or(false)
+        || mb.ret_type.as_deref().map(is_cross_ptr).unwrap_or(false)
 }
 
 /// 判断 Rust 类型是否为内置基本类型（不含类/结构体引用）。

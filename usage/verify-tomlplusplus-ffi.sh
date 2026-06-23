@@ -140,7 +140,10 @@ if [ ! -d "${SOURCE_DIR}" ] || [ ! -d "${TOMLPLUSPLUS_INCLUDE}" ]; then
     fail "未找到 toml++ include 目录：${TOMLPLUSPLUS_INCLUDE}"
 fi
 
-DRIVER_TMP=$(mktemp "${REPO_DIR}/tmpXXXXXX.cpp")
+# 将驱动文件创建在 /tmp 而非仓库根目录：local_project_byte_ranges 以驱动文件
+# 所在目录为"本地项目"边界，若放在 REPO_DIR 则 references/tomlplusplus/ 下所有
+# 头文件都会被误判为本地类并生成无效绑定（begin/end 重载、iterator 返回类型）。
+DRIVER_TMP=$(mktemp "/tmp/cpp2rust-toml-XXXXXX.cpp")
 cat > "${DRIVER_TMP}" << 'EOF'
 // toml++ 驱动文件 — 测试大型单头实库的解析鲁棒性
 #define TOML_HEADER_ONLY 1
