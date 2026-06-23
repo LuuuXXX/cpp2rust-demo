@@ -52,8 +52,9 @@ pub(super) fn collect_namespace(
     ns: &clang::Entity<'_>,
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
+    local_ranges: &[std::ops::Range<u32>],
 ) {
-    collect_namespace_inner(ns, ast, cpp_ranges, "");
+    collect_namespace_inner(ns, ast, cpp_ranges, local_ranges, "");
 }
 
 /// 递归收集命名空间成员；`ns_path` 为已累积的 `::` 限定父路径（如 `foo::bar`）。
@@ -61,9 +62,19 @@ fn collect_namespace_inner(
     ns: &clang::Entity<'_>,
     ast: &mut CppAst,
     cpp_ranges: &[std::ops::Range<u32>],
+    local_ranges: &[std::ops::Range<u32>],
     parent_path: &str,
 ) {
     let ns_name = ns.get_name().unwrap_or_default();
+    // 跳过约定俗成的「实现内部」命名空间（如 impl、detail、internal），
+    // 避免将三方库不应对外暴露的内部符号收集为 FFI 绑定候选。
+    // 例：pugi::impl（pugixml 内部内存分配）、fmt::v12::detail（fmtlib 模板细节）。
+    if matches!(
+        ns_name.as_str(),
+        "impl" | "detail" | "internal" | "priv" | "private"
+    ) {
+        return;
+    }
     // 当前命名空间的 `::` 限定路径
     let cur_path = if ns_name.is_empty() {
         parent_path.to_string()
@@ -87,7 +98,7 @@ fn collect_namespace_inner(
         }
         match entity.get_kind() {
             EntityKind::ClassDecl | EntityKind::StructDecl => {
-                if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
+                if let Some(mut ci) = extract_class(&entity, cpp_ranges, local_ranges) {
                     // 旧路径兼容：命名空间前缀（仅直接父命名空间名）扁平化进 `name`，
                     // 以维持「被 extern-C 桥接引用的类」匹配等历史行为不变。
                     if !ns_name.is_empty() {
@@ -100,7 +111,7 @@ fn collect_namespace_inner(
                 }
             }
             EntityKind::ClassTemplatePartialSpecialization => {
-                if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
+                if let Some(mut ci) = extract_class(&entity, cpp_ranges, local_ranges) {
                     if !ns_name.is_empty() {
                         ci.name = format!("{}_{}", ns_name, ci.name);
                     }
@@ -112,9 +123,14 @@ fn collect_namespace_inner(
             EntityKind::FunctionDecl => {
                 if let Some(mut fi) = extract_function(&entity, None, cpp_ranges) {
                     if fi.is_from_current_file {
-                        // 记录函数所属命名空间路径，供 hicc 直出自由函数名限定使用。
-                        fi.namespace = path_opt.clone();
-                        ast.functions.push(fi);
+                        // 仅收集有头文件声明的函数：若规范实体（首个声明）也在 cpp_ranges
+                        // 内，说明该函数只有实现没有对应头文件声明（如 fmtlib 的
+                        // convert_rwcount），hicc 无法在生成的 C++ wrapper 中调用它，跳过。
+                        let canonical = entity.get_canonical_entity();
+                        if !entity_is_from_current_file(&canonical, cpp_ranges) {
+                            fi.namespace = path_opt.clone();
+                            ast.functions.push(fi);
+                        }
                     }
                 }
             }
@@ -127,7 +143,7 @@ fn collect_namespace_inner(
                 collect_typedef(&entity, ast, cpp_ranges);
             }
             EntityKind::Namespace => {
-                collect_namespace_inner(&entity, ast, cpp_ranges, &cur_path);
+                collect_namespace_inner(&entity, ast, cpp_ranges, local_ranges, &cur_path);
             }
             _ => {}
         }
@@ -155,6 +171,7 @@ pub(super) fn collect_linkage_spec(
     cpp_ranges: &[std::ops::Range<u32>],
     user_ranges: &[std::ops::Range<u32>],
     user_files: &std::collections::HashSet<String>,
+    local_ranges: &[std::ops::Range<u32>],
 ) {
     for entity in spec.get_children() {
         // 过滤：跳过来自系统头的实体，但有两个关键例外：
@@ -193,7 +210,7 @@ pub(super) fn collect_linkage_spec(
             }
             // 仅收集有完整定义的 struct（跳过 `struct Foo;` 前向声明）
             EntityKind::StructDecl if entity.is_definition() => {
-                if let Some(mut ci) = extract_class(&entity, cpp_ranges) {
+                if let Some(mut ci) = extract_class(&entity, cpp_ranges, local_ranges) {
                     ci.is_in_namespace = false;
                     ast.classes.push(ci);
                 }
@@ -308,6 +325,7 @@ fn extract_class_members(
 pub(super) fn extract_class(
     entity: &clang::Entity<'_>,
     cpp_ranges: &[std::ops::Range<u32>],
+    local_ranges: &[std::ops::Range<u32>],
 ) -> Option<ClassInfo> {
     let name = entity.get_name()?;
     let is_struct = entity.get_kind() == EntityKind::StructDecl;
@@ -321,6 +339,12 @@ pub(super) fn extract_class(
     // 只有落在 shim cpp 内容区间（即 `.cpp` 行号标记之后、`.h` 标记之前的区域）
     // 的实体才认为来自当前文件。
     let is_from_current_file = entity_is_from_current_file(entity, cpp_ranges);
+
+    // 判断该类是否属于"本地项目文件"（主 .cpp 所在目录或其父目录下的文件）。
+    // 用于 hicc 直出模式：既包含用户自己的头文件（同目录 .h），也覆盖"源码与
+    // 头文件分处不同子目录"的三方库（如 fmtlib src/ 与 include/ 同属 fmtlib/），
+    // 同时排除真正的外部三方库（如 magic_enum.hpp 不在驱动文件的项目树下）。
+    let is_local_project = entity_is_from_current_file(entity, local_ranges);
 
     let mut template_args = Vec::new();
     if let Some(args) = entity.get_template_arguments() {
@@ -343,6 +367,7 @@ pub(super) fn extract_class(
         is_in_namespace: false,
         namespace: None,
         is_from_current_file,
+        is_local_project,
     })
 }
 
@@ -477,6 +502,24 @@ pub(super) fn extract_method(entity: &clang::Entity<'_>) -> Option<MethodInfo> {
                 display_name.trim_end().ends_with(") volatile")
                     || display_name.trim_end().ends_with(") volatile &")
                     || display_name.trim_end().ends_with(") volatile &&")
+            })
+            .unwrap_or(false),
+        is_ref_qualified: entity
+            .get_type()
+            .map(|t| {
+                let d = t.get_display_name();
+                let trimmed = d.trim_end();
+                // 引用限定方法尾部为 `) &`、`) &&`、`) const &`、`) const &&`、
+                // `) noexcept &`、`) const noexcept &` 等形式（volatile 组合已由
+                // is_volatile 覆盖，此处不重复计入）。
+                // 统一判断：剥去末尾限定词后以 " &" 或 " &&" 结尾。
+                let without_noexcept = trimmed
+                    .trim_end_matches(" noexcept")
+                    .trim_end_matches(" const");
+                without_noexcept.ends_with(") &")
+                    || without_noexcept.ends_with(") &&")
+                    || without_noexcept.ends_with(" const &")
+                    || without_noexcept.ends_with(" const &&")
             })
             .unwrap_or(false),
         is_virtual: entity.is_virtual_method(),

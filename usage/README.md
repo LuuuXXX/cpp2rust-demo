@@ -1,11 +1,18 @@
 # usage — 本地验证脚本与 SKILL 使用文档
 
-本目录包含对 rapidjson 项目进行 cpp2rust-demo FFI 转换的**所有可用方式**：
+本目录包含对多个主流 C++ 项目进行 cpp2rust-demo FFI 转换的**可执行验证脚本**：
 
-| 文件 | 说明 |
-|------|------|
-| [`verify-rapidjson-ffi.sh`](verify-rapidjson-ffi.sh) | 全自动 Shell 脚本（CLI 方式，适合批量/CI 场景） |
-| 本文档（README.md） | 脚本用法 + SKILL 交互式工作流完整说明 |
+| 脚本 | 库类型 | 关键特性验证 |
+|------|--------|-------------|
+| [`verify-rapidjson-ffi.sh`](verify-rapidjson-ffi.sh) | 纯 C++ + shim 层 | extern-C shim、`import_lib!` |
+| [`verify-tinyxml2-ffi.sh`](verify-tinyxml2-ffi.sh) | OOP 类库（单文件）| `import_class!`、类层级 |
+| [`verify-pugixml-ffi.sh`](verify-pugixml-ffi.sh) | OOP 类库（单文件+迭代器）| `import_class!`、迭代器类 |
+| [`verify-sqlite3-ffi.sh`](verify-sqlite3-ffi.sh) | 纯 C extern-C 接口 | `import_lib!`、C ABI |
+| [`verify-nlohmann-json-ffi.sh`](verify-nlohmann-json-ffi.sh) | header-only（大型模板）| 驱动文件模式、`import_class!` |
+| [`verify-fmtlib-ffi.sh`](verify-fmtlib-ffi.sh) | 多源 .cc 文件 | 多 unit 生成、.cc 扩展名 |
+| [`verify-magic-enum-ffi.sh`](verify-magic-enum-ffi.sh) | header-only（constexpr）| constexpr 鲁棒性 |
+| [`verify-tomlplusplus-ffi.sh`](verify-tomlplusplus-ffi.sh) | header-only（大型单头）| 大头文件鲁棒性 |
+| 本文档（README.md） | — | 脚本用法 + SKILL 交互式工作流完整说明 |
 
 SKILL 文件本身位于 [`.github/skills/cpp2rust-convert.md`](../.github/skills/cpp2rust-convert.md)，由 GitHub Copilot Agent 自动读取，无需手动调用。
 
@@ -15,15 +22,32 @@ SKILL 文件本身位于 [`.github/skills/cpp2rust-convert.md`](../.github/skill
 
 ### 方式 A：运行 Shell 脚本（全自动）
 
+每个脚本均支持以下环境变量进行配置：
+
+| 变量 | 说明 |
+|------|------|
+| `SKIP_INSTALL` | 置 `1` 跳过 `cargo install`（已安装时加速） |
+| `FEATURE` | 覆盖默认 feature 名称 |
+| `NPROC` | 并行编译线程数（默认自动检测） |
+
 ```bash
 # 系统依赖（Ubuntu/Debian，首次执行前安装一次）
 sudo apt-get install -y clang libclang-dev g++ libstdc++-14-dev cmake \
                         libgtest-dev binutils git curl
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# 运行验证脚本
+# 运行验证脚本（以 rapidjson 为例，其余脚本用法相同）
 bash usage/verify-rapidjson-ffi.sh
+
+# 已安装 cpp2rust-demo 时跳过 cargo install（加速重复执行）
+SKIP_INSTALL=1 bash usage/verify-tinyxml2-ffi.sh
+
+# sqlite3 需额外安装系统开发包
+sudo apt-get install -y libsqlite3-dev
+SKIP_INSTALL=1 bash usage/verify-sqlite3-ffi.sh
 ```
+
+**子模块依赖说明**：除 rapidjson（独立克隆）和 sqlite3（系统库）外，其余 6 个脚本依赖 `references/<lib>` 子模块。脚本会自动检测并调用 `git submodule update --init` 进行初始化。
 
 ### 方式 B：通过 GitHub Copilot Agent Skill（对话式）
 
@@ -80,7 +104,7 @@ SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
      输出：<RAPIDJSON_DIR>/.cpp2rust/<FEATURE>/rust/src/
 
 § 5. cpp2rust-demo merge（整理输出目录）
-     src/ → src.1/（备份）+ src.2/（模块化）+ src → src.2（symlink）
+     src.1/（原始备份）+ src.2/（模块化结构）；src.2 随后 rename 为 src
 
 § 5a. 校验 build.rs（方案 A：工具自动注入头路径 / C++ 标准 / 实现 .cpp）
      init 已从 .opts 落盘编译元数据（meta/build-meta.json），生成的 build.rs
@@ -111,13 +135,15 @@ SKIP_INSTALL=1 bash usage/verify-rapidjson-ffi.sh
     │   └── init-interface-report.md
     └── rust/
         ├── src.1/                  # init 输出原始备份（merge 后生成）
-        ├── src.2/                  # merge 整理后的模块化结构
-        └── src -> src.2            # symlink（始终指向最新输出）
-            ├── lib.rs
-            ├── bigintegertest.rs
-            ├── documenttest.rs
-            └── ...
+        ├── src/                    # merge 整理后的模块化结构（src.2 rename 而来）
+        │   ├── lib.rs
+        │   ├── bigintegertest.rs
+        │   ├── documenttest.rs
+        │   └── ...
+        └── Cargo.toml
 ```
+
+> **注**：`merge` 阶段将 `src.2/` **重命名**为 `src/`（不再使用 symlink），`src.2` 目录在 merge 完成后不再存在。
 
 ### 查看生成结果
 
